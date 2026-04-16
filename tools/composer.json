@@ -1,0 +1,19 @@
+{
+	"name": "automattic/fosse-tools",
+	"description": "Lint-only tooling for FOSSE. Installs separately so the root plugin can still install on PHP 7.4.",
+	"type": "project",
+	"license": "GPL-2.0-or-later",
+	"require": {
+		"automattic/jetpack-codesniffer": "^8.0",
+		"dealerdirect/phpcodesniffer-composer-installer": "^1.0"
+	},
+	"config": {
+		"allow-plugins": {
+			"dealerdirect/phpcodesniffer-composer-installer": true
+		},
+		"platform": {
+			"php": "8.4"
+		},
+		"sort-packages": true
+	}
+}

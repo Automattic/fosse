@@ -1,0 +1,68 @@
+name: Tests
+
+on:
+    pull_request:
+    push:
+        branches:
+            - trunk
+
+concurrency:
+    group: tests-${{ github.event_name }}-${{ github.ref }}
+    cancel-in-progress: true
+
+permissions:
+    contents: read
+
+jobs:
+    phpunit:
+        name: 'PHP ${{ matrix.php }} / WP ${{ matrix.wp }}'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 15
+        continue-on-error: ${{ matrix.wp == 'trunk' }}
+
+        strategy:
+            fail-fast: false
+            matrix:
+                php: ['7.4', '8.0', '8.1', '8.2', '8.3', '8.4', '8.5']
+                wp: ['6.9', '7.0', 'trunk']
+
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v5
+
+            - name: Install PHP
+              uses: shivammathur/setup-php@v2
+              with:
+                  php-version: ${{ matrix.php }}
+                  extensions: mbstring, dom, xml
+                  coverage: none
+                  tools: composer:v2
+
+            - name: Determine composer cache directory
+              run: echo "COMPOSER_CACHE_DIR=$(composer config cache-dir)" >> "$GITHUB_ENV"
+
+            - name: Cache composer downloads
+              uses: actions/cache@v4
+              with:
+                  path: ${{ env.COMPOSER_CACHE_DIR }}
+                  key: composer-${{ runner.os }}-php${{ matrix.php }}-wp${{ matrix.wp }}-${{ hashFiles('composer.json') }}
+                  restore-keys: |
+                      composer-${{ runner.os }}-php${{ matrix.php }}-wp${{ matrix.wp }}-
+                      composer-${{ runner.os }}-php${{ matrix.php }}-
+
+            - name: Select WordPress version
+              run: |
+                  case "${{ matrix.wp }}" in
+                    trunk)
+                      composer require --no-update --dev "roots/wordpress:dev-main"
+                      ;;
+                    *)
+                      composer require --no-update --dev "roots/wordpress:^${{ matrix.wp }}"
+                      ;;
+                  esac
+
+            - name: Composer update
+              run: composer update --no-interaction --no-progress
+
+            - name: Run PHPUnit
+              run: composer run-script test-php

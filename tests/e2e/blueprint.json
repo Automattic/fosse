@@ -1,0 +1,12 @@
+{
+	"$schema": "https://playground.wordpress.net/blueprint-schema.json",
+	"landingPage": "/wp-admin/plugins.php",
+	"login": true,
+	"steps": [
+		{
+			"step": "activatePlugin",
+			"pluginName": "FOSSE",
+			"pluginPath": "/wordpress/wp-content/plugins/fosse/fosse.php"
+		}
+	]
+}

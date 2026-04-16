@@ -1,0 +1,15 @@
+# Lockfiles are generated — don't reformat them.
+composer.lock
+tools/composer.lock
+pnpm-lock.yaml
+
+# Generated / vendored.
+build/
+vendor/
+tools/vendor/
+wordpress/
+node_modules/
+playwright-report/
+test-results/
+coverage/
+.phpunit.cache/

@@ -1,0 +1,102 @@
+name: Linting
+
+on:
+    pull_request:
+    push:
+        branches:
+            - trunk
+
+concurrency:
+    group: linting-${{ github.event_name }}-${{ github.ref }}
+    cancel-in-progress: true
+
+permissions:
+    contents: read
+    pull-requests: read
+
+jobs:
+    changed-files:
+        name: Detect changed files
+        runs-on: ubuntu-24.04
+        timeout-minutes: 2
+        outputs:
+            php: ${{ steps.filter.outputs.php }}
+            js: ${{ steps.filter.outputs.js }}
+        steps:
+            - uses: actions/checkout@v5
+            - uses: dorny/paths-filter@v3
+              id: filter
+              with:
+                  filters: |
+                      php:
+                        - '**/*.php'
+                        - 'composer.json'
+                        - 'composer.lock'
+                        - '.phpcs.xml.dist'
+                        - 'tools/composer.json'
+                        - '.github/workflows/linting.yml'
+                      js:
+                        - '**/*.{js,jsx,ts,tsx,mjs,cjs}'
+                        - '**/*.{json,md,yml,yaml}'
+                        - 'package.json'
+                        - 'pnpm-lock.yaml'
+                        - 'eslint.config.mjs'
+                        - '.github/workflows/linting.yml'
+
+    phpcs:
+        name: PHPCS (Jetpack standard)
+        needs: changed-files
+        if: needs.changed-files.outputs.php == 'true' || github.event_name == 'push'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 10
+        steps:
+            - uses: actions/checkout@v5
+
+            - name: Install PHP
+              uses: shivammathur/setup-php@v2
+              with:
+                  php-version: '8.4'
+                  coverage: none
+                  tools: composer:v2
+
+            - name: Determine composer cache directory
+              run: echo "COMPOSER_CACHE_DIR=$(composer config cache-dir)" >> "$GITHUB_ENV"
+
+            - name: Cache composer downloads
+              uses: actions/cache@v4
+              with:
+                  path: ${{ env.COMPOSER_CACHE_DIR }}
+                  key: composer-lint-${{ runner.os }}-${{ hashFiles('tools/composer.json') }}
+                  restore-keys: composer-lint-${{ runner.os }}-
+
+            - name: Install lint tooling
+              run: composer install --working-dir=tools --no-interaction --no-progress
+
+            - name: Run PHPCS
+              run: composer run-script lint-php
+
+    eslint:
+        name: ESLint + Prettier
+        needs: changed-files
+        if: needs.changed-files.outputs.js == 'true' || github.event_name == 'push'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 10
+        steps:
+            - uses: actions/checkout@v5
+
+            - name: Setup Node
+              uses: actions/setup-node@v4
+              with:
+                  node-version: '20'
+
+            - name: Enable Corepack
+              run: corepack enable
+
+            - name: Install dependencies
+              run: pnpm install --frozen-lockfile
+
+            - name: Run ESLint
+              run: pnpm run lint
+
+            - name: Check Prettier formatting
+              run: pnpm run format:check

@@ -1,0 +1,26 @@
+# Composer
+/vendor/
+/tools/vendor/
+
+# WorDBless / WordPress checkout
+/wordpress/
+
+# Node
+/node_modules/
+/.pnpm-store/
+
+# Build output
+/build/
+
+# Test artifacts
+/.phpunit.cache/
+/.phpunit.result.cache
+/playwright-report/
+/test-results/
+/coverage/
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
