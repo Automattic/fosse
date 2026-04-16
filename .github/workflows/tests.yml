@@ -54,8 +54,11 @@ jobs:
               run: |
                   case "${{ matrix.wp }}" in
                     trunk)
-                      # Alias dev-main so it satisfies wordbless's roots/wordpress constraint.
-                      composer require --no-update --dev "roots/wordpress:dev-main as 7.0.999"
+                      # Alias both packages to a version wordbless's roots/wordpress constraint accepts;
+                      # roots/wordpress pulls roots/wordpress-no-content at an exact-matching version.
+                      composer require --no-update --dev \
+                        "roots/wordpress:dev-main as 7.0.999" \
+                        "roots/wordpress-no-content:dev-main as 7.0.999"
                       ;;
                     *)
                       composer require --no-update --dev "roots/wordpress:^${{ matrix.wp }}"
