@@ -128,7 +128,7 @@ Boots WordPress Playground on `127.0.0.1:9400` via the blueprint at `tests/e2e/b
 
 ## CI Matrix
 
--   `.github/workflows/tests.yml` runs PHPUnit across PHP 7.4/8.0/8.1/8.2/8.3/8.4/8.5 × WP 6.9/7.0/trunk. Trunk rows are `continue-on-error`.
+-   `.github/workflows/tests.yml` runs PHPUnit across PHP 7.4/8.0/8.1/8.2/8.3/8.4/8.5 × WP 6.9/trunk. Trunk rows are `continue-on-error`. WP 7.0 covers via the `trunk` row until 7.0 releases, then it gets added as its own column.
 -   `.github/workflows/linting.yml` runs PHPCS (PHP 8.4) and ESLint/Prettier (Node 20). Path filters skip unaffected jobs on PRs.
 -   `.github/workflows/e2e.yml` runs Playwright against Playground.
 
