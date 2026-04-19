@@ -26,6 +26,12 @@
 - **Reason**: CI Prettier check was failing on the three SDD markdown files authored during this feature (pre-existing failure from the initial docs PR), and locally failing on `.claude/` Conductor worktree artifacts. SDD docs are discussion prose, not product surface. `.claude/` is contributor-local.
 - **Impact**: Cleaner CI. No effect on shipped code.
 
+### E2E workflow now runs `composer install` before Playwright
+- **Spec said**: (Implicit — spec didn't touch CI workflows beyond the PHP matrix trim.)
+- **Implementation does**: `.github/workflows/e2e.yml` now installs PHP + runs `composer install --no-dev --optimize-autoloader` before Playwright starts Playground.
+- **Reason**: Playground mounts the repo root as a plugin. Our bootstrap fire relies on `\Automattic\Fosse\Bundled\Bootstrap`, which lives in `src/` and is autoloaded via composer. Without `vendor/autoload.php`, Playground fatals at `init@20`: `Class "Automattic\Fosse\Bundled\Bootstrap" not found`. The PHPUnit job already runs composer; e2e didn't. In production, released FOSSE builds will ship `vendor/` baked in — CI now matches that.
+- **Impact**: +~10s e2e job time. Matches what an installed plugin would have.
+
 ### A minor class (`src/Bundled/Bootstrap.php`) was extracted rather than keeping the bootstrap inline in `fosse.php`
 - **Spec said**: "Approach A — Minimal shim. Inline load logic in `fosse.php`."
 - **Implementation does**: The load block stays inline in `fosse.php`, but the first-load gating logic (version-keyed option check + idempotent activate invocation) lives in `\Automattic\Fosse\Bundled\Bootstrap::maybe_run` with a 3-test PHPUnit spec.
