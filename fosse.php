@@ -54,17 +54,21 @@ if ( ! defined( 'ATMOSPHERE_VERSION' ) && file_exists( __DIR__ . '/bundled/atmos
  * register_activation_hook callbacks never fire. Run the upstream
  * activate() routines once per distinct upstream version to seed
  * options, flush rewrites, and generate any needed identifiers.
- * Priority 20 so we run after the bundled plugins' own plugins_loaded
- * hooks (default priority 10) have initialized.
+ *
+ * Hooked on `init` (priority 20) rather than `plugins_loaded` because
+ * AP's activate() calls flush_rewrite_rules(), which requires the
+ * $wp_rewrite global — initialized on `init`.
  */
 add_action(
-	'plugins_loaded',
+	'init',
 	static function () use ( $fosse_loaded_bundled_ap, $fosse_loaded_bundled_atmo ) {
 		if ( $fosse_loaded_bundled_ap && class_exists( '\Activitypub\Activitypub' ) && defined( 'ACTIVITYPUB_PLUGIN_VERSION' ) ) {
 			\Automattic\Fosse\Bundled\Bootstrap::maybe_run(
 				'fosse_bundled_ap_bootstrapped',
 				ACTIVITYPUB_PLUGIN_VERSION,
-				array( \Activitypub\Activitypub::class, 'activate' )
+				static function () {
+					\Activitypub\Activitypub::activate( false );
+				}
 			);
 		}
 
