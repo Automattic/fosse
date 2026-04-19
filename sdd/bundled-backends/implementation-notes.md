@@ -38,10 +38,25 @@
 - **Reason**: Idempotency/version-change behavior is the only real logic in this feature and benefits from a unit test. Plan.md flagged this deviation before implementation; it was approved by the user when picking the plan. Included here for completeness of the record.
 - **Impact**: One extra PHP file (~35 LOC) and one test file. No runtime behavior change vs. a pure inline implementation.
 
+### Bundled-load gate includes a filesystem check for the standalone plugin
+- **Spec said**: Skip the bundled load when the standalone plugin's sentinel constant is defined.
+- **Implementation does**: Skips the bundled load when **either** the constant is defined **or** the standalone plugin file is present on disk at `WP_PLUGIN_DIR/<plugin>/<plugin>.php`.
+- **Reason**: Adversarial review (Codex) flagged a P1: when a user with FOSSE active installs and activates the standalone ActivityPub plugin, WordPress's `plugin_sandbox_scrape()` loads `activitypub.php` into the same request where FOSSE has already required the bundled copy. That produces a class-redeclare fatal mid-activation. The on-disk check means: if the standalone plugin is present at all, we yield to it — even when inactive — so subsequent activation can't collide.
+- **Impact**: Users who install standalone AP/Atmosphere without activating lose federation until they activate. Acceptable: the standalone install path almost always flows directly into activation.
+
+### `Bundled\Bootstrap::maybe_run` has a per-request static guard
+- **Spec said**: Option-backed idempotency only.
+- **Implementation does**: Adds a static `$ran_in_request` map keyed by option_key, consulted before the `get_option` check and set unconditionally after the activate callable runs (even if `update_option` returns false).
+- **Reason**: Adversarial review flagged a P2: if `update_option` fails silently (read-only tablespace, DB write error, replication lag), the activation callable would re-fire on every subsequent hook within the same request. For ActivityPub that means repeated `flush_rewrite_rules()` — expensive and surprising. The static guard bounds the blast radius to "at most once per request".
+- **Impact**: Covered by a new test (`test_static_flag_prevents_rerun_within_request_on_persist_failure`). Existing tests now use unique option keys per method to avoid the static state leaking across PHPUnit methods in the same process.
+
 ## Known Limitations
 
 ### Atmosphere's `'unreleased'` version string means the bootstrap shim fires exactly once, ever
 `Bundled\Bootstrap::maybe_run` keys on the upstream version constant so a sync that bumps to a new version re-runs activation. Atmosphere currently hard-codes `ATMOSPHERE_VERSION = 'unreleased'`. Once `fosse_bundled_atmosphere_bootstrapped` is seeded to `'unreleased'`, re-syncing the bundle will not re-trigger activation even if upstream changes add new option defaults, rewrite rules, or other activation-time side effects. Acceptable for this short-term bootstrap; will be a non-issue once (a) Atmosphere cuts real releases, or (b) we replace bundling with a cleaner distribution approach. If it becomes a problem before either of those, the fix is to have `tools/sync-bundled.sh` write the upstream SHA to a tracked marker file and use that as the version key.
+
+### Multisite network activation is not honored
+`\Activitypub\Activitypub::activate( $network_wide )` is always called with `false`. On multisite, a network-activated FOSSE will therefore bootstrap AP per-site-on-first-request rather than running AP's network-wide activation path. Network-wide activation side effects upstream are skipped until each site individually hits `init`. FOSSE's Week-1 target is the single-site / personal-hub model per the feature P2, so this is accepted. If FOSSE ever adds first-class multisite support, this needs revisiting.
 
 ### Production installs must ship `vendor/autoload.php`
 `Automattic\Fosse\Bundled\Bootstrap` is autoloaded via composer. If FOSSE is installed in an environment without `vendor/` (bare clone, unpackaged release), the `init@20` hook now degrades cleanly (`class_exists` check) and skips the bootstrap — bundled plugins still load, just without their first-run activation side effects. Released FOSSE builds must still include `vendor/` for the shim to run; this is standard plugin-release hygiene but worth calling out.

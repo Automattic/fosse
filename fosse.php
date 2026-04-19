@@ -27,9 +27,11 @@ if ( file_exists( __DIR__ . '/vendor/autoload.php' ) ) {
  *
  * FOSSE ships release-build copies of wordpress-activitypub and
  * wordpress-atmosphere so users get Mastodon + Bluesky federation out
- * of the box. If the user has the standalone plugin active, its
- * constants are already defined (plugins load alphabetically before
- * fosse/) and we skip the bundled copy to avoid collisions.
+ * of the box. We skip the bundled copy when the standalone plugin is
+ * either already loaded (its constants are defined) OR present on
+ * disk at the canonical plugin path — so if the user activates the
+ * standalone later in the same request, WP's plugin_sandbox_scrape
+ * doesn't redeclare classes we already loaded.
  *
  * This is a short-term bootstrap; FOSSE's own UI will replace the
  * bundled plugins' admin surface in a later iteration.
@@ -37,15 +39,23 @@ if ( file_exists( __DIR__ . '/vendor/autoload.php' ) ) {
 $fosse_loaded_bundled_ap   = false;
 $fosse_loaded_bundled_atmo = false;
 
-if ( ! defined( 'ACTIVITYPUB_PLUGIN_VERSION' ) && file_exists( __DIR__ . '/bundled/activitypub/activitypub.php' ) ) {
+$fosse_standalone_ap_present = defined( 'ACTIVITYPUB_PLUGIN_VERSION' )
+	|| ( defined( 'WP_PLUGIN_DIR' ) && file_exists( WP_PLUGIN_DIR . '/activitypub/activitypub.php' ) );
+
+if ( ! $fosse_standalone_ap_present && file_exists( __DIR__ . '/bundled/activitypub/activitypub.php' ) ) {
 	require_once __DIR__ . '/bundled/activitypub/activitypub.php';
 	$fosse_loaded_bundled_ap = true;
 }
 
-if ( ! defined( 'ATMOSPHERE_VERSION' ) && file_exists( __DIR__ . '/bundled/atmosphere/atmosphere.php' ) ) {
+$fosse_standalone_atmo_present = defined( 'ATMOSPHERE_VERSION' )
+	|| ( defined( 'WP_PLUGIN_DIR' ) && file_exists( WP_PLUGIN_DIR . '/atmosphere/atmosphere.php' ) );
+
+if ( ! $fosse_standalone_atmo_present && file_exists( __DIR__ . '/bundled/atmosphere/atmosphere.php' ) ) {
 	require_once __DIR__ . '/bundled/atmosphere/atmosphere.php';
 	$fosse_loaded_bundled_atmo = true;
 }
+
+unset( $fosse_standalone_ap_present, $fosse_standalone_atmo_present );
 
 /*
  * First-load bootstrap for the bundled backends.

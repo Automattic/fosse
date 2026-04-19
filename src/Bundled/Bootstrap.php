@@ -31,11 +31,23 @@ class Bootstrap {
 	 * @return void
 	 */
 	public static function maybe_run( string $option_key, string $version, callable $activate ): void {
+		static $ran_in_request = array();
+
+		if ( isset( $ran_in_request[ $option_key ] ) && $ran_in_request[ $option_key ] === $version ) {
+			return;
+		}
+
 		if ( get_option( $option_key ) === $version ) {
+			$ran_in_request[ $option_key ] = $version;
 			return;
 		}
 
 		$activate();
 		update_option( $option_key, $version, false );
+
+		// Mark done even if update_option failed, so a transient DB-write
+		// failure doesn't re-trigger the activate callable on every later
+		// hook firing within this same request.
+		$ran_in_request[ $option_key ] = $version;
 	}
 }
