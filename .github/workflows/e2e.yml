@@ -20,7 +20,7 @@ jobs:
         timeout-minutes: 20
 
         steps:
-            - uses: actions/checkout@v5
+            - uses: actions/checkout@v6
 
             - name: Install PHP
               uses: shivammathur/setup-php@v2
@@ -34,7 +34,7 @@ jobs:
               run: composer install --no-dev --no-interaction --no-progress --optimize-autoloader
 
             - name: Setup Node
-              uses: actions/setup-node@v4
+              uses: actions/setup-node@v6
               with:
                   node-version: '20'
 
@@ -52,7 +52,7 @@ jobs:
 
             - name: Upload Playwright report
               if: failure()
-              uses: actions/upload-artifact@v4
+              uses: actions/upload-artifact@v7
               with:
                   name: playwright-report
                   path: playwright-report
