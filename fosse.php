@@ -62,6 +62,13 @@ if ( ! defined( 'ATMOSPHERE_VERSION' ) && file_exists( __DIR__ . '/bundled/atmos
 add_action(
 	'init',
 	static function () use ( $fosse_loaded_bundled_ap, $fosse_loaded_bundled_atmo ) {
+		// Degrade cleanly if FOSSE's own composer autoload is missing (e.g.
+		// a bare clone without vendor/); bundled plugins still load, just
+		// without the first-run activation shim.
+		if ( ! class_exists( \Automattic\Fosse\Bundled\Bootstrap::class ) ) {
+			return;
+		}
+
 		if ( $fosse_loaded_bundled_ap && class_exists( '\Activitypub\Activitypub' ) && defined( 'ACTIVITYPUB_PLUGIN_VERSION' ) ) {
 			\Automattic\Fosse\Bundled\Bootstrap::maybe_run(
 				'fosse_bundled_ap_bootstrapped',

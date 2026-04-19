@@ -38,6 +38,14 @@
 - **Reason**: Idempotency/version-change behavior is the only real logic in this feature and benefits from a unit test. Plan.md flagged this deviation before implementation; it was approved by the user when picking the plan. Included here for completeness of the record.
 - **Impact**: One extra PHP file (~35 LOC) and one test file. No runtime behavior change vs. a pure inline implementation.
 
+## Known Limitations
+
+### Atmosphere's `'unreleased'` version string means the bootstrap shim fires exactly once, ever
+`Bundled\Bootstrap::maybe_run` keys on the upstream version constant so a sync that bumps to a new version re-runs activation. Atmosphere currently hard-codes `ATMOSPHERE_VERSION = 'unreleased'`. Once `fosse_bundled_atmosphere_bootstrapped` is seeded to `'unreleased'`, re-syncing the bundle will not re-trigger activation even if upstream changes add new option defaults, rewrite rules, or other activation-time side effects. Acceptable for this short-term bootstrap; will be a non-issue once (a) Atmosphere cuts real releases, or (b) we replace bundling with a cleaner distribution approach. If it becomes a problem before either of those, the fix is to have `tools/sync-bundled.sh` write the upstream SHA to a tracked marker file and use that as the version key.
+
+### Production installs must ship `vendor/autoload.php`
+`Automattic\Fosse\Bundled\Bootstrap` is autoloaded via composer. If FOSSE is installed in an environment without `vendor/` (bare clone, unpackaged release), the `init@20` hook now degrades cleanly (`class_exists` check) and skips the bootstrap — bundled plugins still load, just without their first-run activation side effects. Released FOSSE builds must still include `vendor/` for the shim to run; this is standard plugin-release hygiene but worth calling out.
+
 ## Notes
 
 - **Upstream SHAs vendored in this PR**: wordpress-activitypub `c7d64fb2`, wordpress-atmosphere `d4bc2b7`. Recorded in the Task 6 commit body for traceability.
