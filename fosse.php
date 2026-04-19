@@ -21,3 +21,23 @@ defined( 'ABSPATH' ) || exit;
 if ( file_exists( __DIR__ . '/vendor/autoload.php' ) ) {
 	require_once __DIR__ . '/vendor/autoload.php';
 }
+
+/*
+ * Bundled federation backends.
+ *
+ * FOSSE ships release-build copies of wordpress-activitypub and
+ * wordpress-atmosphere so users get Mastodon + Bluesky federation out
+ * of the box. If the user has the standalone plugin active, its
+ * constants are already defined (plugins load alphabetically before
+ * fosse/) and we skip the bundled copy to avoid collisions.
+ *
+ * This is a short-term bootstrap; FOSSE's own UI will replace the
+ * bundled plugins' admin surface in a later iteration.
+ */
+if ( ! defined( 'ACTIVITYPUB_PLUGIN_VERSION' ) && file_exists( __DIR__ . '/bundled/activitypub/activitypub.php' ) ) {
+	require_once __DIR__ . '/bundled/activitypub/activitypub.php';
+}
+
+if ( ! defined( 'ATMOSPHERE_VERSION' ) && file_exists( __DIR__ . '/bundled/atmosphere/atmosphere.php' ) ) {
+	require_once __DIR__ . '/bundled/atmosphere/atmosphere.php';
+}
