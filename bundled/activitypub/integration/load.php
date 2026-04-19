@@ -1,0 +1,234 @@
+<?php
+/**
+ * Load the ActivityPub integrations.
+ *
+ * @package Activitypub
+ */
+
+namespace Activitypub\Integration;
+
+use function Activitypub\site_supports_blocks;
+
+\Activitypub\Autoloader::register_path( __NAMESPACE__, __DIR__ );
+
+/**
+ * Initialize the ActivityPub integrations.
+ */
+function plugin_init() {
+	/**
+	 * Adds Akismet support.
+	 *
+	 * This class handles the compatibility with the Akismet plugin.
+	 *
+	 * @see https://wordpress.org/plugins/akismet/
+	 */
+	if ( \defined( 'AKISMET_VERSION' ) ) {
+		Akismet::init();
+	}
+
+	/**
+	 * Adds Classic Editor support.
+	 *
+	 * This class handles the compatibility with the Classic Editor plugin
+	 * and sites without block editor support.
+	 *
+	 * @see https://wordpress.org/plugins/classic-editor/
+	 */
+	if ( \class_exists( '\Classic_Editor' ) || \function_exists( 'classicpress_version' ) || ! site_supports_blocks() ) {
+		Classic_Editor::init();
+	}
+
+	/**
+	 * Adds Enable Mastodon Apps support.
+	 *
+	 * This class handles the compatibility with the Enable Mastodon Apps plugin.
+	 *
+	 * @see https://wordpress.org/plugins/enable-mastodon-apps/
+	 */
+	if ( \defined( 'ENABLE_MASTODON_APPS_VERSION' ) ) {
+		Enable_Mastodon_Apps::init();
+	}
+
+	/**
+	 * Adds Jetpack support.
+	 *
+	 * This class handles the compatibility with Jetpack.
+	 *
+	 * @see https://jetpack.com/
+	 */
+	if ( \defined( 'JETPACK__VERSION' ) ) {
+		Jetpack::init();
+	}
+
+	/**
+	 * Adds LiteSpeed Cache support.
+	 *
+	 * The check for whether LiteSpeed Cache is loaded and initialized happens inside Litespeed_Cache::init().
+	 *
+	 * @see https://wordpress.org/plugins/litespeed-cache/
+	 */
+	Litespeed_Cache::init();
+
+	/**
+	 * Adds Multisite Language Switcher support.
+	 *
+	 * This class handles the compatibility with the Multisite Language Switcher plugin.
+	 *
+	 * @see https://wordpress.org/plugins/multisite-language-switcher/
+	 */
+	if ( \defined( 'MSLS_PLUGIN_VERSION' ) ) {
+		Multisite_Language_Switcher::init();
+	}
+
+	/**
+	 * Adds NodeInfo (plugin) support.
+	 *
+	 * This class handles the compatibility with the NodeInfo plugin
+	 * and coordinates the internal NodeInfo implementation.
+	 *
+	 * @see https://wordpress.org/plugins/nodeinfo/
+	 */
+	Nodeinfo::init();
+
+	/**
+	 * Adds OpenGraph support.
+	 *
+	 * This class handles the compatibility with the OpenGraph plugin.
+	 *
+	 * @see https://wordpress.org/plugins/opengraph/
+	 */
+	if ( '1' === \get_option( 'activitypub_use_opengraph', '1' ) ) {
+		Opengraph::init();
+	}
+
+	/**
+	 * Adds Podlove Podcast Publisher support.
+	 *
+	 * This class handles the compatibility with Podlove Podcast Publisher.
+	 *
+	 * @see https://wordpress.org/plugins/podlove-podcasting-plugin-for-wordpress/
+	 */
+	if ( \defined( 'Podlove\PLUGIN_FILE' ) ) {
+		// Enable ActivityPub support for the podcast post type.
+		\add_post_type_support( 'podcast', 'activitypub' );
+
+		\add_filter(
+			'activitypub_transformer',
+			static function ( $transformer, $data, $object_class ) {
+				if (
+					'WP_Post' === $object_class &&
+					'podcast' === $data->post_type &&
+					\Podlove\Model\Episode::find_one_by_post_id( $data->ID )
+				) {
+					return new Podlove_Podcast_Publisher( $data );
+				}
+				return $transformer;
+			},
+			10,
+			3
+		);
+	}
+
+	/**
+	 * Adds Seriously Simple Podcasting support.
+	 *
+	 * This class handles the compatibility with Seriously Simple Podcasting.
+	 *
+	 * @see https://wordpress.org/plugins/seriously-simple-podcasting/
+	 */
+	if ( \defined( 'SSP_VERSION' ) ) {
+		add_filter(
+			'activitypub_transformer',
+			static function ( $transformer, $data, $object_class ) {
+				if (
+					'WP_Post' === $object_class &&
+					\get_post_meta( $data->ID, 'audio_file', true )
+				) {
+					return new Seriously_Simple_Podcasting( $data );
+				}
+				return $transformer;
+			},
+			10,
+			3
+		);
+	}
+
+	/**
+	 * Adds Stream support.
+	 *
+	 * This class handles the compatibility with the Stream plugin.
+	 *
+	 * @see https://wordpress.org/plugins/stream/
+	 */
+	Stream\Stream::init();
+
+	/**
+	 * Adds Surge support.
+	 *
+	 * Only load code that needs Surge to run once Surge is loaded and initialized.
+	 *
+	 * @see https://wordpress.org/plugins/surge/
+	 */
+	Surge::init();
+
+	/**
+	 * Adds WebFinger (plugin) support.
+	 *
+	 * This class handles the compatibility with the WebFinger plugin
+	 * and coordinates the internal WebFinger implementation.
+	 *
+	 * @see https://wordpress.org/plugins/webfinger/
+	 */
+	Webfinger::init();
+
+	/**
+	 * Adds WP REST Cache support.
+	 *
+	 * This class handles the compatibility with the WP REST Cache plugin.
+	 *
+	 * @see https://wordpress.org/plugins/wp-rest-cache/
+	 */
+	if ( \class_exists( 'WP_Rest_Cache_Plugin\Includes\Plugin' ) ) {
+		WP_Rest_Cache::init();
+	}
+
+	/**
+	 * Adds WPML Multilingual CMS (plugin) support.
+	 *
+	 * This class handles the compatibility with the WPML plugin.
+	 *
+	 * @see https://wpml.org/
+	 */
+	if ( \defined( 'ICL_SITEPRESS_VERSION' ) ) {
+		WPML::init();
+	}
+
+	/**
+	 * Adds Yoast SEO support.
+	 *
+	 * This class handles the compatibility with Yoast SEO.
+	 *
+	 * @see https://wordpress.org/plugins/wordpress-seo/
+	 */
+	if ( \defined( 'WPSEO_VERSION' ) ) {
+		Yoast_Seo::init();
+	}
+}
+\add_action( 'plugins_loaded', __NAMESPACE__ . '\plugin_init' );
+
+// Register activation and deactivation hooks for Surge integration.
+\register_activation_hook( ACTIVITYPUB_PLUGIN_FILE, array( __NAMESPACE__ . '\Surge', 'add_cache_config' ) );
+\register_deactivation_hook( ACTIVITYPUB_PLUGIN_FILE, array( __NAMESPACE__ . '\Surge', 'remove_cache_config' ) );
+
+// Register activation and deactivation hooks for LiteSpeed Cache integration.
+\register_activation_hook( ACTIVITYPUB_PLUGIN_FILE, array( __NAMESPACE__ . '\LiteSpeed_Cache', 'add_htaccess_rules' ) );
+\register_deactivation_hook( ACTIVITYPUB_PLUGIN_FILE, array( __NAMESPACE__ . '\LiteSpeed_Cache', 'remove_htaccess_rules' ) );
+
+/**
+ * Load the BuddyPress integration.
+ *
+ * Only load code that needs BuddyPress to run once BP is loaded and initialized.
+ *
+ * @see https://buddypress.org/
+ */
+\add_action( 'bp_include', array( __NAMESPACE__ . '\Buddypress', 'init' ), 0 );

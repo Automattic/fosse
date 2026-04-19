@@ -1,0 +1,1038 @@
+<?php
+/**
+ * ActivityPub Comment Class
+ *
+ * @package Activitypub
+ */
+
+namespace Activitypub;
+
+use Activitypub\Collection\Actors;
+use Activitypub\Collection\Remote_Posts;
+
+/**
+ * ActivityPub Comment Class.
+ *
+ * This class is a helper/utils class that provides a collection of static
+ * methods that are used to handle comments.
+ */
+class Comment {
+	/**
+	 * Initialize the class, registering WordPress hooks.
+	 */
+	public static function init() {
+		self::register_comment_types();
+
+		\add_filter( 'map_meta_cap', array( self::class, 'map_meta_cap' ), 10, 4 );
+		\add_filter( 'comment_reply_link', array( self::class, 'comment_reply_link' ), 10, 3 );
+		\add_filter( 'comment_class', array( self::class, 'comment_class' ), 10, 3 );
+		\add_filter( 'comment_feed_where', array( static::class, 'comment_feed_where' ) );
+		\add_filter( 'get_comment_link', array( self::class, 'remote_comment_link' ), 11, 2 );
+		\add_action( 'pre_get_comments', array( static::class, 'comment_query' ) );
+		\add_filter( 'pre_comment_approved', array( static::class, 'pre_comment_approved' ), 11, 2 );
+		\add_filter( 'get_avatar_comment_types', array( static::class, 'get_avatar_comment_types' ), 99 );
+		\add_action( 'update_option_activitypub_allow_likes', array( self::class, 'maybe_update_comment_counts' ), 10, 2 );
+		\add_action( 'update_option_activitypub_allow_reposts', array( self::class, 'maybe_update_comment_counts' ), 10, 2 );
+		\add_filter( 'pre_wp_update_comment_count_now', array( static::class, 'pre_wp_update_comment_count_now' ), 5, 3 );
+		\add_filter( 'get_comment_author', array( static::class, 'render_emoji' ), 10, 2 );
+		\add_filter( 'comment_author', array( static::class, 'unescape_emoji' ), 20 ); // After esc_html().
+		\add_filter( 'rest_comment_query', array( static::class, 'rest_comment_query' ) );
+		\add_filter( 'comment_text', array( static::class, 'render_blocks' ), 5 ); // Before other filters.
+	}
+
+	/**
+	 * Render blocks in comment content.
+	 *
+	 * Comments don't automatically parse blocks like posts do.
+	 * This filter applies do_blocks() to render activitypub/emoji
+	 * and activitypub/image blocks in comment content.
+	 *
+	 * @param string $content The comment content.
+	 *
+	 * @return string The content with blocks rendered.
+	 */
+	public static function render_blocks( $content ) {
+		if ( empty( $content ) || ! \str_contains( $content, '<!-- wp:activitypub/' ) ) {
+			return $content;
+		}
+
+		$blocks = \parse_blocks( $content );
+		$output = '';
+
+		foreach ( $blocks as $block ) {
+			if ( ! empty( $block['blockName'] ) && \str_starts_with( $block['blockName'], 'activitypub/' ) ) {
+				$output .= \render_block( $block );
+			} else {
+				$output .= \serialize_block( $block );
+			}
+		}
+
+		return $output;
+	}
+
+	/**
+	 * Remove edit capabilities for comments received via ActivityPub.
+	 *
+	 * @param array  $caps    Array of capabilities.
+	 * @param string $cap     Capability name.
+	 * @param int    $user_id User ID.
+	 * @param array  $args    Array of arguments.
+	 *
+	 * @return array Modified array of capabilities.
+	 */
+	public static function map_meta_cap( $caps, $cap, $user_id, $args ) {
+		if ( 'edit_comment' === $cap && self::was_received( $args[0] ) ) {
+			if ( ! \is_admin() || ( isset( $GLOBALS['current_screen'] ) && 'comment' === $GLOBALS['current_screen']->id ) ) {
+				$caps[] = 'do_not_allow';
+			}
+		}
+
+		return $caps;
+	}
+
+	/**
+	 * Filter the comment reply link.
+	 *
+	 * Handles three cases for replies to fediverse comments:
+	 * 1. User can federate → show normal reply link
+	 * 2. User is logged in but can't federate → show warning (no reply link)
+	 * 3. User is not logged in → show remote reply block
+	 *
+	 * @param string      $link    The HTML markup for the comment reply link.
+	 * @param array       $args    An array of arguments overriding the defaults.
+	 * @param \WP_Comment $comment The object of the comment being replied.
+	 *
+	 * @return string The filtered HTML markup for the comment reply link.
+	 */
+	public static function comment_reply_link( $link, $args, $comment ) {
+		if ( self::are_comments_allowed( $comment ) ) {
+			return $link;
+		}
+
+		// Logged-in user without ActivityPub capability - show warning instead of reply link.
+		if ( \is_user_logged_in() ) {
+			$author = \esc_html( $comment->comment_author );
+
+			$message = sprintf(
+				/* translators: %s: comment author name */
+				\__( '%s is on the Fediverse. To reply to them, ask your administrator to enable ActivityPub for your account.', 'activitypub' ),
+				$author
+			);
+
+			// Add link to users page if current user can edit users.
+			if ( \current_user_can( 'edit_users' ) ) {
+				$message = sprintf(
+					/* translators: 1: comment author name, 2: URL to the users management page */
+					\__( '%1$s is on the Fediverse. To reply to them, <a href="%2$s">enable ActivityPub for your account</a>.', 'activitypub' ),
+					$author,
+					\esc_url( \admin_url( 'users.php' ) )
+				);
+			}
+
+			$warning = sprintf(
+				'<p class="activitypub-reply-warning"><em>%s</em></p>',
+				\wp_kses( $message, array( 'a' => array( 'href' => array() ) ) )
+			);
+
+			/**
+			 * Filters the warning message shown to logged-in users without ActivityPub capability.
+			 *
+			 * @param string      $warning The warning HTML markup.
+			 * @param \WP_Comment $comment The comment being replied to.
+			 */
+			return \apply_filters( 'activitypub_federation_warning', $warning, $comment );
+		}
+
+		if ( ! \WP_Block_Type_Registry::get_instance()->is_registered( 'activitypub/remote-reply' ) ) {
+			\register_block_type_from_metadata( ACTIVITYPUB_PLUGIN_DIR . 'build/remote-reply' );
+		}
+
+		$attributes = array(
+			'selectedComment' => self::generate_id( $comment ),
+			'commentId'       => $comment->comment_ID,
+		);
+
+		$block = \do_blocks( \sprintf( '<!-- wp:activitypub/remote-reply %s /-->', \wp_json_encode( $attributes ) ) );
+
+		/**
+		 * Filters the HTML markup for the ActivityPub remote comment reply container.
+		 *
+		 * @param string $block The HTML markup for the remote reply container.
+		 */
+		return \apply_filters( 'activitypub_comment_reply_link', $block );
+	}
+
+	/**
+	 * Check if it is allowed to comment to a comment.
+	 *
+	 * Checks if the comment is local only or if the user can comment federated comments.
+	 *
+	 * @param mixed $comment Comment object or ID.
+	 *
+	 * @return boolean True if the user can comment, false otherwise.
+	 */
+	public static function are_comments_allowed( $comment ) {
+		$comment = \get_comment( $comment );
+
+		if ( ! self::was_received( $comment ) ) {
+			return true;
+		}
+
+		$current_user = get_current_user_id();
+
+		if ( ! $current_user ) {
+			return false;
+		}
+
+		if ( is_single_user() && \user_can( $current_user, 'activitypub' ) ) {
+			// On a single user site, comments by users with the `activitypub` capability will be federated as the blog user.
+			$current_user = Actors::BLOG_USER_ID;
+		}
+
+		// User is not allowed to federate comments.
+		return user_can_activitypub( $current_user );
+	}
+
+	/**
+	 * Check if a comment is federated.
+	 *
+	 * We consider a comment federated if comment was received via ActivityPub.
+	 *
+	 * Use this function to check if it is comment that was received via ActivityPub.
+	 *
+	 * @param mixed $comment Comment object or ID.
+	 *
+	 * @return boolean True if the comment is federated, false otherwise.
+	 */
+	public static function was_received( $comment ) {
+		$comment = \get_comment( $comment );
+
+		if ( ! $comment ) {
+			return false;
+		}
+
+		$protocol = \get_comment_meta( $comment->comment_ID, 'protocol', true );
+
+		if ( 'activitypub' === $protocol ) {
+			return true;
+		}
+
+		return false;
+	}
+
+	/**
+	 * Check if a comment was federated.
+	 *
+	 * This function checks if a comment was federated via ActivityPub.
+	 *
+	 * @param mixed $comment Comment object or ID.
+	 *
+	 * @return boolean True if the comment was federated, false otherwise.
+	 */
+	public static function was_sent( $comment ) {
+		$comment = \get_comment( $comment );
+
+		if ( ! $comment ) {
+			return false;
+		}
+
+		$status = \get_comment_meta( $comment->comment_ID, 'activitypub_status', true );
+
+		if ( $status ) {
+			return true;
+		}
+
+		return false;
+	}
+
+	/**
+	 * Check if a comment is local only.
+	 *
+	 * This function checks if a comment is local only and was not sent or received via ActivityPub.
+	 *
+	 * @param mixed $comment Comment object or ID.
+	 *
+	 * @return boolean True if the comment is local only, false otherwise.
+	 */
+	public static function is_local( $comment ) {
+		if ( self::was_sent( $comment ) || self::was_received( $comment ) ) {
+			return false;
+		}
+
+		return true;
+	}
+
+	/**
+	 * Check if a comment should be federated.
+	 *
+	 * We consider a comment should be federated if it is authored by a user that is
+	 * not disabled for federation and if it is a reply directly to the post or to a
+	 * federated comment.
+	 *
+	 * Use this function to check if a comment should be federated.
+	 *
+	 * @param mixed $comment Comment object or ID.
+	 *
+	 * @return boolean True if the comment should be federated, false otherwise.
+	 */
+	public static function should_be_federated( $comment ) {
+		// We should not federate federated comments.
+		if ( self::was_received( $comment ) ) {
+			return false;
+		}
+
+		$comment = \get_comment( $comment );
+		$user_id = $comment->user_id;
+
+		// Comments without user can't be federated.
+		if ( ! $user_id ) {
+			return false;
+		}
+
+		if ( is_single_user() && \user_can( $user_id, 'activitypub' ) ) {
+			// On a single user site, comments by users with the `activitypub` capability will be federated as the blog user.
+			$user_id = Actors::BLOG_USER_ID;
+		}
+
+		// User is not allowed to federate comments.
+		if ( ! user_can_activitypub( $user_id ) ) {
+			return false;
+		}
+
+		// It is a comment to the post and can be federated.
+		if ( empty( $comment->comment_parent ) ) {
+			return true;
+		}
+
+		// Check if parent comment is federated.
+		$parent_comment = \get_comment( $comment->comment_parent );
+
+		return ! self::is_local( $parent_comment );
+	}
+
+	/**
+	 * Examine a comment ID and look up an existing comment it represents.
+	 *
+	 * @param string $id ActivityPub object ID (usually a URL) to check.
+	 *
+	 * @return \WP_Comment|false Comment object, or false on failure.
+	 */
+	public static function object_id_to_comment( $id ) {
+		$comment_query = new \WP_Comment_Query(
+			array(
+				'meta_key'   => 'source_id', // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key
+				'meta_value' => $id,         // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_value
+				'orderby'    => 'comment_date',
+				'order'      => 'DESC',
+			)
+		);
+
+		if ( ! $comment_query->comments ) {
+			return false;
+		}
+
+		return $comment_query->comments[0];
+	}
+
+	/**
+	 * Verify if URL is a local comment, or if it is a previously received
+	 * remote comment (For threading comments locally).
+	 *
+	 * @param string $url The URL to check.
+	 *
+	 * @return string|null Comment ID or null if not found.
+	 */
+	public static function url_to_commentid( $url ) {
+		if ( ! $url || ! \filter_var( $url, \FILTER_VALIDATE_URL ) ) {
+			return null;
+		}
+
+		// Check for local comment.
+		if ( is_same_domain( $url ) ) {
+			$query = \wp_parse_url( $url, \PHP_URL_QUERY );
+
+			if ( $query ) {
+				\parse_str( $query, $params );
+
+				if ( ! empty( $params['c'] ) ) {
+					$comment = \get_comment( $params['c'] );
+
+					if ( $comment ) {
+						return $comment->comment_ID;
+					}
+				}
+			}
+		}
+
+		$args = array(
+			// phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query
+			'meta_query' => array(
+				'relation' => 'OR',
+				array(
+					'key'   => 'source_url',
+					'value' => $url,
+				),
+				array(
+					'key'   => 'source_id',
+					'value' => $url,
+				),
+			),
+		);
+
+		$query    = new \WP_Comment_Query();
+		$comments = $query->query( $args );
+
+		if ( $comments && is_array( $comments ) ) {
+			return $comments[0]->comment_ID;
+		}
+
+		return null;
+	}
+
+	/**
+	 * Filters the CSS classes to add an ActivityPub class.
+	 *
+	 * @param string[] $classes    An array of comment classes.
+	 * @param string[] $css_class  An array of additional classes added to the list.
+	 * @param string   $comment_id The comment ID as a numeric string.
+	 *
+	 * @return string[] An array of classes.
+	 */
+	public static function comment_class( $classes, $css_class, $comment_id ) {
+		// Check if ActivityPub comment.
+		if ( 'activitypub' === get_comment_meta( $comment_id, 'protocol', true ) ) {
+			$classes[] = 'activitypub-comment';
+		}
+
+		return $classes;
+	}
+
+	/**
+	 * Makes the comment feed filterable by comment type.
+	 *
+	 * Also excludes ActivityPub comment types from the feed when no type is specified.
+	 *
+	 * @param string $where The `WHERE` clause for the comment feed query.
+	 *
+	 * @return string The modified `WHERE` clause.
+	 */
+	public static function comment_feed_where( $where ) {
+		global $wpdb;
+
+		$comment_type = \get_query_var( 'type' );
+
+		if ( 'all' === $comment_type ) {
+			return $where;
+		}
+
+		$comment_types = self::get_comment_type_slugs();
+
+		if ( \in_array( $comment_type, $comment_types, true ) ) {
+			$where .= $wpdb->prepare( ' AND comment_type = %s', $comment_type );
+		} else {
+			$comment_types = \array_map( 'esc_sql', $comment_types );
+			$placeholders  = implode( ', ', array_fill( 0, count( $comment_types ), '%s' ) );
+			// phpcs:ignore WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber, WordPress.DB.PreparedSQL.NotPrepared
+			$where .= $wpdb->prepare( sprintf( ' AND comment_type NOT IN (%s)', $placeholders ), ...$comment_types );
+		}
+
+		return $where;
+	}
+
+	/**
+	 * Gets the public comment id via the WordPress comments meta.
+	 *
+	 * @param  int  $wp_comment_id The internal WordPress comment ID.
+	 * @param  bool $fallback      Whether the code should fall back to `source_url` if `source_id` is not set.
+	 *
+	 * @return string|null           The ActivityPub id/url of the comment.
+	 */
+	public static function get_source_id( $wp_comment_id, $fallback = true ) {
+		$comment_meta = \get_comment_meta( $wp_comment_id );
+
+		if ( ! empty( $comment_meta['source_id'][0] ) ) {
+			return $comment_meta['source_id'][0];
+		} elseif ( ! empty( $comment_meta['source_url'][0] ) && $fallback ) {
+			return $comment_meta['source_url'][0];
+		}
+
+		return null;
+	}
+
+	/**
+	 * Gets the public comment url via the WordPress comments meta.
+	 *
+	 * @param  int  $wp_comment_id The internal WordPress comment ID.
+	 * @param  bool $fallback      Whether the code should fall back to `source_id` if `source_url` is not set.
+	 *
+	 * @return string|null           The ActivityPub id/url of the comment.
+	 */
+	public static function get_source_url( $wp_comment_id, $fallback = true ) {
+		$comment_meta = \get_comment_meta( $wp_comment_id );
+
+		if ( ! empty( $comment_meta['source_url'][0] ) ) {
+			return $comment_meta['source_url'][0];
+		} elseif ( ! empty( $comment_meta['source_id'][0] ) && $fallback ) {
+			return $comment_meta['source_id'][0];
+		}
+
+		return null;
+	}
+
+	/**
+	 * Link remote comments to source url.
+	 *
+	 * @param string             $comment_link The comment link.
+	 * @param object|\WP_Comment $comment      The comment object.
+	 *
+	 * @return string $url
+	 */
+	public static function remote_comment_link( $comment_link, $comment ) {
+		if ( ! $comment || \is_admin() || \is_search() ) {
+			return $comment_link;
+		}
+
+		$remote_comment_link = null;
+		if ( 'comment' === $comment->comment_type ) {
+			$remote_comment_link = self::get_source_url( $comment->comment_ID );
+		}
+
+		return $remote_comment_link ?? $comment_link;
+	}
+
+
+	/**
+	 * Generates an ActivityPub URI for a comment
+	 *
+	 * @param \WP_Comment|int $comment A comment object or comment ID.
+	 *
+	 * @return string ActivityPub URI for comment
+	 */
+	public static function generate_id( $comment ) {
+		$comment = \get_comment( $comment );
+
+		// Show external comment ID if it exists.
+		$public_comment_link = self::get_source_id( $comment->comment_ID );
+
+		if ( $public_comment_link ) {
+			return $public_comment_link;
+		}
+
+		// Generate URI based on comment ID.
+		return \add_query_arg( 'c', $comment->comment_ID, \home_url( '/' ) );
+	}
+
+	/**
+	 * Check if a post has remote comments
+	 *
+	 * @param int $post_id The post ID.
+	 *
+	 * @return bool True if the post has remote comments, false otherwise.
+	 */
+	private static function post_has_remote_comments( $post_id ) {
+		$comments = \get_comments(
+			array(
+				'post_id'    => $post_id,
+				// phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query
+				'meta_query' => array(
+					'relation' => 'AND',
+					array(
+						'key'     => 'protocol',
+						'value'   => 'activitypub',
+						'compare' => '=',
+					),
+					array(
+						'key'     => 'source_id',
+						'compare' => 'EXISTS',
+					),
+				),
+			)
+		);
+
+		return ! empty( $comments );
+	}
+
+	/**
+	 * Get the comment type by activity type.
+	 *
+	 * @param string $activity_type The activity type.
+	 *
+	 * @return array|null The comment type.
+	 */
+	public static function get_comment_type_by_activity_type( $activity_type ) {
+		$activity_type = \strtolower( $activity_type );
+		$activity_type = \sanitize_key( $activity_type );
+		$comment_types = self::get_comment_types();
+
+		foreach ( $comment_types as $comment_type ) {
+			if ( in_array( $activity_type, $comment_type['activity_types'], true ) ) {
+				return $comment_type;
+			}
+		}
+
+		return null;
+	}
+
+	/**
+	 * Return the registered custom comment types.
+	 *
+	 * @return array The registered custom comment types
+	 */
+	public static function get_comment_types() {
+		global $activitypub_comment_types;
+
+		return (array) $activitypub_comment_types;
+	}
+
+	/**
+	 * Is this a registered comment type.
+	 *
+	 * @param string $slug The slug of the type.
+	 *
+	 * @return boolean True if registered.
+	 */
+	public static function is_registered_comment_type( $slug ) {
+		$slug = \strtolower( $slug );
+		$slug = \sanitize_key( $slug );
+
+		$comment_types = self::get_comment_types();
+
+		return isset( $comment_types[ $slug ] );
+	}
+
+	/**
+	 * Return the registered custom comment type slugs.
+	 *
+	 * @return array The registered custom comment type slugs.
+	 */
+	public static function get_comment_type_slugs() {
+		if ( ! did_action( 'init' ) ) {
+			_doing_it_wrong( __METHOD__, 'This function should not be called before the init action has run. Comment types are only available after init.', '7.5.0' );
+
+			return array();
+		}
+
+		return array_keys( self::get_comment_types() );
+	}
+
+	/**
+	 * Get the custom comment type.
+	 *
+	 * Check if the type is registered, if not, check if it is a custom type.
+	 *
+	 * It looks for the array key in the registered types and returns the array.
+	 * If it is not found, it looks for the type in the custom types and returns the array.
+	 *
+	 * @param string $type The comment type.
+	 *
+	 * @return array The comment type.
+	 */
+	public static function get_comment_type( $type ) {
+		$type = strtolower( $type );
+		$type = sanitize_key( $type );
+
+		$comment_types = self::get_comment_types();
+		$type_array    = array();
+
+		// Check array keys.
+		if ( in_array( $type, array_keys( $comment_types ), true ) ) {
+			$type_array = $comment_types[ $type ];
+		}
+
+		/**
+		 * Filter the comment type.
+		 *
+		 * @param array $type_array The comment type.
+		 */
+		return apply_filters( "activitypub_comment_type_{$type}", $type_array );
+	}
+
+	/**
+	 * Get a comment type attribute.
+	 *
+	 * @param string $type The comment type.
+	 * @param string $attr The attribute to get.
+	 *
+	 * @return mixed The value of the attribute.
+	 */
+	public static function get_comment_type_attr( $type, $attr ) {
+		$type_array = self::get_comment_type( $type );
+
+		if ( $type_array && isset( $type_array[ $attr ] ) ) {
+			$value = $type_array[ $attr ];
+		} else {
+			$value = '';
+		}
+
+		/**
+		 * Filter the comment type attribute.
+		 *
+		 * @param mixed  $value The value of the attribute.
+		 * @param string $type  The comment type.
+		 */
+		return apply_filters( "activitypub_comment_type_{$attr}", $value, $type );
+	}
+
+	/**
+	 * Register the comment types used by the ActivityPub plugin.
+	 */
+	public static function register_comment_types() {
+		register_comment_type(
+			'repost',
+			array(
+				'label'          => __( 'Reposts', 'activitypub' ),
+				'singular'       => __( 'Repost', 'activitypub' ),
+				'description'    => 'A repost (or Announce) is when a post appears in the timeline because someone else shared it, while still showing the original author as the source.',
+				'icon'           => '♻️',
+				'class'          => 'p-repost',
+				'type'           => 'repost',
+				'collection'     => 'reposts',
+				'activity_types' => array( 'announce' ),
+				'excerpt'        => html_entity_decode( \__( '&hellip; reposted this!', 'activitypub' ) ),
+				/* translators: %d: Number of reposts */
+				'count_single'   => _x( '%d repost', 'number of reposts', 'activitypub' ),
+				/* translators: %d: Number of reposts */
+				'count_plural'   => _x( '%d reposts', 'number of reposts', 'activitypub' ),
+			)
+		);
+
+		register_comment_type(
+			'like',
+			array(
+				'label'          => __( 'Likes', 'activitypub' ),
+				'singular'       => __( 'Like', 'activitypub' ),
+				'description'    => 'A like is a small positive reaction that shows appreciation for a post without sharing it further.',
+				'icon'           => '👍',
+				'class'          => 'p-like',
+				'type'           => 'like',
+				'collection'     => 'likes',
+				'activity_types' => array( 'like' ),
+				'excerpt'        => html_entity_decode( \__( '&hellip; liked this!', 'activitypub' ) ),
+				/* translators: %d: Number of likes */
+				'count_single'   => _x( '%d like', 'number of likes', 'activitypub' ),
+				/* translators: %d: Number of likes */
+				'count_plural'   => _x( '%d likes', 'number of likes', 'activitypub' ),
+			)
+		);
+
+		register_comment_type(
+			'quote',
+			array(
+				'label'          => __( 'Quotes', 'activitypub' ),
+				'singular'       => __( 'Quote', 'activitypub' ),
+				'description'    => 'A quote is when a post is shared along with an added comment, so the original post appears together with the sharer&#8217;s own words.',
+				'icon'           => '❞',
+				'class'          => 'p-quote',
+				'type'           => 'quote',
+				'collection'     => 'quotes',
+				'activity_types' => array( 'quote' ),
+				'excerpt'        => html_entity_decode( \__( '&hellip; quoted this!', 'activitypub' ) ),
+				/* translators: %d: Number of quotes */
+				'count_single'   => _x( '%d quote', 'number of quotes', 'activitypub' ),
+				/* translators: %d: Number of quotes */
+				'count_plural'   => _x( '%d quotes', 'number of quotes', 'activitypub' ),
+			)
+		);
+	}
+
+	/**
+	 * Show avatars on Activities if set.
+	 *
+	 * @param array $types List of avatar enabled comment types.
+	 *
+	 * @return array show avatars on Activities
+	 */
+	public static function get_avatar_comment_types( $types ) {
+		$comment_types = self::get_comment_type_slugs();
+		$types         = array_merge( $types, $comment_types );
+
+		return array_unique( $types );
+	}
+
+	/**
+	 * Excludes likes and reposts from comment queries.
+	 *
+	 * @author Jan Boddez
+	 *
+	 * @see https://github.com/janboddez/indieblocks/blob/a2d59de358031056a649ee47a1332ce9e39d4ce2/includes/functions.php#L423-L432
+	 *
+	 * @param \WP_Comment_Query $query Comment count.
+	 */
+	public static function comment_query( $query ) {
+		if ( ! $query instanceof \WP_Comment_Query ) {
+			return;
+		}
+
+		// Do not exclude likes and reposts on ActivityPub requests.
+		if ( defined( 'ACTIVITYPUB_REQUEST' ) && ACTIVITYPUB_REQUEST ) {
+			return;
+		}
+
+		// Do not exclude likes and reposts on REST requests (handled by rest_comment_query).
+		if ( \wp_is_serving_rest_request() ) {
+			return;
+		}
+
+		// Filter post types for admin requests.
+		if ( \is_admin() ) {
+			$query->query_vars['post_type'] = self::get_allowed_comment_post_types();
+			return;
+		}
+
+		// Do not exclude likes and reposts on non-singular pages.
+		if ( ! \is_singular() ) {
+			return;
+		}
+
+		// Do not exclude likes and reposts if the query is for specific types.
+		if ( ! empty( $query->query_vars['type__in'] ) || ! empty( $query->query_vars['type'] ) ) {
+			return;
+		}
+
+		// Do not exclude likes and reposts if the query is already excluding other comment types.
+		if ( ! empty( $query->query_vars['type__not_in'] ) ) {
+			return;
+		}
+
+		// Exclude likes and reposts by the ActivityPub plugin.
+		$query->query_vars['type__not_in'] = self::get_comment_type_slugs();
+	}
+
+	/**
+	 * Filters comments in REST API requests.
+	 *
+	 * Excludes comments on ActivityPub post types and ActivityPub comment
+	 * types (likes, reposts) from the REST API.
+	 *
+	 * @param array $prepared_args Array of arguments for WP_Comment_Query.
+	 *
+	 * @return array Modified array of arguments.
+	 */
+	public static function rest_comment_query( $prepared_args ) {
+		// Exclude comments on ActivityPub post types.
+		$prepared_args['post_type'] = self::get_allowed_comment_post_types();
+
+		// Exclude ActivityPub comment types (likes, reposts) unless explicitly requested.
+		if ( empty( $prepared_args['type'] ) && empty( $prepared_args['type__in'] ) ) {
+			$prepared_args['type__not_in'] = self::get_comment_type_slugs();
+		}
+
+		return $prepared_args;
+	}
+
+	/**
+	 * Returns post types that should show comments (excluding hidden post types).
+	 *
+	 * @return array Array of post type names.
+	 */
+	private static function get_allowed_comment_post_types() {
+		$hide_for = self::hide_for();
+
+		if ( empty( $hide_for ) ) {
+			return \get_post_types_by_support( 'comments' );
+		}
+
+		return \array_diff( \get_post_types_by_support( 'comments' ), $hide_for );
+	}
+
+	/**
+	 * Filter the comment status before it is set.
+	 *
+	 * @param int|string|\WP_Error $approved     The approved comment status.
+	 * @param array                $comment_data The comment data.
+	 *
+	 * @return int|string|\WP_Error The approval status. 1, 0, 'spam', 'trash', or WP_Error.
+	 */
+	public static function pre_comment_approved( $approved, $comment_data ) {
+		/*
+		 * Only return early for already-approved comments, trash, or errors.
+		 * Don't short-circuit on 'spam' - we may want to override Akismet.
+		 * Respect 'trash' since it comes from the WordPress disallowed list.
+		 */
+		if ( 1 === $approved || '1' === $approved || 'trash' === $approved || \is_wp_error( $approved ) ) {
+			return $approved;
+		}
+
+		// Maybe auto-approve likes and reposts.
+		if (
+			\in_array( $comment_data['comment_type'], self::get_comment_type_slugs(), true ) &&
+			'1' === \get_option( 'activitypub_auto_approve_reactions' )
+		) {
+			return 1;
+		}
+
+		/*
+		 * Always auto-approve comments on remote posts (ap_post) since
+		 * they are not visible in the WP admin comment moderation screen.
+		 */
+		$post_id = $comment_data['comment_post_ID'];
+		$post    = \get_post( $post_id );
+
+		if ( $post && \in_array( $post->post_type, self::hide_for(), true ) ) {
+			return 1;
+		}
+
+		if ( '1' !== \get_option( 'comment_previously_approved' ) ) {
+			return $approved;
+		}
+
+		if (
+			empty( $comment_data['comment_meta']['protocol'] ) ||
+			'activitypub' !== $comment_data['comment_meta']['protocol']
+		) {
+			return $approved;
+		}
+
+		global $wpdb;
+
+		$author     = $comment_data['comment_author'];
+		$author_url = $comment_data['comment_author_url'];
+		// phpcs:ignore
+		$ok_to_comment = $wpdb->get_var( $wpdb->prepare( "SELECT comment_approved FROM $wpdb->comments WHERE comment_author = %s AND comment_author_url = %s and comment_approved = '1' LIMIT 1", $author, $author_url ) );
+
+		if ( 1 === (int) $ok_to_comment ) {
+			return 1;
+		}
+
+		return $approved;
+	}
+
+	/**
+	 * Update comment counts when interaction settings are disabled.
+	 *
+	 * Triggers a recount when likes or reposts are disabled to ensure accurate comment counts.
+	 *
+	 * @param mixed $old_value The old option value.
+	 * @param mixed $value     The new option value.
+	 */
+	public static function maybe_update_comment_counts( $old_value, $value ) {
+		if ( '1' === $old_value && '1' !== $value ) {
+			Migration::update_comment_counts();
+		}
+	}
+
+	/**
+	 * Filters the comment count to exclude ActivityPub comment types.
+	 *
+	 * @param int|null $new_count The new comment count. Default null.
+	 * @param int      $old_count The old comment count.
+	 * @param int      $post_id   Post ID.
+	 *
+	 * @return int|null The updated comment count, or null to use the default query.
+	 */
+	public static function pre_wp_update_comment_count_now( $new_count, $old_count, $post_id ) {
+		if ( null === $new_count ) {
+			$excluded_types = array_filter( self::get_comment_type_slugs(), array( self::class, 'is_comment_type_enabled' ) );
+
+			if ( ! empty( $excluded_types ) ) {
+				/*
+				 * Include 'note' type when Gutenberg's filter is registered, so a
+				 * single query excludes both ActivityPub and Gutenberg types.
+				 */
+				if ( \has_filter( 'pre_wp_update_comment_count_now', 'gutenberg_exclude_notes_from_comment_count' ) ) {
+					$excluded_types[] = 'note';
+				}
+
+				/**
+				 * Filters the comment types excluded from the comment count.
+				 *
+				 * Runs at priority 5 on `pre_wp_update_comment_count_now` so that
+				 * a single query can exclude types from multiple plugins. Other
+				 * plugins can hook here to add their own comment types.
+				 *
+				 * @since 8.0.0
+				 *
+				 * @param string[] $excluded_types The comment type slugs to exclude.
+				 * @param int      $post_id        The post ID.
+				 */
+				$excluded_types = \apply_filters( 'activitypub_excluded_comment_types', $excluded_types, $post_id );
+				$excluded_types = array_unique( array_filter( $excluded_types ) );
+
+				global $wpdb;
+
+				// phpcs:ignore WordPress.DB
+				$new_count = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM $wpdb->comments WHERE comment_post_ID = %d AND comment_approved = '1' AND comment_type NOT IN ('" . implode( "','", $excluded_types ) . "')", $post_id ) );
+			}
+		}
+
+		return $new_count;
+	}
+
+	/**
+	 * Check if a comment type is enabled.
+	 *
+	 * @param string $comment_type The comment type.
+	 * @return bool True if the comment type is enabled.
+	 */
+	public static function is_comment_type_enabled( $comment_type ) {
+		return '1' === get_option( "activitypub_allow_{$comment_type}s", '1' );
+	}
+
+	/**
+	 * Get post types to hide comments for in admin.
+	 *
+	 * These are non-public post types whose comments should not appear
+	 * in the main comments list in the WordPress admin.
+	 *
+	 * @return string[] Array of post type names to hide comments for.
+	 */
+	public static function hide_for() {
+		$post_types = array( Remote_Posts::POST_TYPE );
+
+		/**
+		 * Filters the list of post types to hide comments for.
+		 *
+		 * @param string[] $post_types Array of post type names to hide comments for.
+		 */
+		return \apply_filters( 'activitypub_hide_comments_for', $post_types );
+	}
+
+	/**
+	 * Render emoji in comment author name.
+	 *
+	 * Replaces emoji shortcodes with img tags on the get_comment_author filter.
+	 * Emoji data is retrieved from the linked remote actor.
+	 *
+	 * @param string $author     The comment author name.
+	 * @param string $comment_id The comment ID as a numeric string.
+	 *
+	 * @return string The comment author name with rendered emoji.
+	 */
+	public static function render_emoji( $author, $comment_id ) {
+		$remote_actor_id = \get_comment_meta( $comment_id, '_activitypub_remote_actor_id', true );
+
+		if ( empty( $remote_actor_id ) ) {
+			return $author;
+		}
+
+		$emoji_data = \get_post_meta( $remote_actor_id, '_activitypub_emoji', true );
+
+		if ( empty( $emoji_data ) ) {
+			return $author;
+		}
+
+		return Emoji::replace_from_json( $author, $emoji_data );
+	}
+
+	/**
+	 * Selectively unescape emoji images in comment author.
+	 *
+	 * This runs at priority 20 after WordPress's esc_html() filter on comment_author.
+	 *
+	 * @param string $author The comment author name (already escaped by WordPress).
+	 *
+	 * @return string The comment author name with emoji images unescaped.
+	 */
+	public static function unescape_emoji( $author ) {
+		// Only attempt to unescape if there are emoji images present in the escaped string.
+		if ( false === \strpos( $author, 'class=&quot;emoji&quot;' ) ) {
+			return $author;
+		}
+
+		// Decode entities so we can selectively restore emoji <img> tags.
+		$decoded = \html_entity_decode( $author, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+
+		// Use strict KSES validation to only allow valid emoji img tags.
+		return \wp_kses( $decoded, Emoji::get_kses_allowed_html() );
+	}
+}

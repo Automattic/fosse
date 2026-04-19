@@ -1,0 +1,550 @@
+<?php
+/**
+ * Mailer Class.
+ *
+ * @package Activitypub
+ */
+
+namespace Activitypub;
+
+use Activitypub\Collection\Actors;
+
+/**
+ * Mailer Class.
+ */
+class Mailer {
+	/**
+	 * Initialize the Mailer.
+	 */
+	public static function init() {
+		\add_filter( 'comment_notification_subject', array( self::class, 'comment_notification_subject' ), 10, 2 );
+		\add_filter( 'comment_notification_text', array( self::class, 'comment_notification_text' ), 10, 2 );
+
+		\add_action( 'activitypub_handled_follow', array( self::class, 'new_follower' ), 10, 3 );
+
+		\add_action( 'activitypub_inbox_create', array( self::class, 'direct_message' ), 10, 2 );
+		\add_action( 'activitypub_inbox_create', array( self::class, 'mention' ), 20, 2 );  /** After @see \Activitypub\Handler\Create::handle_create() */
+
+		\add_filter( 'notify_post_author', array( self::class, 'maybe_prevent_comment_notification' ), 10, 2 );
+		\add_filter( 'notify_moderator', array( self::class, 'maybe_prevent_comment_notification' ), 10, 2 );
+	}
+
+	/**
+	 * Filter the subject line for Like and Announce notifications.
+	 *
+	 * @param string     $subject    The default subject line.
+	 * @param int|string $comment_id The comment ID.
+	 *
+	 * @return string The filtered subject line.
+	 */
+	public static function comment_notification_subject( $subject, $comment_id ) {
+		$comment = \get_comment( $comment_id );
+
+		if ( ! $comment ) {
+			return $subject;
+		}
+
+		$type = \get_comment_meta( $comment->comment_ID, 'protocol', true );
+
+		if ( 'activitypub' !== $type ) {
+			return $subject;
+		}
+
+		$singular = Comment::get_comment_type_attr( $comment->comment_type, 'singular' );
+
+		if ( ! $singular ) {
+			return $subject;
+		}
+
+		$post = \get_post( $comment->comment_post_ID );
+
+		/* translators: 1: Blog name, 2: Like or Repost, 3: Post title */
+		return \sprintf( \esc_html__( '[%1$s] %2$s: %3$s', 'activitypub' ), \esc_html( get_option( 'blogname' ) ), \esc_html( $singular ), \esc_html( $post->post_title ) );
+	}
+
+	/**
+	 * Filter the notification text for Like and Announce notifications.
+	 *
+	 * @param string     $message    The default notification text.
+	 * @param int|string $comment_id The comment ID.
+	 *
+	 * @return string The filtered notification text.
+	 */
+	public static function comment_notification_text( $message, $comment_id ) {
+		$comment = \get_comment( $comment_id );
+
+		if ( ! $comment ) {
+			return $message;
+		}
+
+		$type = \get_comment_meta( $comment->comment_ID, 'protocol', true );
+
+		if ( 'activitypub' !== $type ) {
+			return $message;
+		}
+
+		$comment_type = Comment::get_comment_type( $comment->comment_type );
+
+		if ( ! $comment_type ) {
+			return $message;
+		}
+
+		$post                  = \get_post( $comment->comment_post_ID );
+		$comment_author_domain = '';
+
+		// Only attempt to resolve hostname if we have a valid IP address.
+		if ( \filter_var( $comment->comment_author_IP, FILTER_VALIDATE_IP ) ) {
+			$comment_author_domain = \gethostbyaddr( $comment->comment_author_IP );
+		}
+
+		// Check if this is a reaction to a post or a comment.
+		if ( 0 === (int) $comment->comment_parent ) {
+			$notify_message = \sprintf(
+				/* translators: 1: Comment type, 2: Post title */
+				\html_entity_decode( esc_html__( 'New %1$s on your post &#8220;%2$s&#8221;.', 'activitypub' ) ),
+				\esc_html( $comment_type['singular'] ),
+				\esc_html( $post->post_title )
+			) . PHP_EOL . PHP_EOL;
+
+		} else {
+			$parent_comment = \get_comment( $comment->comment_parent );
+			$notify_message = \sprintf(
+				/* translators: 1: Comment type, 2: Post title, 3: Parent comment author */
+				\html_entity_decode( esc_html__( 'New %1$s on your post &#8220;%2$s&#8221; in reply to %3$s&#8217;s comment.', 'activitypub' ) ),
+				\esc_html( $comment_type['singular'] ),
+				\esc_html( $post->post_title ),
+				\esc_html( $parent_comment->comment_author )
+			) . PHP_EOL . PHP_EOL;
+		}
+
+		/* translators: 1: Website name, 2: Website IP address, 3: Website hostname. */
+		$notify_message .= \sprintf( \esc_html__( 'From: %1$s (IP address: %2$s, %3$s)', 'activitypub' ), \esc_html( $comment->comment_author ), \esc_html( $comment->comment_author_IP ), \esc_html( $comment_author_domain ) ) . "\r\n";
+		/* translators: Reaction author URL. */
+		$notify_message .= \sprintf( \esc_html__( 'URL: %s', 'activitypub' ), \esc_url( $comment->comment_author_url ) ) . "\r\n\r\n";
+		/* translators: Comment type label */
+		$notify_message .= \sprintf( \esc_html__( 'You can see all %s on this post here:', 'activitypub' ), \esc_html( $comment_type['label'] ) ) . "\r\n";
+		$notify_message .= \get_permalink( $comment->comment_post_ID ) . '#' . \esc_attr( $comment_type['type'] ) . "\r\n\r\n";
+
+		return $notify_message;
+	}
+
+	/**
+	 * Send a notification email for every new follower.
+	 *
+	 * @param array     $activity The activity object.
+	 * @param int|int[] $user_ids The id(s) of the local blog-user(s).
+	 * @param bool      $success  True on success, false otherwise.
+	 */
+	public static function new_follower( $activity, $user_ids, $success ) {
+		// Only send notification if the follow was successful.
+		if ( ! $success ) {
+			return;
+		}
+
+		// Extract the user ID (follows are always for a single user).
+		$user_id = \is_array( $user_ids ) ? \reset( $user_ids ) : $user_ids;
+
+		// Do not send notifications to the Application user.
+		if ( Actors::APPLICATION_USER_ID === $user_id ) {
+			return;
+		}
+
+		if ( $user_id > Actors::BLOG_USER_ID ) {
+			if ( ! \get_user_option( 'activitypub_mailer_new_follower', $user_id ) ) {
+				return;
+			}
+
+			$email     = \get_userdata( $user_id )->user_email;
+			$admin_url = '/users.php?page=activitypub-followers-list';
+		} else {
+			if ( '1' !== \get_option( 'activitypub_blog_user_mailer_new_follower', '1' ) ) {
+				return;
+			}
+
+			$email     = \get_option( 'admin_email' );
+			$admin_url = '/options-general.php?page=activitypub&tab=followers';
+		}
+
+		$actor = get_remote_metadata_by_actor( $activity['actor'] );
+		if ( ! $actor || \is_wp_error( $actor ) ) {
+			return;
+		}
+
+		$actor = self::normalize_actor( $actor );
+
+		// Replace emoji in actor name and summary.
+		if ( ! empty( $actor['name'] ) ) {
+			$actor['name'] = Emoji::replace_for_actor( $actor['name'], $actor['url'] );
+		}
+		if ( ! empty( $actor['summary'] ) ) {
+			$actor['summary'] = Emoji::replace_for_actor( $actor['summary'], $actor['url'] );
+		}
+
+		$template_args = array_merge(
+			$actor,
+			array(
+				'admin_url' => $admin_url,
+				'user_id'   => $user_id,
+				'stats'     => array(
+					'outbox'    => null,
+					'followers' => null,
+					'following' => null,
+				),
+			)
+		);
+
+		foreach ( $template_args['stats'] as $field => $value ) {
+			if ( empty( $actor[ $field ] ) ) {
+				continue;
+			}
+
+			$result = Http::get( $actor[ $field ], array(), true );
+			if ( 200 === \wp_remote_retrieve_response_code( $result ) ) {
+				$body = \json_decode( \wp_remote_retrieve_body( $result ), true );
+				if ( isset( $body['totalItems'] ) ) {
+					$template_args['stats'][ $field ] = $body['totalItems'];
+				}
+			}
+		}
+
+		/* translators: 1: Blog name, 2: Follower name */
+		$subject = \sprintf( \__( '[%1$s] New Follower: %2$s', 'activitypub' ), \get_option( 'blogname' ), $actor['name'] );
+
+		\ob_start();
+		\load_template( ACTIVITYPUB_PLUGIN_DIR . 'templates/emails/new-follower.php', false, $template_args );
+		$html_message = \ob_get_clean();
+
+		$alt_function = static function ( $mailer ) use ( $actor, $admin_url ) {
+			/* translators: 1: Follower name */
+			$message = \sprintf( \__( 'New Follower: %1$s.', 'activitypub' ), $actor['name'] ) . "\r\n\r\n";
+			/* translators: Follower URL */
+			$message            .= \sprintf( \__( 'URL: %s', 'activitypub' ), \esc_url( $actor['url'] ) ) . "\r\n\r\n";
+			$message            .= \__( 'You can see all followers here:', 'activitypub' ) . "\r\n";
+			$message            .= \esc_url( \admin_url( $admin_url ) ) . "\r\n\r\n";
+			$mailer->{'AltBody'} = $message;
+		};
+		\add_action( 'phpmailer_init', $alt_function );
+
+		\wp_mail( $email, $subject, $html_message, array( 'Content-type: text/html' ) );
+
+		\remove_action( 'phpmailer_init', $alt_function );
+	}
+
+	/**
+	 * Send a direct message.
+	 *
+	 * @param array     $activity The activity object.
+	 * @param int|int[] $user_ids The id(s) of the local blog-user(s).
+	 */
+	public static function direct_message( $activity, $user_ids ) {
+		// Early return if activity is public or has no recipients.
+		if ( is_activity_public( $activity ) || empty( $activity['to'] ) ) {
+			return;
+		}
+
+		// Normalize to array.
+		$user_ids = (array) $user_ids;
+
+		// Build a map of user_id => actor_id and filter to only users in the "to" field.
+		$recipients = array();
+		foreach ( $user_ids as $user_id ) {
+			$actor = Actors::get_by_id( $user_id );
+			if ( \is_wp_error( $actor ) ) {
+				continue;
+			}
+
+			$actor_id = $actor->get_id();
+			if ( \in_array( $actor_id, (array) $activity['to'], true ) ) {
+				$recipients[ $user_id ] = $actor_id;
+			}
+		}
+
+		// No matching recipients.
+		if ( empty( $recipients ) ) {
+			return;
+		}
+
+		// Get actor metadata once (shared for all emails).
+		$actor = get_remote_metadata_by_actor( $activity['actor'] );
+		if ( ! $actor || \is_wp_error( $actor ) || empty( $activity['object']['content'] ) ) {
+			return;
+		}
+
+		$actor = self::normalize_actor( $actor );
+
+		// Send email to each recipient.
+		foreach ( $recipients as $user_id => $actor_id ) {
+			// Check user preferences.
+			if ( $user_id > Actors::BLOG_USER_ID ) {
+				if ( ! \get_user_option( 'activitypub_mailer_new_dm', $user_id ) ) {
+					continue;
+				}
+
+				$email = \get_userdata( $user_id )->user_email;
+			} else {
+				if ( '1' !== \get_option( 'activitypub_blog_user_mailer_new_dm', '1' ) ) {
+					continue;
+				}
+
+				$email = \get_option( 'admin_email' );
+			}
+
+			$template_args = array(
+				'activity' => $activity,
+				'actor'    => $actor,
+				'user_id'  => $user_id,
+			);
+
+			/* translators: 1: Blog name, 2 Actor name */
+			$subject = \sprintf( \esc_html__( '[%1$s] Direct Message from: %2$s', 'activitypub' ), \esc_html( \get_option( 'blogname' ) ), \esc_html( $actor['name'] ) );
+
+			\ob_start();
+			\load_template( ACTIVITYPUB_PLUGIN_DIR . 'templates/emails/new-dm.php', false, $template_args );
+			$html_message = \ob_get_clean();
+
+			$alt_function = static function ( $mailer ) use ( $actor, $activity ) {
+				$content = \html_entity_decode(
+					\wp_strip_all_tags(
+						str_replace( '</p>', PHP_EOL . PHP_EOL, $activity['object']['content'] )
+					),
+					ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML401
+				);
+
+				/* translators: Actor name */
+				$message = \sprintf( \esc_html__( 'New Direct Message: %s', 'activitypub' ), $content ) . "\r\n\r\n";
+				/* translators: Actor name */
+				$message .= \sprintf( \esc_html__( 'From: %s', 'activitypub' ), \esc_html( $actor['name'] ) ) . "\r\n";
+				/* translators: Message URL */
+				$message .= \sprintf( \esc_html__( 'URL: %s', 'activitypub' ), \esc_url( $activity['object']['id'] ) ) . "\r\n\r\n";
+
+				$mailer->{'AltBody'} = $message;
+			};
+			\add_action( 'phpmailer_init', $alt_function );
+
+			\wp_mail( $email, $subject, $html_message, array( 'Content-type: text/html' ) );
+
+			\remove_action( 'phpmailer_init', $alt_function );
+		}
+	}
+
+	/**
+	 * Send a mention notification.
+	 *
+	 * @param array     $activity The activity object.
+	 * @param int|int[] $user_ids The id(s) of the local blog-user(s).
+	 */
+	public static function mention( $activity, $user_ids ) {
+		// Early return if activity has no mentions.
+		if ( empty( $activity['object']['tag'] ) ) {
+			return;
+		}
+
+		// Do not send a mention notification if the activity is a reply to a local post or comment.
+		if ( is_activity_reply( $activity ) && object_id_to_comment( $activity['object']['id'] ) ) {
+			return;
+		}
+
+		$recipients = array();
+		$mentions   = wp_list_filter( (array) $activity['object']['tag'], array( 'type' => 'Mention' ) );
+		$mentions   = array_map( '\Activitypub\object_to_uri', $mentions );
+		foreach ( (array) $user_ids as $user_id ) {
+			$actor = Actors::get_by_id( $user_id );
+			if ( \is_wp_error( $actor ) ) {
+				continue;
+			}
+
+			$actor_id = $actor->get_id();
+			if ( \in_array( $actor_id, $mentions, true ) ) {
+				$recipients[ $user_id ] = $actor_id;
+			}
+		}
+
+		// No matching recipients.
+		if ( empty( $recipients ) ) {
+			return;
+		}
+
+		// Get actor metadata once (shared for all emails).
+		$actor = get_remote_metadata_by_actor( $activity['actor'] );
+		if ( \is_wp_error( $actor ) ) {
+			return;
+		}
+
+		$actor = self::normalize_actor( $actor );
+
+		// Send email to each recipient.
+		foreach ( $recipients as $user_id => $actor_id ) {
+			// Check user preferences.
+			if ( $user_id > Actors::BLOG_USER_ID ) {
+				if ( ! \get_user_option( 'activitypub_mailer_new_mention', $user_id ) ) {
+					continue;
+				}
+
+				$email = \get_userdata( $user_id )->user_email;
+			} else {
+				if ( '1' !== \get_option( 'activitypub_blog_user_mailer_new_mention', '1' ) ) {
+					continue;
+				}
+
+				$email = \get_option( 'admin_email' );
+			}
+
+			$template_args = array(
+				'activity' => $activity,
+				'actor'    => $actor,
+				'user_id'  => $user_id,
+			);
+
+			/* translators: 1: Blog name, 2 Actor name */
+			$subject = \sprintf( \esc_html__( '[%1$s] Mention from: %2$s', 'activitypub' ), \esc_html( \get_option( 'blogname' ) ), \esc_html( $actor['name'] ) );
+
+			\ob_start();
+			\load_template( ACTIVITYPUB_PLUGIN_DIR . 'templates/emails/new-mention.php', false, $template_args );
+			$html_message = \ob_get_clean();
+
+			$alt_function = static function ( $mailer ) use ( $actor, $activity ) {
+				$content = \html_entity_decode(
+					\wp_strip_all_tags(
+						str_replace( '</p>', PHP_EOL . PHP_EOL, $activity['object']['content'] )
+					),
+					ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML401
+				);
+
+				/* translators: Message content */
+				$message = \sprintf( \esc_html__( 'New Mention: %s', 'activitypub' ), $content ) . "\r\n\r\n";
+				/* translators: Actor name */
+				$message .= \sprintf( \esc_html__( 'From: %s', 'activitypub' ), \esc_html( $actor['name'] ) ) . "\r\n";
+				/* translators: Message URL */
+				$message .= \sprintf( \esc_html__( 'URL: %s', 'activitypub' ), \esc_url( $activity['object']['id'] ) ) . "\r\n\r\n";
+
+				$mailer->{'AltBody'} = $message;
+			};
+			\add_action( 'phpmailer_init', $alt_function );
+
+			\wp_mail( $email, $subject, $html_message, array( 'Content-type: text/html' ) );
+
+			\remove_action( 'phpmailer_init', $alt_function );
+		}
+	}
+
+	/**
+	 * Send a templated email to a user.
+	 *
+	 * @param int    $user_id  The user ID (or BLOG_USER_ID for blog actor).
+	 * @param string $subject  The email subject.
+	 * @param string $template The template name (without path/extension).
+	 * @param array  $args     Template arguments.
+	 * @param string $alt_body Optional plain text alternative. Auto-generated from HTML if empty.
+	 *
+	 * @return bool True if email was sent, false otherwise.
+	 */
+	public static function send( $user_id, $subject, $template, $args = array(), $alt_body = '' ) {
+		// Get the recipient email address.
+		if ( $user_id > Actors::BLOG_USER_ID ) {
+			$user = \get_userdata( $user_id );
+			if ( ! $user || empty( $user->user_email ) ) {
+				return false;
+			}
+			$email = $user->user_email;
+		} else {
+			$email = \get_option( 'admin_email' );
+		}
+
+		// Load the HTML template.
+		$template_file = ACTIVITYPUB_PLUGIN_DIR . 'templates/emails/' . \sanitize_file_name( $template ) . '.php';
+
+		/**
+		 * Filter the email template file path.
+		 *
+		 * @param string $template_file The template file path.
+		 * @param string $template      The template name.
+		 * @param int    $user_id       The user ID.
+		 * @param array  $args          Template arguments.
+		 */
+		$template_file = \apply_filters( 'activitypub_email_template', $template_file, $template, $user_id, $args );
+
+		if ( ! \file_exists( $template_file ) ) {
+			return false;
+		}
+
+		\ob_start();
+		\load_template( $template_file, false, $args );
+		$html_message = \ob_get_clean();
+
+		// Build plain text alternative from HTML if not provided.
+		if ( empty( $alt_body ) ) {
+			$alt_body = \wp_strip_all_tags( $html_message );
+		}
+		$alt_function = static function ( $mailer ) use ( $alt_body ) {
+			$mailer->{'AltBody'} = $alt_body;
+		};
+		\add_action( 'phpmailer_init', $alt_function );
+
+		$result = \wp_mail( $email, $subject, $html_message, array( 'Content-type: text/html' ) );
+
+		\remove_action( 'phpmailer_init', $alt_function );
+
+		return $result;
+	}
+
+	/**
+	 * Apply defaults to the actor object.
+	 *
+	 * Ensure that the actor object has a name, url, and webfinger.
+	 *
+	 * @param array $actor The actor object.
+	 *
+	 * @return array The inflated actor object.
+	 */
+	private static function normalize_actor( $actor ) {
+		if ( empty( $actor['name'] ) ) {
+			$actor['name'] = $actor['preferredUsername'];
+		}
+
+		if ( empty( $actor['url'] ) ) {
+			$actor['url'] = $actor['id'];
+		}
+		$actor['url'] = object_to_uri( $actor['url'] );
+
+		if ( empty( $actor['webfinger'] ) ) {
+			$actor['webfinger'] = '@' . ( $actor['preferredUsername'] ?? $actor['name'] ) . '@' . \wp_parse_url( $actor['url'], PHP_URL_HOST );
+		}
+
+		return $actor;
+	}
+
+	/**
+	 * Maybe prevent email notifications for comments.
+	 *
+	 * This filter can prevent both post author and moderator notifications
+	 * for comments on specific post types, such as ActivityPub custom post types.
+	 *
+	 * @param bool $maybe_notify Whether to send the notification.
+	 * @param int  $comment_id   The comment ID.
+	 *
+	 * @return bool False to prevent notification, original value otherwise.
+	 */
+	public static function maybe_prevent_comment_notification( $maybe_notify, $comment_id ) {
+		// If already disabled, respect that.
+		if ( ! $maybe_notify ) {
+			return $maybe_notify;
+		}
+
+		$comment = \get_comment( $comment_id );
+		if ( ! $comment ) {
+			return $maybe_notify;
+		}
+
+		$post = \get_post( $comment->comment_post_ID );
+		if ( ! $post ) {
+			return $maybe_notify;
+		}
+
+		// Prevent notifications for comments on ap_post.
+		if ( is_ap_post( $post ) ) {
+			return false;
+		}
+
+		return $maybe_notify;
+	}
+}

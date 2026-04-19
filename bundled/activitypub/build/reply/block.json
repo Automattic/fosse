@@ -1,0 +1,44 @@
+{
+  "$schema": "https://schemas.wp.org/trunk/block.json",
+  "apiVersion": 3,
+  "name": "activitypub/reply",
+  "version": "8.0.1",
+  "title": "Federated Reply",
+  "category": "widgets",
+  "icon": "admin-comments",
+  "description": "Reply to posts, notes, and other content on the Fediverse directly from the block editor.",
+  "keywords": [
+    "fediverse",
+    "activitypub",
+    "reply",
+    "federation"
+  ],
+  "supports": {
+    "html": false,
+    "inserter": true,
+    "reusable": false,
+    "lock": false,
+    "innerBlocks": {
+      "allowedBlocks": [
+        "core/embed"
+      ]
+    }
+  },
+  "textdomain": "activitypub",
+  "editorScript": "file:./index.js",
+  "editorStyle": "file:./style-index.css",
+  "style": "file:./index.css",
+  "attributes": {
+    "url": {
+      "type": "string"
+    },
+    "embedPost": {
+      "type": "boolean",
+      "default": null
+    },
+    "isValidActivityPub": {
+      "type": "boolean",
+      "default": true
+    }
+  }
+}
