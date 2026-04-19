@@ -1,0 +1,91 @@
+# Rsync exclude patterns for tools/sync-bundled.sh.
+#
+# Mirrors the export-ignore patterns in each upstream plugin's
+# .gitattributes — this is what wordpress.org's distribution builder
+# drops on release. Keep the patterns generous: both plugins share
+# most of these.
+#
+# DO NOT exclude:
+#   - build/       (ActivityPub ships pre-built blocks here)
+#   - composer.json / vendor/  (Atmosphere's vendor/autoload.php is
+#                               required at plugin load time)
+#   - readme.txt   (WordPress.org plugin directory metadata)
+#   - assets/, includes/, integration/, integrations/, patterns/,
+#     templates/, languages/, *.php, LICENSE
+
+# --- Upstream tests and test config ---
+tests/
+phpunit.xml
+phpunit.xml.dist
+.phpunit.cache/
+.phpunit.result.cache
+
+# --- Upstream dev tooling / CI ---
+.github/
+.githooks/
+.wordpress-org/
+.wp-env.json
+.agents/
+.claude/
+agent-os/
+local/
+bin/
+snippets/
+src/
+docs/
+
+# --- Config files not needed at runtime ---
+phpcs.xml
+phpcs.xml.dist
+jest.config.js
+jest.config.cjs
+jest.setup.js
+eslint.config.mjs
+.eslintignore
+.eslintrc.js
+.eslintrc.json
+.prettierrc
+.prettierrc.js
+.prettierignore
+.editorconfig
+.stylelintrc
+.stylelintrc.json
+tsconfig.json
+webpack.config.js
+
+# --- Build artifacts and transient folders ---
+node_modules/
+.pnpm-store/
+coverage/
+
+# --- Composer vendor is excluded from the main sync; Atmosphere's
+#     production vendor/ is rsync'd separately by sync-bundled.sh
+#     AFTER a `composer install --no-dev --optimize-autoloader`.
+vendor/
+
+# --- Lockfiles ---
+composer.lock
+package-lock.json
+pnpm-lock.yaml
+yarn.lock
+package.json
+
+# --- Upstream docs — not needed at runtime ---
+README.md
+readme.md
+CHANGELOG.md
+CODE_OF_CONDUCT.md
+SECURITY.md
+CONTRIBUTING.md
+FEDERATION.md
+AGENTS.md
+CLAUDE.md
+
+# --- Version control / repo metadata ---
+.git/
+.gitignore
+.gitattributes
+
+# --- OS / editor cruft ---
+.DS_Store
+*.swp
