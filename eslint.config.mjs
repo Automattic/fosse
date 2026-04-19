@@ -5,6 +5,7 @@ export default [
 	{
 		ignores: [
 			'build/**',
+			'bundled/**',
 			'vendor/**',
 			'wordpress/**',
 			'node_modules/**',
@@ -12,6 +13,7 @@ export default [
 			'playwright-report/**',
 			'test-results/**',
 			'coverage/**',
+			'.claude/**',
 		],
 	},
 	...wp.configs.recommended,

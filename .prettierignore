@@ -5,6 +5,7 @@ pnpm-lock.yaml
 
 # Generated / vendored.
 build/
+bundled/
 vendor/
 tools/vendor/
 wordpress/
@@ -13,3 +14,9 @@ playwright-report/
 test-results/
 coverage/
 .phpunit.cache/
+
+# SDD discussion docs — not product surface.
+sdd/
+
+# Local Claude Code artifacts.
+.claude/
