@@ -29,6 +29,9 @@ FOSSE is a WordPress plugin bringing Social Web (ActivityPub-adjacent) features 
 fosse/
 ├── fosse.php                  # Plugin main file + header
 ├── src/                       # Plugin source (PHP) — classmap autoloaded
+├── bundled/                   # Vendored release builds of wordpress-activitypub
+│   ├── activitypub/           #   and wordpress-atmosphere. Refreshed via
+│   └── atmosphere/            #   tools/sync-bundled.sh. Do not edit by hand.
 ├── tests/
 │   ├── php/                   # PHPUnit tests (WorDBless, *Test.php suffix)
 │   │   └── bootstrap.php
@@ -36,7 +39,10 @@ fosse/
 │   └── e2e/                   # Playwright specs + Playground blueprint
 │       └── blueprint.json
 ├── tools/                     # Isolated composer project for PHPCS (PHP 8.4+)
-│   └── composer.json
+│   ├── composer.json
+│   ├── sync-bundled.sh        # Refresh bundled/ from upstream checkouts
+│   └── bundled-excludes.txt   # Rsync exclude list for sync-bundled.sh
+├── sdd/                       # Spec-Driven Development docs (per-feature)
 ├── .github/
 │   ├── workflows/             # tests.yml, linting.yml, e2e.yml
 │   └── dependabot.yml
@@ -97,6 +103,19 @@ pnpm run test:e2e
 
 Boots WordPress Playground on `127.0.0.1:9400` via the blueprint at `tests/e2e/blueprint.json`, mounts the repo as the `fosse` plugin, and runs Playwright specs from `tests/e2e/`.
 
+### Refresh bundled federation plugins
+
+```bash
+./tools/sync-bundled.sh
+```
+
+Re-vendors `bundled/activitypub/` and `bundled/atmosphere/` from local upstream checkouts. Configure sources via env vars:
+
+-   `FOSSE_AP_SOURCE` — path to the wordpress-activitypub checkout (default: `~/code/wordpress-activitiypub`)
+-   `FOSSE_ATMO_SOURCE` — path to the wordpress-atmosphere checkout (default: `~/code/wordpress-atmosphere`)
+
+The script runs `composer install --no-dev --optimize-autoloader` inside the Atmosphere source before rsyncing so the vendored copy is self-contained. Bundling the federation backends is a short-term bootstrap; long-term we expect to drop this in favor of a cleaner distribution approach.
+
 ## Code Conventions
 
 ### PHP
@@ -140,3 +159,5 @@ Boots WordPress Playground on `127.0.0.1:9400` via the blueprint at `tests/e2e/b
 4. **PHPUnit runs with `failOnWarning` and `failOnRisky`.** Output during tests also fails them. Keep tests quiet.
 5. **Playground mounts the repo root as the plugin directory.** The blueprint expects `fosse.php` to be at repo root; don't move it without updating `tests/e2e/blueprint.json` and `playwright.config.ts`.
 6. **`pnpm install --frozen-lockfile` in CI** means you must commit `pnpm-lock.yaml` after adding/bumping JS deps.
+7. **`bundled/` is vendored upstream code.** Excluded from PHPCS, PHPUnit, ESLint, Prettier, Jest, and the composer classmap. Don't re-enable those checks for it. Refresh via `tools/sync-bundled.sh`; never hand-edit files inside `bundled/`.
+8. **Bundled-plugin activation runs on `init`, not `plugins_loaded`.** ActivityPub's `activate()` calls `flush_rewrite_rules()`, which needs `$wp_rewrite` (initialized on `init`). `fosse.php` defers the first-load bootstrap accordingly; don't move it earlier without accounting for that.
