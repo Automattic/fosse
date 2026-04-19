@@ -12,7 +12,7 @@ FOSSE is a WordPress plugin bringing Social Web (ActivityPub-adjacent) features 
 
 | Component            | Version / Tool                                                                                 |
 | -------------------- | ---------------------------------------------------------------------------------------------- |
-| PHP                  | >=7.4                                                                                          |
+| PHP                  | >=8.2                                                                                          |
 | WordPress            | >=6.9                                                                                          |
 | PHPUnit              | ^9.6 \|\| ^11.0 (polyfills via `yoast/phpunit-polyfills`)                                      |
 | Test harness         | `automattic/wordbless` (dbless engine; no MySQL needed)                                        |
@@ -128,13 +128,13 @@ Boots WordPress Playground on `127.0.0.1:9400` via the blueprint at `tests/e2e/b
 
 ## CI Matrix
 
--   `.github/workflows/tests.yml` runs PHPUnit across PHP 7.4/8.0/8.1/8.2/8.3/8.4/8.5 × WP 6.9/trunk. Trunk rows are `continue-on-error`. WP 7.0 covers via the `trunk` row until 7.0 releases, then it gets added as its own column.
+-   `.github/workflows/tests.yml` runs PHPUnit across PHP 8.2/8.3/8.4/8.5 × WP 6.9/trunk. Trunk rows are `continue-on-error`. WP 7.0 covers via the `trunk` row until 7.0 releases, then it gets added as its own column.
 -   `.github/workflows/linting.yml` runs PHPCS (PHP 8.4) and ESLint/Prettier (Node 20). Path filters skip unaffected jobs on PRs.
 -   `.github/workflows/e2e.yml` runs Playwright against Playground.
 
 ## Common Pitfalls
 
-1. **Do not put `automattic/jetpack-codesniffer` in the root `composer.json`.** It requires PHP 8.2+; the root must install on PHP 7.4 for the test matrix. Lint deps live in `tools/composer.json`.
+1. **Lint deps live in `tools/composer.json`, not root.** `automattic/jetpack-codesniffer` pins recent dependencies that can conflict with plugin-runtime deps; keeping it isolated in `tools/` avoids resolver churn when we add new runtime requirements.
 2. **WorDBless copies its `db.php` drop-in via a composer post-install hook.** If tests suddenly fail with wpdb errors, re-run `composer install`.
 3. **`wordpress/` is a Composer-managed directory (`roots/wordpress`).** Never edit files inside it — `composer install` will overwrite them.
 4. **PHPUnit runs with `failOnWarning` and `failOnRisky`.** Output during tests also fails them. Keep tests quiet.
