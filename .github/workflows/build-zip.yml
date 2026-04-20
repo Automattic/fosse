@@ -1,0 +1,116 @@
+name: Build zip
+
+on:
+    release:
+        types: [published]
+    push:
+        branches:
+            - trunk
+    workflow_dispatch:
+
+concurrency:
+    group: build-zip-${{ github.event_name }}-${{ github.ref }}
+    cancel-in-progress: true
+
+permissions:
+    contents: read
+
+jobs:
+    build:
+        name: Build plugin zip
+        runs-on: ubuntu-24.04
+        timeout-minutes: 10
+
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v6
+
+            - name: Install PHP
+              uses: shivammathur/setup-php@v2
+              with:
+                  php-version: '8.2'
+                  coverage: none
+                  tools: composer:v2
+
+            - name: Resolve build version
+              env:
+                  EVENT_NAME: ${{ github.event_name }}
+                  RELEASE_TAG: ${{ github.event.release.tag_name }}
+              run: |
+                  if [ "$EVENT_NAME" = "release" ]; then
+                      version="${RELEASE_TAG#v}"
+                  else
+                      version="0.0.1-dev+${GITHUB_SHA::7}"
+                  fi
+                  echo "FOSSE_VERSION=$version" >> "$GITHUB_ENV"
+
+            - name: Build zip
+              run: composer run-script build-zip
+
+            - name: Upload artifact
+              uses: actions/upload-artifact@v7
+              with:
+                  name: fosse-zip
+                  path: build/fosse.zip
+                  retention-days: 7
+                  if-no-files-found: error
+
+    publish-release:
+        name: Attach zip to release
+        if: github.event_name == 'release'
+        needs: build
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        permissions:
+            contents: write
+
+        steps:
+            - name: Download artifact
+              uses: actions/download-artifact@v7
+              with:
+                  name: fosse-zip
+                  path: build
+
+            - name: Upload to release
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  TAG: ${{ github.event.release.tag_name }}
+              run: gh release upload "$TAG" build/fosse.zip --repo "$GITHUB_REPOSITORY"
+
+    publish-latest-trunk:
+        name: Refresh latest-trunk release
+        if: github.event_name != 'release' && github.ref == 'refs/heads/trunk'
+        needs: build
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        permissions:
+            contents: write
+
+        steps:
+            - name: Download artifact
+              uses: actions/download-artifact@v7
+              with:
+                  name: fosse-zip
+                  path: build
+
+            - name: Refresh release
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  notes="Automated build from trunk ($GITHUB_SHA). Not a stable release — tracks the tip of trunk."
+                  if gh release view latest-trunk --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+                      gh release edit latest-trunk \
+                          --repo "$GITHUB_REPOSITORY" \
+                          --target "$GITHUB_SHA" \
+                          --notes "$notes"
+                      gh release upload latest-trunk build/fosse.zip \
+                          --repo "$GITHUB_REPOSITORY" \
+                          --clobber
+                  else
+                      gh release create latest-trunk build/fosse.zip \
+                          --repo "$GITHUB_REPOSITORY" \
+                          --title "Latest trunk build" \
+                          --notes "$notes" \
+                          --prerelease \
+                          --target "$GITHUB_SHA"
+                  fi

@@ -29,6 +29,8 @@ FOSSE is a WordPress plugin bringing Social Web (ActivityPub-adjacent) features 
 fosse/
 ├── fosse.php                  # Plugin main file + header
 ├── src/                       # Plugin source (PHP) — classmap autoloaded
+├── bin/
+│   └── build-zip.sh           # Builds build/fosse.zip (composer build-zip)
 ├── tests/
 │   ├── php/                   # PHPUnit tests (WorDBless, *Test.php suffix)
 │   │   └── bootstrap.php
@@ -38,7 +40,7 @@ fosse/
 ├── tools/                     # Isolated composer project for PHPCS (PHP 8.4+)
 │   └── composer.json
 ├── .github/
-│   ├── workflows/             # tests.yml, linting.yml, e2e.yml
+│   ├── workflows/             # tests.yml, linting.yml, e2e.yml, build-zip.yml
 │   └── dependabot.yml
 ├── .phpcs.xml.dist            # Jetpack ruleset, text-domain: fosse
 ├── phpunit.xml.dist
@@ -97,6 +99,14 @@ pnpm run test:e2e
 
 Boots WordPress Playground on `127.0.0.1:9400` via the blueprint at `tests/e2e/blueprint.json`, mounts the repo as the `fosse` plugin, and runs Playwright specs from `tests/e2e/`.
 
+### Build plugin zip
+
+```bash
+composer run-script build-zip
+```
+
+Produces `build/fosse.zip` — a drop-in plugin bundle containing `fosse.php`, `src/`, and a production (`--no-dev`) `vendor/`. Set `FOSSE_VERSION` to override the `Version:` header stamped into the staged `fosse.php` (e.g. `FOSSE_VERSION=0.1.0 composer build-zip`). CI (`.github/workflows/build-zip.yml`) runs the same script to attach the zip to every published release and to refresh a rolling `latest-trunk` prerelease (tag + release, not a stable build) on each push to `trunk`.
+
 ## Code Conventions
 
 ### PHP
@@ -131,6 +141,7 @@ Boots WordPress Playground on `127.0.0.1:9400` via the blueprint at `tests/e2e/b
 -   `.github/workflows/tests.yml` runs PHPUnit across PHP 7.4/8.0/8.1/8.2/8.3/8.4/8.5 × WP 6.9/trunk. Trunk rows are `continue-on-error`. WP 7.0 covers via the `trunk` row until 7.0 releases, then it gets added as its own column.
 -   `.github/workflows/linting.yml` runs PHPCS (PHP 8.4) and ESLint/Prettier (Node 20). Path filters skip unaffected jobs on PRs.
 -   `.github/workflows/e2e.yml` runs Playwright against Playground.
+-   `.github/workflows/build-zip.yml` builds `fosse.zip` in a `contents: read` job, then publishes via separate `contents: write` jobs: pushes to `trunk` refresh the rolling `latest-trunk` prerelease; published releases get the zip attached directly.
 
 ## Common Pitfalls
 
