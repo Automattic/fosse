@@ -1,0 +1,56 @@
+name: Build zip
+
+on:
+    release:
+        types: [published]
+    push:
+        branches:
+            - trunk
+    workflow_dispatch:
+
+concurrency:
+    group: build-zip-${{ github.event_name }}-${{ github.ref }}
+    cancel-in-progress: false
+
+permissions:
+    contents: write
+
+jobs:
+    build:
+        name: Build plugin zip
+        runs-on: ubuntu-24.04
+        timeout-minutes: 10
+
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v6
+
+            - name: Install PHP
+              uses: shivammathur/setup-php@v2
+              with:
+                  php-version: '8.2'
+                  coverage: none
+                  tools: composer:v2
+
+            - name: Build zip
+              run: composer run-script build-zip
+
+            - name: Attach zip to release
+              if: github.event_name == 'release'
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  TAG: ${{ github.event.release.tag_name }}
+              run: gh release upload "$TAG" build/fosse.zip --clobber --repo "$GITHUB_REPOSITORY"
+
+            - name: Refresh latest-trunk release
+              if: github.event_name != 'release'
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  gh release delete latest-trunk --yes --cleanup-tag --repo "$GITHUB_REPOSITORY" || true
+                  gh release create latest-trunk build/fosse.zip \
+                      --repo "$GITHUB_REPOSITORY" \
+                      --title "Latest trunk build" \
+                      --notes "Automated build from trunk ($GITHUB_SHA). Not a stable release — tracks the tip of trunk." \
+                      --prerelease \
+                      --target "$GITHUB_SHA"

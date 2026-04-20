@@ -29,6 +29,8 @@ FOSSE is a WordPress plugin bringing Social Web (ActivityPub-adjacent) features 
 fosse/
 ├── fosse.php                  # Plugin main file + header
 ├── src/                       # Plugin source (PHP) — classmap autoloaded
+├── bin/
+│   └── build-zip.sh           # Builds build/fosse.zip (composer build-zip)
 ├── tests/
 │   ├── php/                   # PHPUnit tests (WorDBless, *Test.php suffix)
 │   │   └── bootstrap.php
@@ -38,7 +40,7 @@ fosse/
 ├── tools/                     # Isolated composer project for PHPCS (PHP 8.4+)
 │   └── composer.json
 ├── .github/
-│   ├── workflows/             # tests.yml, linting.yml, e2e.yml
+│   ├── workflows/             # tests.yml, linting.yml, e2e.yml, build-zip.yml
 │   └── dependabot.yml
 ├── .phpcs.xml.dist            # Jetpack ruleset, text-domain: fosse
 ├── phpunit.xml.dist
@@ -96,6 +98,14 @@ pnpm run test:e2e
 ```
 
 Boots WordPress Playground on `127.0.0.1:9400` via the blueprint at `tests/e2e/blueprint.json`, mounts the repo as the `fosse` plugin, and runs Playwright specs from `tests/e2e/`.
+
+### Build plugin zip
+
+```bash
+composer run-script build-zip
+```
+
+Produces `build/fosse.zip` — a drop-in plugin bundle containing `fosse.php`, `src/`, and a production (`--no-dev`) `vendor/`. CI (`.github/workflows/build-zip.yml`) runs the same script to attach the zip to every published release and to refresh a rolling `latest-trunk` prerelease (tag + release, not a stable build) on each push to `trunk`.
 
 ## Code Conventions
 
