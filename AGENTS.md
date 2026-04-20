@@ -121,7 +121,7 @@ Produces `build/fosse.zip` — a drop-in plugin bundle containing `fosse.php`, `
 
 Re-vendors `bundled/activitypub/` and `bundled/atmosphere/` from local upstream checkouts. Configure sources via env vars:
 
--   `FOSSE_AP_SOURCE` — path to the wordpress-activitypub checkout (default: `~/code/wordpress-activitiypub`)
+-   `FOSSE_AP_SOURCE` — path to the wordpress-activitypub checkout (default: `~/code/wordpress-activitypub`)
 -   `FOSSE_ATMO_SOURCE` — path to the wordpress-atmosphere checkout (default: `~/code/wordpress-atmosphere`)
 
 The script runs `composer install --no-dev --optimize-autoloader` inside the Atmosphere source before rsyncing so the vendored copy is self-contained. Bundling the federation backends is a short-term bootstrap; long-term we expect to drop this in favor of a cleaner distribution approach.
