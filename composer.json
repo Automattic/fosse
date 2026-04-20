@@ -48,6 +48,9 @@
 		],
 		"fix-php": [
 			"tools/vendor/bin/phpcbf"
+		],
+		"build-zip": [
+			"bash bin/build-zip.sh"
 		]
 	}
 }
