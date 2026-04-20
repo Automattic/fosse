@@ -2,9 +2,10 @@
 #
 # Build a distributable zip of the FOSSE plugin at build/fosse.zip.
 #
-# The zip unpacks to a single fosse/ directory containing fosse.php, src/,
-# and a production vendor/ (no dev dependencies, no composer.json/lock),
-# ready to drop into wp-content/plugins/.
+# The zip unpacks to a single fosse/ directory containing every tracked
+# file not marked `export-ignore` in .gitattributes, plus a production
+# vendor/ (no dev dependencies, no composer.json/lock), ready to drop
+# into wp-content/plugins/.
 #
 # Environment:
 #   FOSSE_VERSION  If set, overrides the `Version:` header in the staged
@@ -27,12 +28,11 @@ ZIP_PATH="$BUILD_DIR/fosse.zip"
 rm -rf "$BUILD_DIR"
 mkdir -p "$STAGE_DIR"
 
-cp "$ROOT/fosse.php" "$STAGE_DIR/"
-cp -R "$ROOT/src" "$STAGE_DIR/"
-cp "$ROOT/composer.json" "$STAGE_DIR/"
-if [ -f "$ROOT/composer.lock" ]; then
-	cp "$ROOT/composer.lock" "$STAGE_DIR/"
-fi
+# Stage via `git archive`: the tree at HEAD, minus anything marked
+# `export-ignore` in .gitattributes. --worktree-attributes lets local
+# edits to .gitattributes take effect without a commit, which matches
+# how everything else in this script reads from the worktree.
+git -C "$ROOT" archive --format=tar --worktree-attributes HEAD | tar -x -C "$STAGE_DIR"
 
 if [ -n "${FOSSE_VERSION:-}" ]; then
 	# sed -i with a backup suffix is portable across GNU and BSD sed.

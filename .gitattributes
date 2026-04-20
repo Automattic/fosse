@@ -1,0 +1,32 @@
+# Files and directories excluded from `git archive`, which backs
+# `composer build-zip`. Anything tracked and NOT listed here ships in
+# the plugin zip, so prefer adding new dev-only paths here over rewriting
+# build-zip.sh.
+#
+# Directories get two entries: the bare path (prunes the dir from
+# archives) and `path/**` (so `git check-attr` on files under it also
+# reports the attribute — matters for any tool that queries attrs per
+# file rather than walking the tree like git-archive does).
+
+/.github               export-ignore
+/.github/**            export-ignore
+/.gitattributes        export-ignore
+/.gitignore            export-ignore
+/.phpcs.xml.dist       export-ignore
+/.prettierignore       export-ignore
+/AGENTS.md             export-ignore
+/CLAUDE.md             export-ignore
+/bin                   export-ignore
+/bin/**                export-ignore
+/eslint.config.mjs     export-ignore
+/jest.config.js        export-ignore
+/package.json          export-ignore
+/phpunit.xml.dist      export-ignore
+/playwright.config.ts  export-ignore
+/pnpm-lock.yaml        export-ignore
+/sdd                   export-ignore
+/sdd/**                export-ignore
+/tests                 export-ignore
+/tests/**              export-ignore
+/tools                 export-ignore
+/tools/**              export-ignore
