@@ -10,7 +10,7 @@ on:
 
 concurrency:
     group: build-zip-${{ github.event_name }}-${{ github.ref }}
-    cancel-in-progress: false
+    cancel-in-progress: true
 
 permissions:
     contents: write
@@ -43,11 +43,13 @@ jobs:
               run: gh release upload "$TAG" build/fosse.zip --clobber --repo "$GITHUB_REPOSITORY"
 
             - name: Refresh latest-trunk release
-              if: github.event_name != 'release'
+              if: github.event_name != 'release' && github.ref == 'refs/heads/trunk'
               env:
                   GH_TOKEN: ${{ github.token }}
               run: |
-                  gh release delete latest-trunk --yes --cleanup-tag --repo "$GITHUB_REPOSITORY" || true
+                  if gh release view latest-trunk --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+                      gh release delete latest-trunk --yes --cleanup-tag --repo "$GITHUB_REPOSITORY"
+                  fi
                   gh release create latest-trunk build/fosse.zip \
                       --repo "$GITHUB_REPOSITORY" \
                       --title "Latest trunk build" \
