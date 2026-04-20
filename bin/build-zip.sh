@@ -61,7 +61,11 @@ rm -f "$STAGE_DIR/composer.json" "$STAGE_DIR/composer.lock"
 
 # Sanity-check the built zip so a silently-broken bundle never reaches a release.
 contents=$(unzip -Z1 "$ZIP_PATH")
-for required in fosse/fosse.php fosse/vendor/autoload.php; do
+for required in \
+	fosse/fosse.php \
+	fosse/vendor/autoload.php \
+	fosse/bundled/activitypub/activitypub.php \
+	fosse/bundled/atmosphere/atmosphere.php; do
 	if ! grep -qx "$required" <<<"$contents"; then
 		echo "error: $required missing from $ZIP_PATH" >&2
 		exit 1
