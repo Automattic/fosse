@@ -1,7 +1,6 @@
 # Composer
 /vendor/
 /tools/vendor/
-/composer.lock
 
 # WorDBless / WordPress checkout
 /wordpress/
