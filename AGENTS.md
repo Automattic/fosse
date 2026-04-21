@@ -155,6 +155,18 @@ The script runs `composer install --no-dev --optimize-autoloader` inside the Atm
 -   Component prefix when helpful: `Tests: add smoke test for X`.
 -   No conventional-commit prefixes.
 
+## Before Pushing
+
+Run the lint suite at minimum before pushing any branch or opening a PR:
+
+```bash
+composer run-script lint-php       # PHPCS (Jetpack ruleset)
+pnpm run format:check              # Prettier
+pnpm run lint                      # ESLint
+```
+
+The full CI matrix runs on push, but catching formatting and style failures locally saves a round trip through GitHub Actions — and avoids re-triggering the Copilot PR review bot (and its review-points budget) on every retry push. PHPUnit and E2E can wait for CI; the linters are cheap and should be clean before the first push.
+
 ## CI Matrix
 
 -   `.github/workflows/tests.yml` runs PHPUnit across PHP 8.2/8.3/8.4/8.5 × WP 6.9/trunk. Trunk rows are `continue-on-error`. WP 7.0 covers via the `trunk` row until 7.0 releases, then it gets added as its own column.
