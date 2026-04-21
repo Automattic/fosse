@@ -1,5 +1,5 @@
 ---
-applyTo: "bundled/**"
+applyTo: 'bundled/**'
 ---
 
 # Copilot code review: skip bundled upstream plugins
@@ -11,12 +11,12 @@ verbatim from the upstream `Automattic/wordpress-activitypub` and
 
 When reviewing a FOSSE PR:
 
-- Do not flag issues in files under `bundled/`. Any real problem belongs
-  in the upstream repo and will flow back here on the next sync.
-- Typos, style nits, portability concerns, and refactor suggestions for
-  `bundled/` are out of scope for FOSSE PRs.
-- FOSSE's own code lives at the repo root (`fosse.php`) and under
-  `src/`. Focus review there.
+-   Do not flag issues in files under `bundled/`. Any real problem belongs
+    in the upstream repo and will flow back here on the next sync.
+-   Typos, style nits, portability concerns, and refactor suggestions for
+    `bundled/` are out of scope for FOSSE PRs.
+-   FOSSE's own code lives at the repo root (`fosse.php`) and under
+    `src/`. Focus review there.
 
 `.gitattributes` also marks this tree as `linguist-generated` to reinforce
 the skip. See `AGENTS.md` Common Pitfalls for the longer version.
