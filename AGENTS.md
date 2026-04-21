@@ -128,6 +128,8 @@ The script runs `composer install --no-dev --optimize-autoloader` inside the Atm
 
 ## Code Conventions
 
+This project follows **WordPress Coding Standards (WPCS)** for all PHP code, enforced via the Jetpack PHPCS ruleset.
+
 ### PHP
 
 -   **Jetpack ruleset** (WordPress-Extra + VariableAnalysis + PHPCompatibilityWP + selected MediaWiki sniffs).
