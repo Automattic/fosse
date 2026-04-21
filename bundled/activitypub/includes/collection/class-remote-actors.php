@@ -1,0 +1,818 @@
+<?php
+/**
+ * Remote Actors collection file.
+ *
+ * @package Activitypub
+ */
+
+namespace Activitypub\Collection;
+
+use Activitypub\Activity\Actor;
+use Activitypub\Emoji;
+use Activitypub\Http;
+use Activitypub\Sanitize;
+use Activitypub\Webfinger;
+
+use function Activitypub\is_actor;
+use function Activitypub\object_to_uri;
+
+/**
+ * Remote Actors collection class.
+ */
+class Remote_Actors {
+	/**
+	 * Post type for storing remote actors.
+	 *
+	 * @var string
+	 */
+	const POST_TYPE = 'ap_actor';
+
+	/**
+	 * Cache key for the followers inbox.
+	 *
+	 * @var string
+	 */
+	const CACHE_KEY_INBOXES = 'actor_inboxes';
+
+	/**
+	 * Returns all Inboxes for all known remote Actors.
+	 *
+	 * @return array The list of Inboxes.
+	 */
+	public static function get_inboxes() {
+		$inboxes = \wp_cache_get( self::CACHE_KEY_INBOXES, 'activitypub' );
+
+		if ( $inboxes ) {
+			return $inboxes;
+		}
+
+		global $wpdb;
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
+		$results = $wpdb->get_col(
+			"SELECT DISTINCT meta_value FROM {$wpdb->postmeta}
+			WHERE meta_key = '_activitypub_inbox'
+			AND meta_value IS NOT NULL"
+		);
+
+		$inboxes = \array_filter( $results );
+		\wp_cache_set( self::CACHE_KEY_INBOXES, $inboxes, 'activitypub' );
+
+		return $inboxes;
+	}
+
+	/**
+	 * Get an Remote Actor from the collection.
+	 *
+	 * @param int $id The object ID.
+	 *
+	 * @return \WP_Post|null The post object or null on failure.
+	 */
+	public static function get( $id ) {
+		$post = \get_post( $id );
+
+		if ( $post && self::POST_TYPE === $post->post_type ) {
+			return $post;
+		}
+
+		return null;
+	}
+
+	/**
+	 * Upsert (insert or update) a remote actor as a custom post type.
+	 *
+	 * @param array|Actor $actor ActivityPub actor object (array or actor, must include 'id').
+	 *
+	 * @return int|\WP_Error Post ID on success, WP_Error on failure.
+	 */
+	public static function upsert( $actor ) {
+		if ( \is_array( $actor ) ) {
+			$actor = Actor::init_from_array( $actor );
+		}
+
+		$post = self::get_by_uri( $actor->get_id() );
+
+		if ( ! \is_wp_error( $post ) ) {
+			return self::update( $post, $actor );
+		}
+
+		return self::create( $actor );
+	}
+
+	/**
+	 * Create a remote actor as a custom post type.
+	 *
+	 * @param array|Actor $actor ActivityPub actor object (array or Actor, must include 'id').
+	 *
+	 * @return int|\WP_Error Post ID on success, WP_Error on failure.
+	 */
+	public static function create( $actor ) {
+		if ( \is_array( $actor ) ) {
+			$actor = Actor::init_from_array( $actor );
+		}
+
+		$args = self::prepare_custom_post_type( $actor );
+
+		if ( \is_wp_error( $args ) ) {
+			return $args;
+		}
+
+		$has_kses = false !== \has_filter( 'content_save_pre', 'wp_filter_post_kses' );
+		if ( $has_kses ) {
+			// Prevent KSES from corrupting JSON in post_content.
+			\kses_remove_filters();
+		}
+
+		$post_id = \wp_insert_post( $args );
+
+		if ( $has_kses ) {
+			// Restore KSES filters.
+			\kses_init_filters();
+		}
+
+		return $post_id;
+	}
+
+	/**
+	 * Update a remote Actor object by actor URL (guid).
+	 *
+	 * @param int|\WP_Post $post  The post ID or object.
+	 * @param array|Actor  $actor The ActivityPub actor object as associative array (must include 'id').
+	 *
+	 * @return int|\WP_Error The post ID or WP_Error.
+	 */
+	public static function update( $post, $actor ) {
+		if ( \is_array( $actor ) ) {
+			$actor = Actor::init_from_array( $actor );
+		}
+
+		$post = \get_post( $post, ARRAY_A );
+
+		if ( ! $post ) {
+			return new \WP_Error(
+				'activitypub_actor_not_found',
+				\__( 'Actor not found', 'activitypub' ),
+				array( 'status' => 404 )
+			);
+		}
+
+		$args = self::prepare_custom_post_type( $actor );
+
+		if ( \is_wp_error( $args ) ) {
+			return $args;
+		}
+
+		$args = \wp_parse_args( $args, $post );
+
+		$has_kses = false !== \has_filter( 'content_save_pre', 'wp_filter_post_kses' );
+		if ( $has_kses ) {
+			// Prevent KSES from corrupting JSON in post_content.
+			\kses_remove_filters();
+		}
+
+		$post_id = \wp_update_post( $args );
+
+		if ( $has_kses ) {
+			// Restore KSES filters.
+			\kses_init_filters();
+		}
+
+		return $post_id;
+	}
+
+	/**
+	 * Delete a remote actor object by actor URL (guid).
+	 *
+	 * @param int $post_id The post ID.
+	 *
+	 * @return bool True on success, false on failure.
+	 */
+	public static function delete( $post_id ) {
+		return \wp_delete_post( $post_id );
+	}
+
+	/**
+	 * Get a remote actor post by actor URI (guid).
+	 *
+	 * @param string $actor_uri The actor URI.
+	 *
+	 * @return \WP_Post|\WP_Error Post object or WP_Error if not found.
+	 */
+	public static function get_by_uri( $actor_uri ) {
+		global $wpdb;
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$post_id = $wpdb->get_var(
+			$wpdb->prepare(
+				"SELECT ID FROM $wpdb->posts WHERE guid=%s AND post_type=%s",
+				esc_sql( $actor_uri ),
+				esc_sql( self::POST_TYPE )
+			)
+		);
+
+		if ( ! $post_id ) {
+			return new \WP_Error(
+				'activitypub_actor_not_found',
+				\__( 'Actor not found', 'activitypub' ),
+				array( 'status' => 404 )
+			);
+		}
+
+		$post = \get_post( $post_id );
+		if ( ! $post instanceof \WP_Post ) {
+			return new \WP_Error(
+				'activitypub_actor_not_found',
+				\__( 'Actor not found', 'activitypub' ),
+				array( 'status' => 404 )
+			);
+		}
+
+		return $post;
+	}
+
+	/**
+	 * Fetch a remote actor post by either actor URI or acct, fetching from remote if not found locally.
+	 *
+	 * @param string $uri_or_acct The actor URI or acct identifier.
+	 *
+	 * @return \WP_Post|\WP_Error Post object or WP_Error if not found.
+	 */
+	public static function fetch_by_various( $uri_or_acct ) {
+		if ( \filter_var( $uri_or_acct, FILTER_VALIDATE_URL ) ) {
+			return self::fetch_by_uri( $uri_or_acct );
+		}
+
+		if ( preg_match( '/^@?' . ACTIVITYPUB_USERNAME_REGEXP . '$/i', $uri_or_acct ) ) {
+			return self::fetch_by_acct( $uri_or_acct );
+		}
+
+		return new \WP_Error(
+			'activitypub_invalid_actor_identifier',
+			'The actor identifier is not supported',
+			array( 'status' => 400 )
+		);
+	}
+
+	/**
+	 * Lookup a remote actor post by actor URI (guid), fetching from remote if not found locally.
+	 *
+	 * @param string $actor_uri The actor URI.
+	 *
+	 * @return \WP_Post|\WP_Error Post object or WP_Error if not found.
+	 */
+	public static function fetch_by_uri( $actor_uri ) {
+		$post = self::get_by_uri( $actor_uri );
+
+		if ( ! \is_wp_error( $post ) ) {
+			return $post;
+		}
+
+		$object = Http::get_remote_object( $actor_uri, false );
+
+		if ( \is_wp_error( $object ) ) {
+			return $object;
+		}
+
+		if ( ! is_actor( $object ) ) {
+			return new \WP_Error(
+				'activitypub_no_actor',
+				\__( 'Object is not an Actor', 'activitypub' ),
+				array( 'status' => 400 )
+			);
+		}
+
+		$post_id = self::upsert( $object );
+
+		if ( \is_wp_error( $post_id ) ) {
+			return $post_id;
+		}
+
+		$post = \get_post( $post_id );
+		if ( ! $post instanceof \WP_Post ) {
+			return new \WP_Error(
+				'activitypub_actor_not_found',
+				\__( 'Actor not found', 'activitypub' ),
+				array( 'status' => 404 )
+			);
+		}
+
+		return $post;
+	}
+
+	/**
+	 * Fetch a remote actor post by acct, fetching from remote if not found locally.
+	 *
+	 * @param string $acct The acct identifier.
+	 *
+	 * @return \WP_Post|\WP_Error Post object or WP_Error if not found.
+	 */
+	public static function fetch_by_acct( $acct ) {
+		$acct = Sanitize::webfinger( $acct );
+
+		// Check local DB for acct post meta.
+		global $wpdb;
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$post_id = $wpdb->get_var(
+			$wpdb->prepare(
+				"SELECT post_id FROM $wpdb->postmeta WHERE meta_key='_activitypub_acct' AND meta_value=%s",
+				$acct
+			)
+		);
+
+		if ( $post_id ) {
+			$post = \get_post( $post_id );
+			if ( ! $post instanceof \WP_Post ) {
+				return new \WP_Error(
+					'activitypub_actor_not_found',
+					\__( 'Actor not found', 'activitypub' ),
+					array( 'status' => 404 )
+				);
+			}
+
+			return $post;
+		}
+
+		$profile_uri = Webfinger::resolve( $acct );
+
+		if ( \is_wp_error( $profile_uri ) ) {
+			return $profile_uri;
+		}
+
+		$post = self::fetch_by_uri( $profile_uri );
+
+		if ( ! \is_wp_error( $post ) ) {
+			\update_post_meta( $post->ID, '_activitypub_acct', $acct );
+		}
+
+		return $post;
+	}
+
+	/**
+	 * Store an error that occurred when sending an ActivityPub message to a follower.
+	 *
+	 * The error will be stored in post meta.
+	 *
+	 * @param int              $post_id The ID of the WordPress Custom-Post-Type.
+	 * @param string|\WP_Error $error   The error message.
+	 *
+	 * @return int|false The meta ID on success, false on failure.
+	 */
+	public static function add_error( $post_id, $error ) {
+		if ( \is_string( $error ) ) {
+			$error_message = $error;
+		} elseif ( \is_wp_error( $error ) ) {
+			$error_message = $error->get_error_message();
+		} else {
+			$error_message = \__(
+				'Unknown Error or misconfigured Error-Message',
+				'activitypub'
+			);
+		}
+
+		return \add_post_meta(
+			$post_id,
+			'_activitypub_errors',
+			$error_message
+		);
+	}
+
+	/**
+	 * Count the errors for an actor.
+	 *
+	 * @param int $post_id The ID of the WordPress Custom-Post-Type.
+	 *
+	 * @return int The number of errors.
+	 */
+	public static function count_errors( $post_id ) {
+		return \count( \get_post_meta( $post_id, '_activitypub_errors', false ) );
+	}
+
+	/**
+	 * Get all error messages for an actor.
+	 *
+	 * @param int $post_id The post ID.
+	 *
+	 * @return string[] Array of error messages.
+	 */
+	public static function get_errors( $post_id ) {
+		return \get_post_meta( $post_id, '_activitypub_errors', false );
+	}
+
+	/**
+	 * Clear all errors for an actor.
+	 *
+	 * @param int $post_id The ID of the WordPress Custom-Post-Type.
+	 *
+	 * @return bool True on success, false on failure.
+	 */
+	public static function clear_errors( $post_id ) {
+		return \delete_post_meta( $post_id, '_activitypub_errors' );
+	}
+
+	/**
+	 * Get all remote actors (Custom Post Type) that had errors.
+	 *
+	 * @param int $number Optional. Number of actors to return. Default 20.
+	 *
+	 * @return \WP_Post[] Array of faulty actor posts.
+	 */
+	public static function get_faulty( $number = 20 ) {
+		$args = array(
+			'post_type'      => self::POST_TYPE,
+			'posts_per_page' => $number,
+			// phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query
+			'meta_query'     => array(
+				'relation' => 'OR',
+				array(
+					'key'     => '_activitypub_errors',
+					'compare' => 'EXISTS',
+				),
+				array(
+					'key'     => '_activitypub_inbox',
+					'compare' => 'NOT EXISTS',
+				),
+				array(
+					'key'     => '_activitypub_inbox',
+					'value'   => '',
+					'compare' => '=',
+				),
+			),
+		);
+
+		return ( new \WP_Query() )->query( $args );
+	}
+
+	/**
+	 * Get all remote actor posts not updated for a given time.
+	 *
+	 * @param int $number     Optional. Limits the result. Default 50.
+	 * @param int $older_than Optional. The time in seconds. Default DAY_IN_SECONDS.
+	 *
+	 * @return \WP_Post[] The list of actors.
+	 */
+	public static function get_outdated( $number = 50, $older_than = DAY_IN_SECONDS ) {
+		$args = array(
+			'post_type'      => self::POST_TYPE,
+			'posts_per_page' => $number,
+			'orderby'        => 'modified',
+			'order'          => 'ASC',
+			'post_status'    => 'any', // 'any' includes 'trash'.
+			'date_query'     => array(
+				array(
+					'column' => 'post_modified_gmt',
+					'before' => \gmdate( 'Y-m-d', \time() - $older_than ),
+				),
+			),
+		);
+
+		return ( new \WP_Query() )->query( $args );
+	}
+
+	/**
+	 * Convert a custom post type input to an Activitypub\Activity\Actor.
+	 *
+	 * @param int|\WP_Post $post The post ID or object.
+	 *
+	 * @return Actor|\WP_Error The actor object or WP_Error on failure.
+	 */
+	public static function get_actor( $post ) {
+		$post = \get_post( $post );
+
+		if ( ! $post ) {
+			return new \WP_Error(
+				'activitypub_actor_not_found',
+				\__( 'Actor not found', 'activitypub' ),
+				array( 'status' => 404 )
+			);
+		}
+
+		$json = $post->post_content;
+
+		if ( empty( $json ) ) {
+			$json = \get_post_meta( $post->ID, '_activitypub_actor_json', true );
+		}
+
+		$actor = Actor::init_from_json( $json );
+
+		if ( \is_wp_error( $actor ) ) {
+			self::add_error( $post->ID, $actor );
+
+			return $actor;
+		}
+
+		if ( ! $actor->get_webfinger() ) {
+			$actor->set_webfinger( self::get_acct( $post->ID ) );
+		}
+
+		return $actor;
+	}
+
+	/**
+	 * Prepare actor object for insert or update as a custom post type.
+	 *
+	 * @param Actor $actor The actor data.
+	 *
+	 * @return array|\WP_Error Array of post arguments or WP_Error on failure.
+	 */
+	private static function prepare_custom_post_type( $actor ) {
+		if ( ! $actor instanceof Actor ) {
+			return new \WP_Error(
+				'activitypub_invalid_actor_data',
+				\__( 'Invalid actor data', 'activitypub' ),
+				array( 'status' => 400 )
+			);
+		}
+
+		if ( ! empty( $actor->get_endpoints()['sharedInbox'] ) ) {
+			$inbox = $actor->get_endpoints()['sharedInbox'];
+		} elseif ( ! empty( $actor->get_inbox() ) ) {
+			$inbox = $actor->get_inbox();
+		} else {
+			return new \WP_Error(
+				'activitypub_invalid_actor_data',
+				\__( 'Invalid actor data', 'activitypub' ),
+				array( 'status' => 400 )
+			);
+		}
+
+		if ( $actor->get_webfinger() ) {
+			$webfinger = Sanitize::webfinger( $actor->get_webfinger() );
+		} else {
+			$webfinger = Webfinger::uri_to_acct( $actor->get_id() );
+			$webfinger = \is_wp_error( $webfinger ) ? Webfinger::guess( $actor ) : Sanitize::webfinger( $webfinger );
+		}
+
+		/*
+		 * Temporarily remove mention/hashtag/link filters to prevent infinite recursion when
+		 * storing remote actors with mentions/hashtags in their bios.
+		 *
+		 * PROBLEM: These filters are globally registered on 'init' for all to_json() calls,
+		 * but they're designed for OUTGOING content (federation). When processing mentions in
+		 * an actor's bio during storage, the Mention filter fetches the mentioned actor, which
+		 * then processes mentions in THEIR bio, creating infinite recursion.
+		 *
+		 * SHORTCOMINGS:
+		 * - Fragile: Easy to forget when adding new storage locations (e.g., Inbox storage).
+		 * - Scattered: Same pattern would need to be repeated anywhere we store remote content.
+		 * - Race conditions: If filters are re-added/removed elsewhere, this could break.
+		 * - Not semantic: We're working around a design issue rather than fixing it.
+		 *
+		 * BETTER LONG-TERM SOLUTION:
+		 * Distinguish between "incoming" (storage) and "outgoing" (federation) contexts:
+		 * - INCOMING: Store received ActivityPub data as-is, don't process mentions/hashtags.
+		 *   (Remote_Actors::prepare_custom_post_type, Inbox storage)
+		 * - OUTGOING: Process mentions/hashtags when serving our content to other servers.
+		 *   (Dispatcher, REST API controllers, Transformers)
+		 */
+		\remove_filter( 'activitypub_activity_object_array', array( 'Activitypub\Mention', 'filter_activity_object' ), 99 );
+		\remove_filter( 'activitypub_activity_object_array', array( 'Activitypub\Hashtag', 'filter_activity_object' ), 99 );
+		\remove_filter( 'activitypub_activity_object_array', array( 'Activitypub\Link', 'filter_activity_object' ), 99 );
+
+		$actor_json  = $actor->to_json();
+		$actor_array = $actor->to_array();
+
+		// Re-add the filters.
+		\add_filter( 'activitypub_activity_object_array', array( 'Activitypub\Mention', 'filter_activity_object' ), 99 );
+		\add_filter( 'activitypub_activity_object_array', array( 'Activitypub\Hashtag', 'filter_activity_object' ), 99 );
+		\add_filter( 'activitypub_activity_object_array', array( 'Activitypub\Link', 'filter_activity_object' ), 99 );
+
+		$meta_input = array(
+			'_activitypub_inbox' => $inbox,
+			'_activitypub_acct'  => $webfinger,
+		);
+
+		// Add emoji meta if actor has emoji in tags.
+		$emoji_meta = Emoji::prepare_actor_meta( $actor_array );
+		$meta_input = array_merge( $meta_input, $emoji_meta );
+
+		return array(
+			'guid'         => \esc_url_raw( $actor->get_id() ),
+			'post_title'   => \wp_strip_all_tags( \wp_slash( $actor->get_name() ?: $actor->get_preferred_username() ) ),
+			'post_author'  => 0,
+			'post_type'    => self::POST_TYPE,
+			'post_content' => \wp_slash( $actor_json ),
+			'post_excerpt' => \wp_kses( \wp_slash( (string) $actor->get_summary() ), 'user_description' ),
+			'post_status'  => 'publish',
+			'meta_input'   => $meta_input,
+		);
+	}
+
+	/**
+	 * Normalize actor identifier to a URI.
+	 *
+	 * Handles webfinger addresses, URLs without schemes, objects, and arrays.
+	 *
+	 * @param string|object|array $actor Actor URI, webfinger address, actor object, or array.
+	 * @return string|null Normalized actor URI or null if unable to resolve.
+	 */
+	public static function normalize_identifier( $actor ) {
+		$actor = object_to_uri( $actor );
+		if ( ! is_string( $actor ) ) {
+			return null;
+		}
+
+		$actor = \trim( $actor, '@' );
+
+		// If it's an email-like webfinger address, resolve it.
+		if ( \filter_var( $actor, FILTER_VALIDATE_EMAIL ) ) {
+			$resolved = Webfinger::resolve( $actor );
+			return \is_wp_error( $resolved ) ? null : object_to_uri( $resolved );
+		}
+
+		// If it's a URL without scheme, add https://.
+		if ( empty( \wp_parse_url( $actor, PHP_URL_SCHEME ) ) ) {
+			$actor = \esc_url_raw( 'https://' . \ltrim( $actor, '/' ) );
+		}
+
+		return $actor;
+	}
+
+	/**
+	 * Get public key from key_id.
+	 *
+	 * @param string $key_id The URL to the public key.
+	 *
+	 * @return resource|\WP_Error The public key resource or WP_Error.
+	 */
+	public static function get_public_key( $key_id ) {
+		$no_profile_error = new \WP_Error( 'activitypub_no_remote_profile_found', 'No Profile found or Profile not accessible', array( 'status' => 401 ) );
+		$no_key_error     = new \WP_Error( 'activitypub_no_remote_key_found', 'No Public-Key found', array( 'status' => 401 ) );
+
+		$actor = self::get_by_uri( \strip_fragment_from_url( $key_id ) );
+
+		if ( ! \is_wp_error( $actor ) ) {
+			$actor = \json_decode( $actor->post_content, true );
+		} else {
+			$data = Http::get_remote_object( $key_id );
+
+			if ( \is_wp_error( $data ) ) {
+				return $no_profile_error;
+			}
+
+			// If we fetched a standalone key object, follow the owner to get the actor.
+			if ( isset( $data['owner'] ) && ! isset( $data['publicKey'] ) ) {
+				// Verify the owner is on the same host as the key to prevent cross-origin spoofing.
+				$key_host   = \wp_parse_url( $key_id, \PHP_URL_HOST );
+				$owner_host = \wp_parse_url( $data['owner'], \PHP_URL_HOST );
+
+				if ( ! $key_host || ! $owner_host || $key_host !== $owner_host ) {
+					return $no_key_error;
+				}
+
+				$data = Http::get_remote_object( $data['owner'] );
+			}
+
+			$actor = $data;
+		}
+
+		if ( \is_wp_error( $actor ) ) {
+			return $no_profile_error;
+		}
+
+		$public_key_pem = self::extract_public_key_pem( $actor );
+
+		if ( ! $public_key_pem ) {
+			return $no_key_error;
+		}
+
+		$key_resource = \openssl_pkey_get_public( \rtrim( $public_key_pem ) );
+
+		if ( ! $key_resource ) {
+			return $no_key_error;
+		}
+
+		return $key_resource;
+	}
+
+	/**
+	 * Extract public key PEM from a fetched object.
+	 *
+	 * Supports two formats:
+	 * 1. Actor objects with a nested `publicKey` property (e.g. Mastodon-style `#main-key` fragments).
+	 * 2. Actor objects with a `publicKey` URL reference (e.g. `tags.pub`).
+	 *    The URL is dereferenced and the key's owner is verified against the actor.
+	 *
+	 * @since 8.0.0
+	 *
+	 * @param array $data The fetched actor JSON data.
+	 *
+	 * @return string|false The public key PEM string, or false if not found.
+	 */
+	private static function extract_public_key_pem( $data ) {
+		// Standard actor with nested publicKey.
+		if ( isset( $data['publicKey']['publicKeyPem'] ) ) {
+			return $data['publicKey']['publicKeyPem'];
+		}
+
+		// Actor with publicKey as a URL reference (e.g. tags.pub).
+		if ( ! isset( $data['publicKey'] ) || ! \is_string( $data['publicKey'] ) ) {
+			return false;
+		}
+
+		$actor_host   = isset( $data['id'] ) ? \wp_parse_url( $data['id'], \PHP_URL_HOST ) : null;
+		$key_url_host = \wp_parse_url( $data['publicKey'], \PHP_URL_HOST );
+
+		// Verify the key URL is on the same host as the actor.
+		if ( ! $actor_host || ! $key_url_host || $actor_host !== $key_url_host ) {
+			return false;
+		}
+
+		$key_data = Http::get_remote_object( $data['publicKey'] );
+
+		if ( \is_wp_error( $key_data ) || ! isset( $key_data['publicKeyPem'] ) ) {
+			return false;
+		}
+
+		// Verify the key's owner matches the actor.
+		if ( ! isset( $key_data['owner'] ) || $key_data['owner'] !== $data['id'] ) {
+			return false;
+		}
+
+		return $key_data['publicKeyPem'];
+	}
+
+	/**
+	 * Get the acct of a remote actor.
+	 *
+	 * @uses Webfinger::uri_to_acct to resolve the acct by the actor URI.
+	 * @uses Webfinger::guess       to guess a acct if the actors acct is not resolvable.
+	 *
+	 * @param int $id The ID of the remote actor.
+	 *
+	 * @return string The acct of the remote actor or empty string on failure.
+	 */
+	public static function get_acct( $id ) {
+		$acct = \get_post_meta( $id, '_activitypub_acct', true );
+
+		if ( $acct ) {
+			return $acct;
+		}
+
+		$post = \get_post( $id );
+
+		if ( ! $post ) {
+			return '';
+		}
+
+		$acct = Webfinger::uri_to_acct( $post->guid );
+
+		if ( \is_wp_error( $acct ) ) {
+			$actor = Actor::init_from_json( $post->post_content );
+			if ( \is_wp_error( $actor ) ) {
+				return '';
+			}
+
+			$acct = Webfinger::guess( $actor );
+		}
+
+		$acct = Sanitize::webfinger( $acct );
+
+		\update_post_meta( $id, '_activitypub_acct', $acct );
+
+		return $acct;
+	}
+
+	/**
+	 * Get the avatar URL for a remote actor.
+	 *
+	 * Uses lazy caching - the avatar is only downloaded when first accessed.
+	 * Passes the URL through the activitypub_remote_media_url filter which
+	 * triggers caching if enabled.
+	 *
+	 * @param int $id The ID of the remote actor post.
+	 *
+	 * @return string The avatar URL or a default one if not found.
+	 */
+	public static function get_avatar_url( $id ) {
+		$default_avatar_url = ACTIVITYPUB_PLUGIN_URL . 'assets/img/mp.jpg';
+
+		// Extract remote avatar URL from actor data.
+		$post = \get_post( $id );
+		if ( ! $post || empty( $post->post_content ) ) {
+			return $default_avatar_url;
+		}
+
+		$actor_data = \json_decode( $post->post_content, true );
+		if ( empty( $actor_data['icon'] ) ) {
+			return $default_avatar_url;
+		}
+
+		$remote_avatar_url = object_to_uri( $actor_data['icon'] );
+		if ( empty( $remote_avatar_url ) ) {
+			return $default_avatar_url;
+		}
+
+		/**
+		 * Filters a remote media URL before use.
+		 *
+		 * Cache handlers hook into this filter to provide lazy caching.
+		 * Returns cached local URL if available, otherwise original URL.
+		 *
+		 * @since 5.6.0
+		 *
+		 * @param string      $url       The remote avatar URL.
+		 * @param string      $context   The context ('avatar', 'media', 'emoji').
+		 * @param int|null    $entity_id The entity ID (actor post ID, post ID, or null for emoji).
+		 * @param array       $options   Optional. Additional options like 'updated' timestamp.
+		 */
+		return \apply_filters( 'activitypub_remote_media_url', $remote_avatar_url, 'avatar', $id, array() );
+	}
+}

@@ -1,0 +1,376 @@
+<?php
+/**
+ * Main plugin initialization and hook wiring.
+ *
+ * @package Atmosphere
+ */
+
+namespace Atmosphere;
+
+\defined( 'ABSPATH' ) || exit;
+
+use Atmosphere\OAuth\Client;
+use Atmosphere\Transformer\Document;
+use Atmosphere\Transformer\Publication;
+use Atmosphere\Transformer\TID;
+use Atmosphere\Integrations\Load;
+use Atmosphere\WP_Admin\Admin;
+
+/**
+ * Atmosphere main class.
+ */
+class Atmosphere {
+
+	/**
+	 * Wire up all hooks.
+	 */
+	public function init(): void {
+		// Admin.
+		if ( \is_admin() ) {
+			Admin::register();
+			Backfill::register();
+		}
+
+		// REST route (always active for client-metadata).
+		\add_action( 'rest_api_init', array( Admin::class, 'register_rest_routes' ) );
+
+		// Frontend verification headers.
+		\add_action( 'wp_head', array( $this, 'output_document_link' ) );
+
+		// Well-known endpoints.
+		\add_action( 'init', array( $this, 'register_wellknown_rewrite' ) );
+		\add_action( 'template_redirect', array( $this, 'serve_wellknown_atproto_did' ) );
+		\add_action( 'template_redirect', array( $this, 'serve_wellknown_publication' ) );
+
+		// Plugin integrations.
+		Load::init();
+
+		// JSON preview for AT Protocol records.
+		\add_action( 'template_redirect', array( $this, 'preview' ) );
+
+		// Post lifecycle hooks.
+		\add_action( 'transition_post_status', array( $this, 'on_status_change' ), 10, 3 );
+
+		// Catch permanent deletes (bypassing trash or emptying trash).
+		\add_action( 'before_delete_post', array( $this, 'on_before_delete' ) );
+
+		// Auto-sync publication when site identity changes.
+		\add_action( 'update_option_blogname', array( $this, 'schedule_publication_sync' ) );
+		\add_action( 'update_option_blogdescription', array( $this, 'schedule_publication_sync' ) );
+		\add_action( 'update_option_site_icon', array( $this, 'schedule_publication_sync' ) );
+
+		// Token refresh cron.
+		\add_action( 'atmosphere_refresh_token', array( $this, 'cron_refresh_token' ) );
+
+		if ( ! \wp_next_scheduled( 'atmosphere_refresh_token' ) && is_connected() ) {
+			\wp_schedule_event( \time(), 'twicedaily', 'atmosphere_refresh_token' );
+		}
+
+		// Async action hooks (called by WP-Cron).
+		self::register_async_hooks();
+	}
+
+	/**
+	 * Output <link rel="site.standard.document"> on singular posts.
+	 *
+	 * This confirms the bidirectional link between the web page and
+	 * its AT Protocol document record, as required by standard.site.
+	 */
+	public function output_document_link(): void {
+		if ( ! is_connected() || ! \is_singular() ) {
+			return;
+		}
+
+		$post = \get_queried_object();
+
+		if ( ! $post instanceof \WP_Post ) {
+			return;
+		}
+
+		if ( ! \in_array( $post->post_type, Backfill::syncable_post_types(), true ) ) {
+			return;
+		}
+
+		// Use existing TID or lazily generate one.
+		$doc_tid = \get_post_meta( $post->ID, Document::META_TID, true );
+
+		if ( empty( $doc_tid ) ) {
+			$doc_tid = TID::generate();
+			\update_post_meta( $post->ID, Document::META_TID, $doc_tid );
+		}
+
+		$uri = build_at_uri( get_did(), 'site.standard.document', $doc_tid );
+
+		\printf(
+			'<link rel="site.standard.document" href="%s" />' . "\n",
+			\esc_attr( $uri )
+		);
+	}
+
+	/**
+	 * Register rewrite rules for well-known endpoints.
+	 */
+	public function register_wellknown_rewrite(): void {
+		\add_rewrite_rule(
+			'^\.well-known/atproto-did$',
+			'index.php?atmosphere_wellknown=atproto-did',
+			'top'
+		);
+
+		\add_rewrite_rule(
+			'^\.well-known/site\.standard\.publication$',
+			'index.php?atmosphere_wellknown=publication',
+			'top'
+		);
+
+		\add_filter(
+			'query_vars',
+			static function ( array $vars ): array {
+				$vars[] = 'atmosphere_wellknown';
+				return $vars;
+			}
+		);
+	}
+
+	/**
+	 * Serve the /.well-known/atproto-did response.
+	 *
+	 * Returns the connected DID as plain text so the domain can be
+	 * verified as an AT Protocol handle (domain handle verification).
+	 *
+	 * @see https://atproto.com/specs/handle#handle-resolution
+	 */
+	public function serve_wellknown_atproto_did(): void {
+		if ( \get_query_var( 'atmosphere_wellknown' ) !== 'atproto-did' ) {
+			return;
+		}
+
+		if ( ! is_connected() ) {
+			\status_header( 404 );
+			exit;
+		}
+
+		\status_header( 200 );
+		\header( 'Content-Type: text/plain; charset=utf-8' );
+		echo \esc_html( get_did() );
+		exit;
+	}
+
+	/**
+	 * Serve the /.well-known/site.standard.publication response.
+	 *
+	 * Returns the AT-URI of the publication record as plain text,
+	 * confirming the link between this domain and the publication.
+	 */
+	public function serve_wellknown_publication(): void {
+		if ( \get_query_var( 'atmosphere_wellknown' ) !== 'publication' ) {
+			return;
+		}
+
+		if ( ! is_connected() ) {
+			\status_header( 404 );
+			exit;
+		}
+
+		$pub_tid = \get_option( Publication::OPTION_TID );
+
+		if ( ! $pub_tid ) {
+			\status_header( 404 );
+			exit;
+		}
+
+		$uri = build_at_uri( get_did(), 'site.standard.publication', $pub_tid );
+
+		\status_header( 200 );
+		\header( 'Content-Type: text/plain; charset=utf-8' );
+		echo \esc_html( $uri );
+		exit;
+	}
+
+	/**
+	 * Serve a JSON preview of the AT Protocol record for a post.
+	 *
+	 * Append ?atproto to a singular post URL to see the document
+	 * record JSON. Requires the edit_posts capability.
+	 */
+	public function preview(): void {
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
+		if ( ! isset( $_GET['atproto'] ) || ! \is_singular() ) {
+			return;
+		}
+
+		if ( ! \current_user_can( 'edit_posts' ) ) {
+			return;
+		}
+
+		$post = \get_queried_object();
+
+		if ( ! $post instanceof \WP_Post ) {
+			return;
+		}
+
+		if ( ! \in_array( $post->post_type, Backfill::syncable_post_types(), true ) ) {
+			\status_header( 404 );
+			exit;
+		}
+
+		$transformer = new Document( $post );
+		$record      = $transformer->transform();
+
+		\status_header( 200 );
+		\header( 'Content-Type: application/json; charset=utf-8' );
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.json_encode_json_encode
+		echo \wp_json_encode( $record, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE );
+		exit;
+	}
+
+	/**
+	 * Handle post status transitions.
+	 *
+	 * @param string   $new_status New status.
+	 * @param string   $old_status Old status.
+	 * @param \WP_Post $post       Post object.
+	 */
+	public function on_status_change( string $new_status, string $old_status, \WP_Post $post ): void {
+		if ( ! is_connected() ) {
+			return;
+		}
+
+		if ( '0' === \get_option( 'atmosphere_auto_publish', '1' ) ) {
+			return;
+		}
+
+		if ( ! \in_array( $post->post_type, Backfill::syncable_post_types(), true ) ) {
+			return;
+		}
+
+		// Prevent infinite loops from meta updates.
+		if ( \did_action( 'atmosphere_publishing' ) ) {
+			return;
+		}
+
+		\do_action( 'atmosphere_publishing' );
+
+		if ( 'publish' === $new_status && 'publish' !== $old_status ) {
+			// New publish — schedule async.
+			\wp_schedule_single_event( \time(), 'atmosphere_publish_post', array( $post->ID ) );
+		} elseif ( 'publish' === $new_status && 'publish' === $old_status ) {
+			// Update.
+			\wp_schedule_single_event( \time(), 'atmosphere_update_post', array( $post->ID ) );
+		} elseif ( 'publish' === $old_status && 'publish' !== $new_status ) {
+			/*
+			 * Genuine unpublish — transitioning away from publish.
+			 * Use atmosphere_delete_post (not delete_records) so that
+			 * post meta is cleaned up on success, allowing a subsequent
+			 * restore (trash → publish) to republish correctly.
+			 */
+			$bsky_tid = \get_post_meta( $post->ID, Transformer\Post::META_TID, true );
+			$doc_tid  = \get_post_meta( $post->ID, Transformer\Document::META_TID, true );
+			if ( $bsky_tid || $doc_tid ) {
+				\wp_schedule_single_event( \time(), 'atmosphere_delete_post', array( $post->ID ) );
+			}
+		}
+	}
+
+	/**
+	 * Schedule AT Protocol record deletion before a post is permanently deleted.
+	 *
+	 * Captures TIDs from post meta before they're lost, then schedules
+	 * an async delete via cron.
+	 *
+	 * @param int $post_id Post ID being deleted.
+	 */
+	public function on_before_delete( int $post_id ): void {
+		if ( ! is_connected() ) {
+			return;
+		}
+
+		$post = \get_post( $post_id );
+
+		if ( ! $post || ! \in_array( $post->post_type, Backfill::syncable_post_types(), true ) ) {
+			return;
+		}
+
+		$bsky_tid = \get_post_meta( $post_id, Transformer\Post::META_TID, true );
+		$doc_tid  = \get_post_meta( $post_id, Transformer\Document::META_TID, true );
+
+		if ( $bsky_tid || $doc_tid ) {
+			\wp_schedule_single_event( \time(), 'atmosphere_delete_records', array( $bsky_tid, $doc_tid ) );
+		}
+	}
+
+	/**
+	 * Schedule an async publication sync.
+	 */
+	public function schedule_publication_sync(): void {
+		if ( ! is_connected() ) {
+			return;
+		}
+
+		if ( ! \wp_next_scheduled( 'atmosphere_sync_publication' ) ) {
+			\wp_schedule_single_event( \time(), 'atmosphere_sync_publication' );
+		}
+	}
+
+	/**
+	 * Cron: proactively refresh the access token.
+	 */
+	public function cron_refresh_token(): void {
+		if ( ! is_connected() ) {
+			return;
+		}
+
+		Client::refresh();
+	}
+
+	/**
+	 * Register async action hooks (called by WP-Cron).
+	 */
+	public static function register_async_hooks(): void {
+		\add_action(
+			'atmosphere_publish_post',
+			static function ( int $post_id ): void {
+				$post = \get_post( $post_id );
+				if ( $post && 'publish' === $post->post_status ) {
+					Publisher::publish( $post );
+				}
+			}
+		);
+
+		\add_action(
+			'atmosphere_update_post',
+			static function ( int $post_id ): void {
+				$post = \get_post( $post_id );
+				if ( $post && 'publish' === $post->post_status ) {
+					Publisher::update( $post );
+				}
+			}
+		);
+
+		\add_action(
+			'atmosphere_delete_post',
+			static function ( int $post_id ): void {
+				$post = \get_post( $post_id );
+				if ( $post ) {
+					Publisher::delete( $post );
+				}
+			}
+		);
+
+		\add_action(
+			'atmosphere_sync_publication',
+			static function (): void {
+				Publisher::sync_publication();
+			}
+		);
+
+		\add_action(
+			'atmosphere_delete_records',
+			static function ( string $bsky_tid, string $doc_tid ): void {
+				Publisher::delete_by_tids( $bsky_tid, $doc_tid );
+			},
+			10,
+			2
+		);
+	}
+}

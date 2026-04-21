@@ -1,0 +1,362 @@
+<?php
+/**
+ * WebFinger class file.
+ *
+ * @package Activitypub
+ */
+
+namespace Activitypub;
+
+use Activitypub\Activity\Actor;
+use Activitypub\Collection\Actors;
+use Activitypub\Collection\Remote_Actors;
+
+/**
+ * ActivityPub WebFinger Class.
+ *
+ * @author Matthias Pfefferle
+ *
+ * @see https://webfinger.net/
+ */
+class Webfinger {
+	/**
+	 * Returns a users WebFinger "resource".
+	 *
+	 * @param int $user_id The WordPress user id.
+	 *
+	 * @return string The user-resource.
+	 */
+	public static function get_user_resource( $user_id ) {
+		$user = Actors::get_by_id( $user_id );
+		if ( ! $user || is_wp_error( $user ) ) {
+			return '';
+		}
+
+		return $user->get_webfinger();
+	}
+
+	/**
+	 * Resolve a WebFinger resource.
+	 *
+	 * @param string $uri The WebFinger Resource.
+	 *
+	 * @return string|\WP_Error The URL or WP_Error.
+	 */
+	public static function resolve( $uri ) {
+		$data = self::get_data( $uri );
+
+		if ( \is_wp_error( $data ) ) {
+			return $data;
+		}
+
+		if ( ! is_array( $data ) || empty( $data['links'] ) ) {
+			return new \WP_Error(
+				'webfinger_missing_links',
+				__( 'No valid Link elements found.', 'activitypub' ),
+				array(
+					'status' => 400,
+					'data'   => $data,
+				)
+			);
+		}
+
+		foreach ( $data['links'] as $link ) {
+			if (
+				'self' === $link['rel'] &&
+				isset( $link['type'] ) &&
+				(
+					'application/activity+json' === $link['type'] ||
+					'application/ld+json; profile="https://www.w3.org/ns/activitystreams"' === $link['type']
+				)
+			) {
+				return $link['href'];
+			}
+		}
+
+		return new \WP_Error(
+			'webfinger_url_no_activitypub',
+			__( 'The Site supports WebFinger but not ActivityPub', 'activitypub' ),
+			array(
+				'status' => 400,
+				'data'   => $data,
+			)
+		);
+	}
+
+	/**
+	 * Transform a URI to an acct <identifier>@<host>.
+	 *
+	 * @see https://swicg.github.io/activitypub-webfinger/#reverse-discovery
+	 *
+	 * @param string $uri The URI (acct:, mailto:, http:, https:).
+	 *
+	 * @return string|\WP_Error Error or acct URI.
+	 */
+	public static function uri_to_acct( $uri ) {
+		$data = self::get_data( $uri );
+
+		if ( is_wp_error( $data ) ) {
+			return $data;
+		}
+
+		// Check if subject is an acct URI.
+		if (
+			isset( $data['subject'] ) &&
+			\str_starts_with( $data['subject'], 'acct:' )
+		) {
+			return $data['subject'];
+		}
+
+		// Search for an acct URI in the aliases.
+		if ( isset( $data['aliases'] ) ) {
+			foreach ( $data['aliases'] as $alias ) {
+				if ( \str_starts_with( $alias, 'acct:' ) ) {
+					return $alias;
+				}
+			}
+		}
+
+		return new \WP_Error(
+			'webfinger_url_no_acct',
+			__( 'No acct URI found.', 'activitypub' ),
+			array(
+				'status' => 400,
+				'data'   => $data,
+			)
+		);
+	}
+
+	/**
+	 * Convert a URI string to an identifier and its host.
+	 * Automatically adds acct: if it's missing.
+	 *
+	 * @param string $url The URI (acct:, mailto:, http:, https:).
+	 *
+	 * @return \WP_Error|array Error reaction or array with identifier and host as values.
+	 */
+	public static function get_identifier_and_host( $url ) {
+		if ( ! $url ) {
+			return new \WP_Error(
+				'webfinger_invalid_identifier',
+				__( 'Invalid Identifier', 'activitypub' ),
+				array(
+					'status' => 400,
+					'data'   => $url,
+				)
+			);
+		}
+
+		// Remove leading @.
+		$url = ltrim( $url, '@' );
+
+		if ( ! preg_match( '/^([a-zA-Z+]+):/', $url, $match ) ) {
+			$identifier = 'acct:' . $url;
+			$scheme     = 'acct';
+		} else {
+			$identifier = $url;
+			$scheme     = $match[1];
+		}
+
+		$host = null;
+
+		switch ( $scheme ) {
+			case 'acct':
+			case 'mailto':
+			case 'xmpp':
+				if ( strpos( $identifier, '@' ) !== false ) {
+					$host = substr( $identifier, strpos( $identifier, '@' ) + 1 );
+				}
+				break;
+			default:
+				$host = wp_parse_url( $identifier, PHP_URL_HOST );
+				break;
+		}
+
+		if ( empty( $host ) ) {
+			return new \WP_Error(
+				'webfinger_invalid_identifier',
+				__( 'Invalid Identifier', 'activitypub' ),
+				array(
+					'status' => 400,
+					'data'   => $url,
+				)
+			);
+		}
+
+		return array( $identifier, $host );
+	}
+
+	/**
+	 * Get the WebFinger data for a given URI.
+	 *
+	 * @param string $uri The Identifier: <identifier>@<host> or URI.
+	 *
+	 * @return \WP_Error|array Error reaction or array with identifier and host as values.
+	 */
+	public static function get_data( $uri ) {
+		$identifier_and_host = self::get_identifier_and_host( $uri );
+
+		if ( is_wp_error( $identifier_and_host ) ) {
+			return $identifier_and_host;
+		}
+
+		list( $identifier, $host ) = $identifier_and_host;
+
+		$webfinger_url = sprintf(
+			'https://%s/.well-known/webfinger?resource=%s',
+			$host,
+			\rawurlencode( $identifier )
+		);
+
+		// Use Http::get() which handles all caching (success and errors).
+		$response = Http::get(
+			$webfinger_url,
+			array( 'headers' => array( 'Accept' => 'application/jrd+json' ) ),
+			WEEK_IN_SECONDS
+		);
+
+		if ( \is_wp_error( $response ) ) {
+			return $response;
+		}
+
+		$body = \wp_remote_retrieve_body( $response );
+
+		return \json_decode( $body, true );
+	}
+
+	/**
+	 * Get the Remote-Follow endpoint for a given URI.
+	 *
+	 * @param string $uri The WebFinger Resource URI.
+	 *
+	 * @return string|\WP_Error Error or the Remote-Follow endpoint URI.
+	 */
+	public static function get_remote_follow_endpoint( $uri ) {
+		return self::get_intent_endpoint( $uri, 'http://ostatus.org/schema/1.0/subscribe' );
+	}
+
+	/**
+	 * Generate a cache key for a given URI.
+	 *
+	 * @param string $uri A WebFinger Resource URI.
+	 *
+	 * @return string The cache key.
+	 */
+	public static function generate_cache_key( $uri ) {
+		$uri = ltrim( $uri, '@' );
+
+		if ( filter_var( $uri, FILTER_VALIDATE_EMAIL ) ) {
+			$uri = 'acct:' . $uri;
+		}
+
+		return 'webfinger_' . md5( $uri );
+	}
+
+	/**
+	 * Infer a shortname from the Actor ID or URL. Used only for fallbacks,
+	 * we will try to use what's supplied.
+	 *
+	 * @param Actor|string $actor_or_uri The Actor or URI.
+	 *
+	 * @return string Hopefully the name of the Follower.
+	 */
+	public static function guess( $actor_or_uri ) {
+		if ( ! $actor_or_uri instanceof Actor ) {
+			$actor = Remote_Actors::fetch_by_uri( $actor_or_uri );
+			if ( \is_wp_error( $actor ) ) {
+				return extract_name_from_uri( $actor_or_uri ) . '@' . \wp_parse_url( $actor_or_uri, PHP_URL_HOST );
+			}
+
+			$actor_or_uri = $actor;
+		}
+
+		if ( $actor_or_uri->get_preferred_username() ) {
+			return $actor_or_uri->get_preferred_username() . '@' . \wp_parse_url( $actor_or_uri->get_id(), PHP_URL_HOST );
+		}
+
+		return extract_name_from_uri( $actor_or_uri->get_id() ) . '@' . \wp_parse_url( $actor_or_uri->get_id(), PHP_URL_HOST );
+	}
+
+	/**
+	 * Get the Intent endpoint for a given URI and intent.
+	 *
+	 * @since 8.0.0
+	 *
+	 * @see https://codeberg.org/fediverse/fep/src/branch/main/fep/3b86/fep-3b86.md
+	 *
+	 * @param string $uri      The WebFinger Resource URI.
+	 * @param string $intent   The intent to look for.
+	 * @param bool   $fallback Whether to fallback to the Remote-Follow endpoint.
+	 *
+	 * @return string|\WP_Error Error or the Intent endpoint URI (may contain `{uri}` placeholder).
+	 */
+	public static function get_intent_endpoint( $uri, $intent, $fallback = false ) {
+		$data = self::get_data( $uri );
+
+		if ( \is_wp_error( $data ) ) {
+			return $data;
+		}
+
+		if ( empty( $data['links'] ) ) {
+			return new \WP_Error(
+				'webfinger_missing_links',
+				\__( 'No valid Link elements found.', 'activitypub' ),
+				array(
+					'status' => 400,
+					'data'   => $data,
+				)
+			);
+		}
+
+		// Normalize the links with $rel as key.
+		$links = array();
+
+		foreach ( $data['links'] as $link ) {
+			if ( isset( $link['rel'] ) && isset( $link['template'] ) ) {
+				$links[ \strtolower( $link['rel'] ) ] = $link['template'];
+			}
+		}
+
+		$intent = \sanitize_text_field( $intent );
+		$intent = \strtolower( $intent );
+
+		if ( ! \filter_var( $intent, FILTER_VALIDATE_URL ) ) {
+			$intent = 'https://w3id.org/fep/3b86/' . $intent;
+		}
+
+		if ( isset( $links[ $intent ] ) ) {
+			return $links[ $intent ];
+		}
+
+		if ( ! $fallback ) {
+			return new \WP_Error(
+				'webfinger_missing_intent_endpoint',
+				\__( 'No valid Intent endpoint found.', 'activitypub' ),
+				array(
+					'status' => 400,
+					'data'   => $data,
+				)
+			);
+		}
+
+		if ( isset( $links['http://ostatus.org/schema/1.0/subscribe'] ) ) {
+			return $links['http://ostatus.org/schema/1.0/subscribe'];
+		}
+
+		// Last-resort: construct a Mastodon-compatible authorize_interaction URL.
+		$identifier_and_host = self::get_identifier_and_host( $uri );
+
+		if ( \is_wp_error( $identifier_and_host ) ) {
+			return new \WP_Error(
+				'webfinger_missing_intent_endpoint',
+				\__( 'No valid Intent endpoint found.', 'activitypub' ),
+				array(
+					'status' => 400,
+					'data'   => $data,
+				)
+			);
+		}
+
+		return 'https://' . $identifier_and_host[1] . '/authorize_interaction?uri={uri}';
+	}
+}

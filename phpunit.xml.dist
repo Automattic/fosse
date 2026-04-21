@@ -11,6 +11,7 @@
 	<testsuites>
 		<testsuite name="main">
 			<directory suffix="Test.php">tests/php</directory>
+			<exclude>bundled</exclude>
 		</testsuite>
 	</testsuites>
 </phpunit>

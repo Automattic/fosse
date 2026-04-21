@@ -4,7 +4,7 @@
 	"type": "wordpress-plugin",
 	"license": "GPL-2.0-or-later",
 	"require": {
-		"php": ">=7.4"
+		"php": ">=8.2"
 	},
 	"require-dev": {
 		"automattic/wordbless": "dev-trunk",
@@ -16,6 +16,9 @@
 	"autoload": {
 		"classmap": [
 			"src/"
+		],
+		"exclude-from-classmap": [
+			"bundled/"
 		]
 	},
 	"autoload-dev": {

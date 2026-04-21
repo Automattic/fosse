@@ -30,3 +30,13 @@
 /tests/**              export-ignore
 /tools                 export-ignore
 /tools/**              export-ignore
+
+# Mark vendored upstream plugins so GitHub Linguist drops them from
+# language stats, PR diffs auto-collapse, and Copilot code review skips
+# them — fixes belong in the upstream repos, not here (refresh via
+# tools/sync-bundled.sh). Built JS/CSS and Atmosphere's vendor/ are
+# additionally marked `linguist-generated` so GitHub treats them as
+# fully machine-produced output.
+bundled/**             linguist-vendored
+bundled/*/build/**     linguist-generated
+bundled/*/vendor/**    linguist-generated
