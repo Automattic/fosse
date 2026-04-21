@@ -40,6 +40,15 @@ if [ -n "${FOSSE_VERSION:-}" ]; then
 	rm -f "$STAGE_DIR/fosse.php.bak"
 fi
 
+# Fail fast if composer.lock drifted from composer.json. Otherwise
+# `composer install` just warns and installs from the stale lock — the
+# warning is easy to miss in CI logs and a mismatched bundle can ship
+# without anyone noticing.
+(
+	cd "$STAGE_DIR"
+	composer validate --no-check-all --no-check-publish
+)
+
 # --no-scripts skips WorDBless's post-install drop-in hook, which is
 # a dev-only concern and would fail here anyway (WorDBless is a dev dep).
 (
