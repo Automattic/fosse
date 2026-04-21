@@ -8,7 +8,7 @@
 #
 # Environment variables (with defaults):
 #   FOSSE_AP_SOURCE    Path to wordpress-activitypub checkout
-#                      (default: ~/code/wordpress-activitiypub)
+#                      (default: ~/code/wordpress-activitypub)
 #   FOSSE_ATMO_SOURCE  Path to wordpress-atmosphere checkout
 #                      (default: ~/code/wordpress-atmosphere)
 #
@@ -24,7 +24,7 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 REPO_ROOT="$( cd "$SCRIPT_DIR/.." &> /dev/null && pwd )"
 EXCLUDES="$SCRIPT_DIR/bundled-excludes.txt"
 
-AP_SOURCE="${FOSSE_AP_SOURCE:-$HOME/code/wordpress-activitiypub}"
+AP_SOURCE="${FOSSE_AP_SOURCE:-$HOME/code/wordpress-activitypub}"
 ATMO_SOURCE="${FOSSE_ATMO_SOURCE:-$HOME/code/wordpress-atmosphere}"
 
 AP_DEST="$REPO_ROOT/bundled/activitypub"
