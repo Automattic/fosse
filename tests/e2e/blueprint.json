@@ -7,6 +7,21 @@
 			"step": "activatePlugin",
 			"pluginName": "FOSSE",
 			"pluginPath": "/wordpress/wp-content/plugins/fosse/fosse.php"
+		},
+		{
+			"step": "mkdir",
+			"path": "/wordpress/wp-content/mu-plugins"
+		},
+		{
+			"step": "cp",
+			"fromPath": "/wordpress/wp-content/plugins/fosse/tests/e2e/mu-plugins/fosse-bsky-capture.php",
+			"toPath": "/wordpress/wp-content/mu-plugins/fosse-bsky-capture.php"
+		},
+		{
+			"step": "setSiteOptions",
+			"options": {
+				"fosse_object_type": "note"
+			}
 		}
 	]
 }
