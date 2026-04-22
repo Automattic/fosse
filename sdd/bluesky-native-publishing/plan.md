@@ -25,7 +25,7 @@ Linear:
 - [x] Task 2 [UPSTREAM-AT]: Make Atmosphere `Post` transformer post-format-aware + add filter
 - [x] Task 3: Refresh `bundled/atmosphere/` after Task 2 merges
 - [x] Task 4: Refresh `bundled/activitypub/` after Task 1 merges
-- [ ] Task 5 [FOSSE]: `Object_Type` projector + `fosse_object_type` option
+- [x] Task 5 [FOSSE]: `Object_Type` projector + `fosse_object_type` option
 - [ ] Task 6: Playwright e2e — facet parity round-trip on the short-form path
 - [ ] Task 7: Document upstream-first decision policy
 
@@ -147,7 +147,7 @@ Linear:
 - **Depends on**: Task 1 merged upstream.
 
 ### Task 5 [FOSSE]: `Object_Type` projector + `fosse_object_type` option
-- **Status**: Not started
+- **Status**: ✅ Done ([#21](https://github.com/Automattic/fosse/pull/21))
 - **Repo**: `Automattic/fosse`
 - **Linear**: [DOTCOM-16840](https://linear.app/a8c/issue/DOTCOM-16840)
 - **Files**:
