@@ -23,8 +23,8 @@ Linear:
 
 - [x] Task 1 [UPSTREAM-AP]: Add `activitypub_post_object_type` filter to AP `Post::get_type()`
 - [x] Task 2 [UPSTREAM-AT]: Make Atmosphere `Post` transformer post-format-aware + add filter
-- [ ] Task 3: Refresh `bundled/atmosphere/` after Task 2 merges
-- [ ] Task 4: Refresh `bundled/activitypub/` after Task 1 merges
+- [x] Task 3: Refresh `bundled/atmosphere/` after Task 2 merges
+- [x] Task 4: Refresh `bundled/activitypub/` after Task 1 merges
 - [ ] Task 5 [FOSSE]: `Object_Type` projector + `fosse_object_type` option
 - [ ] Task 6: Playwright e2e — facet parity round-trip on the short-form path
 - [ ] Task 7: Document upstream-first decision policy
@@ -120,7 +120,7 @@ Linear:
 - **Handoff**: Note merge SHA in Task 3's commit body.
 
 ### Task 3: Refresh `bundled/atmosphere/` after Task 2 merges
-- **Status**: Not started
+- **Status**: ✅ Done ([#19](https://github.com/Automattic/fosse/pull/19), merged as `c2900c0`; upstream SHA `864b994`)
 - **Repo**: `Automattic/fosse`
 - **Files**: [`bundled/atmosphere/**`](https://github.com/Automattic/fosse/tree/trunk/bundled/atmosphere)
 - **Do**:
@@ -134,7 +134,7 @@ Linear:
 - **Depends on**: Task 2 merged upstream.
 
 ### Task 4: Refresh `bundled/activitypub/` after Task 1 merges
-- **Status**: Not started
+- **Status**: ✅ Done ([#19](https://github.com/Automattic/fosse/pull/19), merged as `c2900c0`; upstream SHA `b889d6a3`, past tag 8.1.1)
 - **Repo**: `Automattic/fosse`
 - **Files**: [`bundled/activitypub/**`](https://github.com/Automattic/fosse/tree/trunk/bundled/activitypub)
 - **Do**:
