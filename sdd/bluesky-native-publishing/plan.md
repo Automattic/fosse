@@ -151,7 +151,7 @@ Linear:
 - **Repo**: `Automattic/fosse`
 - **Linear**: [DOTCOM-16840](https://linear.app/a8c/issue/DOTCOM-16840)
 - **Files**:
-  - `src/Object_Type.php` (new)
+  - `src/class-object-type.php` (new — WP `class-*.php` filename convention per Jetpack PHPCS; class name stays `Automattic\Fosse\Object_Type`)
   - `tests/php/Object_TypeTest.php` (new)
   - [`fosse.php`](https://github.com/Automattic/fosse/blob/trunk/fosse.php) (modify — register hook on `init`)
 - **Do**:
@@ -164,7 +164,7 @@ Linear:
      - `test_ap_filter_forces_note_when_option_note()`: option set to `note`; assert filter returns `'Note'` regardless of input.
      - `test_ap_filter_passes_through_when_option_wordpress_post_format()`: option set to `wordpress-post-format`; assert filter returns input unchanged.
   2. Run `composer run-script test-php` → verify failure.
-  3. Create `src/Object_Type.php`:
+  3. Create `src/class-object-type.php`:
      - Namespace `Automattic\Fosse`.
      - Class `Object_Type` with three public static methods:
        - `register(): void` — `add_filter( 'atmosphere_is_short_form_post', [ self::class, 'filter_atmosphere' ], 10, 2 ); add_filter( 'activitypub_post_object_type', [ self::class, 'filter_ap' ], 10, 2 );`
