@@ -27,7 +27,7 @@ Linear:
 - [x] Task 4: Refresh `bundled/activitypub/` after Task 1 merges
 - [x] Task 5 [FOSSE]: `Object_Type` projector + `fosse_object_type` option
 - [x] Task 6: Playwright e2e — facet parity round-trip on the short-form path
-- [ ] Task 7: Document upstream-first decision policy
+- [x] Task 7: Document upstream-first decision policy
 
 ## Tasks
 
@@ -211,7 +211,7 @@ Linear:
 - **Depends on**: Task 5.
 
 ### Task 7: Document upstream-first decision policy
-- **Status**: Not started
+- **Status**: ✅ Done ([#23](https://github.com/Automattic/fosse/pull/23))
 - **Repo**: `Automattic/fosse`
 - **Linear**: [DOTCOM-16812](https://linear.app/a8c/issue/DOTCOM-16812)
 - **Files**: [`AGENTS.md`](https://github.com/Automattic/fosse/blob/trunk/AGENTS.md)

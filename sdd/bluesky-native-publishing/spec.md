@@ -13,7 +13,7 @@ A user-level "always Note" override is owned by FOSSE (one option, `fosse_object
 - **FOSSE side**: new `Automattic\Fosse\Object_Type` class projects a single FOSSE option (`fosse_object_type`) onto both upstream filters.
 - **FOSSE side**: refresh `bundled/atmosphere/` and `bundled/activitypub/` via `tools/sync-bundled.sh` after each upstream merges.
 - **FOSSE side**: Playwright e2e spec verifying facet parity (links, hashtags, mentions) on the short-form path. Closes [DOTCOM-16811](https://linear.app/a8c/issue/DOTCOM-16811).
-- **Docs**: AGENTS.md captures the upstream-first rule; [DOTCOM-16812](https://linear.app/a8c/issue/DOTCOM-16812) gets a comment with the same matrix.
+- **Docs**: AGENTS.md captures the upstream-first rule (landed in [#23](https://github.com/Automattic/fosse/pull/23)); [DOTCOM-16812](https://linear.app/a8c/issue/DOTCOM-16812) gets a comment with the same matrix after review.
 
 ## Chosen Approach
 
@@ -131,18 +131,18 @@ Three small pieces of code spread across three repos, connected by two new upstr
 | `tests/phpunit/tests/transformer/class-test-post.php` | new | Start from scratch (no existing Post transformer test on trunk). Cover long-form unchanged, short-form variants, filter override, over-cap truncate. |
 | `readme.txt` | modify | Changelog entry. |
 
-**FOSSE** (`Automattic/fosse`, this branch — Linear [DOTCOM-16840](https://linear.app/a8c/issue/DOTCOM-16840) for the projector):
+**FOSSE** (`Automattic/fosse`) — this PR contains only the SDD docs; the implementation lands across follow-up PRs (current state noted inline). Linear [DOTCOM-16840](https://linear.app/a8c/issue/DOTCOM-16840) tracks the projector.
 
-| File | Change Type | Description |
-|------|-------------|-------------|
-| `src/Object_Type.php` | new | `Automattic\Fosse\Object_Type`. Static `register()` + two filter callbacks. |
-| `fosse.php` | modify | One-line `add_action( 'init', [ '\Automattic\Fosse\Object_Type', 'register' ] )` alongside the existing bundled-bootstrap wiring. |
-| `tests/php/Object_TypeTest.php` | new | WorDBless test for option-driven filter behavior. |
-| `tests/e2e/short-form-facets.spec.ts` | new | Playwright e2e closing DOTCOM-16811. |
-| `tests/e2e/helpers/atproto.ts` | new (if needed) | Shared utilities for intercepting `applyWrites`. |
-| `bundled/atmosphere/**` | regenerated | `tools/sync-bundled.sh` after Atmosphere PR merges. |
-| `bundled/activitypub/**` | regenerated | `tools/sync-bundled.sh` after AP PR merges. |
-| [`AGENTS.md`](https://github.com/Automattic/fosse/blob/trunk/AGENTS.md) | modify | Add "Upstream contribution policy" section. |
+| File | Change Type | Description | Lands in |
+|------|-------------|-------------|----------|
+| `src/class-object-type.php` | new | `Automattic\Fosse\Object_Type`. Static `register()` + two filter callbacks. | [#21](https://github.com/Automattic/fosse/pull/21) |
+| `fosse.php` | modify | One-line `add_action( 'init', [ '\Automattic\Fosse\Object_Type', 'register' ] )` alongside the existing bundled-bootstrap wiring. | [#21](https://github.com/Automattic/fosse/pull/21) |
+| `tests/php/Object_TypeTest.php` | new | WorDBless test for option-driven filter behavior. | [#21](https://github.com/Automattic/fosse/pull/21) |
+| `tests/e2e/short-form-facets.spec.ts` | new | Playwright e2e closing DOTCOM-16811. | [#21](https://github.com/Automattic/fosse/pull/21) |
+| `tests/e2e/mu-plugins/fosse-bsky-capture.php` | new | Test-only mu-plugin that captures the transformed record on publish. | [#21](https://github.com/Automattic/fosse/pull/21) |
+| `bundled/atmosphere/**` | regenerated | `tools/sync-bundled.sh` after Atmosphere PR merges. | [#19](https://github.com/Automattic/fosse/pull/19) (merged) |
+| `bundled/activitypub/**` | regenerated | `tools/sync-bundled.sh` after AP PR merges. | [#19](https://github.com/Automattic/fosse/pull/19) (merged) |
+| [`AGENTS.md`](https://github.com/Automattic/fosse/blob/trunk/AGENTS.md) | modify | Add "Upstream contribution policy" section. | [#23](https://github.com/Automattic/fosse/pull/23) |
 
 ### Ordering / Dependency
 

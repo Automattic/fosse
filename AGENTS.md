@@ -158,7 +158,7 @@ This project follows **WordPress Coding Standards (WPCS)** for all PHP code, enf
 
 ### SDD plan status tracking
 
-`sdd/<feature>/plan.md` is the persistent record of what's done — not git log, not Linear. Each task carries a `- **Status**:` field; the top of the file carries a `## Progress` checklist that mirrors the per-task statuses. Keep both in sync as work progresses.
+`sdd/<feature>/plan.md` is the persistent record of what's done — not git log, not Linear. For new SDD plans going forward, each task carries a `- **Status**:` field, and the top of the file carries a `## Progress` checklist mirroring the per-task statuses. Keep both in sync as work progresses. Older plans (e.g. `sdd/bundled-backends/`) predate this convention and don't need to be retrofitted unless intentionally updated.
 
 Status values:
 
