@@ -17,14 +17,14 @@ Source: [DOTCOM-16795](https://linear.app/a8c/issue/DOTCOM-16795/3-bluesky-nativ
 3. **Long-form path unchanged**: current title + excerpt + permalink composition, truncated to 300 graphemes, with external link-card embed.
 4. **`site.standard.document` writes stay unchanged.** Every syncable post already gets a document record regardless of post format — verify with a test, no code change expected.
 5. **Facet extraction** (links, hashtags, mentions) runs on whatever the final composed text is. On the short-form path that means facets operate on the post body — verify end-to-end with a Playwright spec.
-6. **Upstream-first.** All Atmosphere behavior changes land in `Automattic/wordpress-atmosphere` as a PR. FOSSE consumes the change by refreshing `bundled/atmosphere/` via `tools/sync-bundled.sh`. No FOSSE-layer filters for this epic.
+6. **Upstream-first.** Composition logic, discriminators, and publishing-path behavior for this epic land in `Automattic/wordpress-atmosphere` (and `Automattic/wordpress-activitypub`) as PRs. FOSSE consumes each change by refreshing `bundled/<backend>/` via `tools/sync-bundled.sh`. FOSSE may hook the new upstream filters to project a FOSSE-owned option across networks, but must not add backend-specific publishing logic of its own.
 7. **Decision record on DOTCOM-16812**: document the "post-type-agnostic correctness goes upstream; FOSSE-shape-specific stays in FOSSE" rule with this epic as the canonical example.
 
 ## Constraints
 
 - **Symmetry with the AP plugin is mandatory.** If a user sets `post_format = status`, both Mastodon (via AP) and Bluesky (via Atmosphere) must treat the post as short-form. Divergent discriminators would be a UX bug.
 - Upstream PR must preserve byte-identical behavior for every existing Atmosphere user on the **default (titled, no format) post** — the long-form path. A regression here would affect every current Atmosphere install.
-- No FOSSE PHP code should be required for this epic's publishing path. FOSSE's sole code contribution is an e2e test under `tests/e2e/` for facet parity.
+- FOSSE-side PHP for this epic is limited to a cross-network option projector that consumes upstream filters (no composition or discrimination logic of its own) plus an e2e spec under `tests/e2e/` for facet parity. All behavioral changes ship upstream.
 - FOSSE CI stays green: PHPUnit matrix, Jest, Playwright E2E, PHPCS, ESLint/Prettier.
 - `site.standard.document` stays the central persistent artifact. Option 2 (swap the external-card embed for a record embed pointing at the doc) remains a future path — don't design anything that forecloses it.
 - **No threaded long-form.** Discarded; see spec's alternatives.
