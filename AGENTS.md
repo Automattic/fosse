@@ -156,6 +156,19 @@ This project follows **WordPress Coding Standards (WPCS)** for all PHP code, enf
 -   Imperative mood ("Add X", not "Added X" / "Adds X").
 -   Component prefix when helpful: `Tests: add smoke test for X`.
 
+### SDD plan status tracking
+
+`sdd/<feature>/plan.md` is the persistent record of what's done — not git log, not Linear. For new SDD plans going forward, each task carries a `- **Status**:` field, and the top of the file carries a `## Progress` checklist mirroring the per-task statuses. Keep both in sync as work progresses. Older plans (e.g. `sdd/bundled-backends/`) predate this convention and don't need to be retrofitted unless intentionally updated.
+
+Status values:
+
+-   `Not started` — default on plan creation.
+-   `In progress` — set when starting a task.
+-   `✅ Done (<ref>)` — set when the task's Verify steps pass. `<ref>` is a commit SHA, PR number (`#123`), or upstream PR link; cross-repo tasks link to the merged PR.
+-   `Skipped (<reason>)` — short one-line reason.
+
+Deviations still go in `implementation-notes.md` (per the SDD workflow); Status is for "did this ship?", implementation-notes is for "what did we actually build vs. the spec?".
+
 ## Before Pushing
 
 Run the lint suite at minimum before pushing any branch or opening a PR:
