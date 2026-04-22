@@ -155,7 +155,6 @@ This project follows **WordPress Coding Standards (WPCS)** for all PHP code, enf
 
 -   Imperative mood ("Add X", not "Added X" / "Adds X").
 -   Component prefix when helpful: `Tests: add smoke test for X`.
--   No conventional-commit prefixes.
 
 ## Before Pushing
 
