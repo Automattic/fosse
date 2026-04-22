@@ -35,6 +35,29 @@ test( 'short-form post: tag/mention/link facets captured, no embed, plus documen
 		() => !! ( window as any ).wpApiSettings?.nonce
 	);
 
+	// Set fosse_object_type=note explicitly so this spec is robust to run
+	// order — long-form-link-card.spec.ts flips the option to
+	// 'wordpress-post-format'; without this reset, order-dependence would
+	// break one of the two tests.
+	const flipResult = await page.evaluate( async () => {
+		const res = await fetch( '/wp-json/fosse-e2e/v1/object-type', {
+			method: 'POST',
+			headers: {
+				'Content-Type': 'application/json',
+				'X-WP-Nonce': ( window as any ).wpApiSettings.nonce,
+			},
+			body: JSON.stringify( { value: 'note' } ),
+		} );
+		return { status: res.status, text: await res.text() };
+	} );
+	expect(
+		flipResult.status,
+		`fosse-e2e/v1/object-type returned: ${ flipResult.text.slice(
+			0,
+			300
+		) }`
+	).toBe( 200 );
+
 	const body = 'hello #world @alice.test https://example.com';
 
 	const created = await page.evaluate( async ( content ) => {

@@ -107,6 +107,16 @@ add_action(
  * filter answers so the Atmosphere short-form discriminator and the
  * ActivityPub object type stay aligned. Hooked at default priority 10
  * so the filter callbacks run before Atmosphere's transition_post_status
- * handler schedules its outbound work.
+ * handler schedules its outbound work. Degrades cleanly if FOSSE's own
+ * composer autoload is missing (bare clone, unpackaged release) — same
+ * posture as the bundled-bootstrap shim above.
  */
-add_action( 'init', array( '\Automattic\Fosse\Object_Type', 'register' ) );
+add_action(
+	'init',
+	static function () {
+		if ( ! class_exists( \Automattic\Fosse\Object_Type::class ) ) {
+			return;
+		}
+		\Automattic\Fosse\Object_Type::register();
+	}
+);

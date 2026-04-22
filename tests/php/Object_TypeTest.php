@@ -111,4 +111,44 @@ class Object_TypeTest extends BaseTestCase {
 			apply_filters( 'activitypub_post_object_type', 'Article', $this->post )
 		);
 	}
+
+	/**
+	 * Unknown option values (typos, legacy values, garbage) pass through.
+	 *
+	 * The projector strictly matches `'note'`; anything else is treated as the
+	 * pass-through default. This test guards that invariant against a future
+	 * refactor to `!== 'wordpress-post-format'`-style logic that would silently
+	 * flip every unrecognized value to force-Note.
+	 */
+	public function test_atmosphere_filter_passes_through_on_unknown_option_value() {
+		update_option( 'fosse_object_type', 'garbage' );
+
+		$this->assertFalse(
+			apply_filters( 'atmosphere_is_short_form_post', false, $this->post ),
+			'Unknown option value must not force short-form.'
+		);
+		$this->assertTrue(
+			apply_filters( 'atmosphere_is_short_form_post', true, $this->post ),
+			'Unknown option value must not flip true inputs to false.'
+		);
+	}
+
+	/**
+	 * Unknown option values pass through on the AP filter too.
+	 *
+	 * See test_atmosphere_filter_passes_through_on_unknown_option_value() for
+	 * the rationale.
+	 */
+	public function test_ap_filter_passes_through_on_unknown_option_value() {
+		update_option( 'fosse_object_type', 'garbage' );
+
+		$this->assertSame(
+			'Article',
+			apply_filters( 'activitypub_post_object_type', 'Article', $this->post )
+		);
+		$this->assertSame(
+			'Page',
+			apply_filters( 'activitypub_post_object_type', 'Page', $this->post )
+		);
+	}
 }

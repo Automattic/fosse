@@ -6,8 +6,10 @@
  *   app.bsky.feed.post and the site.standard.document that
  *   Publisher::publish would write in an atomic applyWrites call) to
  *   uploads/fosse-bsky-capture.json so Playwright can assert their
- *   shape without standing up a real PDS or OAuth connection.
- *   Mounted at wp-content/mu-plugins/ by playwright.config.ts.
+ *   shape without standing up a real PDS or OAuth connection. Also
+ *   exposes a REST helper so specs can flip the fosse_object_type
+ *   option between tests without re-booting Playground. Copied into
+ *   wp-content/mu-plugins/ by blueprint.json.
  *
  * @package Automattic\Fosse\Tests\E2E
  */
@@ -31,13 +33,19 @@ add_action(
 			return;
 		}
 
+		$upload = \wp_upload_dir();
+		if ( ! empty( $upload['error'] ) ) {
+			\error_log( // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+				'[fosse-bsky-capture] wp_upload_dir() error: ' . $upload['error']
+			);
+			return;
+		}
+
 		$bsky = ( new \Atmosphere\Transformer\Post( $post ) )->transform();
 		$doc  = ( new \Atmosphere\Transformer\Document( $post ) )->transform();
 
-		$upload = \wp_upload_dir();
-		$path   = \trailingslashit( $upload['basedir'] ) . 'fosse-bsky-capture.json';
-
-		\file_put_contents( // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
+		$path    = \trailingslashit( $upload['basedir'] ) . 'fosse-bsky-capture.json';
+		$written = \file_put_contents( // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
 			$path,
 			\wp_json_encode(
 				array(
@@ -47,7 +55,65 @@ add_action(
 				)
 			)
 		);
+		if ( false === $written ) {
+			\error_log( // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+				'[fosse-bsky-capture] file_put_contents failed writing to ' . $path
+			);
+		}
 	},
 	5,
 	3
+);
+
+/*
+ * Test-only REST endpoint so specs can set/clear `fosse_object_type`
+ * between tests without re-booting Playground. manage_options gate keeps
+ * this inaccessible to unauthenticated requests; Playground's
+ * `login: true` blueprint step admin-session satisfies it.
+ */
+add_action(
+	'rest_api_init',
+	static function (): void {
+		\register_rest_route(
+			'fosse-e2e/v1',
+			'/object-type',
+			array(
+				'methods'             => 'POST',
+				'permission_callback' => static function (): bool {
+					return \current_user_can( 'manage_options' );
+				},
+				'args'                => array(
+					'value' => array(
+						'type'     => 'string',
+						'required' => false,
+					),
+				),
+				'callback'            => static function ( $request ) {
+					try {
+						$value = $request->get_param( 'value' );
+						if ( null === $value || '' === $value ) {
+							\delete_option( 'fosse_object_type' );
+						} else {
+							\update_option( 'fosse_object_type', $value );
+						}
+						return \rest_ensure_response(
+							array(
+								'ok'      => true,
+								'current' => \get_option( 'fosse_object_type', null ),
+							)
+						);
+					} catch ( \Throwable $e ) {
+						\error_log( // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+							'[fosse-e2e/object-type] ' . $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine()
+						);
+						return new \WP_Error(
+							'fosse_e2e_error',
+							$e->getMessage(),
+							array( 'status' => 500 )
+						);
+					}
+				},
+			)
+		);
+	}
 );
