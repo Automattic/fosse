@@ -196,4 +196,4 @@ Worked example from the Bluesky-native-publishing epic:
 -   **Upstream** — Atmosphere's `atmosphere_is_short_form_post` discriminator and ActivityPub's `activitypub_post_object_type` filter on `Post::get_type()`. Both describe a universal notion ("is this a short-form post / what AP object type should it become?") and are valuable to any consumer of those plugins.
 -   **FOSSE** — the `Automattic\Fosse\Object_Type` projector that reads the `fosse_object_type` option and drives both upstream filters in lockstep. This only makes sense inside FOSSE's "publish once, reach everywhere" model where AP and atproto must agree on the shape of a given post.
 
-See `sdd/bluesky-native-publishing/` for the full decision record.
+See PR #18 (DOTCOM-16812) for the full decision record.
