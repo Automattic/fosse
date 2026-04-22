@@ -32,31 +32,41 @@ Based on: sdd/onboarding-setup-ux/spec.md
 - **Do**:
   1. Create `AP_Provider` implementing `Connection_Provider`. Self-registers on `fosse_register_providers` with `class_exists('\Activitypub\Activitypub')` guard.
   2. Setup section renders inline config: actor mode radio, post type checkboxes, fediverse address, link to advanced AP settings. Form POSTs to `admin_post.php?action=fosse_save_ap_settings`.
-  3. `handle_save()` validates nonce + capability, sanitizes against allowlists, calls `update_option()`.
-  4. Status card shows actor mode, post types, follower count (if available), fediverse address.
-  5. Create `Setup_Page` that iterates providers and calls `render_setup_section()`. Handles notice transients.
-  6. Create `setup-page.php` template with page shell, notice display, and provider iteration.
+  3. `handle_save()` validates nonce + capability, sanitizes against allowlists, stores values to `fosse_ap_actor_mode` / `fosse_ap_support_post_types` via `update_option()`.
+  4. Register `pre_option_activitypub_actor_mode` and `pre_option_activitypub_support_post_types` filters that project the `fosse_ap_*` values to AP at read time (return `false` when the FOSSE option is absent so AP's own stored value takes over).
+  5. Status card shows actor mode, post types, follower count (if available), fediverse address.
+  6. Create `Setup_Page` that iterates providers and calls `render_setup_section()`. Handles notice transients.
+  7. Create `setup-page.php` template with page shell, notice display, and provider iteration.
 - **Verify**:
   - `composer run-script lint-php` passes.
   - Playground: FOSSE > Setup page renders with AP section.
 - **Depends on**: Task 2
 
-### Task 4: Create Bluesky_Provider with OAuth bridge
+### Task 4: Open upstream Atmosphere PRs
+
+- **Do**:
+  1. Open PR against wordpress-atmosphere for (a) a filter on `Client::redirect_uri()` so consumers can set their own callback URL.
+  2. Open PR against wordpress-atmosphere for (b) transient-persisted settings errors on connect (matching what disconnect already does).
+  3. Track both PRs to merge; once landed, re-sync via `tools/sync-bundled.sh`.
+- **Verify**:
+  - Both upstream PRs are merged and `bundled/atmosphere/` reflects the new API.
+- **Depends on**: none
+
+### Task 5: Create Bluesky_Provider
 - **Files**: `src/Admin/Bluesky_Provider.php`
 - **Do**:
   1. Create `Bluesky_Provider` implementing `Connection_Provider`. Self-registers on `fosse_register_providers` with `class_exists('\Atmosphere\Atmosphere')` guard.
   2. Setup section: if not connected, render handle input form (POSTs to `admin_post.php?action=fosse_connect_bluesky`). If connected, render handle/DID/PDS/auto-publish display + disconnect button.
-  3. `handle_connect()`: verify nonce + capability, sanitize handle, call `\Atmosphere\OAuth\Client::authorize($handle)`, redirect to auth URL or store error transient.
+  3. `handle_connect()`: verify nonce + capability, sanitize handle, call `\Atmosphere\OAuth\Client::authorize($handle)` using the upstream `redirect_uri` filter to set FOSSE's callback URL, store failure notices using the upstream persisted-notice mechanism.
   4. `handle_disconnect()`: verify nonce + capability, call `\Atmosphere\OAuth\Client::disconnect()`, redirect to FOSSE.
-  5. `intercept_atmosphere_redirect()`: hook `wp_redirect`, check for `options-general.php?page=atmosphere&connected=1`, rewrite to `admin.php?page=fosse&connected=1`, set success transient.
-  6. Status card: connected/disconnected indicator, handle/DID/PDS/auto-publish details, token health check, error display, action buttons.
+  5. Status card: connected/disconnected indicator, handle/DID/PDS/auto-publish details, token health check, error display, action buttons.
 - **Verify**:
   - `composer run-script lint-php` passes.
   - Playground: FOSSE > Setup page shows Bluesky connect form.
-  - (Full OAuth flow requires a real Bluesky account and cannot be tested in Playground.)
-- **Depends on**: Task 2
+  - End-to-end OAuth return-to-FOSSE flow verified once the required upstream Atmosphere changes are available. (Full OAuth flow requires a real Bluesky account and cannot be tested in Playground.)
+- **Depends on**: Task 2, Task 4
 
-### Task 5: Create Status_Page with provider status cards
+### Task 6: Create Status_Page with provider status cards
 - **Files**: `src/Admin/Status_Page.php`, `src/Admin/templates/status-page.php`
 - **Do**:
   1. Create `Status_Page` that iterates providers, counts total/connected, and includes template.
@@ -64,9 +74,9 @@ Based on: sdd/onboarding-setup-ux/spec.md
 - **Verify**:
   - `composer run-script lint-php` passes.
   - Playground: FOSSE > Status page renders with both protocol cards.
-- **Depends on**: Task 3, Task 4
+- **Depends on**: Task 3, Task 5
 
-### Task 6: Add admin CSS
+### Task 7: Add admin CSS
 - **Files**: `src/Admin/assets/css/admin.css`
 - **Do**:
   1. Status indicator dots (green/red).
@@ -76,21 +86,21 @@ Based on: sdd/onboarding-setup-ux/spec.md
   5. Lean on native WP admin classes (`form-table`, `card`, `notice`, `widefat`).
 - **Verify**:
   - Playground: pages render with correct styling.
-- **Depends on**: Task 5
+- **Depends on**: Task 6
 
-### Task 7: Write tests
+### Task 8: Write tests
 - **Files**: `tests/php/Admin/Connection_Provider_RegistryTest.php`, `tests/php/Admin/AP_ProviderTest.php`, `tests/php/Admin/Bluesky_ProviderTest.php`
 - **Do**:
   1. Registry tests: register/retrieve, get_providers returns all, duplicate slug ignored, unknown slug returns null, reset clears.
-  2. AP_Provider tests: status shape, actor mode reflection, post type defaults and overrides, slug and name.
-  3. Bluesky_Provider tests: redirect intercept rewrites success URL, passes other URLs through, sets success transient, status disconnected/connected/expired-token.
+  2. AP_Provider tests: status shape, actor mode reflection (option projection via `pre_option_*` filters), post type defaults and overrides, slug and name.
+  3. Bluesky_Provider tests: redirect URI filter integration, persisted-notice read, status disconnected/connected/expired-token.
   4. Run `composer run-script lint-php` and `composer run-script test-php`.
 - **Verify**:
   - All tests pass.
   - Lint clean.
-- **Depends on**: Task 3, Task 4
+- **Depends on**: Task 3, Task 5
 
-### Task 8: Exclude `src/` from WordPress.Files.FileName PHPCS sniff
+### Task 9: Exclude `src/` from WordPress.Files.FileName PHPCS sniff
 - **Files**: `.phpcs.xml.dist`
 - **Do**:
   1. Add `<exclude-pattern>src/</exclude-pattern>` to the `WordPress.Files.FileName` rule block (alongside the existing `tests/php/` exclusion).
@@ -99,11 +109,11 @@ Based on: sdd/onboarding-setup-ux/spec.md
   - `composer run-script lint-php` passes clean on all files.
 - **Depends on**: none
 
-### Task 9: Backfill SDD documentation
+### Task 10: Update SDD documentation
 - **Files**: `sdd/onboarding-setup-ux/requirements.md`, `spec.md`, `plan.md`, `implementation-notes.md`
 - **Do**:
-  1. Write all four SDD documents following the pattern established by `sdd/bundled-backends/`.
+  1. Update all four SDD documents to reflect the as-built implementation — verify deviations, decisions, and limitations are accurate.
 - **Verify**:
   - Four files exist in `sdd/onboarding-setup-ux/`.
   - Content accurately reflects the implemented code.
-- **Depends on**: Task 7
+- **Depends on**: Task 8

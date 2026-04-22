@@ -1,6 +1,6 @@
-# Planned Decisions — Onboarding & Setup UX
+# Implementation Notes — Onboarding & Setup UX
 
-These are forward-looking notes documenting decisions made during the design phase. They will be updated as implementation-notes once the code PR lands.
+These implementation notes capture the planned implementation decisions, constraints, and known limitations for the onboarding and setup UX work ahead of the code PR.
 
 ## Design Decisions
 

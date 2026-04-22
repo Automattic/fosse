@@ -101,7 +101,7 @@ Form POSTs to `admin_post.php?action=fosse_save_ap_settings`. The handler valida
 | `Connection_Provider` | `src/Admin/Connection_Provider.php` | Interface: slug, name, availability, status, setup render, status render, hook registration. |
 | `Connection_Provider_Registry` | `src/Admin/Connection_Provider_Registry.php` | Static registry: register, get_providers, get_provider, reset. |
 | `AP_Provider` | `src/Admin/AP_Provider.php` | ActivityPub setup section (inline config) + status card. Self-registers on `fosse_register_providers`. |
-| `Bluesky_Provider` | `src/Admin/Bluesky_Provider.php` | Bluesky setup section (OAuth connect/disconnect) + status card. Self-registers on `fosse_register_providers`. Depends on upstream Atmosphere filter for redirect_uri. |
+| `Bluesky_Provider` | `src/Admin/Bluesky_Provider.php` | Bluesky setup section (OAuth connect/disconnect) + status card. Self-registers on `fosse_register_providers`. Depends on upstream Atmosphere `redirect_uri` filter + persisted-notice transient. |
 | `Menu` | `src/Admin/Menu.php` | Top-level menu registration, bundled-menu suppression, CSS enqueue, provider registration trigger. |
 | `Setup_Page` | `src/Admin/Setup_Page.php` | Iterates providers, renders setup sections with notice handling. |
 | `Status_Page` | `src/Admin/Status_Page.php` | Iterates providers, renders status cards with summary row. |
@@ -117,7 +117,7 @@ Form POSTs to `admin_post.php?action=fosse_save_ap_settings`. The handler valida
 | `src/Admin/Connection_Provider.php` | new | Interface definition. |
 | `src/Admin/Connection_Provider_Registry.php` | new | Static provider registry. |
 | `src/Admin/AP_Provider.php` | new | ActivityPub provider implementation. |
-| `src/Admin/Bluesky_Provider.php` | new | Bluesky provider implementation with OAuth bridge. |
+| `src/Admin/Bluesky_Provider.php` | new | Bluesky provider implementation (OAuth connect/disconnect via upstream Atmosphere API). |
 | `src/Admin/Menu.php` | new | Admin menu registration and bundled-menu suppression. |
 | `src/Admin/Setup_Page.php` | new | Setup page controller. |
 | `src/Admin/Status_Page.php` | new | Status dashboard controller. |
@@ -126,7 +126,7 @@ Form POSTs to `admin_post.php?action=fosse_save_ap_settings`. The handler valida
 | `src/Admin/assets/css/admin.css` | new | Admin styles. |
 | `tests/php/Admin/Connection_Provider_RegistryTest.php` | new | Registry unit tests. |
 | `tests/php/Admin/AP_ProviderTest.php` | new | AP provider unit tests. |
-| `tests/php/Admin/Bluesky_ProviderTest.php` | new | Bluesky provider unit tests (redirect intercept, status data). |
+| `tests/php/Admin/Bluesky_ProviderTest.php` | new | Bluesky provider unit tests (redirect URI filter integration, persisted-notice read, status data). |
 
 ## Out of Scope
 
