@@ -200,3 +200,14 @@ The full CI matrix runs on push, but catching formatting and style failures loca
 7. **`bundled/` is vendored upstream code.** Excluded from PHPCS, PHPUnit, ESLint, Prettier, Jest, and the composer classmap. Don't re-enable those checks for it. Refresh via `tools/sync-bundled.sh`; never hand-edit files inside `bundled/`.
 8. **Bundled-plugin activation runs on `init`, not `plugins_loaded`.** ActivityPub's `activate()` calls `flush_rewrite_rules()`, which needs `$wp_rewrite` (initialized on `init`). `fosse.php` defers the first-load bootstrap accordingly; don't move it earlier without accounting for that.
 9. **Commit `composer.lock` alongside every `composer.json` change.** `bin/build-zip.sh` runs `composer validate --no-check-all --no-check-publish` before install and fails hard on drift. For metadata-only edits (PHP floor, `exclude-from-classmap`, autoload paths), regenerate with `composer update --lock` rather than a full `composer update`. The earlier call to untrack the lock for PHP-matrix flexibility went away when we consolidated on PHP 8.2.
+
+## Upstream contribution policy
+
+Rule of thumb: **post-type-agnostic correctness goes upstream; FOSSE-shape-specific behavior stays in FOSSE.** If a fix or new hook is useful to any site running `wordpress-activitypub` or `wordpress-atmosphere` on its own, land it in that repo — not in `bundled/`, not as a FOSSE shim. FOSSE then consumes it via `tools/sync-bundled.sh`.
+
+Worked example from the Bluesky-native-publishing epic:
+
+-   **Upstream** — Atmosphere's `atmosphere_is_short_form_post` discriminator and ActivityPub's `activitypub_post_object_type` filter on `Post::get_type()`. Both describe a universal notion ("is this a short-form post / what AP object type should it become?") and are valuable to any consumer of those plugins.
+-   **FOSSE** — the `Automattic\Fosse\Object_Type` projector that reads the `fosse_object_type` option and drives both upstream filters in lockstep. This only makes sense inside FOSSE's "publish once, reach everywhere" model where AP and atproto must agree on the shape of a given post.
+
+See `sdd/bluesky-native-publishing/` for the full decision record.
