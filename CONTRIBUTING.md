@@ -40,6 +40,7 @@ PHPCS lives in `tools/` (isolated from plugin runtime deps) and should be instal
     ```
 
     PHPUnit and E2E can wait for CI; the linters should be clean on the first push. See [`AGENTS.md`'s "Before Pushing"](./AGENTS.md#before-pushing) for the rationale.
+
 -   **Never hand-edit `bundled/`.** That directory is vendored release builds of the two upstream plugins. It's excluded from PHPCS, PHPUnit, ESLint, Prettier, Jest, and the composer classmap. Refresh it via `tools/sync-bundled.sh` — never by editing files in place. See [Upstream-first policy](#upstream-first-policy) below for where fixes actually belong.
 -   **Commit `composer.lock` and `pnpm-lock.yaml`** alongside every dependency bump. The build script validates lock drift and CI installs with `--frozen-lockfile`.
 
@@ -97,7 +98,7 @@ For multi-task SDD epics we've been using:
 2.  **Implementation PRs** — each task (or closely-related task cluster) stacked on top of the SDD branch. Example: [#21](https://github.com/Automattic/fosse/pull/21) stacked on #18.
 3.  **Janitorial / independent work** — goes straight to `trunk`, not stacked, even if it originated inside an epic. If a policy doc or refactor stands on its own, keep it off the stack so it can merge independently. Example: [#23](https://github.com/Automattic/fosse/pull/23) — upstream-first policy doc, trunk-based because it's valuable even if the SDD plan it came from gets reshaped.
 
-The guiding question: *would this change still make sense if the SDD plan it came from got thrown out?* If yes, trunk-based. If no, stack it.
+The guiding question: _would this change still make sense if the SDD plan it came from got thrown out?_ If yes, trunk-based. If no, stack it.
 
 ### Linear integration
 
