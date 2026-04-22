@@ -99,3 +99,14 @@ add_action(
 	},
 	20
 );
+
+/*
+ * Cross-network object-type projector.
+ *
+ * Translates the single `fosse_object_type` option into per-network
+ * filter answers so the Atmosphere short-form discriminator and the
+ * ActivityPub object type stay aligned. Hooked at default priority 10
+ * so the filter callbacks run before Atmosphere's transition_post_status
+ * handler schedules its outbound work.
+ */
+add_action( 'init', array( '\Automattic\Fosse\Object_Type', 'register' ) );
