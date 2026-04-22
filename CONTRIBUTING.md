@@ -26,7 +26,7 @@ pnpm install
 pnpm exec playwright install --with-deps chromium   # first e2e run only
 ```
 
-PHPCS lives in `tools/` (isolated from plugin runtime deps) and needs PHP 8.2+. PHPUnit runs against WordPress booted via WorDBless — no MySQL required. E2E uses Playwright against WordPress Playground.
+PHPCS lives in `tools/` (isolated from plugin runtime deps) and should be installed and run with PHP 8.4 to match `tools/composer.json`'s platform pin and CI. PHPUnit runs against WordPress booted via WorDBless — no MySQL required. E2E uses Playwright against WordPress Playground.
 
 ### PR expectations
 
