@@ -23,7 +23,7 @@ export default defineConfig( {
 		},
 	],
 	webServer: {
-		command: `pnpm exec wp-playground-cli server --port ${ PORT } --blueprint tests/e2e/blueprint.json --mount ${ process.cwd() }:/wordpress/wp-content/plugins/fosse --mount ${ process.cwd() }/tests/e2e/mu-plugins:/wordpress/wp-content/mu-plugins`,
+		command: `pnpm exec wp-playground-cli server --port ${ PORT } --blueprint tests/e2e/blueprint.json --mount ${ process.cwd() }:/wordpress/wp-content/plugins/fosse`,
 		url: `${ BASE_URL }/readme.html`,
 		reuseExistingServer: ! process.env.CI,
 		timeout: 120_000,
