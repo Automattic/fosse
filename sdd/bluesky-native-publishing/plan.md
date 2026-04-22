@@ -19,9 +19,20 @@ Linear:
 - Facet parity: [DOTCOM-16811](https://linear.app/a8c/issue/DOTCOM-16811)
 - Decision record: [DOTCOM-16812](https://linear.app/a8c/issue/DOTCOM-16812)
 
+## Progress
+
+- [x] Task 1 [UPSTREAM-AP]: Add `activitypub_post_object_type` filter to AP `Post::get_type()`
+- [x] Task 2 [UPSTREAM-AT]: Make Atmosphere `Post` transformer post-format-aware + add filter
+- [ ] Task 3: Refresh `bundled/atmosphere/` after Task 2 merges
+- [ ] Task 4: Refresh `bundled/activitypub/` after Task 1 merges
+- [ ] Task 5 [FOSSE]: `Object_Type` projector + `fosse_object_type` option
+- [ ] Task 6: Playwright e2e — facet parity round-trip on the short-form path
+- [ ] Task 7: Document upstream-first decision policy
+
 ## Tasks
 
 ### Task 1 [UPSTREAM-AP]: Add `activitypub_post_object_type` filter to AP `Post::get_type()`
+- **Status**: ✅ Done ([wordpress-activitypub#3210](https://github.com/Automattic/wordpress-activitypub/pull/3210), merged 2026-04-21)
 - **Repo**: `Automattic/wordpress-activitypub`
 - **Linear**: [DOTCOM-16839](https://linear.app/a8c/issue/DOTCOM-16839)
 - **Files**:
@@ -52,6 +63,7 @@ Linear:
 - **Handoff**: Note merge SHA in Task 4's commit body.
 
 ### Task 2 [UPSTREAM-AT]: Make Atmosphere `Post` transformer post-format-aware + add filter
+- **Status**: ✅ Done ([wordpress-atmosphere#29](https://github.com/Automattic/wordpress-atmosphere/pull/29), merged 2026-04-21)
 - **Repo**: `Automattic/wordpress-atmosphere`
 - **Linear**: [DOTCOM-16838](https://linear.app/a8c/issue/DOTCOM-16838)
 - **Files**:
@@ -108,6 +120,7 @@ Linear:
 - **Handoff**: Note merge SHA in Task 3's commit body.
 
 ### Task 3: Refresh `bundled/atmosphere/` after Task 2 merges
+- **Status**: Not started
 - **Repo**: `Automattic/fosse`
 - **Files**: [`bundled/atmosphere/**`](https://github.com/Automattic/fosse/tree/trunk/bundled/atmosphere)
 - **Do**:
@@ -121,6 +134,7 @@ Linear:
 - **Depends on**: Task 2 merged upstream.
 
 ### Task 4: Refresh `bundled/activitypub/` after Task 1 merges
+- **Status**: Not started
 - **Repo**: `Automattic/fosse`
 - **Files**: [`bundled/activitypub/**`](https://github.com/Automattic/fosse/tree/trunk/bundled/activitypub)
 - **Do**:
@@ -133,6 +147,7 @@ Linear:
 - **Depends on**: Task 1 merged upstream.
 
 ### Task 5 [FOSSE]: `Object_Type` projector + `fosse_object_type` option
+- **Status**: Not started
 - **Repo**: `Automattic/fosse`
 - **Linear**: [DOTCOM-16840](https://linear.app/a8c/issue/DOTCOM-16840)
 - **Files**:
@@ -167,6 +182,7 @@ Linear:
 - **Depends on**: Tasks 3 and 4. (The hooks are no-ops without the bundle refresh — the upstream filters they target won't exist.)
 
 ### Task 6: Playwright e2e — facet parity round-trip on the short-form path (DOTCOM-16811)
+- **Status**: Not started
 - **Repo**: `Automattic/fosse`
 - **Linear**: [DOTCOM-16811](https://linear.app/a8c/issue/DOTCOM-16811)
 - **Files**:
@@ -195,6 +211,7 @@ Linear:
 - **Depends on**: Task 5.
 
 ### Task 7: Document upstream-first decision policy
+- **Status**: Not started
 - **Repo**: `Automattic/fosse`
 - **Linear**: [DOTCOM-16812](https://linear.app/a8c/issue/DOTCOM-16812)
 - **Files**: [`AGENTS.md`](https://github.com/Automattic/fosse/blob/trunk/AGENTS.md)
