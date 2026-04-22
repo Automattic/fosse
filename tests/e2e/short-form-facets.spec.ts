@@ -1,20 +1,30 @@
 import { test, expect } from '@playwright/test';
 
-type CapturedRecord = {
-	post_id: number;
-	collection: string;
-	record: {
-		text: string;
-		embed?: unknown;
-		facets?: Array< {
-			index: { byteStart: number; byteEnd: number };
-			features: Array< { $type: string; [ key: string ]: unknown } >;
-		} >;
-		[ key: string ]: unknown;
-	};
+type BskyRecord = {
+	$type?: string;
+	text: string;
+	embed?: unknown;
+	facets?: Array< {
+		index: { byteStart: number; byteEnd: number };
+		features: Array< { $type: string; [ key: string ]: unknown } >;
+	} >;
+	[ key: string ]: unknown;
 };
 
-test( 'short-form post: tag/mention/link facets captured, no embed', async ( {
+type DocRecord = {
+	$type: string;
+	title?: string;
+	publishedAt?: string;
+	[ key: string ]: unknown;
+};
+
+type Capture = {
+	post_id: number;
+	bsky_record: BskyRecord;
+	doc_record: DocRecord;
+};
+
+test( 'short-form post: tag/mention/link facets captured, no embed, plus document record', async ( {
 	page,
 } ) => {
 	await page.goto( '/wp-admin/post-new.php' );
@@ -54,7 +64,7 @@ test( 'short-form post: tag/mention/link facets captured, no embed', async ( {
 	// transition_post_status publish transition — so by the time /posts returns
 	// 201, the capture should be on disk. Poll briefly for filesystem flush.
 	const captureUrl = '/wp-content/uploads/fosse-bsky-capture.json';
-	let captured: CapturedRecord | null = null;
+	let captured: Capture | null = null;
 	await expect
 		.poll(
 			async () => {
@@ -62,22 +72,23 @@ test( 'short-form post: tag/mention/link facets captured, no embed', async ( {
 				if ( ! r.ok() ) {
 					return false;
 				}
-				captured = ( await r.json() ) as CapturedRecord;
+				captured = ( await r.json() ) as Capture;
 				return captured.post_id === postId;
 			},
 			{ timeout: 5_000, intervals: [ 100, 250, 500 ] }
 		)
 		.toBe( true );
 
-	const record = captured!.record;
+	// app.bsky.feed.post record: short-form composition + facet parity.
+	const bsky = captured!.bsky_record;
 
-	expect( record.text ).toBe( body );
-	expect( record.embed ).toBeUndefined();
-	expect( record.facets ).toBeDefined();
-	expect( record.facets! ).toHaveLength( 3 );
+	expect( bsky.text ).toBe( body );
+	expect( bsky.embed ).toBeUndefined();
+	expect( bsky.facets ).toBeDefined();
+	expect( bsky.facets! ).toHaveLength( 3 );
 
 	const facetOfType = ( type: string ) =>
-		record.facets!.find( ( f ) => f.features[ 0 ]?.$type === type );
+		bsky.facets!.find( ( f ) => f.features[ 0 ]?.$type === type );
 
 	const tag = facetOfType( 'app.bsky.richtext.facet#tag' );
 	expect( tag, 'tag facet present' ).toBeTruthy();
@@ -90,4 +101,12 @@ test( 'short-form post: tag/mention/link facets captured, no embed', async ( {
 	const link = facetOfType( 'app.bsky.richtext.facet#link' );
 	expect( link, 'link facet present' ).toBeTruthy();
 	expect( link!.features[ 0 ].uri ).toBe( 'https://example.com' );
+
+	// site.standard.document record: must still be written on the short-form
+	// path (DOTCOM-16809). Publisher::publish atomically writes both records;
+	// this guards against a future regression if the document path ever grows
+	// a post-format sensitivity.
+	const doc = captured!.doc_record;
+	expect( doc.$type ).toBe( 'site.standard.document' );
+	expect( doc.publishedAt as string ).toMatch( /^\d{4}-\d{2}-\d{2}T/ );
 } );
