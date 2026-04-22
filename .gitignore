@@ -24,3 +24,8 @@
 .idea/
 .vscode/
 *.swp
+
+# Claude Code — local-only artifacts (.claude/settings.json itself is committed)
+/.claude/settings.local.json
+/.claude/scheduled_tasks.lock
+/.claude/worktrees/
