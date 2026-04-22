@@ -110,7 +110,7 @@ Based on: sdd/onboarding-setup-ux/spec.md
 - **Depends on**: none
 
 ### Task 10: Update SDD documentation
-- **Files**: `sdd/onboarding-setup-ux/requirements.md`, `spec.md`, `plan.md`, `implementation-notes.md`
+- **Files**: `sdd/onboarding-setup-ux/requirements.md`, `spec.md`, `plan.md`, `planned-decisions.md`
 - **Do**:
   1. Update all four SDD documents to reflect the as-built implementation — verify deviations, decisions, and limitations are accurate.
 - **Verify**:
