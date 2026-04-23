@@ -292,7 +292,7 @@ class AP_Provider implements Connection_Provider {
 		}
 
 		// Sanitize post types against registered public types.
-		$submitted   = array_map( 'sanitize_text_field', wp_unslash( $_POST['fosse_ap_support_post_types'] ?? array() ) );
+		$submitted   = array_map( 'sanitize_text_field', wp_unslash( (array) ( $_POST['fosse_ap_support_post_types'] ?? array() ) ) );
 		$valid_types = get_post_types( array( 'public' => true ) );
 		$post_types  = array_values( array_intersect( $submitted, $valid_types ) );
 		update_option( 'fosse_ap_support_post_types', $post_types );
