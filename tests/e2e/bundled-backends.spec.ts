@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 
-test( 'WP admin boots with bundled backends active and ActivityPub menu is registered', async ( {
+test( 'WP admin boots with bundled backends active and FOSSE menu replaces ActivityPub', async ( {
 	page,
 } ) => {
 	const response = await page.goto( '/wp-admin/options-general.php' );
@@ -11,8 +11,11 @@ test( 'WP admin boots with bundled backends active and ActivityPub menu is regis
 		page.locator( 'text=/Fatal error|Parse error|Uncaught .*Error/i' )
 	).toHaveCount( 0 );
 
-	// The bundled ActivityPub plugin registers its own submenu under Settings.
+	// FOSSE hides the bundled ActivityPub menu and provides its own.
 	await expect(
 		page.locator( '#adminmenu a', { hasText: 'ActivityPub' } ).first()
+	).toBeHidden();
+	await expect(
+		page.locator( '#adminmenu a', { hasText: 'FOSSE' } ).first()
 	).toBeVisible();
 } );

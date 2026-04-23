@@ -19,6 +19,8 @@ class Connection_Provider_RegistryTest extends BaseTestCase {
 
 	/**
 	 * Clear the registry before each test.
+	 *
+	 * @before
 	 */
 	#[Before]
 	public function reset_registry(): void {

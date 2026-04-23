@@ -26,6 +26,8 @@ class AP_ProviderTest extends BaseTestCase {
 
 	/**
 	 * Set up a fresh provider and clean option state before each test.
+	 *
+	 * @before
 	 */
 	#[Before]
 	public function set_up_provider(): void {
@@ -41,6 +43,8 @@ class AP_ProviderTest extends BaseTestCase {
 
 	/**
 	 * Remove projection filters after each test.
+	 *
+	 * @after
 	 */
 	#[After]
 	public function tear_down_filters(): void {
