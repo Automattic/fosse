@@ -306,11 +306,24 @@ class AP_Provider implements Connection_Provider {
 	}
 
 	/**
-	 * Get the fediverse address for the current site/user.
+	 * Get the fediverse address for the active actor(s).
+	 *
+	 * Returns the blog webfinger in blog mode, the current user's
+	 * webfinger in actor mode, or the user's in actor_blog mode
+	 * (falling back to blog if the user actor is unavailable).
 	 *
 	 * @return string Empty string if AP models are unavailable.
 	 */
 	private function get_fediverse_address(): string {
+		$mode = get_option( 'activitypub_actor_mode', 'actor' );
+
+		if ( 'blog' !== $mode && class_exists( '\Activitypub\Model\User' ) ) {
+			$user = \Activitypub\Model\User::from_wp_user( get_current_user_id() );
+			if ( $user && ! is_wp_error( $user ) ) {
+				return $user->get_webfinger();
+			}
+		}
+
 		if ( class_exists( '\Activitypub\Model\Blog' ) ) {
 			$blog = new \Activitypub\Model\Blog();
 			return $blog->get_webfinger();
@@ -338,6 +351,9 @@ class AP_Provider implements Connection_Provider {
 	/**
 	 * Render the follower count row if the AP Followers API is available.
 	 *
+	 * Uses the blog actor ID in blog mode, the current user in actor mode,
+	 * and shows both in actor_blog mode.
+	 *
 	 * @return void
 	 */
 	private function render_follower_count_row(): void {
@@ -345,12 +361,45 @@ class AP_Provider implements Connection_Provider {
 			return;
 		}
 
-		$count = \Activitypub\Collection\Followers::count( get_current_user_id() );
-		?>
-		<tr>
-			<td><?php esc_html_e( 'Followers', 'fosse' ); ?></td>
-			<td><?php echo esc_html( number_format_i18n( $count ) ); ?></td>
-		</tr>
-		<?php
+		$mode    = get_option( 'activitypub_actor_mode', 'actor' );
+		$blog_id = defined( '\Activitypub\Collection\Actors::BLOG_USER_ID' )
+			? \Activitypub\Collection\Actors::BLOG_USER_ID
+			: 0;
+
+		if ( 'blog' === $mode ) {
+			$count = \Activitypub\Collection\Followers::count( $blog_id );
+			?>
+			<tr>
+				<td><?php esc_html_e( 'Followers', 'fosse' ); ?></td>
+				<td><?php echo esc_html( number_format_i18n( $count ) ); ?></td>
+			</tr>
+			<?php
+		} elseif ( 'actor_blog' === $mode ) {
+			$user_count = \Activitypub\Collection\Followers::count( get_current_user_id() );
+			$blog_count = \Activitypub\Collection\Followers::count( $blog_id );
+			?>
+			<tr>
+				<td><?php esc_html_e( 'Followers', 'fosse' ); ?></td>
+				<td>
+					<?php
+					printf(
+						/* translators: 1: author follower count, 2: blog follower count */
+						esc_html__( 'Author: %1$s, Blog: %2$s', 'fosse' ),
+						esc_html( number_format_i18n( $user_count ) ),
+						esc_html( number_format_i18n( $blog_count ) )
+					);
+					?>
+				</td>
+			</tr>
+			<?php
+		} else {
+			$count = \Activitypub\Collection\Followers::count( get_current_user_id() );
+			?>
+			<tr>
+				<td><?php esc_html_e( 'Followers', 'fosse' ); ?></td>
+				<td><?php echo esc_html( number_format_i18n( $count ) ); ?></td>
+			</tr>
+			<?php
+		}
 	}
 }
