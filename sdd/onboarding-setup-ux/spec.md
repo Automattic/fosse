@@ -7,7 +7,7 @@ Ship a unified FOSSE admin experience that replaces the bundled plugins' fragmen
 ## Requirements Summary
 
 - Top-level FOSSE admin menu with Setup and Status sub-pages.
-- Hide bundled AP and Atmosphere submenus from Settings (pages remain accessible by direct URL).
+- Hide all bundled-plugin admin entries (Settings submenus, top-level Dashboard page, Users submenus) so FOSSE is the single admin surface. Pages remain accessible by direct URL.
 - Inline ActivityPub configuration (actor mode, post types) with link to advanced settings.
 - Bluesky OAuth connection flow embedded in the FOSSE Setup page via Atmosphere's public API.
 - Connection-status dashboard showing both protocols' health on one screen.
@@ -53,7 +53,7 @@ fosse.php
               │     → providers self-register into Connection_Provider_Registry
               ├── provider->register_hooks() for each available provider
               ├── admin_menu @ 9   → add_menu_page('fosse') + sub-pages
-              ├── admin_menu @ 99  → remove_submenu_page (AP + Atmosphere)
+              ├── admin_menu @ 99  → hide all bundled-plugin admin entries
               └── admin_enqueue_scripts → fosse-admin CSS
 ```
 
@@ -101,7 +101,7 @@ Form POSTs to `admin_post.php?action=fosse_save_ap_settings`. The handler valida
 | `Connection_Provider` | `src/Admin/Connection_Provider.php` | Interface: slug, name, availability, status, setup render, status render, hook registration. |
 | `Connection_Provider_Registry` | `src/Admin/Connection_Provider_Registry.php` | Static registry: register, get_providers, get_provider, reset. |
 | `AP_Provider` | `src/Admin/AP_Provider.php` | ActivityPub setup section (inline config) + status card. Self-registers on `fosse_register_providers`. |
-| `Bluesky_Provider` | `src/Admin/Bluesky_Provider.php` | Bluesky setup section (OAuth connect/disconnect) + status card. Self-registers on `fosse_register_providers`. Depends on upstream Atmosphere `redirect_uri` filter + persisted-notice transient. |
+| `Bluesky_Provider` | `src/Admin/Bluesky_Provider.php` | Bluesky setup section (OAuth connect/disconnect via upstream Atmosphere API) + status card. Self-registers on `fosse_register_providers`. Depends on upstream Atmosphere `redirect_uri` filter + persisted-notice transient. |
 | `Menu` | `src/Admin/Menu.php` | Top-level menu registration, bundled-menu suppression, CSS enqueue, provider registration trigger. |
 | `Setup_Page` | `src/Admin/Setup_Page.php` | Iterates providers, renders setup sections with notice handling. |
 | `Status_Page` | `src/Admin/Status_Page.php` | Iterates providers, renders status cards with summary row. |
@@ -126,7 +126,7 @@ Form POSTs to `admin_post.php?action=fosse_save_ap_settings`. The handler valida
 | `src/Admin/assets/css/admin.css` | new | Admin styles. |
 | `tests/php/Admin/Connection_Provider_RegistryTest.php` | new | Registry unit tests. |
 | `tests/php/Admin/AP_ProviderTest.php` | new | AP provider unit tests. |
-| `tests/php/Admin/Bluesky_ProviderTest.php` | new | Bluesky provider unit tests (redirect URI filter integration, persisted-notice read, status data). |
+| `tests/php/Admin/Bluesky_ProviderTest.php` | new | Bluesky provider unit tests (redirect URI filter integration, persisted-notice transient read, status data). |
 
 ## Out of Scope
 

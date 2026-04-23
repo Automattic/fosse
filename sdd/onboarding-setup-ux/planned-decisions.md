@@ -35,6 +35,9 @@ The status dashboard will be a static PHP page. Token expiry, connection health,
 ### No E2E test for the full OAuth flow
 The Bluesky OAuth flow requires a real Bluesky account and external auth server. Playground cannot test this end-to-end. Unit tests will cover redirect logic and status data. The full OAuth round-trip is manual-only.
 
+### Deactivation/deletion behavior is deferred
+This epic does not define what happens to `fosse_ap_*` options or menu state when FOSSE is deactivated or deleted, nor how FOSSE behaves if ActivityPub or Atmosphere are also installed as standalone plugins. Tracked separately in [DOTCOM-16865](https://linear.app/a8c/issue/DOTCOM-16865/deactivation-and-deletion-handling-for-fosse-and-bundled-plugins) so the decision happens before production distribution. The option-projection pattern (FOSSE stores `fosse_ap_*`, projects via `pre_option_activitypub_*`) is clean for the "FOSSE is active" case but needs a companion story for lifecycle events. Not blocking for MVP.
+
 ## Upstream Dependencies
 
 - **wordpress-atmosphere PR (a)**: Filter on `Client::redirect_uri()` so FOSSE can set its own callback URL.

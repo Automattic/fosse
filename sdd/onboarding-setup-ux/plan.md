@@ -20,11 +20,18 @@ Based on: sdd/onboarding-setup-ux/spec.md
 - **Do**:
   1. Create `Menu` class with `register()` static method that fires `fosse_register_providers`, calls `register_hooks()` on available providers, hooks `admin_menu` at priority 9 (register menu) and 99 (hide bundled menus), and hooks `admin_enqueue_scripts` for CSS.
   2. `add_menu_page('fosse')` with `dashicons-share` icon. Two submenu pages: Setup (slug `fosse`) and Status (slug `fosse-status`).
-  3. `remove_submenu_page('options-general.php', 'activitypub')` and `remove_submenu_page('options-general.php', 'atmosphere')` at priority 99.
+  3. At priority 99, hide all bundled-plugin admin entries:
+     - `remove_submenu_page('options-general.php', 'activitypub')` — AP Settings submenu.
+     - `remove_submenu_page('options-general.php', 'atmosphere')` — Atmosphere Settings submenu.
+     - `remove_menu_page('activitypub-social-web')` — AP top-level Dashboard page (gated by `activitypub_reader_ui`).
+     - `remove_submenu_page('users.php', 'activitypub-followers-list')` — AP Users submenu.
+     - `remove_submenu_page('users.php', 'activitypub-following-list')` — AP Users submenu.
+     Pages remain registered, so direct-URL access still works for power users.
   4. Add `is_admin()` block to `fosse.php` that inits providers and calls `Menu::register()`.
 - **Verify**:
   - `php -l fosse.php` succeeds.
   - `composer run-script lint-php` passes.
+  - Playground: no AP or Atmosphere entries appear in Settings, Users, or the top-level menu.
 - **Depends on**: Task 1
 
 ### Task 3: Create AP_Provider + Setup_Page shell
