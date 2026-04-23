@@ -30,7 +30,7 @@ Reasoning:
 -   **Option 1 stays available** because some users genuinely prefer the link card for driving WP traffic. The selector gives them opt-out.
 -   **Option 4 is still a nope.** Full tweet storms read as spam on Bluesky. The upstream cost is the same as Option 5 with worse UX.
 
-**Upstream cost we're taking on.** `Atmosphere\Publisher::publish()` today writes exactly one `app.bsky.feed.post` + one `site.standard.document` atomically via a single `applyWrites` call. Option 5 requires N bsky posts with reply refs. Those reply refs need strong refs (URI + CID), and CIDs are content-addressed — you'd need client-side CID computation to make a single `applyWrites` truly atomic. The pragmatic alternative is sequential writes with rollback-on-failure, which is how Bluesky's own clients post threads. The spec picks sequential-writes-with-rollback; details in "Technical Details — Thread write semantics."
+**Upstream cost we're taking on.** `Atmosphere\Publisher::publish()` today writes exactly one `app.bsky.feed.post` + one `site.standard.document` atomically via a single `applyWrites` call. Option 5 requires N bsky posts with reply refs. Reply refs are `strongRef {uri, cid}` — and a reply's CID depends on the parent's CID, which only arrives in the `applyWrites` response after the parent is committed. You cannot batch all N posts into one `applyWrites` because the reply records can't be constructed until their parent's CID is known. There is no Bluesky-native thread-create endpoint; their own client does sequential writes post-by-post. The spec picks sequential-writes-with-rollback; details in "Technical Details — Thread write semantics."
 
 ## Option Analysis
 
@@ -96,9 +96,9 @@ Rejected because: (a) Bluesky's audience responds poorly to tweet-storm style po
 | | |
 |---|---|
 | **Pros** | Threads of 3-8 posts reportedly get ~3× engagement vs single posts on Bluesky (per [community growth research](https://blog.bskygrowth.com/best-bluesky-growth-strategies-creators-2026/)). Feels native to the platform. The final CTA post still carries the permalink for click-through. Matches the body-as-text native feel of the short-form path we shipped. |
-| **Cons** | Big upstream change: `Publisher::publish()` today writes 1 bsky post + 1 doc record atomically via `applyWrites`. Thread shape means N bsky posts with reply refs. Reply refs require `strongRef {uri, cid}` — CIDs are content-addressed, so client-side CID computation is required for a true single-`applyWrites` atomic write. v1 takes the pragmatic route: sequential writes with rollback-on-failure (match Bluesky's own client behavior). Post meta storage becomes an ordered array of URIs/TIDs. Edit/delete semantics: rewrite the whole thread on update, delete all N on delete. |
+| **Cons** | Big upstream change: `Publisher::publish()` today writes 1 bsky post + 1 doc record atomically via `applyWrites`. Thread shape means N bsky posts with reply refs. Reply refs require `strongRef {uri, cid}` and each reply's parent CID only arrives in the server response from writing the parent — so the thread must be written sequentially, one `applyWrites` call per reply post, with rollback-on-failure. Post meta storage becomes an ordered array of `{uri, cid, tid}` triples. Edit/delete semantics: rewrite the whole thread on update, delete all N on delete. Rewriting on update also orphans any replies other Bluesky users posted to the old thread and resets the post's in-feed timestamp — both documented in the changelog. |
 | **Engineering** | Significant upstream work. FOSSE side is just the projector. |
-| **Upstream work** | Large but scoped: sequential-writes-with-rollback inside `Publisher::publish/update/delete`, array-shape post meta (`_atmosphere_bsky_thread_uris`, `_atmosphere_bsky_thread_tids`), new composition method `build_teaser_thread()` returning an array of N record-payloads, the `atmosphere_long_form_composition` filter, and the `atmosphere_teaser_thread_posts` filter. Requires Matthias / upstream buy-in. |
+| **Upstream work** | Large but scoped: sequential-writes-with-rollback inside `Publisher::publish/update/delete`, ordered-array post meta (`_atmosphere_bsky_thread_records` holding `{uri, cid, tid}` triples; single-value `_atmosphere_bsky_uri`/`_atmosphere_bsky_tid` preserved as root mirrors for backwards compat), new composition method `build_teaser_thread()` returning an array of N post-text strings, new entry point `build_long_form_records()` returning an ordered array of `{text, embed, facets, langs}` records, the `atmosphere_long_form_composition` filter, and the `atmosphere_teaser_thread_posts` filter. Requires Matthias / upstream buy-in. Opened as a **draft PR early** so async upstream review runs in parallel with FOSSE-side work. |
 | **When to pursue** | **Now.** This is the v1 path. |
 
 ## Technical Details
@@ -114,26 +114,31 @@ Mirrors the `fosse_object_type` pattern on the selector side. One site-wide opti
 |  Automattic/wordpress-atmosphere             |
 |                                              |
 |  Publisher::publish( $post )                 |
-|    $strategy = apply_filters(                |
-|      'atmosphere_long_form_composition',     |
-|      'link-card',                            |
-|      $post )                                 |
+|    if ( is_short_form )                      |
+|      records = [ Post::transform() ]         |
+|    else                                      |
+|      records = Post::build_long_form_        |
+|                      records()               |
+|        - applies atmosphere_long_form_       |
+|          composition filter                  |
+|        - dispatches to link-card /           |
+|          truncate-link / teaser-thread       |
 |                                              |
-|    switch ($strategy)                        |
-|      case 'teaser-thread':                   |
-|        $posts = Post::build_teaser_thread()  |
-|        $doc   = Document::transform()        |
-|        sequential write:                     |
-|          1) applyWrites: root + doc (atomic) |
-|          2) for each reply in $posts[1..]:   |
-|               applyWrites: reply (refs prev) |
-|          on any failure: rollback prior      |
-|        store array of URIs/TIDs in meta      |
-|      case 'truncate-link':                   |
-|        single-post path (same shape as today)|
-|      case 'link-card' (default):             |
-|        single-post path (byte-identical to   |
-|          today's behavior)                   |
+|    if ( count(records) == 1 )                |
+|      applyWrites: record + doc (atomic)      |
+|    else  # thread                            |
+|      1) applyWrites: records[0] + doc        |
+|         → capture root {uri, cid}            |
+|         → write partial meta                 |
+|      2) for each records[i>=1]:              |
+|         fill reply.root = root {uri, cid}    |
+|         fill reply.parent = prev {uri, cid}  |
+|         stamp createdAt at write time        |
+|         applyWrites: single record           |
+|         → capture {uri, cid}                 |
+|         → append to partial meta             |
+|         on failure: rollback prior           |
+|      3) persist final ordered meta           |
 +--------------------+-------------------------+
                      │
                      │ filter override
@@ -145,7 +150,9 @@ Mirrors the `fosse_object_type` pattern on the selector side. One site-wide opti
 |    hooks atmosphere_long_form_composition    |
 |                                              |
 |  reads get_option(                           |
-|    'fosse_long_form_strategy' )              |
+|    'fosse_long_form_strategy' ) — unset      |
+|    and unknown values default to             |
+|    'teaser-thread' (FOSSE-opinionated)       |
 +----------------------------------------------+
 ```
 
@@ -163,44 +170,59 @@ The enum stays extensible — adding a v2 value or a custom composition later do
 
 ### Thread write semantics
 
-Reply refs on `app.bsky.feed.post` require `strongRef {uri, cid}`. CIDs are content-addressed hashes of the record, so to produce them client-side requires DAG-CBOR encoding + SHA-256 + base32 of the full record. That's a non-trivial dependency to add to Atmosphere. v1 skips it and does sequential writes, matching Bluesky's own client behavior.
+**Why sequential, not one atomic batch.** Reply refs on `app.bsky.feed.post` require `strongRef {uri, cid}`. A reply record's content includes its parent's CID — so you cannot construct the reply record until the parent has been written and the server has returned the parent's CID. The only way around this would be to pre-compute CIDs client-side (DAG-CBOR + SHA-256 + base32 of the full record), which is non-trivial and not a dependency Atmosphere wants to take on for v1. Bluesky's own client does sequential writes for threads; we match.
 
 **Publisher::publish() for the thread path:**
 
-1. Build the thread records locally — an ordered array of `$thread` records where `$thread[0]` is the root (no `reply`) and `$thread[1..N-1]` each set `reply.root` and `reply.parent`. The root and parent refs for each reply get filled in as the write progresses (see step 3); at build time they're placeholders.
-2. First `applyWrites` call (atomic): create the root `app.bsky.feed.post` + the `site.standard.document` record. This mirrors today's atomic write. Response gives us the root post's URI + CID.
-3. For each subsequent `$thread[i]`: fill in `reply.root` with the root's `{uri, cid}` and `reply.parent` with the previous post's `{uri, cid}`. Call `applyWrites` (single-record create). On success, record URI + CID. On failure: delete all previously-created records in reverse order (rollback) and return `WP_Error`.
-4. Persist ordered arrays of URIs and TIDs in post meta:
-    - `_atmosphere_bsky_thread_uris` — ordered array of `at://.../app.bsky.feed.post/TID`.
-    - `_atmosphere_bsky_thread_tids` — ordered array of TIDs.
-    - Existing single-value `_atmosphere_bsky_uri` / `_atmosphere_bsky_tid` are retained for backwards compatibility, pointing at `$thread[0]` (root). Callers using the old keys get the root post URI.
+1. Compose the long-form records via `Post::build_long_form_records()` → ordered array of `{ text, embed, facets, langs, createdAt }` entries, no `reply` field yet. The `langs` value is computed once and inherited by every record in the thread (so Bluesky's algorithmic surfacing treats the thread consistently). `createdAt` is **not** filled here — it's stamped at each record's write time in the steps below.
+2. **First `applyWrites` call (atomic):** create root `app.bsky.feed.post` (records[0], stamped with `createdAt = now()`) + `site.standard.document`. Response gives root's `{uri, cid}`.
+3. **Write a partial-meta entry immediately** after step 2 succeeds: append the root's `{uri, cid, tid}` triple to `_atmosphere_bsky_thread_records` as a 1-entry array and set `_atmosphere_bsky_uri`/`_atmosphere_bsky_tid` to mirror it. This is the crash-recovery guard — if PHP fatals before step 5, we still know a root post exists on Bluesky and can surface or clean it up. Matches today's `store_results()` helper shape; extend that helper to accept a single-record result and append rather than overwrite.
+4. **For each subsequent `records[i]` where `i >= 1`:**
+    - Fill `reply.root = { uri, cid }` with the root's ref (records[0]'s captured result).
+    - Fill `reply.parent = { uri, cid }` with the previous post's ref (records[i−1]'s captured result — **not** always the root; for a 2-post thread parent == root, for a 3-post thread parent of post 3 is post 2).
+    - Stamp `createdAt = now()` at write time (sequential monotonicity falls out naturally; don't pre-compute).
+    - Call `applyWrites` with a single create. On success: append `{uri, cid, tid}` to `_atmosphere_bsky_thread_records` immediately (same crash-recovery guard). On failure: iterate the partial-meta array in reverse, issue `applyWrites#delete` for each, return the **original** `WP_Error` (not the rollback result). If rollback itself fails, return `new WP_Error( 'atmosphere_thread_rollback_failed', …, [ 'partial_records' => $stored ] )` so the admin can see what's out there.
+5. On full success: the post meta is already consistent from the per-write appends in steps 3–4. Also update `update_document_bsky_ref()` with the root's `{uri, cid}` (unchanged from today — the doc always points at the root, not any reply).
 
-**Publisher::update():** rewrite the whole thread. Delete all existing posts in the thread (via `applyWrites#delete`), then re-publish using the new thread records. Doc record updates in place. This is the simplest correct behavior — preserving reply refs across edits with content that changes length is hard, and editing in place would leave orphan replies when the new thread is shorter. Document the limitation in the changelog.
+**Post meta shape:**
 
-**Publisher::delete():** delete all N thread posts + the doc record. Read the ordered TIDs array; issue `applyWrites` with N+1 deletes.
+-   `_atmosphere_bsky_thread_records` (new) — ordered array of `{ uri, cid, tid }` associative arrays. One entry per bsky post in the thread. Always present after a successful publish (1-element for `'link-card'` / `'truncate-link'`, N-element for `'teaser-thread'`). Single array-of-triples rather than parallel arrays so positional invariants stay self-contained per element.
+-   `_atmosphere_bsky_uri`, `_atmosphere_bsky_tid` (existing, kept) — mirror the root post's `uri` / `tid`. Backwards-compat for legacy callers that only know the single-value keys.
+-   Legacy posts published before this change still have only the single-value keys and no `_atmosphere_bsky_thread_records`. `update()` and `delete()` fall back to treating them as 1-element threads (see those methods below).
 
-**Rollback semantics for partial failure:** sequential writes can fail midway. Document which posts succeeded in `_atmosphere_bsky_thread_uris` after each success. If a subsequent write fails, iterate the array in reverse and issue deletes. If rollback itself fails (network blip), surface a `WP_Error` noting the partial state; the admin's recourse is to republish, which will rewrite the thread. The post meta is the source of truth for "what's out there."
+**Publisher::update():** rewrite the whole thread. Delete all existing posts in the thread (iterate `_atmosphere_bsky_thread_records`, falling back to `_atmosphere_bsky_tid` as a 1-element list for legacy posts) via `applyWrites#delete`, then re-publish using the fresh thread records. Doc record can update in place (not deleted). Two side effects worth documenting in the changelog and admin docs:
+
+-   **Other Bluesky users' replies to the old thread become orphaned** — their `reply.root` / `reply.parent` refs will point at deleted AT URIs. Bluesky renders deleted roots as `[deleted]` in-feed. There is no migration path.
+-   **Algorithmic recency resets** — the replaced posts carry the update-time `createdAt`, so they surface to followers again as if fresh. Treat as "republish" not "edit in place." For a correction typo, this may not be what users want; documented as a known limitation.
+
+**Publisher::delete():** iterate `_atmosphere_bsky_thread_records` (fallback: `_atmosphere_bsky_tid` as a 1-element list) and issue `applyWrites` with N bsky deletes + 1 doc delete. On success, clear all four meta keys. On failure, return `WP_Error` — meta is left intact so a retry can complete.
+
+**Facet byte-offsets.** Facets are extracted per post using `Facet::extract()` over that post's own `text` field. Offsets are UTF-8 byte positions (Atmosphere's existing convention). Truncation at the grapheme-boundary cap happens **before** facet extraction, so `Facet::extract()` operates on the truncated text and byte offsets are always consistent with what's in the `text` field.
 
 ### Composition (2-post default)
 
-Post 1 (root — the hook): first ~280 graphemes of `$post->post_content` rendered to plain text via the shared `Transformer\Base::render_post_content_plain()` helper (from DOTCOM-16838), truncated at a word or sentence boundary. No title prefix, no permalink in this post. Facets extracted over the text.
+**Post 1 (root — the hook):** first ~280 graphemes of `$post->post_content` rendered to plain text via the shared `Transformer\Base::render_post_content_plain()` helper (from DOTCOM-16838), then clamped at the nearest word boundary ≤ 280 graphemes (don't cut mid-word; prefer word boundary over a fixed count). No title prefix. No permalink in this post. Facets extracted over the text.
 
-Post 2 (CTA): string in the form `Continue reading: {permalink}` (translator-aware via `__()`). Permalink is a link facet. Reply refs: `root` and `parent` both point at post 1.
+**Post 2 (CTA):** `sprintf( __( 'Continue reading: %s', 'atmosphere' ), $permalink )`. The permalink becomes a link facet. Reply refs: `root` and `parent` both point at post 1 (for a 2-post thread, parent == root).
 
-The composition is filterable via `atmosphere_teaser_thread_posts` — filter callback receives the default array of post-text strings + the `$post` object and returns the array to write. Returning a 3-entry array produces a 3-post thread. Returning a 1-entry array falls back to single-post behavior — this is an escape hatch, not a common path.
+**3-post variant (future, filter-opt-in).** A middle "takeaway" post sits between hook and CTA. `reply.root` points at post 1; `reply.parent` points at the immediate previous post in the chain (post 2 for the takeaway; post 2 for the CTA in a 3-post thread). Default composition of the takeaway post is not settled — the `atmosphere_teaser_thread_posts` filter is the current path to ship a 3-post thread; defaults stay at 2 posts until a v1.x decision.
+
+**Composition filter.** `atmosphere_teaser_thread_posts` receives the default array of post-text strings + the `$post` object and returns the array to write. Returning a 3-entry array produces a 3-post thread. Returning a 1-entry array falls back to single-post behavior — an escape hatch, not a common path.
+
+**`langs` inheritance.** Computed once for the thread (source: Atmosphere's existing post-language derivation, unchanged from today's single-post path) and written on every record. This keeps Bluesky's in-feed language filtering consistent across the thread.
 
 ### Data Flow
 
-**FOSSE option unset or `'teaser-thread'`** (default on upgrade):
+**FOSSE option unset, unknown, or set to `'teaser-thread'`** (default on upgrade):
 
 1. User publishes a 2000-word post (titled, no post format).
 2. AP transformer runs. `get_type()` returns `'Article'`. Filter pass-through. AP federates as Article. (Unchanged from today.)
-3. Atmosphere `Publisher::publish()` runs. Applies `atmosphere_long_form_composition` filter → FOSSE callback returns `'teaser-thread'`. `Post::build_teaser_thread()` returns the 2-post default.
-4. First `applyWrites`: root post + `site.standard.document`. Atomic. Response stores root URI/CID.
-5. Second `applyWrites`: CTA post with `reply.root` and `reply.parent` pointing at root. Response stores CTA URI/CID.
-6. Post meta updated: `_atmosphere_bsky_thread_uris = [root_uri, cta_uri]`, `_atmosphere_bsky_thread_tids = [root_tid, cta_tid]`. `_atmosphere_bsky_uri` and `_atmosphere_bsky_tid` mirror the root (backwards-compat).
+3. Atmosphere `Publisher::publish()` runs. `is_short_form()` returns `false`; Publisher calls `Post::build_long_form_records()`. That method applies `atmosphere_long_form_composition` → FOSSE callback returns `'teaser-thread'`. Returns a 2-entry array `[ { hook + facets + langs }, { CTA + link facet + langs } ]`.
+4. First `applyWrites`: root post (stamped `createdAt = now()`) + `site.standard.document`. Atomic. Response stores root `{uri, cid, tid}` → append to `_atmosphere_bsky_thread_records`.
+5. Second `applyWrites`: CTA post with `reply.root` and `reply.parent` pointing at root, stamped `createdAt = now()`. Response stores CTA `{uri, cid, tid}` → append to `_atmosphere_bsky_thread_records`.
+6. Mirror meta set: `_atmosphere_bsky_uri` and `_atmosphere_bsky_tid` point at the root.
 
-**FOSSE option set to `'truncate-link'`:** single `applyWrites` (root bsky post + doc record atomic). `_atmosphere_bsky_thread_uris` is a 1-element array; `_atmosphere_bsky_uri` matches. No reply refs.
+**FOSSE option set to `'truncate-link'`:** single `applyWrites` (one bsky post + doc record, atomic). `_atmosphere_bsky_thread_records` is a 1-element array; `_atmosphere_bsky_uri`/`_tid` match. No reply refs.
 
 **FOSSE option set to `'link-card'`:** byte-identical to today's default behavior. Single post with title + excerpt + external embed card. Same meta shape as `'truncate-link'`.
 
@@ -208,33 +230,40 @@ The composition is filterable via `atmosphere_teaser_thread_posts` — filter ca
 
 | Component | Repo | Change |
 |---|---|---|
-| `Atmosphere\Publisher::publish()` | upstream Atmosphere | Switch on the filtered strategy. For `'teaser-thread'`, build the thread via `Post::build_teaser_thread()` and execute the sequential-writes-with-rollback flow. For `'truncate-link'` and `'link-card'`, the existing single-post write path runs (with the appropriate text composition). |
-| `Atmosphere\Publisher::update()` | upstream Atmosphere | For threads, delete-all then re-publish. For single-post strategies, existing update path stays. |
-| `Atmosphere\Publisher::delete()` | upstream Atmosphere | Iterate `_atmosphere_bsky_thread_tids` (falling back to the single-value meta for already-published posts from before this change) and issue deletes for all. |
-| `Atmosphere\Transformer\Post::build_teaser_thread()` | upstream Atmosphere (new) | Returns an ordered array of post-record payloads (text + facets, no reply refs yet — those get filled by Publisher during the sequential write). Default 2 entries (hook + CTA), filterable via `atmosphere_teaser_thread_posts`. |
-| `Atmosphere\Transformer\Post::build_truncate_link_text()` | upstream Atmosphere (new) | Body rendered to plain text via the shared helper, truncated to reserve space for the permalink + whitespace, appended with `\n\n{permalink}`. |
-| `Atmosphere\Transformer\Post::transform()` | upstream Atmosphere | Single-post path (used for `'link-card'` and `'truncate-link'`) switches on the filtered composition. Unchanged for the `'link-card'` branch. |
+| `Atmosphere\Publisher::publish()` | upstream Atmosphere | Branch on short/long via `is_short_form`. Short: today's single-record path via `Post::transform()`. Long: call `Post::build_long_form_records()`, then either one atomic `applyWrites` (single-record strategies) or sequential-writes-with-rollback with partial-meta writes after each success (thread strategies). |
+| `Atmosphere\Publisher::update()` | upstream Atmosphere | Single-record strategies: today's in-place update. Threads: delete all existing thread records (iterating `_atmosphere_bsky_thread_records`, falling back to single-value meta for legacy posts), then re-publish. |
+| `Atmosphere\Publisher::delete()` | upstream Atmosphere | Iterate `_atmosphere_bsky_thread_records` (falling back to `_atmosphere_bsky_tid` as a 1-element list for legacy posts); issue N bsky deletes + 1 doc delete via `applyWrites`. |
+| `Atmosphere\Publisher::store_results()` | upstream Atmosphere | Extend to handle both the "atomic root + doc" first-call result and per-reply single-record results. Append to `_atmosphere_bsky_thread_records` after each successful write (crash-recovery guard). |
+| `Atmosphere\Publisher::update_document_bsky_ref()` | upstream Atmosphere | Unchanged in intent — always points the doc at the root post. In the thread path, call after step 2 completes using the root's `{uri, cid}`. |
+| `Atmosphere\Transformer\Post::build_long_form_records()` | upstream Atmosphere (new) | Public entry point for Publisher. Applies `atmosphere_long_form_composition`; returns an ordered array of `{ text, embed, facets, langs }` entries (no `reply`, no `createdAt` — Publisher fills those at write time). Also applies the existing `atmosphere_transform_bsky_post` final-record filter per entry so thread posts go through the same post-processing hooks as single posts. |
+| `Atmosphere\Transformer\Post::build_teaser_thread()` | upstream Atmosphere (new) | Returns the default ordered array of post-text strings for the thread composition: 2 entries (hook + CTA). Filterable via `atmosphere_teaser_thread_posts`. |
+| `Atmosphere\Transformer\Post::build_truncate_link_text()` | upstream Atmosphere (new) | Body rendered to plain text via the shared helper, clamped to reserve space for the permalink + whitespace, appended with `\n\n{permalink}`. |
+| `Atmosphere\Transformer\Post::truncate_at_word_boundary()` | upstream Atmosphere (new private helper) | Clamps a plain-text string at the nearest word boundary ≤ `$max` graphemes. Used by `build_teaser_thread()`'s hook composition and by `build_truncate_link_text()`. |
+| `Atmosphere\Transformer\Post::transform()` | upstream Atmosphere | Short-form branch stays as-is. Long-form branch preserved for legacy callers that still invoke `transform()` directly (stays as today's single-record `build_text()` + `build_embed()` composition; for new callers, `build_long_form_records()` is the entry point). |
 | `atmosphere_long_form_composition` filter | upstream Atmosphere (new) | Returns the strategy enum. Default `'link-card'` so existing users see no change when upstream merges standalone. |
 | `atmosphere_teaser_thread_posts` filter | upstream Atmosphere (new) | Returns an ordered array of post-text strings. Default is the 2-post hook+CTA composition. |
-| `_atmosphere_bsky_thread_uris`, `_atmosphere_bsky_thread_tids` | upstream Atmosphere (new post meta) | Ordered arrays. Always present; single-element for non-thread strategies. |
-| `Automattic\Fosse\Long_Form_Strategy` | FOSSE (new) | Static `register()` on `init`. One filter callback projecting `fosse_long_form_strategy` onto `atmosphere_long_form_composition`. Mirror of `Automattic\Fosse\Object_Type`. |
-| `fosse_long_form_strategy` option | FOSSE (new) | Default `'teaser-thread'`. Set via `wp-cli option set` for now (UI is out of scope). |
+| `Atmosphere\Transformer\Post::META_THREAD_RECORDS` | upstream Atmosphere (new constant) | `_atmosphere_bsky_thread_records`. Ordered array of `{ uri, cid, tid }` triples. Lives on the `Post` class alongside existing `META_URI`/`META_TID`/`META_CID`. |
+| `Automattic\Fosse\Long_Form_Strategy` | FOSSE (new) | Static `register()` on `init`. One filter callback projecting `fosse_long_form_strategy` onto `atmosphere_long_form_composition`. Unset / unknown values coerce to `'teaser-thread'` — the projector is opinionated here, unlike `Object_Type`'s pass-through. |
+| `fosse_long_form_strategy` option | FOSSE (new) | Default via the projector is `'teaser-thread'`. Set via `wp-cli option set` for now (UI is out of scope). |
 
 ### File Changes
 
+Upstream work lands as **one PR** against `Automattic/wordpress-atmosphere` — composition and Publisher changes ship together because the Publisher branch depends on the composition methods existing. Opened as a draft PR early so async review runs in parallel with FOSSE-side work.
+
 | File | Change Type | Description | Repo |
 |------|-------------|-------------|------|
-| `includes/class-publisher.php` | modify | Switch-on-strategy in `publish/update/delete`; sequential-writes-with-rollback for threads; ordered-array meta storage. | `Automattic/wordpress-atmosphere` (upstream PR A — Publisher) |
-| `includes/transformer/class-post.php` | modify | Add `build_teaser_thread()`, `build_truncate_link_text()`; keep existing long-form `build_text()` + `build_embed()` as the `'link-card'` path. | `Automattic/wordpress-atmosphere` (upstream PR B — transformer) |
-| `tests/phpunit/tests/transformer/class-test-post.php` | modify | Tests: thread default is 2 entries; `atmosphere_teaser_thread_posts` filter extends to 3; truncate-link composition is body + permalink; link-card byte-identical to today. | `Automattic/wordpress-atmosphere` |
-| `tests/phpunit/tests/class-test-publisher.php` | new | Tests: 2-post thread publish stores ordered meta; rollback on simulated second-write failure; delete iterates thread TIDs; update rewrites thread. | `Automattic/wordpress-atmosphere` |
-| `readme.txt` | modify | Changelog entries for the new filters, meta keys, and default-behavior change. | `Automattic/wordpress-atmosphere` |
-| `src/class-long-form-strategy.php` | new | `Automattic\Fosse\Long_Form_Strategy` projector class. | `Automattic/fosse` |
-| `tests/php/Long_Form_StrategyTest.php` | new | PHPUnit coverage mirroring `Object_TypeTest.php`: pass-through default, each enum value projects correctly, unknown values pass through. | `Automattic/fosse` |
-| `fosse.php` | modify | `add_action( 'init', [ '\Automattic\Fosse\Long_Form_Strategy', 'register' ] )` alongside the existing Object_Type registration. | `Automattic/fosse` |
-| `bundled/atmosphere/**` | regenerated | `tools/sync-bundled.sh` after upstream PRs A and B merge. | `Automattic/fosse` |
-| `tests/e2e/long-form-teaser-thread.spec.ts` | new | Playwright e2e: publish a long titled post under `'teaser-thread'`; verify the mu-plugin captured two `app.bsky.feed.post` records with correct reply refs, body-as-text hook, and `Continue reading:` CTA with link facet. | `Automattic/fosse` |
-| `tests/e2e/mu-plugins/fosse-bsky-capture.php` | modify | Extend the existing capture helper to record *all* `applyWrites` calls per request, not just the first (required for multi-call thread writes). | `Automattic/fosse` |
+| `includes/class-publisher.php` | modify | Branch short/long; single-atomic path for single-record; sequential-writes-with-rollback + partial-meta for threads; extend `store_results()` and `update_document_bsky_ref()` for the thread path. | `Automattic/wordpress-atmosphere` |
+| `includes/transformer/class-post.php` | modify | Add `build_long_form_records()`, `build_teaser_thread()`, `build_truncate_link_text()`, private `truncate_at_word_boundary()` helper, and `META_THREAD_RECORDS` constant. Leave `transform()`'s long-form branch in place for legacy callers. | `Automattic/wordpress-atmosphere` |
+| `tests/phpunit/tests/transformer/class-test-post.php` | modify | Tests: default composition is link-card; `'truncate-link'` returns body + permalink; `'teaser-thread'` returns 2 entries (hook + CTA); `atmosphere_teaser_thread_posts` filter extends to 3; word-boundary truncation; facet extraction per entry; `langs` inherited consistently; unknown strategy falls back to link-card; final-record filter applied per entry. | `Automattic/wordpress-atmosphere` |
+| `tests/phpunit/tests/class-test-publisher.php` | new | Tests: single-record publish writes one atomic `applyWrites`; thread publish writes root + doc first, then each reply sequentially with correct `reply.root`/`reply.parent`; partial-meta appended after each success; rollback on mid-thread failure deletes prior records in reverse order; rollback-failing surfaces `WP_Error` with `partial_records`; delete iterates thread records; delete falls back to legacy single-value meta; update rewrites the thread; `createdAt` stamped at write time (not pre-computed). | `Automattic/wordpress-atmosphere` |
+| `readme.txt` | modify | Changelog entries for new filters, new meta key, default-behavior change, and `update()` caveats (orphaned replies, recency reset). | `Automattic/wordpress-atmosphere` |
+| `src/class-long-form-strategy.php` | new | `Automattic\Fosse\Long_Form_Strategy` projector class. Unset / unknown coerce to `'teaser-thread'`. | `Automattic/fosse` |
+| `tests/php/Long_Form_StrategyTest.php` | new | PHPUnit coverage: unset → `'teaser-thread'`; each known enum value projects correctly; unknown values coerce to `'teaser-thread'` (documented opinionation). | `Automattic/fosse` |
+| `fosse.php` | modify | Register `Long_Form_Strategy` on `init` using the existing anonymous-function + `class_exists` guard pattern. | `Automattic/fosse` |
+| `bundled/atmosphere/**` | regenerated | `tools/sync-bundled.sh` after upstream PR merges. | `Automattic/fosse` |
+| `tests/e2e/mu-plugins/fosse-bsky-capture.php` | rewrite | Replace the `transition_post_status`-driven capture with a `pre_http_request` interceptor that records every `com.atproto.repo.applyWrites` HTTP call and returns mock success responses (so no real network traffic). Emits an ordered array of captured calls. Legacy single-call consumers read `calls[0]`; the two existing specs (`long-form-link-card.spec.ts`, `short-form-facets.spec.ts`) updated to the new shape. | `Automattic/fosse` |
+| `tests/e2e/long-form-teaser-thread.spec.ts` | new | Playwright e2e: publish a long titled post under `'teaser-thread'`; verify two captured `applyWrites` calls (root + doc; CTA reply); hook is body-as-text with word-boundary cut and no permalink; CTA starts with `Continue reading:` with a link facet over the permalink; reply refs correct; `_atmosphere_bsky_thread_records` has 2 triples in order; legacy meta mirrors the root. | `Automattic/fosse` |
+| `AGENTS.md` | modify | Append long-form worked example to the "Upstream contribution policy" section. | `Automattic/fosse` |
 
 ### Upgrade Path to Option 3 (document card)
 
@@ -256,20 +285,26 @@ No breaking change for users on explicit `'link-card'` or `'truncate-link'`. Use
 
 ## Open Questions (held for team / upstream discussion)
 
-1.  **Thread composition details (v1 default).**
-    -   Where do we cut the hook post's body? Fixed grapheme count, or cut at a sentence/paragraph boundary before the cap?
-    -   What's the CTA copy? `Continue reading:` is the default — do we want something shorter, and do we want it translator-aware from day one?
-    -   What happens if the body is too short for a meaningful split (e.g. the whole body fits in 280 graphemes)? Fall back to `'truncate-link'` shape (single post + permalink) automatically, or still write a 2-post thread with a short hook?
-2.  **3-post variant.** Spec mentions a middle "takeaway" post as a future 3-post variant behind the `atmosphere_teaser_thread_posts` filter. What goes in the takeaway post by default — post excerpt second half, body continuation, auto-generated summary, or nothing (no default, filter-only)? v1 is 2-post; 3-post is a follow-up decision.
-3.  **Rollback observability.** When sequential-write rollback fires (or fails), what signal does the admin get? Error in the post's publish queue / notice / log? Out of scope for v1 if we pick "log to error_log + return WP_Error"; worth naming the escalation path.
-4.  **Borderline posts.** Titled post with no post format whose body happens to fit in 300 graphemes: long-form strategy still applies, per DOTCOM-16795. v1 answer is "whatever the strategy says" with no automatic short-circuit, confirmed.
-5.  **Legacy expectations.** Flipping the default from `'link-card'` to `'teaser-thread'` is a visible change for existing Atmosphere users. Is a CHANGELOG.md / readme.txt callout enough, or do we need a release-note-level comms / admin notice / deprecation window? Decision needed at upstream merge.
-6.  **Atomic-write upgrade path.** v1 takes sequential-writes-with-rollback. If Bluesky (or an a8c effort) ships a thread-create API that's atomic, or we decide to implement client-side CID computation, how does the write path change? Not a v1 blocker; capture as future work so the thread-write code is kept narrow enough to swap.
+The list below is what's genuinely still open — the applied defaults are in "Open Questions Resolved."
+
+1.  **3-post variant default composition.** What goes in the takeaway post by default if someone opts into a 3-post thread via `atmosphere_teaser_thread_posts` — post excerpt second half, body continuation, auto-generated summary, or no opinionated default (filter-only)? Not a v1 blocker; v1 ships 2-post and leaves the 3-post path filter-only.
+2.  **Atomic-write upgrade path.** If Bluesky (or an a8c effort) ships a thread-create API that's atomic, or someone invests in client-side CID computation, how does the write path change? Keep the thread-write code narrow enough to swap. Not a v1 blocker.
 
 ## Open Questions Resolved
 
+Decisions carry the resolver in parens. Defaults marked "applied (confirm)" are my calls that the author should redirect on PR #24 if wrong — but are safe enough to build against in the meantime.
+
 -   **Scope of selection model**: site-wide option, no per-post override in v1. (Resolved in brainstorm.)
--   **Should we re-open PR #18's rejection of Options 3 and 4?** Yes — PR #18's rejections were v1/short-form-context-only. Options 3 and 4 got fresh analysis here. Option 4 is still rejected; Option 3 is deferred to v2 (pending Bluesky's renderer); Option 5 is selected for v1. (Resolved in brainstorm.)
+-   **Should we re-open PR #18's rejection of Options 3 and 4?** Yes — PR #18's rejections were v1/short-form-context-only. Option 4 stays rejected; Option 3 is deferred to v2 (pending Bluesky's renderer); Option 5 is selected for v1. (Resolved in brainstorm.)
 -   **Is this a decision doc or an implementation doc?** Both — an exploration spec that now recommends Option 5 as v1 after the Jim Ray call reframed the time horizon. (Resolved via user's "B" call + the 2026-04-23 Bluesky devrel call.)
 -   **"Clearly better" criteria.** Resolved on the RFC thread: the native-feeling thread shape (hook + takeaway + CTA) is preferred over today's link card and over Option 2's truncate-and-link based on in-feed legibility, consistency with the short-form path we shipped, and community engagement data on short threads. Driving WP traffic stays available via `'link-card'` opt-in.
 -   **Is `'teaser-thread'` worth the upstream cost when Option 3 is the long-term target?** Yes. The Jim Ray call made clear Option 3's enabling renderer is months out and multi-iteration — a short bridge with Option 2 isn't what we're shipping; a long bridge is. Option 5 is worth the investment.
+-   **Hook-post cut semantics.** Word boundary ≤ 280 graphemes. Don't cut mid-word; sentence boundary is a nice-to-have but not worth the code complexity for v1. — applied (confirm).
+-   **CTA copy.** `sprintf( __( 'Continue reading: %s', 'atmosphere' ), $permalink )`. Translator-aware from day one. — applied (confirm).
+-   **Borderline post (body fits in ≤ 300 graphemes).** Still write the 2-post thread per the strategy; no automatic short-circuit to `'truncate-link'`. Users who want single-post can opt in via the option. — applied (confirm).
+-   **Rollback observability.** `error_log` + `WP_Error` return from `Publisher::publish()`. No admin UI surface in v1. Partial-meta writes after each successful create are the crash-recovery anchor. — applied (confirm).
+-   **Legacy expectations when flipping the default.** `readme.txt` changelog entry only; FOSSE is pre-1.0 and the scope of users who've pinned `fosse_long_form_strategy` intentionally is effectively zero. No admin notice, no deprecation window. — applied (confirm).
+-   **Post-meta shape (`{uri, cid, tid}` triples vs parallel arrays).** Triples in a single `_atmosphere_bsky_thread_records` array. Parallel arrays can drift; triples stay self-consistent per element and storing CID now enables future `swapRecord`-based in-place updates without a meta migration. The backwards-compat argument for parallel arrays is weak (the keys are new; legacy posts use the preserved single-value keys). — applied (confirm).
+-   **Crash-recovery between last successful write and meta persist.** Write partial-meta after each successful create rather than once at the end. Cheap; eliminates the orphan-records window where PHP fatals leave posts on Bluesky that WordPress doesn't know about. — applied (confirm).
+-   **Linear issue split under DOTCOM-16810.** Keep as an umbrella; no per-task children for v1. Mirrors how DOTCOM-16795 was split into DOTCOM-16838/9/40 only once the upstream-vs-FOSSE split made that useful. — applied (confirm).
+-   **Open Task 1 as a draft PR early.** Yes — the upstream review window is the more likely execution stall than code volume. Draft PR opens as the first step of Task 1 so async review runs in parallel with FOSSE-side work. — applied (confirm).
