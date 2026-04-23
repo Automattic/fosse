@@ -317,14 +317,26 @@ class AP_Provider implements Connection_Provider {
 	private function get_fediverse_address(): string {
 		$mode = get_option( 'activitypub_actor_mode', 'actor' );
 
-		if ( 'blog' !== $mode && class_exists( '\Activitypub\Model\User' ) ) {
+		// Blog mode: blog webfinger only.
+		if ( 'blog' === $mode ) {
+			if ( class_exists( '\Activitypub\Model\Blog' ) ) {
+				$blog = new \Activitypub\Model\Blog();
+				return $blog->get_webfinger();
+			}
+
+			return '';
+		}
+
+		// Actor or actor_blog mode: try the user webfinger.
+		if ( class_exists( '\Activitypub\Model\User' ) ) {
 			$user = \Activitypub\Model\User::from_wp_user( get_current_user_id() );
 			if ( $user && ! is_wp_error( $user ) ) {
 				return $user->get_webfinger();
 			}
 		}
 
-		if ( class_exists( '\Activitypub\Model\Blog' ) ) {
+		// In actor_blog mode, fall back to blog if user is unavailable.
+		if ( 'actor_blog' === $mode && class_exists( '\Activitypub\Model\Blog' ) ) {
 			$blog = new \Activitypub\Model\Blog();
 			return $blog->get_webfinger();
 		}
