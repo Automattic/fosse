@@ -1,0 +1,68 @@
+/**
+ * FOSSE admin styles.
+ *
+ * Leans on native WP admin classes (form-table, card, notice, widefat).
+ * Custom styles only where WP's defaults don't cover the layout.
+ */
+
+/* Status summary bar */
+.fosse-status-summary {
+	background: #fff;
+	border: 1px solid #c3c4c7;
+	border-left-width: 4px;
+	border-left-color: #00a32a;
+	padding: 12px 16px;
+	margin: 16px 0;
+}
+
+.fosse-status-summary.has-attention {
+	border-left-color: #dba617;
+}
+
+/* Status card grid */
+.fosse-status-cards {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+	gap: 16px;
+	margin-top: 16px;
+}
+
+.fosse-status-card {
+	background: #fff;
+	border: 1px solid #c3c4c7;
+	padding: 16px;
+}
+
+.fosse-status-card h3 {
+	margin-top: 0;
+}
+
+/* Status indicator dots */
+.fosse-status-indicator {
+	display: inline-block;
+	width: 10px;
+	height: 10px;
+	border-radius: 50%;
+	margin-right: 6px;
+	vertical-align: middle;
+}
+
+.fosse-status-indicator.connected {
+	background: #00a32a;
+}
+
+.fosse-status-indicator.disconnected {
+	background: #d63638;
+}
+
+/* Provider setup sections */
+.fosse-provider-section {
+	background: #fff;
+	border: 1px solid #c3c4c7;
+	padding: 16px 24px;
+	margin: 16px 0;
+}
+
+.fosse-provider-section h2 {
+	margin-top: 0;
+}

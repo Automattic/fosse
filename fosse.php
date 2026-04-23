@@ -120,3 +120,17 @@ add_action(
 		\Automattic\Fosse\Object_Type::register();
 	}
 );
+
+/*
+ * Admin UI: FOSSE setup and status pages.
+ *
+ * Each provider self-registers on the 'fosse_register_providers' action,
+ * and Menu::register() fires that action, adds the admin menu, and
+ * enqueues styles. Bundled-plugin admin entries are hidden so FOSSE is
+ * the single admin surface for federation setup.
+ */
+if ( is_admin() && class_exists( \Automattic\Fosse\Admin\Menu::class ) ) {
+	\Automattic\Fosse\Admin\AP_Provider::init();
+
+	\Automattic\Fosse\Admin\Menu::register();
+}
