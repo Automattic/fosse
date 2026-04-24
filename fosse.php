@@ -120,3 +120,24 @@ add_action(
 		\Automattic\Fosse\Object_Type::register();
 	}
 );
+
+/*
+ * Long-form composition strategy projector.
+ *
+ * Translates `fosse_long_form_strategy` into Atmosphere's
+ * `atmosphere_long_form_composition` filter answer. Installing FOSSE
+ * opts into the teaser-thread default by default (the projector
+ * coerces unset/unknown to 'teaser-thread'), without requiring any
+ * option to be set. Degrades cleanly if the bundled Atmosphere or
+ * FOSSE's own autoload is missing — the filter still registers but
+ * has no listeners until Atmosphere comes online.
+ */
+add_action(
+	'init',
+	static function () {
+		if ( ! class_exists( \Automattic\Fosse\Long_Form_Strategy::class ) ) {
+			return;
+		}
+		\Automattic\Fosse\Long_Form_Strategy::register();
+	}
+);
