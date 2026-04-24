@@ -28,44 +28,18 @@ class Provider_LoaderTest extends BaseTestCase {
 	#[Before]
 	public function reset_state(): void {
 		Connection_Provider_Registry::reset();
-		delete_option( 'fosse_ap_actor_mode' );
 		delete_option( 'activitypub_actor_mode' );
-
-		// Remove any lingering projection filters from prior tests.
-		remove_all_filters( 'pre_option_activitypub_actor_mode' );
-		remove_all_filters( 'pre_option_activitypub_support_post_types' );
 	}
 
 	/**
-	 * Clean up filters after each test.
+	 * Clean up after each test.
 	 *
 	 * @after
 	 */
 	#[After]
-	public function clean_filters(): void {
-		remove_all_filters( 'pre_option_activitypub_actor_mode' );
-		remove_all_filters( 'pre_option_activitypub_support_post_types' );
+	public function clean_up(): void {
 		remove_all_filters( 'fosse_register_providers' );
 		Connection_Provider_Registry::reset();
-	}
-
-	/**
-	 * Projection filters are active after boot() without is_admin().
-	 *
-	 * This is the regression test for the bug where fosse.php gated
-	 * provider hooks behind is_admin(), causing AP to read its own
-	 * stored options on front-end, REST, WebFinger, and cron requests.
-	 */
-	public function test_projection_active_after_boot_without_is_admin() {
-		// Simulate the provider init that runs in fosse.php.
-		AP_Provider::init();
-		Provider_Loader::boot();
-
-		// Set a FOSSE option.
-		update_option( 'fosse_ap_actor_mode', 'blog' );
-
-		// AP should read FOSSE's value via the projection filter.
-		$this->assertSame( 'blog', get_option( 'activitypub_actor_mode' ) );
 	}
 
 	/**

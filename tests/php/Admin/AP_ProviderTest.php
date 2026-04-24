@@ -8,12 +8,11 @@
 namespace Automattic\Fosse\Tests\Admin;
 
 use Automattic\Fosse\Admin\AP_Provider;
-use PHPUnit\Framework\Attributes\After;
 use PHPUnit\Framework\Attributes\Before;
 use WorDBless\BaseTestCase;
 
 /**
- * Verifies AP_Provider metadata, status shape, and option projection.
+ * Verifies AP_Provider metadata, status shape, and save handling.
  */
 class AP_ProviderTest extends BaseTestCase {
 
@@ -33,8 +32,6 @@ class AP_ProviderTest extends BaseTestCase {
 	public function set_up_provider(): void {
 		$this->provider = new AP_Provider();
 
-		delete_option( 'fosse_ap_actor_mode' );
-		delete_option( 'fosse_ap_support_post_types' );
 		delete_option( 'activitypub_actor_mode' );
 		delete_option( 'activitypub_support_post_types' );
 
@@ -43,17 +40,6 @@ class AP_ProviderTest extends BaseTestCase {
 		$wp_settings_errors = array(); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited,WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedVariableFound -- WP core global reset for testing.
 
 		$this->provider->register_hooks();
-	}
-
-	/**
-	 * Remove projection filters after each test.
-	 *
-	 * @after
-	 */
-	#[After]
-	public function tear_down_filters(): void {
-		remove_filter( 'pre_option_activitypub_actor_mode', array( $this->provider, 'project_actor_mode' ), 20 );
-		remove_filter( 'pre_option_activitypub_support_post_types', array( $this->provider, 'project_post_types' ), 20 );
 	}
 
 	/**
@@ -104,63 +90,19 @@ class AP_ProviderTest extends BaseTestCase {
 	}
 
 	/**
-	 * Setting fosse_ap_actor_mode projects to activitypub_actor_mode.
+	 * Status reflects the stored actor mode.
 	 */
-	public function test_projection_sets_ap_actor_mode() {
-		update_option( 'fosse_ap_actor_mode', 'blog' );
-
-		$this->assertSame( 'blog', get_option( 'activitypub_actor_mode' ) );
-	}
-
-	/**
-	 * Setting fosse_ap_support_post_types projects to activitypub_support_post_types.
-	 */
-	public function test_projection_sets_ap_post_types() {
-		update_option( 'fosse_ap_support_post_types', array( 'post', 'page' ) );
-
-		$this->assertSame( array( 'post', 'page' ), get_option( 'activitypub_support_post_types' ) );
-	}
-
-	/**
-	 * When no FOSSE option exists, AP's own stored value is returned.
-	 */
-	public function test_projection_falls_through_when_fosse_option_absent() {
+	public function test_status_reflects_stored_actor_mode() {
 		update_option( 'activitypub_actor_mode', 'actor_blog' );
-
-		$this->assertSame( 'actor_blog', get_option( 'activitypub_actor_mode' ) );
-	}
-
-	/**
-	 * An earlier pre_option filter (e.g. AP's constant override) takes
-	 * precedence over FOSSE's projection.
-	 */
-	public function test_projection_respects_earlier_filter() {
-		// Simulate AP's own constant-based override at priority 10.
-		$constant_override = static fn() => 'blog';
-		add_filter( 'pre_option_activitypub_actor_mode', $constant_override, 10 );
-
-		update_option( 'fosse_ap_actor_mode', 'actor' );
-
-		// AP's constant override should win over FOSSE's value.
-		$this->assertSame( 'blog', get_option( 'activitypub_actor_mode' ) );
-
-		remove_filter( 'pre_option_activitypub_actor_mode', $constant_override, 10 );
-	}
-
-	/**
-	 * Status reflects the projected actor mode.
-	 */
-	public function test_status_reflects_projected_actor_mode() {
-		update_option( 'fosse_ap_actor_mode', 'actor_blog' );
 
 		$this->assertSame( 'actor_blog', $this->provider->get_status()['actor_mode'] );
 	}
 
 	/**
-	 * Status reflects the projected post types.
+	 * Status reflects the stored post types.
 	 */
-	public function test_status_reflects_projected_post_types() {
-		update_option( 'fosse_ap_support_post_types', array( 'page' ) );
+	public function test_status_reflects_stored_post_types() {
+		update_option( 'activitypub_support_post_types', array( 'page' ) );
 
 		$this->assertSame( array( 'page' ), $this->provider->get_status()['post_types'] );
 	}
@@ -184,10 +126,10 @@ class AP_ProviderTest extends BaseTestCase {
 		wp_set_current_user( $user_id );
 
 		$defaults = array(
-			'action'                      => 'fosse_save_ap_settings',
-			'_wpnonce'                    => wp_create_nonce( 'fosse_save_ap_settings' ),
-			'fosse_ap_actor_mode'         => 'blog',
-			'fosse_ap_support_post_types' => array( 'post' ),
+			'action'                         => 'fosse_save_ap_settings',
+			'_wpnonce'                       => wp_create_nonce( 'fosse_save_ap_settings' ),
+			'activitypub_actor_mode'         => 'blog',
+			'activitypub_support_post_types' => array( 'post' ),
 		);
 
 		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup, nonce is in the data.
@@ -208,7 +150,7 @@ class AP_ProviderTest extends BaseTestCase {
 	 * Valid save stores the actor mode option.
 	 */
 	public function test_handle_save_stores_actor_mode() {
-		$this->simulate_save_request( array( 'fosse_ap_actor_mode' => 'actor_blog' ) );
+		$this->simulate_save_request( array( 'activitypub_actor_mode' => 'actor_blog' ) );
 
 		try {
 			$this->provider->handle_save();
@@ -216,14 +158,14 @@ class AP_ProviderTest extends BaseTestCase {
 			unset( $e );
 		}
 
-		$this->assertSame( 'actor_blog', get_option( 'fosse_ap_actor_mode' ) );
+		$this->assertSame( 'actor_blog', get_option( 'activitypub_actor_mode' ) );
 	}
 
 	/**
 	 * Valid save stores the post types option.
 	 */
 	public function test_handle_save_stores_post_types() {
-		$this->simulate_save_request( array( 'fosse_ap_support_post_types' => array( 'post', 'page' ) ) );
+		$this->simulate_save_request( array( 'activitypub_support_post_types' => array( 'post', 'page' ) ) );
 
 		try {
 			$this->provider->handle_save();
@@ -231,15 +173,15 @@ class AP_ProviderTest extends BaseTestCase {
 			unset( $e );
 		}
 
-		$this->assertSame( array( 'post', 'page' ), get_option( 'fosse_ap_support_post_types' ) );
+		$this->assertSame( array( 'post', 'page' ), get_option( 'activitypub_support_post_types' ) );
 	}
 
 	/**
 	 * Invalid actor mode is rejected — option is not updated.
 	 */
 	public function test_handle_save_rejects_invalid_actor_mode() {
-		update_option( 'fosse_ap_actor_mode', 'actor' );
-		$this->simulate_save_request( array( 'fosse_ap_actor_mode' => 'evil_mode' ) );
+		update_option( 'activitypub_actor_mode', 'actor' );
+		$this->simulate_save_request( array( 'activitypub_actor_mode' => 'evil_mode' ) );
 
 		try {
 			$this->provider->handle_save();
@@ -247,14 +189,14 @@ class AP_ProviderTest extends BaseTestCase {
 			unset( $e );
 		}
 
-		$this->assertSame( 'actor', get_option( 'fosse_ap_actor_mode' ) );
+		$this->assertSame( 'actor', get_option( 'activitypub_actor_mode' ) );
 	}
 
 	/**
 	 * Invalid actor mode produces an error notice, not a success notice.
 	 */
 	public function test_handle_save_error_notice_on_invalid_mode() {
-		$this->simulate_save_request( array( 'fosse_ap_actor_mode' => 'evil_mode' ) );
+		$this->simulate_save_request( array( 'activitypub_actor_mode' => 'evil_mode' ) );
 
 		try {
 			$this->provider->handle_save();
@@ -264,32 +206,41 @@ class AP_ProviderTest extends BaseTestCase {
 
 		$errors = get_settings_errors( 'fosse' );
 		$codes  = array_column( $errors, 'code' );
-		$this->assertContains( 'fosse_ap_invalid_mode', $codes );
-		$this->assertNotContains( 'fosse_ap_saved', $codes );
+		$this->assertContains( 'fosse_invalid_mode', $codes );
+		$this->assertNotContains( 'fosse_saved', $codes );
 	}
 
 	/**
-	 * Valid save fires update_option_activitypub_actor_mode so AP's
-	 * scheduler propagates the mode change to federation.
+	 * Valid save notifies AP's scheduler so federation propagates the mode
+	 * change. WordPress fires add_option_<name> on first save and
+	 * update_option_<name> on subsequent value changes; AP hooks both.
 	 */
-	public function test_handle_save_fires_ap_actor_mode_hook() {
+	public function test_handle_save_notifies_ap_actor_mode_scheduler() {
 		$fired = false;
-		add_action(
-			'update_option_activitypub_actor_mode',
-			static function () use ( &$fired ) {
-				$fired = true;
-			}
-		);
+		$mark  = static function () use ( &$fired ) {
+			$fired = true;
+		};
+		add_action( 'add_option_activitypub_actor_mode', $mark );
+		add_action( 'update_option_activitypub_actor_mode', $mark );
 
-		$this->simulate_save_request( array( 'fosse_ap_actor_mode' => 'blog' ) );
-
+		// First save (option does not yet exist) fires add_option_*.
+		$this->simulate_save_request( array( 'activitypub_actor_mode' => 'blog' ) );
 		try {
 			$this->provider->handle_save();
 		} catch ( \Exception $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
 			unset( $e );
 		}
+		$this->assertTrue( $fired, 'add_option_activitypub_actor_mode should fire on first save.' );
 
-		$this->assertTrue( $fired, 'update_option_activitypub_actor_mode should fire after saving actor mode.' );
+		// Second save (value change) fires update_option_*.
+		$fired = false;
+		$this->simulate_save_request( array( 'activitypub_actor_mode' => 'actor_blog' ) );
+		try {
+			$this->provider->handle_save();
+		} catch ( \Exception $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+		$this->assertTrue( $fired, 'update_option_activitypub_actor_mode should fire on value change.' );
 	}
 
 	/**
@@ -297,7 +248,7 @@ class AP_ProviderTest extends BaseTestCase {
 	 */
 	public function test_handle_save_filters_invalid_post_types() {
 		$this->simulate_save_request(
-			array( 'fosse_ap_support_post_types' => array( 'post', 'nonexistent_type', 'page' ) )
+			array( 'activitypub_support_post_types' => array( 'post', 'nonexistent_type', 'page' ) )
 		);
 
 		try {
@@ -306,7 +257,7 @@ class AP_ProviderTest extends BaseTestCase {
 			unset( $e );
 		}
 
-		$saved = get_option( 'fosse_ap_support_post_types' );
+		$saved = get_option( 'activitypub_support_post_types' );
 		$this->assertContains( 'post', $saved );
 		$this->assertContains( 'page', $saved );
 		$this->assertNotContains( 'nonexistent_type', $saved );
@@ -316,7 +267,7 @@ class AP_ProviderTest extends BaseTestCase {
 	 * Non-array post types input is safely handled.
 	 */
 	public function test_handle_save_handles_non_array_post_types() {
-		$this->simulate_save_request( array( 'fosse_ap_support_post_types' => 'not_an_array' ) );
+		$this->simulate_save_request( array( 'activitypub_support_post_types' => 'not_an_array' ) );
 
 		try {
 			$this->provider->handle_save();
@@ -324,6 +275,6 @@ class AP_ProviderTest extends BaseTestCase {
 			unset( $e );
 		}
 
-		$this->assertIsArray( get_option( 'fosse_ap_support_post_types' ) );
+		$this->assertIsArray( get_option( 'activitypub_support_post_types' ) );
 	}
 }
