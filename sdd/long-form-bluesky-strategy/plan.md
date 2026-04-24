@@ -39,7 +39,7 @@ Decision context:
 - **Repo**: `Automattic/wordpress-atmosphere`
 - **Linear**: [DOTCOM-16810](https://linear.app/a8c/issue/DOTCOM-16810)
 - **Files**:
-  - [`includes/transformer/class-post.php`](https://github.com/Automattic/wordpress-atmosphere/blob/trunk/includes/transformer/class-post.php) — add `build_long_form_records()`, `build_teaser_thread()`, `build_truncate_link_text()`, private `truncate_at_word_boundary()` helper, and `META_THREAD_RECORDS` constant. `transform()`'s short-form branch is untouched; the long-form branch is kept for legacy callers that call `transform()` directly.
+  - [`includes/transformer/class-post.php`](https://github.com/Automattic/wordpress-atmosphere/blob/trunk/includes/transformer/class-post.php) — add `build_long_form_records()`, `build_teaser_thread()`, `build_truncate_link_text()`, private `truncate_to_budget()` helper (sentence → word → hard-cap), and `META_THREAD_RECORDS` constant. `transform()`'s short-form branch is untouched; the long-form branch is kept for legacy callers that call `transform()` directly.
   - [`includes/class-publisher.php`](https://github.com/Automattic/wordpress-atmosphere/blob/trunk/includes/class-publisher.php) — branch on short/long; extend `store_results()` to append to the thread-records meta after each successful write; add sequential-writes-with-rollback for multi-record long-form; rewrite `update()` and `delete()` to handle thread shape with legacy fallback.
   - `tests/phpunit/tests/transformer/class-test-post.php` — extend with composition tests.
   - `tests/phpunit/tests/class-test-publisher.php` — new file. Pattern reference: sibling `tests/phpunit/tests/transformer/class-test-facet.php`.
@@ -48,18 +48,21 @@ Decision context:
   1. **Open a draft PR first.** Cut a branch off `trunk` (e.g. `add/long-form-teaser-thread`), push an empty commit `WIP: long-form teaser-thread strategy` with the FOSSE SDD link in the body, and open as draft against `Automattic/wordpress-atmosphere:trunk`. This starts the async review window. Convert to ready-for-review only after Commit 5 lands.
   2. **Commit 1 — composition methods + `atmosphere_long_form_composition` filter + `META_THREAD_RECORDS` constant, with `'link-card'` default unchanged:**
      1. On `Atmosphere\Transformer\Post`, add `public const META_THREAD_RECORDS = '_atmosphere_bsky_thread_records';` alongside the existing `META_URI` / `META_TID` / `META_CID` constants.
-     2. Add a private helper `truncate_at_word_boundary( string $text, int $max_graphemes ): string`:
+     2. Add a private helper `truncate_to_budget( string $text, int $max_graphemes, bool $prefer_sentence = true ): string`:
         - If the grapheme count of `$text` is already ≤ `$max_graphemes`, return `$text` unchanged.
-        - Otherwise clamp to `$max_graphemes` graphemes, then trim back to the last whitespace boundary using a regex like `preg_replace( '/\s+\S*$/u', '', $clamped )`. If the regex strips the entire string (single very long word), fall back to the hard grapheme cap with an ellipsis character appended inside the cap (one-grapheme budget for `…`).
+        - Clamp to `$max_graphemes` graphemes using the grapheme-aware helper that Atmosphere already uses (look for `truncate_text` / `Facet::` length helpers — match the convention).
+        - **If `$prefer_sentence` is true:** search for the last sentence-ending punctuation (`.`, `!`, `?`) in the clamped string — allow trailing close-quote / close-bracket / close-paren characters after the punctuation. A regex like `preg_match_all( '/[.!?][\"\')\]]?(?=\s|$)/u', $clamped, $matches, PREG_OFFSET_CAPTURE )` finds candidates; take the last match and return `$clamped` truncated to that match's end offset. If at least one match exists, return this truncation and stop.
+        - **Word boundary fallback** (either `$prefer_sentence` was false, or no sentence break was found in the window): trim back to the last whitespace boundary using a regex like `preg_replace( '/\s+\S*$/u', '', $clamped )`. If that leaves a non-empty string, return it.
+        - **Hard-cap last resort** (single very long word with no whitespace in the window): return the grapheme-clamped string with an ellipsis appended inside the cap (one-grapheme budget for `…`).
         - Covered by tests in Commit 2.
-     3. Add private method `build_truncate_link_text(): string`:
+     3. Add private method `build_truncate_link_text(): string` (used by the `'truncate-link'` strategy — not the final-prose-before-CTA case):
         - Call the existing shared plain-text helper `$this->render_post_content_plain( $this->object )` (confirmed present on `Post`; inherited from `Transformer\Base` per DOTCOM-16838).
-        - Compute budget = `300 − mb_strlen( "\n\n" ) − mb_strlen( $this->get_permalink() )` (use the grapheme-aware length function already in use elsewhere — `Facet::` helpers show the convention).
-        - Return `truncate_at_word_boundary( $plain, $budget ) . "\n\n" . $this->get_permalink()`.
+        - Compute budget = `300 − mb_strlen( "\n\n" ) − mb_strlen( $this->get_permalink() )` (use the grapheme-aware length helper used elsewhere in Atmosphere).
+        - Return `truncate_to_budget( $plain, $budget, $prefer_sentence = false ) . "\n\n" . $this->get_permalink()`. `'truncate-link'` is a single-post strategy where the permalink follows immediately; a word-boundary cut is sufficient.
      4. Add private method `build_teaser_thread(): array`:
-        - Compute hook = `truncate_at_word_boundary( $this->render_post_content_plain( $this->object ), 280 )` (280 leaves room for future trailing content without blowing the 300 cap).
+        - Compute hook = `truncate_to_budget( $this->render_post_content_plain( $this->object ), 280, $prefer_sentence = true )`. The hook is the final prose cut before the CTA, so sentence boundary is required. 280 leaves room for future trailing content without blowing the 300 cap.
         - Compute CTA = `sprintf( __( 'Continue reading: %s', 'atmosphere' ), $this->get_permalink() )`.
-        - Return `apply_filters( 'atmosphere_teaser_thread_posts', array( $hook, $cta ), $this->object )` — the filter lets downstream override the defaults or extend to 3 posts.
+        - Return `apply_filters( 'atmosphere_teaser_thread_posts', array( $hook, $cta ), $this->object )` — the filter lets downstream override the defaults or extend to 3 posts. **Note for future 3-post variant:** if the filter returns 3 entries, the intermediate body-to-body cut (entry 1 → entry 2) can be word-boundary (`$prefer_sentence = false`); the final body entry before the CTA (entry 2 → entry 3) must be sentence-boundary. The filter's return contract doesn't currently capture this — downstream filter authors are responsible for respecting it. Worth a PHPDoc note on the filter.
      5. Add public method `build_long_form_records(): array` — this is what Publisher calls for long-form posts:
         - `$strategy = apply_filters( 'atmosphere_long_form_composition', 'link-card', $this->object );`
         - `switch ( $strategy )`:
@@ -73,12 +76,16 @@ Decision context:
      9. Commit: `Add atmosphere_long_form_composition filter and long-form record composition methods`.
   3. **Commit 2 — tests for composition methods:**
      1. In `tests/phpunit/tests/transformer/class-test-post.php`, add:
-        - `test_truncate_at_word_boundary_trims_trailing_partial_word()` — short helper test with a string that would split a word at a grapheme-exact cut; assert the returned string ends at whitespace.
-        - `test_truncate_at_word_boundary_falls_back_to_hard_cap_for_single_long_word()` — input with no whitespace longer than `$max`; assert a sensible hard-cap + ellipsis behavior.
+        - `test_truncate_to_budget_prefers_sentence_when_enabled()` — multi-sentence input; `$prefer_sentence = true`; assert the cut ends at `.`/`!`/`?` (not mid-sentence), even though a word boundary exists later in the budget.
+        - `test_truncate_to_budget_allows_trailing_close_punctuation()` — input ends a sentence with `!")` — assert the cut includes the closing `)` after the `!`.
+        - `test_truncate_to_budget_falls_back_to_word_boundary_when_no_sentence()` — long opening clause with no `.`/`!`/`?` in the budget; `$prefer_sentence = true`; assert word-boundary cut (no mid-word).
+        - `test_truncate_to_budget_word_boundary_only_when_prefer_sentence_false()` — `$prefer_sentence = false`; sentence break exists but cut should be at word boundary regardless.
+        - `test_truncate_to_budget_hard_cap_for_single_long_word()` — input with no whitespace longer than `$max`; assert hard-cap + ellipsis behavior (no infinite loop, no empty string).
         - `test_build_long_form_records_default_is_link_card()` — no filter; `build_long_form_records()` returns 1-entry array whose `text` + `embed` match today's `transform()` output (use `transform()` itself as the oracle).
         - `test_build_long_form_records_applies_atmosphere_transform_bsky_post_per_entry()` — register a transform filter that appends `__transformed__` to every record's text; assert every entry in the returned array carries the marker.
         - `test_build_long_form_records_truncate_link_branch()` — `atmosphere_long_form_composition` → `'truncate-link'`; 1-entry array, text ends with `\n\n` + permalink, `embed === null`, at least one link facet covering the permalink.
-        - `test_build_long_form_records_teaser_thread_default_two_entries()` — `atmosphere_long_form_composition` → `'teaser-thread'`; 2-entry array. First entry: body hook, ≤ 280 graphemes, no permalink. Second entry: text matches `/^Continue reading: https?:\/\//` and has a link facet.
+        - `test_build_long_form_records_teaser_thread_default_two_entries()` — `atmosphere_long_form_composition` → `'teaser-thread'`; 2-entry array. First entry: body hook, ≤ 280 graphemes, **cut ends at sentence-closing punctuation** (`.`/`!`/`?`), no permalink. Second entry: text matches `/^Continue reading: https?:\/\//` and has a link facet.
+        - `test_build_long_form_records_teaser_thread_hook_falls_back_to_word_boundary_when_no_sentence()` — `'teaser-thread'` with a body whose first 280 graphemes have no sentence break; assert hook ends at whitespace (word boundary), no mid-word.
         - `test_build_long_form_records_teaser_thread_filter_extends_to_three()` — additionally register `atmosphere_teaser_thread_posts` returning 3 strings; assert the returned records match the filter's output (3 entries).
         - `test_build_long_form_records_langs_consistent_across_thread()` — `'teaser-thread'`; assert every entry's `langs` equals the root's `langs`.
         - `test_build_long_form_records_facets_extracted_per_entry()` — `'teaser-thread'` with a body containing `#tag` and CTA that naturally contains the URL; assert each entry's facets are extracted against that entry's own text.
@@ -244,7 +251,7 @@ Decision context:
      - Poll the capture file; expect `calls.length === 2`.
      - **Assertions on `calls[0].writes` (first applyWrites — root + doc):**
        - 2 writes: one `app.bsky.feed.post` + one `site.standard.document`.
-       - The bsky record: `text` starts with the first ~280 graphemes of the body (word-boundary cut, no mid-word), no `embed`, no `reply`, `createdAt` set, `langs` non-empty. Facets include one tag facet and (if mention resolution worked in test env) one mention facet and one link facet.
+       - The bsky record: `text` starts with the first ~280 graphemes of the body, **ending at sentence-closing punctuation** (`.`/`!`/`?`) — not mid-word, not mid-sentence. No `embed`, no `reply`, `createdAt` set, `langs` non-empty. Facets include one tag facet and (if mention resolution worked in test env) one mention facet and one link facet.
        - The doc record is present (DOTCOM-16809 guard).
      - **Assertions on `calls[1].writes` (second applyWrites — CTA reply):**
        - 1 write: `app.bsky.feed.post`.
