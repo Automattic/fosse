@@ -26,7 +26,8 @@ class Post_Types {
     }
 
     public static function filter_atmosphere( array $types ): array {
-        return (array) get_option( 'activitypub_support_post_types', array( 'post' ) );
+        $stored = get_option( 'activitypub_support_post_types', array( 'post' ) );
+        return is_array( $stored ) ? $stored : array( 'post' );
     }
 }
 ```
@@ -41,7 +42,7 @@ Registered from `fosse.php` via the same `init`-time `class_exists` guard used f
 
 - [ ] Create `src/class-post-types.php` — `Automattic\Fosse\Post_Types` projector with `register()` and `filter_atmosphere()`. Docblock explains the deliberate asymmetry with `Object_Type`.
 - [ ] Register it in `fosse.php` alongside `Object_Type::register()` inside the existing `init` callback (same `class_exists` guard pattern).
-- [ ] Write `tests/php/Post_TypesTest.php` — cover: default (option unset → `['post']`), option set → value returned, non-array option coerced via `(array)`, `register()` safe to call twice.
+- [ ] Write `tests/php/Post_TypesTest.php` — cover: default (option unset → `['post']`), option set → value returned, empty array preserved (don't resurrect disabled federation), upstream default discarded, non-array option falls back to `['post']`, `register()` safe to call twice.
 - [ ] Amend `sdd/onboarding-setup-ux/spec.md` — rewrite the "Option projection pattern" section to describe direct writes to AP option keys. Remove the `pre_option_*` mechanism.
 - [ ] Amend `sdd/onboarding-setup-ux/plan.md` Task 3 — change `update_option()` target keys from `fosse_ap_*` to `activitypub_*`; delete the step that registers `pre_option_*` filters. Update Task 8's AP_Provider test description likewise.
 - [ ] Amend `sdd/onboarding-setup-ux/requirements.md` — update the "AP settings ownership" open-question record.

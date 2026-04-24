@@ -86,33 +86,64 @@ class Post_TypesTest extends BaseTestCase {
 	}
 
 	/**
-	 * A corrupted option value (non-array — e.g. a buggy
-	 * `option_activitypub_support_post_types` filter returning a scalar)
-	 * falls back to the default rather than fatally coercing via `(array)`
-	 * and handing Atmosphere a malformed list.
+	 * A late-priority filter on `option_activitypub_support_post_types`
+	 * returning a scalar (rogue plugin, buggy integration) must not flow
+	 * through to Atmosphere as a coerced `[scalar]` list. The projector
+	 * falls back to the default instead.
+	 *
+	 * This matches real-world corruption conditions: ActivityPub itself
+	 * registers an `option_activitypub_support_post_types` filter that
+	 * casts the stored value to an array, so a raw scalar stored via
+	 * `update_option()` would be normalized before reaching us. A hostile
+	 * or buggy filter at a later priority is the realistic way a non-array
+	 * value can appear at the projector's read.
 	 */
-	public function test_falls_back_to_default_on_non_array_option() {
-		update_option( 'activitypub_support_post_types', 'not-an-array' );
+	public function test_falls_back_to_default_on_late_filter_returning_non_array() {
+		update_option( 'activitypub_support_post_types', array( 'page' ) );
 
-		$this->assertSame(
-			array( 'post' ),
-			apply_filters( 'atmosphere_syncable_post_types', array() )
-		);
+		$corrupt = static function () {
+			return 'not-an-array';
+		};
+
+		add_filter( 'option_activitypub_support_post_types', $corrupt, 99 );
+
+		try {
+			$this->assertSame(
+				array( 'post' ),
+				apply_filters( 'atmosphere_syncable_post_types', array() )
+			);
+		} finally {
+			remove_filter( 'option_activitypub_support_post_types', $corrupt, 99 );
+		}
 	}
 
 	/**
-	 * `register()` is idempotent — calling it twice does not double-filter.
-	 * WordPress dedupes identical callable-as-array registrations, so a
-	 * second call must not cause the projector to run twice on a given
-	 * apply_filters() invocation.
+	 * `register()` is idempotent — calling it twice leaves exactly one
+	 * callback on the hook. WordPress dedupes identical callable-as-array
+	 * registrations (same class::method produces the same unique ID), so
+	 * this is guaranteed by the registration pattern; the test pins the
+	 * invariant so a refactor to closures or instance methods wouldn't
+	 * silently lose dedup behavior without a test failure.
+	 *
+	 * A purely behavioral assertion (same filter output) wouldn't detect
+	 * double-registration because `filter_atmosphere()` is pure. We inspect
+	 * `$wp_filter` directly.
 	 */
 	public function test_register_is_idempotent() {
+		// reset_state() already registered once via #[Before]; register again.
 		Post_Types::register();
-		update_option( 'activitypub_support_post_types', array( 'post', 'page' ) );
 
-		$this->assertSame(
-			array( 'post', 'page' ),
-			apply_filters( 'atmosphere_syncable_post_types', array( 'post' ) )
+		global $wp_filter;
+
+		$this->assertArrayHasKey(
+			'atmosphere_syncable_post_types',
+			$wp_filter,
+			'register() should have added a callback to atmosphere_syncable_post_types.'
+		);
+		$this->assertCount(
+			1,
+			$wp_filter['atmosphere_syncable_post_types']->callbacks[10],
+			'register() must leave exactly one callback at priority 10 when called twice.'
 		);
 	}
 }
