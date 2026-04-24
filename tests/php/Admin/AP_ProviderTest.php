@@ -38,6 +38,10 @@ class AP_ProviderTest extends BaseTestCase {
 		delete_option( 'activitypub_actor_mode' );
 		delete_option( 'activitypub_support_post_types' );
 
+		// Clear stale settings errors from prior tests.
+		global $wp_settings_errors;
+		$wp_settings_errors = array(); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited,WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedVariableFound -- WP core global reset for testing.
+
 		$this->provider->register_hooks();
 	}
 
@@ -244,6 +248,48 @@ class AP_ProviderTest extends BaseTestCase {
 		}
 
 		$this->assertSame( 'actor', get_option( 'fosse_ap_actor_mode' ) );
+	}
+
+	/**
+	 * Invalid actor mode produces an error notice, not a success notice.
+	 */
+	public function test_handle_save_error_notice_on_invalid_mode() {
+		$this->simulate_save_request( array( 'fosse_ap_actor_mode' => 'evil_mode' ) );
+
+		try {
+			$this->provider->handle_save();
+		} catch ( \Exception $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$errors = get_settings_errors( 'fosse' );
+		$codes  = array_column( $errors, 'code' );
+		$this->assertContains( 'fosse_ap_invalid_mode', $codes );
+		$this->assertNotContains( 'fosse_ap_saved', $codes );
+	}
+
+	/**
+	 * Valid save fires update_option_activitypub_actor_mode so AP's
+	 * scheduler propagates the mode change to federation.
+	 */
+	public function test_handle_save_fires_ap_actor_mode_hook() {
+		$fired = false;
+		add_action(
+			'update_option_activitypub_actor_mode',
+			static function () use ( &$fired ) {
+				$fired = true;
+			}
+		);
+
+		$this->simulate_save_request( array( 'fosse_ap_actor_mode' => 'blog' ) );
+
+		try {
+			$this->provider->handle_save();
+		} catch ( \Exception $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$this->assertTrue( $fired, 'update_option_activitypub_actor_mode should fire after saving actor mode.' );
 	}
 
 	/**

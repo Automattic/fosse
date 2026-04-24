@@ -189,7 +189,7 @@ class AP_Provider implements Connection_Provider {
 		?>
 		<div class="fosse-status-card">
 			<h3>
-				<span class="fosse-status-indicator connected"></span>
+				<span class="fosse-status-indicator <?php echo $status['connected'] ? 'connected' : 'disconnected'; ?>"></span>
 				<?php esc_html_e( 'ActivityPub', 'fosse' ); ?>
 			</h3>
 
@@ -286,9 +286,19 @@ class AP_Provider implements Connection_Provider {
 		check_admin_referer( 'fosse_save_ap_settings' );
 
 		// Sanitize actor mode against allowlist.
-		$mode = sanitize_text_field( wp_unslash( $_POST['fosse_ap_actor_mode'] ?? '' ) );
-		if ( in_array( $mode, self::ACTOR_MODES, true ) ) {
+		$mode       = sanitize_text_field( wp_unslash( $_POST['fosse_ap_actor_mode'] ?? '' ) );
+		$mode_valid = in_array( $mode, self::ACTOR_MODES, true );
+		if ( $mode_valid ) {
+			$old_mode = get_option( 'fosse_ap_actor_mode', '' );
 			update_option( 'fosse_ap_actor_mode', $mode );
+
+			// Notify AP's scheduler so federation propagates the mode change.
+			// AP hooks on update_option_activitypub_actor_mode to schedule a
+			// blog profile update; since FOSSE projects at read time rather
+			// than writing to the AP option, we fire the hook manually.
+			do_action( 'update_option_activitypub_actor_mode', $old_mode, $mode, 'activitypub_actor_mode' );
+		} else {
+			add_settings_error( 'fosse', 'fosse_ap_invalid_mode', __( 'Invalid actor mode. Setting was not changed.', 'fosse' ), 'error' );
 		}
 
 		// Sanitize post types against registered public types.
@@ -297,8 +307,10 @@ class AP_Provider implements Connection_Provider {
 		$post_types  = array_values( array_intersect( $submitted, $valid_types ) );
 		update_option( 'fosse_ap_support_post_types', $post_types );
 
-		// Redirect back with success notice.
-		add_settings_error( 'fosse', 'fosse_ap_saved', __( 'ActivityPub settings saved.', 'fosse' ), 'success' );
+		// Redirect back with appropriate notice.
+		if ( $mode_valid ) {
+			add_settings_error( 'fosse', 'fosse_ap_saved', __( 'ActivityPub settings saved.', 'fosse' ), 'success' );
+		}
 		set_transient( 'settings_errors', get_settings_errors(), 30 );
 
 		wp_safe_redirect( admin_url( 'admin.php?page=fosse&settings-updated=true' ) );
