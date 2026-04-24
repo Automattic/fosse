@@ -131,7 +131,6 @@ add_action(
  */
 if ( class_exists( \Automattic\Fosse\Provider_Loader::class ) ) {
 	\Automattic\Fosse\Admin\AP_Provider::init();
-	\Automattic\Fosse\Admin\Atmosphere_Provider::init();
 
 	\Automattic\Fosse\Provider_Loader::boot();
 }
