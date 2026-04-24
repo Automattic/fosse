@@ -53,10 +53,12 @@ Registered from `fosse.php` via the same `init`-time `class_exists` guard used f
 
 ## Implementation Notes
 
-Shipped on branch `post-type-sync-DOTCOM-16875` as PR [#31](https://github.com/Automattic/fosse/pull/31). Split into two commits:
+Shipped on branch `post-type-sync-DOTCOM-16875` as PR [#31](https://github.com/Automattic/fosse/pull/31). Commit sequence on the branch:
 
-1. `Add cross-network Post_Types projector for activitypub_support_post_types` — projector class, fosse.php registration, PHPUnit tests, this notes.md.
+1. `Add cross-network Post_Types projector for activitypub_support_post_types` — projector class, fosse.php registration, initial PHPUnit tests, this notes.md.
 2. `SDD: amend onboarding-setup-ux to write AP options directly` — the four onboarding-setup-ux/*.md edits.
+3. `docs: fill post-type-sync implementation notes` — this section.
+4. `test: tighten Post_Types idempotency + non-array cases per review` — Copilot review follow-ups.
 
 Deviations / decisions made during implementation:
 
@@ -71,3 +73,14 @@ Follow-up / revisit triggers:
 
 - When AP's admin UI is suppressed per DOTCOM-16808, add a FOSSE-side UI that edits `activitypub_support_post_types` directly. Still no FOSSE-owned mirror option.
 - If AP ever renames `activitypub_support_post_types`, update the `AP_OPTION` constant in `Post_Types`. Single choke point by design.
+
+## Discovered hazard — Atmosphere cleanup-gate conflation (post-review)
+
+Codex's adversarial review after the initial commits flagged a high-severity rollback hazard. Investigation confirmed it: Atmosphere's `on_status_change()` and `on_before_delete()` gated remote cleanup on the same `Backfill::syncable_post_types()` allowlist used for publish eligibility. With the projector in place, a user unchecking a post type on the AP settings screen — now the normal flow, not a PHP-filter edge case — silently skipped cleanup for already-synced posts of that type, orphaning the Bluesky records.
+
+The projector itself is correct. The bug was in Atmosphere's gate conflation — "allowed to publish new" was being reused as a proxy for "has existing publication to clean up," which only coincides while the allowlist never narrows. Fix lives upstream per AGENTS.md's upstream-first policy:
+
+- Upstream PR: [Automattic/wordpress-atmosphere#38](https://github.com/Automattic/wordpress-atmosphere/pull/38) — splits the gates so unpublish and permanent-delete defer to the post's publication metadata (`_atmosphere_bsky_tid` / `_atmosphere_doc_tid`) independently of the current allowlist. Three new PHPUnit cases.
+- Follow-up: [DOTCOM-16909](https://linear.app/a8c/issue/DOTCOM-16909) — after the upstream PR merges, re-sync `bundled/atmosphere/`, add a FOSSE-side regression test end-to-end through the projector, and take PR #31 out of draft.
+
+PR #31 is marked draft in the interim. FOSSE's `Post_Types` projector doesn't change; only the bundled Atmosphere code behind it needs to carry the fix before the projector is safe to enable on live sites.
