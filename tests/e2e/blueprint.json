@@ -20,7 +20,8 @@
 		{
 			"step": "setSiteOptions",
 			"options": {
-				"fosse_object_type": "note"
+				"fosse_object_type": "note",
+				"activitypub_reader_ui": "1"
 			}
 		}
 	]
