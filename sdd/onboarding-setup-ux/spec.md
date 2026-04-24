@@ -86,13 +86,13 @@ Minimum viable configuration on the Setup page. Start with the two settings that
 
 Additional settings can be pulled into the inline surface later based on real usage data. A "Show advanced ActivityPub settings" link sends the user to `options-general.php?page=activitypub` for everything else.
 
-**Option projection pattern.** FOSSE stores its own options (`fosse_ap_actor_mode`, `fosse_ap_support_post_types`) and projects them to AP via `pre_option_activitypub_actor_mode` / `pre_option_activitypub_support_post_types` filters at read time. This gives us:
+**Direct AP option writes.** FOSSE's Setup page writes directly to AP's option keys (`activitypub_actor_mode`, `activitypub_support_post_types`). AP's own settings screen (reachable via the "Show advanced ActivityPub settings" link) keeps editing the same keys, so both surfaces are consistent and AP's admin UI stays honest. No parallel `fosse_ap_*` options.
 
-1. No write-time coupling to AP's option schema. If AP adds sanitize callbacks or changes the option name, we don't silently bypass them.
-2. Clear ownership. FOSSE's Setup page owns `fosse_*`, AP's advanced page owns `activitypub_*`, and the filter layer keeps them in sync when FOSSE is in control.
-3. Easy to unset. Delete the FOSSE option, AP's own stored value takes over again.
+The alternative — FOSSE-owned options projected into AP via `pre_option_*` filters — was rejected per DOTCOM-16875. That pattern silently overrides AP's admin on read: a user toggles a checkbox in AP's settings, FOSSE's filter returns something else when federation runs, the admin UI becomes a lie. Single source of truth (AP's option) + direct writes from both surfaces is cleaner. See `sdd/post-type-sync/` for the full decision trail.
 
-Form POSTs to `admin_post.php?action=fosse_save_ap_settings`. The handler validates against the allowlist of actor mode values and the list of public post types, then calls `update_option()` on the `fosse_ap_*` keys.
+Cross-network projection still happens for post types, but one-way: `Automattic\Fosse\Post_Types` reads `activitypub_support_post_types` and feeds Atmosphere's `atmosphere_syncable_post_types` filter, so a user's AP selection also governs Bluesky sync. Actor mode is AP-specific (no Atmosphere analogue) and needs no cross-network projection.
+
+Form POSTs to `admin_post.php?action=fosse_save_ap_settings`. The handler validates against the allowlist of actor mode values and the list of public post types, then calls `update_option()` on the `activitypub_*` keys.
 
 ### Key Components
 

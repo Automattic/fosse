@@ -39,8 +39,8 @@ Based on: sdd/onboarding-setup-ux/spec.md
 - **Do**:
   1. Create `AP_Provider` implementing `Connection_Provider`. Self-registers on `fosse_register_providers` with `class_exists('\Activitypub\Activitypub')` guard.
   2. Setup section renders inline config: actor mode radio, post type checkboxes, fediverse address, link to advanced AP settings. Form POSTs to `admin_post.php?action=fosse_save_ap_settings`.
-  3. `handle_save()` validates nonce + capability, sanitizes against allowlists, stores values to `fosse_ap_actor_mode` / `fosse_ap_support_post_types` via `update_option()`.
-  4. Register `pre_option_activitypub_actor_mode` and `pre_option_activitypub_support_post_types` filters that project the `fosse_ap_*` values to AP at read time (return `false` when the FOSSE option is absent so AP's own stored value takes over).
+  3. `handle_save()` validates nonce + capability, sanitizes against allowlists, stores values directly to `activitypub_actor_mode` / `activitypub_support_post_types` via `update_option()`. AP's own settings screen keeps editing the same option keys; both surfaces share one source of truth.
+  4. No `pre_option_*` projection filters. Cross-network post-type sync into Atmosphere is handled separately by `Automattic\Fosse\Post_Types` (see `sdd/post-type-sync/`), so AP_Provider only writes the option and leaves the projector to pick it up.
   5. Status card shows actor mode, post types, follower count (if available), fediverse address.
   6. Create `Setup_Page` that iterates providers and calls `render_setup_section()`. Handles notice transients.
   7. Create `setup-page.php` template with page shell, notice display, and provider iteration.
@@ -99,7 +99,7 @@ Based on: sdd/onboarding-setup-ux/spec.md
 - **Files**: `tests/php/Admin/Connection_Provider_RegistryTest.php`, `tests/php/Admin/AP_ProviderTest.php`, `tests/php/Admin/Bluesky_ProviderTest.php`
 - **Do**:
   1. Registry tests: register/retrieve, get_providers returns all, duplicate slug ignored, unknown slug returns null, reset clears.
-  2. AP_Provider tests: status shape, actor mode reflection (option projection via `pre_option_*` filters), post type defaults and overrides, slug and name.
+  2. AP_Provider tests: status shape, direct `update_option()` writes to `activitypub_actor_mode` / `activitypub_support_post_types`, post type defaults and overrides, slug and name.
   3. Bluesky_Provider tests: redirect URI filter integration, persisted-notice read, status disconnected/connected/expired-token.
   4. Run `composer run-script lint-php` and `composer run-script test-php`.
 - **Verify**:
