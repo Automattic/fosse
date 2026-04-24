@@ -294,6 +294,13 @@ The list below is what's genuinely still open — the applied defaults are in "O
 1.  **3-post variant default composition.** What goes in the takeaway post by default if someone opts into a 3-post thread via `atmosphere_teaser_thread_posts` — post excerpt second half, body continuation, auto-generated summary, or no opinionated default (filter-only)? Not a v1 blocker; v1 ships 2-post and leaves the 3-post path filter-only.
 2.  **Atomic-write upgrade path.** If Bluesky (or an a8c effort) ships a thread-create API that's atomic, or someone invests in client-side CID computation, how does the write path change? Keep the thread-write code narrow enough to swap. Not a v1 blocker.
 
+## Review Notes (from PR #24 review)
+
+Gaps flagged during review that need verification before the upstream PR leaves draft:
+
+1.  **Delete gap on force-delete.** `on_before_delete` only captures the root TID — thread reply posts would be orphaned on force-delete. The spec's `Publisher::delete()` section describes iterating `_atmosphere_bsky_thread_records`, but the implementation needs to confirm the hook fires with access to thread meta and handles the full array, not just the root. Fix before the upstream PR leaves draft — orphaned posts on Bluesky are a bad look.
+2.  **`createdAt` behavior change for link-card.** The thread path stamps `createdAt = now()` at write time (sequential monotonicity). This is a change from the link-card path where `createdAt` previously used the post's published date. Subtle breaking change for existing users switching strategies. Needs explicit upstream review and changelog documentation — don't let this ship quietly.
+
 ## Open Questions Resolved
 
 Decisions carry the resolver in parens. Defaults marked "applied (confirm)" are my calls that the author should redirect on PR #24 if wrong — but are safe enough to build against in the meantime.
