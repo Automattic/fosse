@@ -122,15 +122,25 @@ add_action(
 );
 
 /*
- * Admin UI: FOSSE setup and status pages.
+ * Provider bootstrap.
  *
- * Each provider self-registers on the 'fosse_register_providers' action,
- * and Menu::register() fires that action, adds the admin menu, and
- * enqueues styles. Bundled-plugin admin entries are hidden so FOSSE is
- * the single admin surface for federation setup.
+ * Providers self-register on the 'fosse_register_providers' action fired
+ * by Provider_Loader::boot(). This runs unconditionally so provider hooks
+ * (option-projection filters, etc.) are active on every request — admin,
+ * REST, WebFinger, cron.
  */
-if ( is_admin() && class_exists( \Automattic\Fosse\Admin\Menu::class ) ) {
+if ( class_exists( \Automattic\Fosse\Provider_Loader::class ) ) {
 	\Automattic\Fosse\Admin\AP_Provider::init();
 
+	\Automattic\Fosse\Provider_Loader::boot();
+}
+
+/*
+ * Admin UI: FOSSE setup and status pages.
+ *
+ * Menu registration, bundled-menu suppression, and CSS enqueue.
+ * Provider hooks are already registered above.
+ */
+if ( is_admin() && class_exists( \Automattic\Fosse\Admin\Menu::class ) ) {
 	\Automattic\Fosse\Admin\Menu::register();
 }

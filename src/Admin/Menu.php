@@ -13,28 +13,14 @@ namespace Automattic\Fosse\Admin;
 class Menu {
 
 	/**
-	 * Boot the admin UI.
+	 * Register admin menu pages, bundled-menu suppression, and CSS.
 	 *
-	 * Fires 'fosse_register_providers' so providers can self-register,
-	 * calls register_hooks() on each available provider, then hooks the
-	 * menu registration and bundled-menu suppression into admin_menu.
+	 * Provider discovery and hook registration happen in Provider_Loader::boot(),
+	 * which runs unconditionally. This method handles admin-only concerns.
 	 *
 	 * @return void
 	 */
 	public static function register(): void {
-		/**
-		 * Fires so Connection_Provider implementations can register themselves.
-		 *
-		 * Providers call Connection_Provider_Registry::register( $this ) here.
-		 */
-		do_action( 'fosse_register_providers' );
-
-		foreach ( Connection_Provider_Registry::get_providers() as $provider ) {
-			if ( $provider->is_available() ) {
-				$provider->register_hooks();
-			}
-		}
-
 		add_action( 'admin_menu', array( static::class, 'add_menu' ), 9 );
 		add_action( 'admin_menu', array( static::class, 'hide_bundled_menus' ), 99 );
 		add_action( 'admin_enqueue_scripts', array( static::class, 'enqueue_styles' ) );
@@ -96,6 +82,8 @@ class Menu {
 		remove_submenu_page( 'users.php', 'activitypub-followers-list' );
 		remove_submenu_page( 'users.php', 'activitypub-following-list' );
 		remove_submenu_page( 'users.php', 'activitypub-blocked-actors-list' );
+		// Mirrors bundled AP registration at includes/wp-admin/class-menu.php:94-98.
+		// Fragile: matches the rendered URL string AP uses as the submenu slug.
 		remove_submenu_page( 'users.php', esc_url( admin_url( '/edit.php?post_type=ap_extrafield' ) ) );
 	}
 
