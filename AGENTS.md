@@ -210,3 +210,10 @@ Worked example from the Bluesky-native-publishing epic:
 -   **FOSSE** — the `Automattic\Fosse\Object_Type` projector that reads the `fosse_object_type` option and drives both upstream filters in lockstep. This only makes sense inside FOSSE's "publish once, reach everywhere" model where AP and atproto must agree on the shape of a given post.
 
 See PR #18 (DOTCOM-16812) for the full decision record.
+
+Worked example from the long-form Bluesky strategy ([DOTCOM-16810](https://linear.app/a8c/issue/DOTCOM-16810)):
+
+-   **Upstream** — Atmosphere's `atmosphere_long_form_composition` filter, the `build_long_form_records()` / `build_teaser_thread()` / `build_truncate_link_text()` composition methods on `Transformer\Post`, the `META_THREAD_RECORDS` post-meta constant, and the thread-aware redesign of `Publisher::publish/update/delete` (sequential writes with rollback + partial-meta writes). Every piece describes a universal "how does Atmosphere compose and persist long posts" concern that's valuable to any consumer of `wordpress-atmosphere`.
+-   **FOSSE** — the `Automattic\Fosse\Long_Form_Strategy` projector that reads `fosse_long_form_strategy` and drives the single `atmosphere_long_form_composition` filter. It encodes FOSSE's opinion (default `'teaser-thread'`, coerce unknown/empty → default) and nothing more.
+
+See the `sdd/long-form-bluesky-strategy/` SDD for the full decision record, including why FOSSE's default diverges from upstream's (upstream stays on `'link-card'`).
