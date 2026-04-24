@@ -160,4 +160,124 @@ class AP_ProviderTest extends BaseTestCase {
 
 		$this->assertSame( array( 'page' ), $this->provider->get_status()['post_types'] );
 	}
+
+	// --- handle_save tests ---------------------------------------------------
+
+	/**
+	 * Create an admin user and set up a simulated save request.
+	 *
+	 * @param array<string, mixed> $post_data POST data to merge in.
+	 * @return void
+	 */
+	private function simulate_save_request( array $post_data = array() ): void {
+		$user_id = wp_insert_user(
+			array(
+				'user_login' => 'fosse_admin_' . uniqid( '', true ),
+				'user_pass'  => 'test',
+				'role'       => 'administrator',
+			)
+		);
+		wp_set_current_user( $user_id );
+
+		$defaults = array(
+			'action'                      => 'fosse_save_ap_settings',
+			'_wpnonce'                    => wp_create_nonce( 'fosse_save_ap_settings' ),
+			'fosse_ap_actor_mode'         => 'blog',
+			'fosse_ap_support_post_types' => array( 'post' ),
+		);
+
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup, nonce is in the data.
+		$_POST    = array_merge( $defaults, $post_data );
+		$_REQUEST = $_POST;
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+
+		// Catch the redirect so exit doesn't kill the test.
+		add_filter(
+			'wp_redirect',
+			static function () {
+				throw new \Exception( 'redirect' );
+			}
+		);
+	}
+
+	/**
+	 * Valid save stores the actor mode option.
+	 */
+	public function test_handle_save_stores_actor_mode() {
+		$this->simulate_save_request( array( 'fosse_ap_actor_mode' => 'actor_blog' ) );
+
+		try {
+			$this->provider->handle_save();
+		} catch ( \Exception $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$this->assertSame( 'actor_blog', get_option( 'fosse_ap_actor_mode' ) );
+	}
+
+	/**
+	 * Valid save stores the post types option.
+	 */
+	public function test_handle_save_stores_post_types() {
+		$this->simulate_save_request( array( 'fosse_ap_support_post_types' => array( 'post', 'page' ) ) );
+
+		try {
+			$this->provider->handle_save();
+		} catch ( \Exception $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$this->assertSame( array( 'post', 'page' ), get_option( 'fosse_ap_support_post_types' ) );
+	}
+
+	/**
+	 * Invalid actor mode is rejected — option is not updated.
+	 */
+	public function test_handle_save_rejects_invalid_actor_mode() {
+		update_option( 'fosse_ap_actor_mode', 'actor' );
+		$this->simulate_save_request( array( 'fosse_ap_actor_mode' => 'evil_mode' ) );
+
+		try {
+			$this->provider->handle_save();
+		} catch ( \Exception $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$this->assertSame( 'actor', get_option( 'fosse_ap_actor_mode' ) );
+	}
+
+	/**
+	 * Invalid post types are filtered out.
+	 */
+	public function test_handle_save_filters_invalid_post_types() {
+		$this->simulate_save_request(
+			array( 'fosse_ap_support_post_types' => array( 'post', 'nonexistent_type', 'page' ) )
+		);
+
+		try {
+			$this->provider->handle_save();
+		} catch ( \Exception $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$saved = get_option( 'fosse_ap_support_post_types' );
+		$this->assertContains( 'post', $saved );
+		$this->assertContains( 'page', $saved );
+		$this->assertNotContains( 'nonexistent_type', $saved );
+	}
+
+	/**
+	 * Non-array post types input is safely handled.
+	 */
+	public function test_handle_save_handles_non_array_post_types() {
+		$this->simulate_save_request( array( 'fosse_ap_support_post_types' => 'not_an_array' ) );
+
+		try {
+			$this->provider->handle_save();
+		} catch ( \Exception $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$this->assertIsArray( get_option( 'fosse_ap_support_post_types' ) );
+	}
 }
