@@ -10,9 +10,9 @@ namespace Automattic\Fosse\Admin;
 /**
  * Integrates the bundled ActivityPub plugin into FOSSE's admin UI.
  *
- * Self-registers on 'fosse_register_providers'. Stores FOSSE-owned options
- * (fosse_ap_actor_mode, fosse_ap_support_post_types) and projects them to
- * AP via pre_option_* filters so AP reads FOSSE's values transparently.
+ * Self-registers on 'fosse_register_providers'. Reads and writes AP's stored
+ * options directly so both surfaces (FOSSE's Setup page and the native AP
+ * settings page) stay in sync.
  */
 class AP_Provider implements Connection_Provider {
 
@@ -117,15 +117,15 @@ class AP_Provider implements Connection_Provider {
 						<td>
 							<fieldset>
 								<label>
-									<input type="radio" name="fosse_ap_actor_mode" value="actor" <?php checked( 'actor', $actor_mode ); ?> />
+									<input type="radio" name="activitypub_actor_mode" value="actor" <?php checked( 'actor', $actor_mode ); ?> />
 									<?php esc_html_e( 'Author profiles', 'fosse' ); ?>
 								</label><br />
 								<label>
-									<input type="radio" name="fosse_ap_actor_mode" value="blog" <?php checked( 'blog', $actor_mode ); ?> />
+									<input type="radio" name="activitypub_actor_mode" value="blog" <?php checked( 'blog', $actor_mode ); ?> />
 									<?php esc_html_e( 'Blog profile', 'fosse' ); ?>
 								</label><br />
 								<label>
-									<input type="radio" name="fosse_ap_actor_mode" value="actor_blog" <?php checked( 'actor_blog', $actor_mode ); ?> />
+									<input type="radio" name="activitypub_actor_mode" value="actor_blog" <?php checked( 'actor_blog', $actor_mode ); ?> />
 									<?php esc_html_e( 'Both', 'fosse' ); ?>
 								</label>
 							</fieldset>
@@ -140,7 +140,7 @@ class AP_Provider implements Connection_Provider {
 									<label>
 										<input
 											type="checkbox"
-											name="fosse_ap_support_post_types[]"
+											name="activitypub_support_post_types[]"
 											value="<?php echo esc_attr( $pt->name ); ?>"
 											<?php checked( in_array( $pt->name, $post_types, true ) ); ?>
 										/>
@@ -219,58 +219,10 @@ class AP_Provider implements Connection_Provider {
 	/**
 	 * Register hooks for this provider.
 	 *
-	 * Sets up the option projection filters and the form save handler.
-	 *
 	 * @return void
 	 */
 	public function register_hooks(): void {
-		// Option projection: FOSSE values -> AP options at read time.
-		add_filter( 'pre_option_activitypub_actor_mode', array( $this, 'project_actor_mode' ), 20 );
-		add_filter( 'pre_option_activitypub_support_post_types', array( $this, 'project_post_types' ), 20 );
-
-		// Form save handler.
 		add_action( 'admin_post_fosse_save_ap_settings', array( $this, 'handle_save' ) );
-	}
-
-	/**
-	 * Project fosse_ap_actor_mode to AP's option at read time.
-	 *
-	 * Hooked at priority 20 so AP's own constant-based overrides (priority 10)
-	 * take precedence. If AP already set a value, pass it through.
-	 *
-	 * @param string|false $pre The pre-get option value.
-	 * @return string|false
-	 */
-	public function project_actor_mode( $pre ) {
-		if ( false !== $pre ) {
-			return $pre;
-		}
-
-		$fosse_value = get_option( 'fosse_ap_actor_mode' );
-		if ( false !== $fosse_value ) {
-			return $fosse_value;
-		}
-
-		return $pre;
-	}
-
-	/**
-	 * Project fosse_ap_support_post_types to AP's option at read time.
-	 *
-	 * @param array|false $pre The pre-get option value.
-	 * @return array|false
-	 */
-	public function project_post_types( $pre ) {
-		if ( false !== $pre ) {
-			return $pre;
-		}
-
-		$fosse_value = get_option( 'fosse_ap_support_post_types' );
-		if ( false !== $fosse_value ) {
-			return $fosse_value;
-		}
-
-		return $pre;
 	}
 
 	/**
@@ -286,30 +238,23 @@ class AP_Provider implements Connection_Provider {
 		check_admin_referer( 'fosse_save_ap_settings' );
 
 		// Sanitize actor mode against allowlist.
-		$mode       = sanitize_text_field( wp_unslash( $_POST['fosse_ap_actor_mode'] ?? '' ) );
+		$mode       = sanitize_text_field( wp_unslash( $_POST['activitypub_actor_mode'] ?? '' ) );
 		$mode_valid = in_array( $mode, self::ACTOR_MODES, true );
 		if ( $mode_valid ) {
-			$old_mode = get_option( 'fosse_ap_actor_mode', '' );
-			update_option( 'fosse_ap_actor_mode', $mode );
-
-			// Notify AP's scheduler so federation propagates the mode change.
-			// AP hooks on update_option_activitypub_actor_mode to schedule a
-			// blog profile update; since FOSSE projects at read time rather
-			// than writing to the AP option, we fire the hook manually.
-			do_action( 'update_option_activitypub_actor_mode', $old_mode, $mode, 'activitypub_actor_mode' );
+			update_option( 'activitypub_actor_mode', $mode );
 		} else {
-			add_settings_error( 'fosse', 'fosse_ap_invalid_mode', __( 'Invalid actor mode. Setting was not changed.', 'fosse' ), 'error' );
+			add_settings_error( 'fosse', 'fosse_invalid_mode', __( 'Invalid actor mode. Setting was not changed.', 'fosse' ), 'error' );
 		}
 
 		// Sanitize post types against registered public types.
-		$submitted   = array_map( 'sanitize_text_field', wp_unslash( (array) ( $_POST['fosse_ap_support_post_types'] ?? array() ) ) );
+		$submitted   = array_map( 'sanitize_text_field', wp_unslash( (array) ( $_POST['activitypub_support_post_types'] ?? array() ) ) );
 		$valid_types = get_post_types( array( 'public' => true ) );
 		$post_types  = array_values( array_intersect( $submitted, $valid_types ) );
-		update_option( 'fosse_ap_support_post_types', $post_types );
+		update_option( 'activitypub_support_post_types', $post_types );
 
 		// Redirect back with appropriate notice.
 		if ( $mode_valid ) {
-			add_settings_error( 'fosse', 'fosse_ap_saved', __( 'ActivityPub settings saved.', 'fosse' ), 'success' );
+			add_settings_error( 'fosse', 'fosse_saved', __( 'ActivityPub settings saved.', 'fosse' ), 'success' );
 		}
 		set_transient( 'settings_errors', get_settings_errors(), 30 );
 
