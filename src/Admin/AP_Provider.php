@@ -373,22 +373,23 @@ class AP_Provider implements Connection_Provider {
 			return;
 		}
 
-		$mode    = get_option( 'activitypub_actor_mode', 'actor' );
-		$blog_id = defined( '\Activitypub\Collection\Actors::BLOG_USER_ID' )
-			? \Activitypub\Collection\Actors::BLOG_USER_ID
-			: 0;
+		$mode        = get_option( 'activitypub_actor_mode', 'actor' );
+		$has_blog_id = defined( '\Activitypub\Collection\Actors::BLOG_USER_ID' );
 
 		if ( 'blog' === $mode ) {
-			$count = \Activitypub\Collection\Followers::count( $blog_id );
+			if ( ! $has_blog_id ) {
+				return;
+			}
+			$count = \Activitypub\Collection\Followers::count( \Activitypub\Collection\Actors::BLOG_USER_ID );
 			?>
 			<tr>
 				<td><?php esc_html_e( 'Followers', 'fosse' ); ?></td>
 				<td><?php echo esc_html( number_format_i18n( $count ) ); ?></td>
 			</tr>
 			<?php
-		} elseif ( 'actor_blog' === $mode ) {
+		} elseif ( 'actor_blog' === $mode && $has_blog_id ) {
 			$user_count = \Activitypub\Collection\Followers::count( get_current_user_id() );
-			$blog_count = \Activitypub\Collection\Followers::count( $blog_id );
+			$blog_count = \Activitypub\Collection\Followers::count( \Activitypub\Collection\Actors::BLOG_USER_ID );
 			?>
 			<tr>
 				<td><?php esc_html_e( 'Followers', 'fosse' ); ?></td>
@@ -396,7 +397,7 @@ class AP_Provider implements Connection_Provider {
 					<?php
 					printf(
 						/* translators: 1: author follower count, 2: blog follower count */
-						esc_html__( 'Author: %1$s, Blog: %2$s', 'fosse' ),
+						esc_html__( 'Your followers: %1$s, Blog: %2$s', 'fosse' ),
 						esc_html( number_format_i18n( $user_count ) ),
 						esc_html( number_format_i18n( $blog_count ) )
 					);
@@ -408,7 +409,7 @@ class AP_Provider implements Connection_Provider {
 			$count = \Activitypub\Collection\Followers::count( get_current_user_id() );
 			?>
 			<tr>
-				<td><?php esc_html_e( 'Followers', 'fosse' ); ?></td>
+				<td><?php esc_html_e( 'Your Followers', 'fosse' ); ?></td>
 				<td><?php echo esc_html( number_format_i18n( $count ) ); ?></td>
 			</tr>
 			<?php
