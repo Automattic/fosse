@@ -52,4 +52,21 @@ Registered from `fosse.php` via the same `init`-time `class_exists` guard used f
 
 ## Implementation Notes
 
-_Filled during / after implementation._
+Shipped on branch `post-type-sync-DOTCOM-16875` as PR [#31](https://github.com/Automattic/fosse/pull/31). Split into two commits:
+
+1. `Add cross-network Post_Types projector for activitypub_support_post_types` — projector class, fosse.php registration, PHPUnit tests, this notes.md.
+2. `SDD: amend onboarding-setup-ux to write AP options directly` — the four onboarding-setup-ux/*.md edits.
+
+Deviations / decisions made during implementation:
+
+- **Class name settled on `Post_Types`** (matches `Object_Type` — user choice, despite the known minor confusion with `Activitypub\Post_Types` in the bundled plugin; different namespaces).
+- **`DEFAULT_TYPES` constant**, not `DEFAULT` — avoids PHP's reserved `default` keyword, which older toolchains may still trip on even where PHP 7+ nominally allows it.
+- **Pivot scope extended to actor_mode** in the onboarding SDD (confirmed during brainstorm). Same reasoning applies — `pre_option_activitypub_actor_mode` would silently override AP's admin UI the same way. Dropped all `fosse_ap_*` options from the spec.
+- **Also updated the "Deactivation/deletion" planned-decision entry** — the prior version leaned on `fosse_ap_*` as the cleanup surface. Post-pivot there's nothing FOSSE-owned to clean up on uninstall; AP's admin just resumes.
+- **Filter callback ignores the upstream default passed in** (`unset( $types );`). The projector's contract is that AP's option wins unconditionally; any site-level post-type change belongs in AP's settings, not in AT's filter chain. Documented in the docblock.
+- **`is_array` fallback rather than `(array)` cast** — `(array) 'scalar'` would return `['scalar']` and hand Atmosphere a malformed list. Explicit check + fallback to `DEFAULT_TYPES` is safer.
+
+Follow-up / revisit triggers:
+
+- When AP's admin UI is suppressed per DOTCOM-16808, add a FOSSE-side UI that edits `activitypub_support_post_types` directly. Still no FOSSE-owned mirror option.
+- If AP ever renames `activitypub_support_post_types`, update the `AP_OPTION` constant in `Post_Types`. Single choke point by design.
