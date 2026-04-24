@@ -23,6 +23,7 @@ class Menu {
 	public static function register(): void {
 		add_action( 'admin_menu', array( static::class, 'add_menu' ), 9 );
 		add_action( 'admin_menu', array( static::class, 'hide_bundled_menus' ), 99 );
+		add_action( 'admin_bar_menu', array( static::class, 'hide_bundled_admin_bar' ), 101 );
 		add_action( 'admin_enqueue_scripts', array( static::class, 'enqueue_styles' ) );
 	}
 
@@ -75,8 +76,11 @@ class Menu {
 		// Atmosphere Settings submenu.
 		remove_submenu_page( 'options-general.php', 'atmosphere' );
 
-		// AP top-level Dashboard page (gated by activitypub_reader_ui).
-		remove_menu_page( 'activitypub-social-web' );
+		// AP Dashboard submenu (gated by activitypub_reader_ui). AP registers
+		// it via add_dashboard_page(), which is add_submenu_page( 'index.php', ... ),
+		// so remove_menu_page() — which only scans the top-level $menu global —
+		// does not remove it.
+		remove_submenu_page( 'index.php', 'activitypub-social-web' );
 
 		// AP Users submenus.
 		remove_submenu_page( 'users.php', 'activitypub-followers-list' );
@@ -85,6 +89,20 @@ class Menu {
 		// Mirrors bundled AP registration at includes/wp-admin/class-menu.php:94-98.
 		// Fragile: matches the rendered URL string AP uses as the submenu slug.
 		remove_submenu_page( 'users.php', esc_url( admin_url( '/edit.php?post_type=ap_extrafield' ) ) );
+	}
+
+	/**
+	 * Hide bundled-plugin admin-bar nodes.
+	 *
+	 * AP registers its 'activitypub-social-web' admin-bar node at priority
+	 * 100 (bundled/activitypub/includes/wp-admin/class-menu.php:22), so the
+	 * remove_node call must run after — priority 101.
+	 *
+	 * @param \WP_Admin_Bar $wp_admin_bar The admin bar instance.
+	 * @return void
+	 */
+	public static function hide_bundled_admin_bar( \WP_Admin_Bar $wp_admin_bar ): void {
+		$wp_admin_bar->remove_node( 'activitypub-social-web' );
 	}
 
 	/**
