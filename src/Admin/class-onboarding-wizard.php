@@ -62,7 +62,7 @@ class Onboarding_Wizard {
 	 * @return void
 	 */
 	public static function mark_complete(): void {
-		update_option( self::COMPLETED_OPTION, 1, true );
+		update_option( self::COMPLETED_OPTION, 1, false );
 	}
 
 	/**
@@ -73,6 +73,7 @@ class Onboarding_Wizard {
 	public static function register(): void {
 		add_action( 'admin_post_fosse_wizard_save', array( static::class, 'handle_save' ) );
 		add_action( 'admin_post_fosse_wizard_skip', array( static::class, 'handle_skip' ) );
+		add_action( 'admin_post_fosse_wizard_complete', array( static::class, 'handle_complete' ) );
 		add_action( 'admin_post_fosse_wizard_reset', array( static::class, 'handle_reset' ) );
 	}
 
@@ -102,7 +103,6 @@ class Onboarding_Wizard {
 					self::render_step_bluesky();
 					break;
 				case 'complete':
-					self::mark_complete();
 					self::render_step_complete();
 					break;
 				default:
@@ -131,7 +131,13 @@ class Onboarding_Wizard {
 		if ( 'appearance' === $step ) {
 			$mode = sanitize_text_field( wp_unslash( $_POST['fosse_ap_actor_mode'] ?? '' ) );
 			if ( in_array( $mode, self::ACTOR_MODES, true ) ) {
+				$old_mode = get_option( 'fosse_ap_actor_mode', '' );
 				update_option( 'fosse_ap_actor_mode', $mode );
+
+				// Notify AP's scheduler so federation propagates the mode change.
+				// Mirrors AP_Provider::handle_save() — FOSSE projects at read time
+				// rather than writing to the AP option, so we fire the hook manually.
+				do_action( 'update_option_activitypub_actor_mode', $old_mode, $mode, 'activitypub_actor_mode' );
 			}
 			self::redirect_to_step( 'content' );
 		}
@@ -163,6 +169,28 @@ class Onboarding_Wizard {
 		self::mark_complete();
 
 		wp_safe_redirect( admin_url( 'admin.php?page=fosse' ) );
+		exit;
+	}
+
+	/**
+	 * Handle wizard completion.
+	 *
+	 * Marks the wizard as complete via a nonced POST action, then redirects
+	 * to the completion view. This ensures completion requires explicit user
+	 * intent and cannot be triggered via CSRF.
+	 *
+	 * @return void
+	 */
+	public static function handle_complete(): void {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( esc_html__( 'You do not have permission to do this.', 'fosse' ) );
+		}
+
+		check_admin_referer( 'fosse_wizard_complete' );
+
+		self::mark_complete();
+
+		wp_safe_redirect( admin_url( 'admin.php?page=fosse-wizard&step=complete' ) );
 		exit;
 	}
 
@@ -545,7 +573,7 @@ class Onboarding_Wizard {
 				&larr; <?php esc_html_e( 'Back', 'fosse' ); ?>
 			</a>
 			<div class="fosse-wizard__actions-primary">
-				<a href="<?php echo esc_url( admin_url( 'admin.php?page=fosse-wizard&step=complete' ) ); ?>" class="button button-primary">
+				<a href="<?php echo esc_url( wp_nonce_url( admin_url( 'admin-post.php?action=fosse_wizard_complete' ), 'fosse_wizard_complete' ) ); ?>" class="button button-primary">
 					<?php esc_html_e( 'Skip for now', 'fosse' ); ?>
 				</a>
 			</div>

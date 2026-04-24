@@ -189,6 +189,23 @@ class Onboarding_WizardTest extends BaseTestCase {
 		$this->assertTrue( Onboarding_Wizard::is_complete() );
 	}
 
+	// --- handle_complete ---
+
+	/**
+	 * Complete action marks wizard complete.
+	 */
+	public function test_handle_complete_marks_complete() {
+		$this->simulate_complete_request();
+
+		try {
+			Onboarding_Wizard::handle_complete();
+		} catch ( \Exception $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$this->assertTrue( Onboarding_Wizard::is_complete() );
+	}
+
 	// --- handle_reset ---
 
 	/**
@@ -275,6 +292,37 @@ class Onboarding_WizardTest extends BaseTestCase {
 		$_POST    = array(
 			'action'   => 'fosse_wizard_skip',
 			'_wpnonce' => wp_create_nonce( 'fosse_wizard_skip' ),
+		);
+		$_REQUEST = $_POST;
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+
+		add_filter(
+			'wp_redirect',
+			static function () {
+				throw new \Exception( 'redirect' );
+			}
+		);
+	}
+
+	/**
+	 * Simulate a wizard complete request.
+	 *
+	 * @return void
+	 */
+	private function simulate_complete_request(): void {
+		$user_id = wp_insert_user(
+			array(
+				'user_login' => 'fosse_wiz_' . uniqid( '', true ),
+				'user_pass'  => 'test',
+				'role'       => 'administrator',
+			)
+		);
+		wp_set_current_user( $user_id );
+
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
+		$_POST    = array(
+			'action'   => 'fosse_wizard_complete',
+			'_wpnonce' => wp_create_nonce( 'fosse_wizard_complete' ),
 		);
 		$_REQUEST = $_POST;
 		// phpcs:enable WordPress.Security.NonceVerification.Missing
