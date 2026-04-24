@@ -65,5 +65,5 @@ The accessibility bar: *"Nobody else could set this up. My mom could not do this
 
 ## Open Questions (Resolved)
 
-- **AP settings ownership.** ~~We write directly to AP options via `update_option()`.~~ Resolved: FOSSE stores its own options (`fosse_ap_actor_mode`, `fosse_ap_support_post_types`) and projects them to AP via `pre_option_*` filters at read time. Clear ownership, no write-time coupling, easy to unset.
+- **AP settings ownership.** Resolved (revised per DOTCOM-16875): FOSSE writes directly to `activitypub_actor_mode` and `activitypub_support_post_types`. AP's admin screen remains canonical and both surfaces edit the same option keys. An earlier plan to store `fosse_ap_*` options and project them into AP via `pre_option_*` filters was rejected because it silently overrides AP's UI on read. Cross-network sync into Atmosphere is handled separately by the `Post_Types` projector (`sdd/post-type-sync/`).
 - **Atmosphere's OAuth gaps.** ~~`redirect_uri()` is hardcoded with no filter, and success message isn't persisted across redirect.~~ Resolved: upstream PRs to wordpress-atmosphere for (a) a `redirect_uri` filter and (b) transient-persisted settings errors on connect (matching what disconnect already does). Fix upstream, consume via sync-bundled.
