@@ -49,3 +49,22 @@ test( 'Suppressed bundled Atmosphere settings page is still accessible by direct
 	).toHaveCount( 0 );
 	await expect( page.locator( '#error-page' ) ).toHaveCount( 0 );
 } );
+
+test( 'AP reader UI nodes are suppressed when activitypub_reader_ui=1', async ( {
+	page,
+} ) => {
+	const response = await page.goto( '/wp-admin/' );
+	expect( response?.status() ).toBeLessThan( 400 );
+
+	// Dashboard submenu entry for the Social Web app (registered via
+	// add_dashboard_page) must be suppressed.
+	await expect(
+		page.locator( '#adminmenu a[href*="activitypub-social-web"]' )
+	).toHaveCount( 0 );
+
+	// Admin-bar node for Social Web (registered at admin_bar_menu priority
+	// 100) must also be suppressed.
+	await expect(
+		page.locator( '#wp-admin-bar-activitypub-social-web' )
+	).toHaveCount( 0 );
+} );
