@@ -277,7 +277,7 @@ class Onboarding_Wizard {
 	private static function render_step_welcome(): void {
 		self::render_progress( 'welcome' );
 		?>
-		<h1 class="fosse-wizard__title"><?php esc_html_e( 'Welcome to FOSSE', 'fosse' ); ?></h1>
+		<h1 class="fosse-wizard__title"><?php esc_html_e( 'Welcome to FOSSE 🦎', 'fosse' ); ?></h1>
 		<p class="fosse-wizard__description">
 			<?php esc_html_e( 'FOSSE connects your WordPress site to the social web. People can follow your site and see your posts in their feeds, whether they use Mastodon, Bluesky, or any other compatible app.', 'fosse' ); ?>
 		</p>
