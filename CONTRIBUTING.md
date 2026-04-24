@@ -128,7 +128,7 @@ Override via env vars if your checkouts live elsewhere. The script runs `compose
 
 ### Optional: Linear MCP
 
-The committed `.claude/settings.json` auto-allows Linear **read-only** tool calls (`list_*`, `get_*`, `search_*`) so Claude can check ticket status, read issues, and follow cross-references without prompting on every call. Write operations (`save_*`, `create_*`, `delete_*`) still prompt.
+The committed `.claude/settings.json` auto-allows Linear **read-only** tool calls (`list_*`, `get_*`, `search_*`) via glob patterns so Claude can check ticket status, read issues, and follow cross-references without prompting on every call. Write operations (`save_*`, `create_*`, `delete_*`) still prompt. The globs also auto-cover new read-only tools added upstream.
 
 Installing the Linear MCP is optional. The FOSSE Linear project lives in Automattic's workspace, so only Automatticians can actually read the issues — but the allowlist is harmless if the tools aren't installed (the rules simply don't match anything). If you are an Automattician, installing the Linear MCP makes Claude noticeably more useful for planning work in this repo; see Linear's [MCP docs](https://linear.app/docs/mcp) for setup.
 
