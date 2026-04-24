@@ -10,10 +10,10 @@ These implementation notes capture the planned implementation decisions, constra
 - **Reason**: The Jetpack PHPCS ruleset enforces `class-*.php` lowercase-hyphenated filenames, which is the WordPress convention for non-namespaced code. FOSSE uses namespaced classes with classmap autoloading, where PascalCase filenames matching class names is the standard PHP convention. The existing `src/Bundled/Bootstrap.php` already uses PascalCase.
 - **Expected impact**: Files under `src/` will be exempt from the filename sniff. Other sniffs (spacing, escaping, i18n, etc.) will continue to apply fully.
 
-### Option projection instead of direct AP option writes
-- **Initial approach**: Write directly to `activitypub_actor_mode` and `activitypub_support_post_types` via `update_option()`.
-- **Revised approach**: FOSSE stores its own options (`fosse_ap_actor_mode`, `fosse_ap_support_post_types`) and projects them to AP via `pre_option_*` filters at read time.
-- **Reason**: Avoids write-time coupling to AP's option schema, provides clear ownership story (FOSSE owns `fosse_*`, AP owns `activitypub_*`), and makes "stop letting FOSSE manage this" a one-line operation (delete the FOSSE option, AP's stored value takes over).
+### Direct AP option writes (superseded projection plan)
+- **Current approach**: FOSSE's Setup page writes directly to `activitypub_actor_mode` and `activitypub_support_post_types` via `update_option()`. AP's own settings screen keeps editing the same keys.
+- **Superseded (original) approach**: FOSSE would store its own `fosse_ap_actor_mode` / `fosse_ap_support_post_types` options and project them into AP via `pre_option_*` filters at read time. Abandoned per DOTCOM-16875 review — that pattern silently overrides AP's admin UI on read, so a user's checkbox toggle in AP returns something different when federation runs. Two sources of truth, worst version.
+- **Reason for the flip**: The upstream PR thread on [Automattic/wordpress-activitypub#3218](https://github.com/Automattic/wordpress-activitypub/pull/3218) made the divergence concrete. AP's maintainer pointed out the stock `option_activitypub_support_post_types` filter already exists, which is exactly what a `pre_option_*` projection would ride on — and that's precisely the silent-override mechanism. Single source of truth (AP's option) + direct writes from both surfaces is the clean fix. Cross-network projection still happens, but one-way: `Automattic\Fosse\Post_Types` reads AP's option and feeds Atmosphere's `atmosphere_syncable_post_types` filter. See `sdd/post-type-sync/` for the full decision trail.
 
 ### Upstream-first OAuth integration (not wp_redirect intercept)
 - **Initial approach**: Hook `wp_redirect` to intercept Atmosphere's post-callback redirect and rewrite it to the FOSSE page.
@@ -36,7 +36,7 @@ The status dashboard will be a static PHP page. Token expiry, connection health,
 The Bluesky OAuth flow requires a real Bluesky account and external auth server. Playground cannot test this end-to-end. Unit tests will cover redirect logic and status data. The full OAuth round-trip is manual-only.
 
 ### Deactivation/deletion behavior is deferred
-This epic does not define what happens to `fosse_ap_*` options or menu state when FOSSE is deactivated or deleted, nor how FOSSE behaves if ActivityPub or Atmosphere are also installed as standalone plugins. Tracked separately in [DOTCOM-16865](https://linear.app/a8c/issue/DOTCOM-16865/deactivation-and-deletion-handling-for-fosse-and-bundled-plugins) so the decision happens before production distribution. The option-projection pattern (FOSSE stores `fosse_ap_*`, projects via `pre_option_activitypub_*`) is clean for the "FOSSE is active" case but needs a companion story for lifecycle events. Not blocking for MVP.
+This epic does not define what happens to FOSSE's menu state when FOSSE is deactivated or deleted, nor how FOSSE behaves if ActivityPub or Atmosphere are also installed as standalone plugins. Tracked separately in [DOTCOM-16865](https://linear.app/a8c/issue/DOTCOM-16865/deactivation-and-deletion-handling-for-fosse-and-bundled-plugins) so the decision happens before production distribution. With the direct-write approach, there are no FOSSE-owned settings to clean up on uninstall — AP's admin naturally takes over — but standalone-activation edge cases still need a decision. Not blocking for MVP.
 
 ## Upstream Dependencies
 
