@@ -18,8 +18,8 @@
 
 defined( 'ABSPATH' ) || exit;
 
-if ( file_exists( __DIR__ . '/vendor/autoload.php' ) ) {
-	require_once __DIR__ . '/vendor/autoload.php';
+if ( file_exists( __DIR__ . '/vendor/autoload_packages.php' ) ) {
+	require_once __DIR__ . '/vendor/autoload_packages.php';
 }
 
 /*
@@ -139,3 +139,27 @@ add_action(
 		\Automattic\Fosse\Post_Types::register();
 	}
 );
+
+/*
+ * Provider bootstrap.
+ *
+ * Providers self-register on the 'fosse_register_providers' action fired
+ * by Provider_Loader::boot(). This runs unconditionally so provider hooks
+ * (option-projection filters, etc.) are active on every request — admin,
+ * REST, WebFinger, cron.
+ */
+if ( class_exists( \Automattic\Fosse\Provider_Loader::class ) ) {
+	\Automattic\Fosse\Admin\AP_Provider::init();
+
+	\Automattic\Fosse\Provider_Loader::boot();
+}
+
+/*
+ * Admin UI: FOSSE setup and status pages.
+ *
+ * Menu registration, bundled-menu suppression, and CSS enqueue.
+ * Provider hooks are already registered above.
+ */
+if ( is_admin() && class_exists( \Automattic\Fosse\Admin\Menu::class ) ) {
+	\Automattic\Fosse\Admin\Menu::register();
+}
