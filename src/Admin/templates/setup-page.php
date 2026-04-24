@@ -16,6 +16,20 @@ defined( 'ABSPATH' ) || exit;
 
 	<?php settings_errors( 'fosse' ); ?>
 
+	<?php if ( $wizard_incomplete ) : ?>
+		<div class="notice notice-info">
+			<p>
+				<?php
+				printf(
+					/* translators: %s: link to setup wizard */
+					esc_html__( 'First time here? %s to configure federation in a few steps.', 'fosse' ),
+					'<a href="' . esc_url( admin_url( 'admin.php?page=fosse-wizard' ) ) . '">' . esc_html__( 'Run the setup wizard', 'fosse' ) . '</a>'
+				);
+				?>
+			</p>
+		</div>
+	<?php endif; ?>
+
 	<?php
 	foreach ( $providers as $provider ) {
 		if ( $provider->is_available() ) {

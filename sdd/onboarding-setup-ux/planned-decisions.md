@@ -38,6 +38,26 @@ The Bluesky OAuth flow requires a real Bluesky account and external auth server.
 ### Deactivation/deletion behavior is deferred
 This epic does not define what happens to FOSSE's menu state when FOSSE is deactivated or deleted, nor how FOSSE behaves if ActivityPub or Atmosphere are also installed as standalone plugins. Tracked separately in [DOTCOM-16865](https://linear.app/a8c/issue/DOTCOM-16865/deactivation-and-deletion-handling-for-fosse-and-bundled-plugins) so the decision happens before production distribution. With the direct-write approach, there are no FOSSE-owned settings to clean up on uninstall — AP's admin naturally takes over — but standalone-activation edge cases still need a decision. Not blocking for MVP.
 
+### First-run wizard uses activation-redirect pattern
+- **Decision**: On plugin activation, `register_activation_hook` sets a `fosse_activation_redirect` transient. On the next `admin_init`, Menu checks for the transient, deletes it, and redirects to the wizard page. The wizard is a hidden submenu page (registered then removed from visible menu).
+- **Reason**: This is the standard WordPress onboarding pattern (WooCommerce, Jetpack, Akismet all do it). The transient ensures the redirect fires exactly once and survives the activation-to-admin-load page cycle. Registering then hiding the submenu page means the wizard has a real admin page URL and inherits all WP admin capabilities checks, but doesn't clutter the menu.
+
+### Wizard saves settings per-step, not on final completion
+- **Decision**: Each wizard step that collects settings POSTs to `admin_post.php` and saves to the existing `fosse_ap_*` options immediately, then redirects to the next step.
+- **Reason**: If the user abandons the wizard mid-flow (closes tab, navigates away), settings from completed steps are already saved. This is more resilient than batching all saves to the final step. The wizard writes to the same `fosse_ap_actor_mode` and `fosse_ap_support_post_types` options that AP_Provider manages, so there's no new option schema to maintain.
+
+### Card-based actor mode selection works without JavaScript
+- **Decision**: The actor mode cards in step 2 use `<label>` elements wrapping hidden `<input type="radio">` fields. CSS `:checked` selectors handle the selected state. No JS required for functionality.
+- **Reason**: The spec chose PHP over React to avoid a JS build step. The card UI is the one place where custom styling adds genuine UX value over standard radio buttons, but it can be achieved with pure CSS. JS is only used for the optional fediverse address preview update (progressive enhancement).
+
+### Wizard completion tracked by a single option
+- **Decision**: `fosse_onboarding_completed` option (value `1`) tracks whether the wizard has run. Both "Skip setup" and the final completion step set this.
+- **Reason**: A single boolean is the simplest state to check. The Setup page can show a "Run setup wizard" link when this option is absent, giving users a way back in without making the wizard re-trigger on every visit. The option is deliberately not tied to a version number: if we want to re-trigger the wizard for a future major feature (e.g., Bluesky going live), we can add a versioned check later.
+
+### Setup page shows notice, not auto-redirect, when wizard is incomplete
+- **Decision**: When `fosse_onboarding_completed` is absent, the Setup page renders normally but shows an admin notice linking to the wizard. It does not auto-redirect.
+- **Reason**: The user may have navigated to Setup intentionally (bookmarked URL, direct link from another plugin). Auto-redirecting would be disorienting. The notice is informational, not blocking.
+
 ## Upstream Dependencies
 
 - **wordpress-atmosphere PR (a)**: Filter on `Client::redirect_uri()` so FOSSE can set its own callback URL.

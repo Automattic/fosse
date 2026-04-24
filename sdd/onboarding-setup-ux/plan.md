@@ -73,6 +73,29 @@ Based on: sdd/onboarding-setup-ux/spec.md
   - End-to-end OAuth return-to-FOSSE flow verified once the required upstream Atmosphere changes are available. (Full OAuth flow requires a real Bluesky account and cannot be tested in Playground.)
 - **Depends on**: Task 2, Task 4
 
+### Task 5.5: Create first-run onboarding wizard
+- **Status**: Not started
+- **Files**: `src/Admin/class-onboarding-wizard.php`, `src/Admin/class-menu.php`, `src/Admin/assets/css/admin.css`, `fosse.php`
+- **Do**:
+  1. Create `Onboarding_Wizard` class with step-based rendering: Welcome, Appearance (actor mode), Content (post types), Bluesky (placeholder), Complete.
+  2. Register a hidden submenu page (`fosse-wizard`) in `Menu::add_menu()`, then remove it from the visible menu at priority 99 alongside bundled-menu suppression.
+  3. Add `register_activation_hook` in `fosse.php` that sets a `fosse_activation_redirect` transient.
+  4. Add `admin_init` handler in `Menu` that checks the transient, deletes it, and redirects to `?page=fosse-wizard` on first activation.
+  5. Each step with form data POSTs to `admin_post.php?action=fosse_wizard_save`. Handler validates nonce + capability, saves step settings to existing `fosse_ap_actor_mode` / `fosse_ap_support_post_types` options, redirects to next step.
+  6. "Skip setup" and the completion step both set `fosse_onboarding_completed` option to `1`.
+  7. Actor mode selection uses card-style UI with hidden radio inputs inside `<label>` elements (works without JS). Post type selection uses checkboxes.
+  8. Bluesky step renders a placeholder/coming-soon state since `Bluesky_Provider` is not yet built.
+  9. Completion step shows summary of configured values with links to Status Dashboard and Setup page.
+  10. Add wizard CSS to `admin.css` under `.fosse-wizard` prefix. Styles use WP design tokens (colors, spacing, radii) and lean on native WP admin classes where possible.
+- **Verify**:
+  - `composer run-script lint-php` passes.
+  - Playground: activating FOSSE for the first time redirects to the wizard.
+  - Playground: completing all steps saves correct option values.
+  - Playground: "Skip setup" marks wizard complete and lands on Setup page.
+  - Playground: after completion, visiting FOSSE menu goes to Setup page (not wizard).
+  - Wizard page is not visible in the admin menu sidebar.
+- **Depends on**: Task 3
+
 ### Task 6: Create Status_Page with provider status cards
 - **Files**: `src/Admin/Status_Page.php`, `src/Admin/templates/status-page.php`
 - **Do**:

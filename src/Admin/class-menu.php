@@ -25,6 +25,9 @@ class Menu {
 		add_action( 'admin_menu', array( static::class, 'hide_bundled_menus' ), 99 );
 		add_action( 'admin_bar_menu', array( static::class, 'hide_bundled_admin_bar' ), 101 );
 		add_action( 'admin_enqueue_scripts', array( static::class, 'enqueue_styles' ) );
+		add_action( 'admin_init', array( static::class, 'maybe_redirect_to_wizard' ) );
+
+		Onboarding_Wizard::register();
 	}
 
 	/**
@@ -59,6 +62,16 @@ class Menu {
 			'manage_options',
 			'fosse-status',
 			array( Status_Page::class, 'render' )
+		);
+
+		// Wizard page: null parent = hidden from all menus, accessible by direct URL.
+		add_submenu_page(
+			'',
+			__( 'Setup Wizard', 'fosse' ),
+			'',
+			'manage_options',
+			'fosse-wizard',
+			array( Onboarding_Wizard::class, 'render' )
 		);
 	}
 
@@ -106,13 +119,58 @@ class Menu {
 	}
 
 	/**
+	 * Redirect to the onboarding wizard on first activation.
+	 *
+	 * Checks for a transient set by the activation hook in fosse.php.
+	 * Fires once, then deletes the transient so it doesn't trigger again.
+	 *
+	 * @return void
+	 */
+	public static function maybe_redirect_to_wizard(): void {
+		if ( ! get_transient( Onboarding_Wizard::REDIRECT_TRANSIENT ) ) {
+			return;
+		}
+
+		// Gate on capability and request context before consuming the
+		// transient. The transient is global, so a lower-privileged user
+		// or non-admin request could otherwise consume it and prevent
+		// the intended redirect for the actual site administrator.
+		if ( ! current_user_can( 'manage_options' ) ) {
+			return;
+		}
+
+		// Don't redirect during bulk activation, AJAX, or CLI.
+		if ( wp_doing_ajax() || wp_doing_cron() || defined( 'WP_CLI' ) ) {
+			return;
+		}
+
+		// Don't redirect if the wizard was already completed.
+		if ( Onboarding_Wizard::is_complete() ) {
+			delete_transient( Onboarding_Wizard::REDIRECT_TRANSIENT );
+			return;
+		}
+
+		// Don't redirect if activating multiple plugins at once.
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only check.
+		if ( isset( $_GET['activate-multi'] ) ) {
+			return;
+		}
+
+		// All guards passed — consume the transient and redirect.
+		delete_transient( Onboarding_Wizard::REDIRECT_TRANSIENT );
+
+		wp_safe_redirect( admin_url( 'admin.php?page=fosse-wizard' ) );
+		exit;
+	}
+
+	/**
 	 * Enqueue admin styles on FOSSE pages.
 	 *
 	 * @param string $hook_suffix The current admin page hook suffix.
 	 * @return void
 	 */
 	public static function enqueue_styles( string $hook_suffix ): void {
-		if ( ! str_starts_with( $hook_suffix, 'toplevel_page_fosse' ) && ! str_starts_with( $hook_suffix, 'fosse_page_' ) ) {
+		if ( ! str_starts_with( $hook_suffix, 'toplevel_page_fosse' ) && ! str_starts_with( $hook_suffix, 'fosse_page_' ) && 'admin_page_fosse-wizard' !== $hook_suffix ) {
 			return;
 		}
 

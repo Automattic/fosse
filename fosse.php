@@ -136,6 +136,22 @@ if ( class_exists( \Automattic\Fosse\Provider_Loader::class ) ) {
 }
 
 /*
+ * Activation redirect.
+ *
+ * Sets a transient on first activation so the admin-init handler in
+ * Menu can redirect to the onboarding wizard. The transient survives
+ * the activation-to-admin-load page cycle and fires exactly once.
+ */
+register_activation_hook(
+	__FILE__,
+	static function () {
+		if ( class_exists( \Automattic\Fosse\Admin\Onboarding_Wizard::class ) ) {
+			set_transient( \Automattic\Fosse\Admin\Onboarding_Wizard::REDIRECT_TRANSIENT, 1, 30 );
+		}
+	}
+);
+
+/*
  * Admin UI: FOSSE setup and status pages.
  *
  * Menu registration, bundled-menu suppression, and CSS enqueue.
