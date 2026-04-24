@@ -54,12 +54,12 @@ test( 'Selecting a mode and continuing saves the option', async ( {
 
 	await expect( page ).toHaveURL( /step=content/ );
 
-	// Verify the option was saved by checking the setup page.
-	await page.goto( '/wp-admin/admin.php?page=fosse' );
-	const checkedRadio = page.locator(
-		'input[name="fosse_ap_actor_mode"][value="actor"]:checked'
-	);
-	await expect( checkedRadio ).toBeVisible();
+	// Verify the option was saved by going back to the appearance step
+	// and checking the radio is still selected.
+	await page.goto( '/wp-admin/admin.php?page=fosse-wizard&step=appearance' );
+	await expect(
+		page.locator( '.fosse-mode-card__input[value="actor"]' )
+	).toBeChecked();
 } );
 
 test( 'Content step saves post types and advances to Bluesky', async ( {
@@ -103,7 +103,21 @@ test( 'Completion step shows summary', async ( { page } ) => {
 	await expect( page.locator( '.fosse-summary' ) ).toBeVisible();
 	await expect( page.locator( 'text=Site appears as' ) ).toBeVisible();
 	await expect( page.locator( 'text=Sharing' ) ).toBeVisible();
-	await expect( page.locator( 'text=Bluesky' ) ).toBeVisible();
+	await expect(
+		page.locator( '.fosse-summary__label', { hasText: 'Bluesky' } )
+	).toBeVisible();
+} );
+
+test( 'Setup page shows wizard notice when wizard is incomplete', async ( {
+	page,
+} ) => {
+	// This test must run before "Skip setup" which marks the wizard complete.
+	// Playground state is shared across tests in the same worker.
+	await page.goto( '/wp-admin/admin.php?page=fosse' );
+
+	await expect(
+		page.locator( 'a', { hasText: 'Run the setup wizard' } )
+	).toBeVisible();
 } );
 
 test( 'Skip setup marks wizard complete and goes to Setup page', async ( {
@@ -118,16 +132,6 @@ test( 'Skip setup marks wizard complete and goes to Setup page', async ( {
 	await expect( page.locator( 'text=Run the setup wizard' ) ).toHaveCount(
 		0
 	);
-} );
-
-test( 'Setup page shows wizard notice when wizard is incomplete', async ( {
-	page,
-} ) => {
-	await page.goto( '/wp-admin/admin.php?page=fosse' );
-
-	await expect(
-		page.locator( 'a', { hasText: 'Run the setup wizard' } )
-	).toBeVisible();
 } );
 
 test( 'Wizard is not visible in the admin sidebar menu', async ( { page } ) => {
