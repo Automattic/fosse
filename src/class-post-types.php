@@ -46,6 +46,10 @@ class Post_Types {
 	 * @return void
 	 */
 	public static function register(): void {
+		if ( ! \class_exists( '\Activitypub\Activitypub' ) ) {
+			return;
+		}
+
 		\add_filter( 'atmosphere_syncable_post_types', array( self::class, 'filter_atmosphere' ) );
 	}
 

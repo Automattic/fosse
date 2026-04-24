@@ -9,5 +9,15 @@
 	},
 	"enabledPlugins": {
 		"superpowers@claude-plugins-official": true
+	},
+	"permissions": {
+		"allow": [
+			"mcp__linear__list_*",
+			"mcp__linear__get_*",
+			"mcp__linear__search_*",
+			"mcp__claude_ai_Linear_2__list_*",
+			"mcp__claude_ai_Linear_2__get_*",
+			"mcp__claude_ai_Linear_2__search_*"
+		]
 	}
 }
