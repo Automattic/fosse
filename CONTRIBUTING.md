@@ -126,6 +126,12 @@ Override via env vars if your checkouts live elsewhere. The script runs `compose
 -   Internal contributors should additionally install the `automattic-claude-code-plugins` marketplace (internal-only; not declared in `settings.json` because FOSSE is a public repo). That's where the SDD plugin and a few other internal-only skills live.
 -   Some skill references inside `sdd/<feature>/plan.md` assume both marketplaces are present. External contributors can ignore those skill hints — the plan text itself is self-contained.
 
+### Optional: Linear MCP
+
+The committed `.claude/settings.json` auto-allows Linear **read-only** tool calls (`list_*`, `get_*`, `search_*`) so Claude can check ticket status, read issues, and follow cross-references without prompting on every call. Write operations (`save_*`, `create_*`, `delete_*`) still prompt.
+
+Installing the Linear MCP is optional. The FOSSE Linear project lives in Automattic's workspace, so only Automatticians can actually read the issues — but the allowlist is harmless if the tools aren't installed (the rules simply don't match anything). If you are an Automattician, installing the Linear MCP makes Claude noticeably more useful for planning work in this repo; see Linear's [MCP docs](https://linear.app/docs/mcp) for setup.
+
 ---
 
 ## Questions
