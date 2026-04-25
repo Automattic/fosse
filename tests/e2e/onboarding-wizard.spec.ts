@@ -48,8 +48,15 @@ test( 'Selecting a mode and continuing saves the option', async ( {
 } ) => {
 	await page.goto( '/wp-admin/admin.php?page=fosse-wizard&step=appearance' );
 
-	// Select "As you" (actor mode).
-	await page.locator( '.fosse-mode-card', { hasText: 'As you' } ).click();
+	// Select "As you" (actor mode). Use exact title match to avoid
+	// substring collision with "As your site".
+	await page
+		.locator( '.fosse-mode-card', {
+			has: page.locator( '.fosse-mode-card__title', {
+				hasText: /^As you$/,
+			} ),
+		} )
+		.click();
 	await page.click( 'input[type="submit"]' );
 
 	await expect( page ).toHaveURL( /step=content/ );
@@ -113,6 +120,9 @@ test( 'Setup page shows wizard notice when wizard is incomplete', async ( {
 } ) => {
 	// This test must run before "Skip setup" which marks the wizard complete.
 	// Playground state is shared across tests in the same worker.
+	// First, consume the activation redirect transient by visiting the wizard
+	// directly, so navigating to the Setup page doesn't get redirected.
+	await page.goto( '/wp-admin/admin.php?page=fosse-wizard' );
 	await page.goto( '/wp-admin/admin.php?page=fosse' );
 
 	await expect(
