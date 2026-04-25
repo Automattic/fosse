@@ -160,7 +160,7 @@ class Bluesky_Provider implements Connection_Provider {
 
 				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
 					<input type="hidden" name="action" value="fosse_disconnect_bluesky" />
-					<input type="hidden" name="atmosphere_nonce" value="<?php echo esc_attr( wp_create_nonce( 'atmosphere_disconnect' ) ); ?>" />
+					<input type="hidden" name="_wpnonce" value="<?php echo esc_attr( wp_create_nonce( 'fosse_disconnect_bluesky' ) ); ?>" />
 					<?php submit_button( __( 'Disconnect Bluesky', 'fosse' ), 'secondary' ); ?>
 				</form>
 			<?php endif; ?>
@@ -253,6 +253,7 @@ class Bluesky_Provider implements Connection_Provider {
 
 		if ( empty( $handle ) ) {
 			$this->redirect_with_notice( __( 'Enter a Bluesky handle to continue.', 'fosse' ), 'error' );
+			return; // redirect_with_notice exits, but guard against future changes.
 		}
 
 		add_filter( 'atmosphere_oauth_redirect_uri', array( $this, 'filter_oauth_redirect_uri' ) );
@@ -277,7 +278,7 @@ class Bluesky_Provider implements Connection_Provider {
 			wp_die( esc_html__( 'You do not have permission to do this.', 'fosse' ) );
 		}
 
-		check_admin_referer( 'atmosphere_disconnect', 'atmosphere_nonce' );
+		check_admin_referer( 'fosse_disconnect_bluesky' );
 
 		\Atmosphere\OAuth\Client::disconnect();
 
@@ -308,10 +309,13 @@ class Bluesky_Provider implements Connection_Provider {
 			return;
 		}
 
+		add_filter( 'atmosphere_oauth_redirect_uri', array( $this, 'filter_oauth_redirect_uri' ) );
 		$result = \Atmosphere\OAuth\Client::handle_callback( $code, $state );
+		remove_filter( 'atmosphere_oauth_redirect_uri', array( $this, 'filter_oauth_redirect_uri' ) );
 
 		if ( is_wp_error( $result ) ) {
 			$this->redirect_with_notice( $result->get_error_message(), 'error' );
+			return; // redirect_with_notice exits, but guard against future changes.
 		}
 
 		if ( method_exists( '\Atmosphere\Publisher', 'sync_publication' ) ) {
@@ -327,9 +331,7 @@ class Bluesky_Provider implements Connection_Provider {
 	 * @param string $uri Default Atmosphere URI.
 	 * @return string
 	 */
-	public function filter_oauth_redirect_uri( string $uri ): string {
-		unset( $uri );
-
+	public function filter_oauth_redirect_uri( string $uri ): string { // phpcs:ignore VariableAnalysis.CodeAnalysis.VariableAnalysis.UnusedVariable -- filter callback signature.
 		return admin_url( 'admin.php?page=fosse' );
 	}
 

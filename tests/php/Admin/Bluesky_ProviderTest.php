@@ -11,6 +11,7 @@ use Atmosphere\OAuth\Encryption;
 use Automattic\Fosse\Admin\Bluesky_Provider;
 use Automattic\Fosse\Admin\Connection_Provider_Registry;
 use Automattic\Fosse\Provider_Loader;
+use PHPUnit\Framework\Attributes\After;
 use PHPUnit\Framework\Attributes\Before;
 use WorDBless\BaseTestCase;
 
@@ -56,6 +57,21 @@ class Bluesky_ProviderTest extends BaseTestCase {
 
 		global $wp_settings_errors;
 		$wp_settings_errors = array(); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited,WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedVariableFound -- reset core settings-error storage for test isolation.
+	}
+
+	/**
+	 * Clean up globals after each test.
+	 *
+	 * @after
+	 */
+	#[After]
+	public function tear_down_globals(): void {
+		// phpcs:ignore WordPress.Security.NonceVerification.Missing -- test cleanup.
+		$_POST    = array();
+		$_REQUEST = array();
+		$_GET     = array();
+
+		remove_all_filters( 'wp_redirect' );
 	}
 
 	/**
@@ -210,7 +226,7 @@ class Bluesky_ProviderTest extends BaseTestCase {
 
 		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
 		$_POST    = array(
-			'atmosphere_nonce' => wp_create_nonce( 'atmosphere_disconnect' ),
+			'_wpnonce' => wp_create_nonce( 'fosse_disconnect_bluesky' ),
 		);
 		$_REQUEST = $_POST;
 		// phpcs:enable WordPress.Security.NonceVerification.Missing
