@@ -121,8 +121,9 @@ Based on: sdd/onboarding-setup-ux/spec.md
 - **Do**:
   1. Registry tests: register/retrieve, get_providers returns all, duplicate slug ignored, unknown slug returns null, reset clears.
   2. AP_Provider tests: status shape, direct `update_option()` writes to `activitypub_actor_mode` / `activitypub_support_post_types`, post type defaults and overrides, slug and name.
-  3. Bluesky_Provider tests: redirect URI filter integration, persisted-notice read, status disconnected/connected/expired-token.
+  3. Bluesky_Provider tests: redirect URI filter integration, persisted-notice read, status disconnected/connected/expired-token, unauthorized user rejection, bad nonce rejection, handle `@` normalization.
   4. Run `composer run-script lint-php` and `composer run-script test-php`.
+- **Known gap**: `handle_oauth_callback()` success/warning/error branches are not unit-tested because `Client::handle_callback()` requires real PKCE state. These branches rely on manual verification (connect flow, `sync_publication` failure).
 - **Verify**:
   - All tests pass.
   - Lint clean.
