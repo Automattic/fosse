@@ -150,12 +150,10 @@ class Bluesky_Provider implements Connection_Provider {
 						<th scope="row"><?php esc_html_e( 'Auto Publish', 'fosse' ); ?></th>
 						<td><?php echo esc_html( $status['auto_publish'] ? __( 'Enabled', 'fosse' ) : __( 'Disabled', 'fosse' ) ); ?></td>
 					</tr>
-					<?php if ( $status['token_error'] ) : ?>
-						<tr>
-							<th scope="row"><?php esc_html_e( 'Token Health', 'fosse' ); ?></th>
-							<td><?php echo esc_html( $status['token_error'] ); ?></td>
-						</tr>
-					<?php endif; ?>
+					<tr>
+						<th scope="row"><?php esc_html_e( 'Token Health', 'fosse' ); ?></th>
+						<td><?php echo esc_html( $status['token_error'] ? $status['token_error'] : __( 'OK', 'fosse' ) ); ?></td>
+					</tr>
 				</table>
 
 				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
@@ -235,6 +233,13 @@ class Bluesky_Provider implements Connection_Provider {
 		add_action( 'admin_post_fosse_connect_bluesky', array( $this, 'handle_connect' ) );
 		add_action( 'admin_post_fosse_disconnect_bluesky', array( $this, 'handle_disconnect' ) );
 		add_action( 'admin_init', array( $this, 'handle_oauth_callback' ) );
+
+		// Override Atmosphere's OAuth redirect URI so the auth server callback
+		// and the client-metadata REST endpoint both advertise FOSSE's page.
+		// Registered unconditionally (not just during handle_connect) because
+		// the auth server fetches client metadata in a separate public request
+		// and validates redirect_uri against it.
+		add_filter( 'atmosphere_oauth_redirect_uri', array( $this, 'filter_oauth_redirect_uri' ) );
 	}
 
 	/**
@@ -250,15 +255,14 @@ class Bluesky_Provider implements Connection_Provider {
 		check_admin_referer( 'fosse_connect_bluesky' );
 
 		$handle = sanitize_text_field( wp_unslash( $_POST['bluesky_handle'] ?? '' ) );
+		$handle = ltrim( $handle, '@' );
 
 		if ( empty( $handle ) ) {
 			$this->redirect_with_notice( __( 'Enter a Bluesky handle to continue.', 'fosse' ), 'error' );
 			return; // redirect_with_notice exits, but guard against future changes.
 		}
 
-		add_filter( 'atmosphere_oauth_redirect_uri', array( $this, 'filter_oauth_redirect_uri' ) );
 		$auth_url = \Atmosphere\OAuth\Client::authorize( $handle );
-		remove_filter( 'atmosphere_oauth_redirect_uri', array( $this, 'filter_oauth_redirect_uri' ) );
 
 		if ( is_wp_error( $auth_url ) ) {
 			$this->redirect_with_notice( $auth_url->get_error_message(), 'error' );
@@ -309,9 +313,7 @@ class Bluesky_Provider implements Connection_Provider {
 			return;
 		}
 
-		add_filter( 'atmosphere_oauth_redirect_uri', array( $this, 'filter_oauth_redirect_uri' ) );
 		$result = \Atmosphere\OAuth\Client::handle_callback( $code, $state );
-		remove_filter( 'atmosphere_oauth_redirect_uri', array( $this, 'filter_oauth_redirect_uri' ) );
 
 		if ( is_wp_error( $result ) ) {
 			$this->redirect_with_notice( $result->get_error_message(), 'error' );
@@ -346,7 +348,7 @@ class Bluesky_Provider implements Connection_Provider {
 		add_settings_error( 'atmosphere', 'fosse_bluesky_notice', $message, $type );
 		set_transient( 'settings_errors', get_settings_errors(), 30 );
 
-		wp_safe_redirect( admin_url( 'admin.php?page=fosse' ) );
+		wp_safe_redirect( admin_url( 'admin.php?page=fosse&settings-updated=true' ) );
 		exit;
 	}
 }
