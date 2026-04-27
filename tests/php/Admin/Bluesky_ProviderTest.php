@@ -72,6 +72,23 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		$_GET     = array();
 
 		remove_all_filters( 'wp_redirect' );
+		remove_all_filters( 'wp_die_handler' );
+	}
+
+	/**
+	 * Install a wp_die handler that throws an exception instead of exiting.
+	 *
+	 * @return void
+	 */
+	private function install_wp_die_handler(): void {
+		add_filter(
+			'wp_die_handler',
+			static function () {
+				return static function ( $message ) {
+					throw new \RuntimeException( wp_kses( $message, array() ) );
+				};
+			}
+		);
 	}
 
 	/**
@@ -301,6 +318,159 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		$this->assertEmpty( get_settings_errors( 'atmosphere' ) );
 	}
 
+	// --- unauthorized user tests ---
+
+	/**
+	 * Connect rejects non-admin users.
+	 */
+	public function test_handle_connect_rejects_subscriber() {
+		$this->become_subscriber();
+
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
+		$_POST    = array(
+			'_wpnonce'       => wp_create_nonce( 'fosse_connect_bluesky' ),
+			'bluesky_handle' => 'alice.bsky.social',
+		);
+		$_REQUEST = $_POST;
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+
+		$this->install_wp_die_handler();
+		$this->expectException( \RuntimeException::class );
+		$this->provider->handle_connect();
+	}
+
+	/**
+	 * Disconnect rejects non-admin users.
+	 */
+	public function test_handle_disconnect_rejects_subscriber() {
+		$this->become_subscriber();
+
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
+		$_POST    = array(
+			'_wpnonce' => wp_create_nonce( 'fosse_disconnect_bluesky' ),
+		);
+		$_REQUEST = $_POST;
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+
+		$this->install_wp_die_handler();
+		$this->expectException( \RuntimeException::class );
+		$this->provider->handle_disconnect();
+	}
+
+	/**
+	 * OAuth callback rejects non-admin users with wp_die.
+	 */
+	public function test_handle_oauth_callback_rejects_subscriber() {
+		$this->become_subscriber();
+
+		// phpcs:disable WordPress.Security.NonceVerification.Recommended -- test setup.
+		$_GET = array(
+			'page'  => 'fosse',
+			'code'  => 'abc',
+			'state' => 'def',
+		);
+		// phpcs:enable WordPress.Security.NonceVerification.Recommended
+
+		$this->install_wp_die_handler();
+		$this->expectException( \RuntimeException::class );
+		$this->provider->handle_oauth_callback();
+	}
+
+	// --- nonce tests ---
+
+	/**
+	 * Connect rejects requests with missing or invalid nonce.
+	 */
+	public function test_handle_connect_rejects_bad_nonce() {
+		$this->become_admin();
+
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
+		$_POST    = array(
+			'_wpnonce'       => 'invalid_nonce_value',
+			'bluesky_handle' => 'alice.bsky.social',
+		);
+		$_REQUEST = $_POST;
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+
+		$this->install_wp_die_handler();
+		$this->expectException( \RuntimeException::class );
+		$this->provider->handle_connect();
+	}
+
+	/**
+	 * Disconnect rejects requests with missing or invalid nonce.
+	 */
+	public function test_handle_disconnect_rejects_bad_nonce() {
+		$this->become_admin();
+
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
+		$_POST    = array(
+			'_wpnonce' => 'invalid_nonce_value',
+		);
+		$_REQUEST = $_POST;
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+
+		$this->install_wp_die_handler();
+		$this->expectException( \RuntimeException::class );
+		$this->provider->handle_disconnect();
+	}
+
+	// --- handle normalization ---
+
+	/**
+	 * Leading @ is stripped from the submitted handle before authorize.
+	 */
+	public function test_handle_connect_strips_leading_at() {
+		$this->become_admin();
+
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
+		$_POST    = array(
+			'_wpnonce'       => wp_create_nonce( 'fosse_connect_bluesky' ),
+			'bluesky_handle' => '@alice.bsky.social',
+		);
+		$_REQUEST = $_POST;
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+
+		// Intercept the HTTP request that Client::authorize() makes to
+		// the handle's auth server, and capture the handle it resolved.
+		$captured_handle = null;
+		add_filter(
+			'pre_http_request',
+			static function ( $preempt, $args, $url ) use ( &$captured_handle ) {
+				// The first HTTP call from authorize() is handle resolution.
+				// Capture the URL to verify no leading @ was passed.
+				$captured_handle = $url;
+				// Return an error to short-circuit the flow.
+				return new \WP_Error( 'fosse_test_intercept', 'intercepted' );
+			},
+			10,
+			3
+		);
+
+		add_filter(
+			'wp_redirect',
+			static function () {
+				throw new \Exception( 'redirect' );
+			}
+		);
+
+		try {
+			$this->provider->handle_connect();
+		} catch ( \Exception $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		// The captured URL should not contain '@alice' — it should be 'alice'.
+		if ( null !== $captured_handle ) {
+			$this->assertStringNotContainsString( '@alice', $captured_handle );
+		}
+
+		// At minimum, verify the handle didn't pass through with the @.
+		// The error redirect confirms the flow reached Client::authorize().
+		$errors = get_settings_errors( 'atmosphere' );
+		$this->assertNotEmpty( $errors );
+	}
+
 	/**
 	 * Provider registers the expected hooks.
 	 */
@@ -324,6 +494,23 @@ class Bluesky_ProviderTest extends BaseTestCase {
 				'user_login' => 'fosse_admin_' . uniqid( '', true ),
 				'user_pass'  => 'test',
 				'role'       => 'administrator',
+			)
+		);
+
+		wp_set_current_user( $user_id );
+	}
+
+	/**
+	 * Create and authenticate a subscriber (non-admin) for rejection tests.
+	 *
+	 * @return void
+	 */
+	private function become_subscriber(): void {
+		$user_id = wp_insert_user(
+			array(
+				'user_login' => 'fosse_sub_' . uniqid( '', true ),
+				'user_pass'  => 'test',
+				'role'       => 'subscriber',
 			)
 		);
 

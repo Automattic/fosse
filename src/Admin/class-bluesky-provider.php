@@ -12,6 +12,12 @@ namespace Automattic\Fosse\Admin;
  *
  * Uses Atmosphere's public APIs for OAuth, connection storage, and
  * publication setup. FOSSE owns only the wrapper admin flow.
+ *
+ * When this provider is active, it takes ownership of the Bluesky
+ * OAuth flow by unconditionally filtering atmosphere_oauth_redirect_uri.
+ * This means OAuth flows initiated from Atmosphere's own settings page
+ * will also redirect to FOSSE. This is intentional: FOSSE hides the
+ * bundled plugin menus and presents itself as the single admin surface.
  */
 class Bluesky_Provider implements Connection_Provider {
 
@@ -163,11 +169,6 @@ class Bluesky_Provider implements Connection_Provider {
 				</form>
 			<?php endif; ?>
 
-			<p>
-				<a href="<?php echo esc_url( admin_url( 'options-general.php?page=atmosphere' ) ); ?>">
-					<?php esc_html_e( 'Show advanced Atmosphere settings', 'fosse' ); ?>
-				</a>
-			</p>
 		</div>
 		<?php
 	}
@@ -266,6 +267,7 @@ class Bluesky_Provider implements Connection_Provider {
 
 		if ( is_wp_error( $auth_url ) ) {
 			$this->redirect_with_notice( $auth_url->get_error_message(), 'error' );
+			return; // redirect_with_notice exits, but guard against future changes.
 		}
 
 		wp_redirect( $auth_url ); // phpcs:ignore WordPress.Security.SafeRedirect.wp_redirect_wp_redirect
@@ -310,7 +312,7 @@ class Bluesky_Provider implements Connection_Provider {
 		}
 
 		if ( ! current_user_can( 'manage_options' ) ) {
-			return;
+			wp_die( esc_html__( 'You do not have permission to complete the Bluesky connection.', 'fosse' ) );
 		}
 
 		$result = \Atmosphere\OAuth\Client::handle_callback( $code, $state );
@@ -320,8 +322,20 @@ class Bluesky_Provider implements Connection_Provider {
 			return; // redirect_with_notice exits, but guard against future changes.
 		}
 
-		if ( method_exists( '\Atmosphere\Publisher', 'sync_publication' ) ) {
-			\Atmosphere\Publisher::sync_publication();
+		$sync_result = method_exists( '\Atmosphere\Publisher', 'sync_publication' )
+			? \Atmosphere\Publisher::sync_publication()
+			: null;
+
+		if ( is_wp_error( $sync_result ) ) {
+			$this->redirect_with_notice(
+				sprintf(
+					/* translators: %s: error message from Atmosphere publication setup. */
+					__( 'Connected to Bluesky, but publication setup failed: %s', 'fosse' ),
+					$sync_result->get_error_message()
+				),
+				'warning'
+			);
+			return;
 		}
 
 		$this->redirect_with_notice( __( 'Successfully connected to Bluesky.', 'fosse' ), 'success' );
