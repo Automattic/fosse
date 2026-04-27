@@ -25,8 +25,8 @@ class Onboarding_WizardTest extends BaseTestCase {
 	#[Before]
 	public function set_up_state(): void {
 		delete_option( Onboarding_Wizard::COMPLETED_OPTION );
-		delete_option( 'fosse_ap_actor_mode' );
-		delete_option( 'fosse_ap_support_post_types' );
+		delete_option( 'activitypub_actor_mode' );
+		delete_option( 'activitypub_support_post_types' );
 		delete_transient( Onboarding_Wizard::REDIRECT_TRANSIENT );
 	}
 
@@ -79,7 +79,7 @@ class Onboarding_WizardTest extends BaseTestCase {
 	 * Saving the appearance step stores the actor mode option.
 	 */
 	public function test_handle_save_appearance_stores_actor_mode() {
-		$this->simulate_save_request( 'appearance', array( 'fosse_ap_actor_mode' => 'blog' ) );
+		$this->simulate_save_request( 'appearance', array( 'activitypub_actor_mode' => 'blog' ) );
 
 		try {
 			Onboarding_Wizard::handle_save();
@@ -87,14 +87,14 @@ class Onboarding_WizardTest extends BaseTestCase {
 			unset( $e );
 		}
 
-		$this->assertSame( 'blog', get_option( 'fosse_ap_actor_mode' ) );
+		$this->assertSame( 'blog', get_option( 'activitypub_actor_mode' ) );
 	}
 
 	/**
 	 * Saving appearance with actor_blog mode works.
 	 */
 	public function test_handle_save_appearance_actor_blog() {
-		$this->simulate_save_request( 'appearance', array( 'fosse_ap_actor_mode' => 'actor_blog' ) );
+		$this->simulate_save_request( 'appearance', array( 'activitypub_actor_mode' => 'actor_blog' ) );
 
 		try {
 			Onboarding_Wizard::handle_save();
@@ -102,15 +102,15 @@ class Onboarding_WizardTest extends BaseTestCase {
 			unset( $e );
 		}
 
-		$this->assertSame( 'actor_blog', get_option( 'fosse_ap_actor_mode' ) );
+		$this->assertSame( 'actor_blog', get_option( 'activitypub_actor_mode' ) );
 	}
 
 	/**
 	 * Invalid actor mode is rejected.
 	 */
 	public function test_handle_save_appearance_rejects_invalid_mode() {
-		update_option( 'fosse_ap_actor_mode', 'actor' );
-		$this->simulate_save_request( 'appearance', array( 'fosse_ap_actor_mode' => 'evil' ) );
+		update_option( 'activitypub_actor_mode', 'actor' );
+		$this->simulate_save_request( 'appearance', array( 'activitypub_actor_mode' => 'evil' ) );
 
 		try {
 			Onboarding_Wizard::handle_save();
@@ -118,7 +118,7 @@ class Onboarding_WizardTest extends BaseTestCase {
 			unset( $e );
 		}
 
-		$this->assertSame( 'actor', get_option( 'fosse_ap_actor_mode' ) );
+		$this->assertSame( 'actor', get_option( 'activitypub_actor_mode' ) );
 	}
 
 	// --- handle_save: content step ---
@@ -127,7 +127,7 @@ class Onboarding_WizardTest extends BaseTestCase {
 	 * Saving the content step stores post types.
 	 */
 	public function test_handle_save_content_stores_post_types() {
-		$this->simulate_save_request( 'content', array( 'fosse_ap_support_post_types' => array( 'post', 'page' ) ) );
+		$this->simulate_save_request( 'content', array( 'activitypub_support_post_types' => array( 'post', 'page' ) ) );
 
 		try {
 			Onboarding_Wizard::handle_save();
@@ -135,7 +135,7 @@ class Onboarding_WizardTest extends BaseTestCase {
 			unset( $e );
 		}
 
-		$saved = get_option( 'fosse_ap_support_post_types' );
+		$saved = get_option( 'activitypub_support_post_types' );
 		$this->assertContains( 'post', $saved );
 		$this->assertContains( 'page', $saved );
 	}
@@ -144,7 +144,7 @@ class Onboarding_WizardTest extends BaseTestCase {
 	 * Invalid post types are filtered out.
 	 */
 	public function test_handle_save_content_filters_invalid_types() {
-		$this->simulate_save_request( 'content', array( 'fosse_ap_support_post_types' => array( 'post', 'faketype' ) ) );
+		$this->simulate_save_request( 'content', array( 'activitypub_support_post_types' => array( 'post', 'faketype' ) ) );
 
 		try {
 			Onboarding_Wizard::handle_save();
@@ -152,7 +152,7 @@ class Onboarding_WizardTest extends BaseTestCase {
 			unset( $e );
 		}
 
-		$saved = get_option( 'fosse_ap_support_post_types' );
+		$saved = get_option( 'activitypub_support_post_types' );
 		$this->assertContains( 'post', $saved );
 		$this->assertNotContains( 'faketype', $saved );
 	}
@@ -161,7 +161,7 @@ class Onboarding_WizardTest extends BaseTestCase {
 	 * Saving content with no post types selected stores empty array.
 	 */
 	public function test_handle_save_content_empty_selection() {
-		$this->simulate_save_request( 'content', array( 'fosse_ap_support_post_types' => array() ) );
+		$this->simulate_save_request( 'content', array( 'activitypub_support_post_types' => array() ) );
 
 		try {
 			Onboarding_Wizard::handle_save();
@@ -169,7 +169,7 @@ class Onboarding_WizardTest extends BaseTestCase {
 			unset( $e );
 		}
 
-		$this->assertSame( array(), get_option( 'fosse_ap_support_post_types' ) );
+		$this->assertSame( array(), get_option( 'activitypub_support_post_types' ) );
 	}
 
 	// --- handle_skip ---

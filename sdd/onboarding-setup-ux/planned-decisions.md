@@ -43,8 +43,8 @@ This epic does not define what happens to FOSSE's menu state when FOSSE is deact
 - **Reason**: This is the standard WordPress onboarding pattern (WooCommerce, Jetpack, Akismet all do it). The transient ensures the redirect fires exactly once and survives the activation-to-admin-load page cycle. Registering then hiding the submenu page means the wizard has a real admin page URL and inherits all WP admin capabilities checks, but doesn't clutter the menu.
 
 ### Wizard saves settings per-step, not on final completion
-- **Decision**: Each wizard step that collects settings POSTs to `admin_post.php` and saves to the existing `fosse_ap_*` options immediately, then redirects to the next step.
-- **Reason**: If the user abandons the wizard mid-flow (closes tab, navigates away), settings from completed steps are already saved. This is more resilient than batching all saves to the final step. The wizard writes to the same `fosse_ap_actor_mode` and `fosse_ap_support_post_types` options that AP_Provider manages, so there's no new option schema to maintain.
+- **Decision**: Each wizard step that collects settings POSTs to `admin_post.php` and saves directly to the AP-owned options (`activitypub_actor_mode`, `activitypub_support_post_types`) immediately, then redirects to the next step.
+- **Reason**: If the user abandons the wizard mid-flow (closes tab, navigates away), settings from completed steps are already saved. This is more resilient than batching all saves to the final step. The wizard writes to the same options that AP_Provider's Setup page manages (per the direct-write decision above), so there's a single source of truth across both surfaces.
 
 ### Card-based actor mode selection works without JavaScript
 - **Decision**: The actor mode cards in step 2 use `<label>` elements wrapping hidden `<input type="radio">` fields. CSS `:checked` selectors handle the selected state. No JS required for functionality.

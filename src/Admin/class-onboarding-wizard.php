@@ -129,24 +129,18 @@ class Onboarding_Wizard {
 		$step = sanitize_text_field( wp_unslash( $_POST['fosse_wizard_step'] ?? '' ) );
 
 		if ( 'appearance' === $step ) {
-			$mode = sanitize_text_field( wp_unslash( $_POST['fosse_ap_actor_mode'] ?? '' ) );
+			$mode = sanitize_text_field( wp_unslash( $_POST['activitypub_actor_mode'] ?? '' ) );
 			if ( in_array( $mode, self::ACTOR_MODES, true ) ) {
-				$old_mode = get_option( 'fosse_ap_actor_mode', '' );
-				update_option( 'fosse_ap_actor_mode', $mode );
-
-				// Notify AP's scheduler so federation propagates the mode change.
-				// Mirrors AP_Provider::handle_save() — FOSSE projects at read time
-				// rather than writing to the AP option, so we fire the hook manually.
-				do_action( 'update_option_activitypub_actor_mode', $old_mode, $mode, 'activitypub_actor_mode' );
+				update_option( 'activitypub_actor_mode', $mode );
 			}
 			self::redirect_to_step( 'content' );
 		}
 
 		if ( 'content' === $step ) {
-			$submitted   = array_map( 'sanitize_text_field', wp_unslash( (array) ( $_POST['fosse_ap_support_post_types'] ?? array() ) ) );
+			$submitted   = array_map( 'sanitize_text_field', wp_unslash( (array) ( $_POST['activitypub_support_post_types'] ?? array() ) ) );
 			$valid_types = get_post_types( array( 'public' => true ) );
 			$post_types  = array_values( array_intersect( $submitted, $valid_types ) );
-			update_option( 'fosse_ap_support_post_types', $post_types );
+			update_option( 'activitypub_support_post_types', $post_types );
 			self::redirect_to_step( 'bluesky' );
 		}
 
@@ -372,7 +366,7 @@ class Onboarding_Wizard {
 	private static function render_step_appearance(): void {
 		self::render_progress( 'appearance' );
 
-		$current_mode = get_option( 'fosse_ap_actor_mode', 'blog' );
+		$current_mode = get_option( 'activitypub_actor_mode', 'actor' );
 		$site_url     = wp_parse_url( home_url(), PHP_URL_HOST ) ? wp_parse_url( home_url(), PHP_URL_HOST ) : 'yoursite.com';
 		$nonce        = wp_create_nonce( 'fosse_wizard' );
 
@@ -415,7 +409,7 @@ class Onboarding_Wizard {
 						<label class="fosse-mode-card">
 							<input
 								type="radio"
-								name="fosse_ap_actor_mode"
+								name="activitypub_actor_mode"
 								value="<?php echo esc_attr( $value ); ?>"
 								class="fosse-mode-card__input"
 								<?php checked( $value, $current_mode ); ?>
@@ -463,7 +457,7 @@ class Onboarding_Wizard {
 	private static function render_step_content(): void {
 		self::render_progress( 'content' );
 
-		$post_types     = get_option( 'fosse_ap_support_post_types', array( 'post' ) );
+		$post_types     = get_option( 'activitypub_support_post_types', array( 'post' ) );
 		$all_post_types = get_post_types( array( 'public' => true ), 'objects' );
 		$nonce          = wp_create_nonce( 'fosse_wizard' );
 
@@ -484,7 +478,7 @@ class Onboarding_Wizard {
 						<label class="fosse-post-type-item">
 							<input
 								type="checkbox"
-								name="fosse_ap_support_post_types[]"
+								name="activitypub_support_post_types[]"
 								value="<?php echo esc_attr( $pt->name ); ?>"
 								<?php checked( in_array( $pt->name, $post_types, true ) ); ?>
 							/>
@@ -587,8 +581,8 @@ class Onboarding_Wizard {
 	 * @return void
 	 */
 	private static function render_step_complete(): void {
-		$actor_mode = get_option( 'fosse_ap_actor_mode', 'blog' );
-		$post_types = get_option( 'fosse_ap_support_post_types', array( 'post' ) );
+		$actor_mode = get_option( 'activitypub_actor_mode', 'actor' );
+		$post_types = get_option( 'activitypub_support_post_types', array( 'post' ) );
 		$site_url   = wp_parse_url( home_url(), PHP_URL_HOST ) ? wp_parse_url( home_url(), PHP_URL_HOST ) : 'yoursite.com';
 
 		$mode_labels = array(
