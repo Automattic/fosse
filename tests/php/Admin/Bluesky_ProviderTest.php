@@ -460,15 +460,12 @@ class Bluesky_ProviderTest extends BaseTestCase {
 			unset( $e );
 		}
 
-		// The captured URL should not contain '@alice' — it should be 'alice'.
-		if ( null !== $captured_handle ) {
-			$this->assertStringNotContainsString( '@alice', $captured_handle );
-		}
-
-		// At minimum, verify the handle didn't pass through with the @.
-		// The error redirect confirms the flow reached Client::authorize().
-		$errors = get_settings_errors( 'atmosphere' );
-		$this->assertNotEmpty( $errors );
+		// Verify pre_http_request fired (authorize() made an HTTP call).
+		$this->assertNotNull(
+			$captured_handle,
+			'Expected pre_http_request to fire from Client::authorize() — handle normalization could not be verified.'
+		);
+		$this->assertStringNotContainsString( '@alice', $captured_handle );
 	}
 
 	/**
