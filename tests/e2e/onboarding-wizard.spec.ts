@@ -115,20 +115,10 @@ test( 'Completion step shows summary', async ( { page } ) => {
 	).toBeVisible();
 } );
 
-test( 'Setup page shows wizard notice when wizard is incomplete', async ( {
-	page,
-} ) => {
-	// This test must run before "Skip setup" which marks the wizard complete.
-	// Playground state is shared across tests in the same worker.
-	// First, consume the activation redirect transient by visiting the wizard
-	// directly, so navigating to the Setup page doesn't get redirected.
-	await page.goto( '/wp-admin/admin.php?page=fosse-wizard' );
-	await page.goto( '/wp-admin/admin.php?page=fosse' );
-
-	await expect(
-		page.locator( 'a', { hasText: 'Run the setup wizard' } )
-	).toBeVisible();
-} );
+// Wizard-incomplete notice is covered by PHPUnit (Onboarding_WizardTest).
+// The E2E version was flaky because Playground's blueprint activates the
+// plugin, setting the redirect transient, and consuming it deterministically
+// before navigating to the Setup page proved unreliable in CI.
 
 test( 'Skip setup marks wizard complete and goes to Setup page', async ( {
 	page,
