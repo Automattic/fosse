@@ -6,18 +6,18 @@ Based on: sdd/unified-reactions-display/spec.md
 
 ## Progress
 
-- [ ] Task 1: Add `Reactions_Label` skeleton + matching-block PHPUnit case
-- [ ] Task 2: Add non-matching-block + `register()` idempotency PHPUnit cases
-- [ ] Task 3: Wire `Reactions_Label::register()` into `fosse.php`
-- [ ] Task 4: Add `fosse-reactions-seed` e2e mu-plugin
-- [ ] Task 5: Add `reactions-display` Playwright e2e spec
-- [ ] Task 6: Run verification, capture `implementation.md`, mark plan complete
+- [x] Task 1: Add `Reactions_Label` skeleton + matching-block PHPUnit case
+- [x] Task 2: Add non-matching-block + `register()` idempotency PHPUnit cases
+- [x] Task 3: Wire `Reactions_Label::register()` into `fosse.php`
+- [x] Task 4: Add `fosse-reactions-seed` e2e mu-plugin
+- [x] Task 5: Add `reactions-display` Playwright e2e spec
+- [x] Task 6: Run verification, capture `implementation.md`, mark plan complete
 
 ## Tasks
 
 ### Task 1: Add `Reactions_Label` skeleton + matching-block PHPUnit case
 
-- **Status**: Not started
+- **Status**: ✅ Done (4c9426d)
 - **Files**:
   - `src/class-reactions-label.php` (new)
   - `tests/php/Reactions_LabelTest.php` (new)
@@ -34,7 +34,7 @@ Based on: sdd/unified-reactions-display/spec.md
 
 ### Task 2: Add non-matching-block + `register()` idempotency PHPUnit cases
 
-- **Status**: Not started
+- **Status**: ✅ Done (ae0cf7b)
 - **Files**:
   - `tests/php/Reactions_LabelTest.php` (modify)
 - **Do**:
@@ -49,7 +49,7 @@ Based on: sdd/unified-reactions-display/spec.md
 
 ### Task 3: Wire `Reactions_Label::register()` into `fosse.php`
 
-- **Status**: Not started
+- **Status**: ✅ Done (9edc46f)
 - **Files**:
   - `fosse.php` (modify)
 - **Do**:
@@ -62,7 +62,7 @@ Based on: sdd/unified-reactions-display/spec.md
 
 ### Task 4: Add `fosse-reactions-seed` e2e mu-plugin
 
-- **Status**: Not started
+- **Status**: ✅ Done (e874d27)
 - **Files**:
   - `tests/e2e/mu-plugins/fosse-reactions-seed.php` (new)
 - **Do**:
@@ -81,7 +81,7 @@ Based on: sdd/unified-reactions-display/spec.md
 
 ### Task 5: Add `reactions-display` Playwright e2e spec
 
-- **Status**: Not started
+- **Status**: ✅ Done (4b94f65)
 - **Files**:
   - `tests/e2e/reactions-display.spec.ts` (new)
   - `tests/e2e/blueprint.json` (possibly modify — only if the new mu-plugin is not already auto-mounted by the existing blueprint logic)
@@ -98,7 +98,7 @@ Based on: sdd/unified-reactions-display/spec.md
 
 ### Task 6: Run verification, capture `implementation.md`, mark plan complete
 
-- **Status**: Not started
+- **Status**: ✅ Done (this commit)
 - **Files**:
   - `sdd/unified-reactions-display/implementation.md` (new)
   - `sdd/unified-reactions-display/plan.md` (modify — Progress checkboxes + per-task Status fields)
