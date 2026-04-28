@@ -147,9 +147,11 @@ add_action(
  * `atmosphere_long_form_composition` filter answer. Installing FOSSE
  * opts into the teaser-thread default by default (the projector
  * coerces unset/unknown to 'teaser-thread'), without requiring any
- * option to be set. Degrades cleanly if the bundled Atmosphere or
- * FOSSE's own autoload is missing — the filter still registers but
- * has no listeners until Atmosphere comes online.
+ * option to be set. Degrades cleanly in two distinct modes: if FOSSE's
+ * own autoload is missing the projector class can't load and the
+ * `class_exists` guard skips registration entirely; if Atmosphere is
+ * absent the callback registers but `apply_filters` is never called,
+ * so the callback simply never runs.
  */
 add_action(
 	'init',
