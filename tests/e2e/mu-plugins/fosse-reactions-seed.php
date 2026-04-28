@@ -31,17 +31,24 @@ add_action(
 						$post_id = \wp_insert_post(
 							array(
 								'post_title'   => 'Reactions test post',
-								'post_content' => "<!-- wp:paragraph -->\n<p>Reactions seed body.</p>\n<!-- /wp:paragraph -->\n\n<!-- wp:activitypub/reactions /-->",
+								'post_content' => "<!-- wp:paragraph -->\n<p>Reactions seed body.</p>\n<!-- /wp:paragraph -->",
 								'post_status'  => 'publish',
 								'post_type'    => 'post',
 							),
 							true
 						);
 
-						if ( \is_wp_error( $post_id ) || ! $post_id ) {
+						if ( \is_wp_error( $post_id ) ) {
 							return new \WP_Error(
-								'fosse_e2e_seed_failed',
-								'Failed to insert seed post.',
+								'fosse_e2e_seed_post_failed',
+								'wp_insert_post failed: ' . $post_id->get_error_message(),
+								array( 'status' => 500 )
+							);
+						}
+						if ( ! $post_id ) {
+							return new \WP_Error(
+								'fosse_e2e_seed_post_failed',
+								'wp_insert_post returned 0.',
 								array( 'status' => 500 )
 							);
 						}
