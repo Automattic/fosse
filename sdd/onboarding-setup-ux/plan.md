@@ -2,9 +2,23 @@
 
 Based on: sdd/onboarding-setup-ux/spec.md
 
+## Progress
+
+- [x] Task 1: Create Connection_Provider interface + Registry
+- [x] Task 2: Create Menu.php + wire up in fosse.php
+- [x] Task 3: Create AP_Provider + Setup_Page shell
+- [x] Task 4: Open upstream Atmosphere PRs
+- [x] Task 5: Create Bluesky_Provider
+- [x] Task 6: Create Status_Page with provider status cards
+- [x] Task 7: Add admin CSS
+- [x] Task 8: Write tests
+- [x] Task 9: Exclude `src/` from WordPress.Files.FileName PHPCS sniff
+- [ ] Task 10: Update SDD documentation
+
 ## Tasks
 
 ### Task 1: Create Connection_Provider interface + Registry
+- **Status**: ✅ Done (#27)
 - **Files**: `src/Admin/Connection_Provider.php`, `src/Admin/Connection_Provider_Registry.php`
 - **Do**:
   1. Create `Connection_Provider` interface with methods: `get_slug()`, `get_name()`, `is_available()`, `get_status()`, `render_setup_section()`, `render_status_card()`, `register_hooks()`.
@@ -16,6 +30,7 @@ Based on: sdd/onboarding-setup-ux/spec.md
 - **Depends on**: none
 
 ### Task 2: Create Menu.php + wire up in fosse.php
+- **Status**: ✅ Done (#27)
 - **Files**: `src/Admin/Menu.php`, `fosse.php`
 - **Do**:
   1. Create `Menu` class with `register()` static method that fires `fosse_register_providers`, calls `register_hooks()` on available providers, hooks `admin_menu` at priority 9 (register menu) and 99 (hide bundled menus), and hooks `admin_enqueue_scripts` for CSS.
@@ -35,6 +50,7 @@ Based on: sdd/onboarding-setup-ux/spec.md
 - **Depends on**: Task 1
 
 ### Task 3: Create AP_Provider + Setup_Page shell
+- **Status**: ✅ Done (#27)
 - **Files**: `src/Admin/AP_Provider.php`, `src/Admin/Setup_Page.php`, `src/Admin/templates/setup-page.php`
 - **Do**:
   1. Create `AP_Provider` implementing `Connection_Provider`. Self-registers on `fosse_register_providers` with `class_exists('\Activitypub\Activitypub')` guard.
@@ -50,6 +66,7 @@ Based on: sdd/onboarding-setup-ux/spec.md
 - **Depends on**: Task 2
 
 ### Task 4: Open upstream Atmosphere PRs
+- **Status**: ✅ Done (Automattic/wordpress-atmosphere#33)
 
 - **Do**:
   1. Open PR against wordpress-atmosphere for (a) a filter on `Client::redirect_uri()` so consumers can set their own callback URL.
@@ -60,6 +77,7 @@ Based on: sdd/onboarding-setup-ux/spec.md
 - **Depends on**: none
 
 ### Task 5: Create Bluesky_Provider
+- **Status**: ✅ Done (#34)
 - **Files**: `src/Admin/Bluesky_Provider.php`
 - **Do**:
   1. Create `Bluesky_Provider` implementing `Connection_Provider`. Self-registers on `fosse_register_providers` with `class_exists('\Atmosphere\Atmosphere')` guard.
@@ -74,6 +92,7 @@ Based on: sdd/onboarding-setup-ux/spec.md
 - **Depends on**: Task 2, Task 4
 
 ### Task 6: Create Status_Page with provider status cards
+- **Status**: ✅ Done (#27)
 - **Files**: `src/Admin/Status_Page.php`, `src/Admin/templates/status-page.php`
 - **Do**:
   1. Create `Status_Page` that iterates providers, counts total/connected, and includes template.
@@ -84,6 +103,7 @@ Based on: sdd/onboarding-setup-ux/spec.md
 - **Depends on**: Task 3, Task 5
 
 ### Task 7: Add admin CSS
+- **Status**: ✅ Done (#27)
 - **Files**: `src/Admin/assets/css/admin.css`
 - **Do**:
   1. Status indicator dots (green/red).
@@ -96,18 +116,21 @@ Based on: sdd/onboarding-setup-ux/spec.md
 - **Depends on**: Task 6
 
 ### Task 8: Write tests
+- **Status**: ✅ Done (#27, #34)
 - **Files**: `tests/php/Admin/Connection_Provider_RegistryTest.php`, `tests/php/Admin/AP_ProviderTest.php`, `tests/php/Admin/Bluesky_ProviderTest.php`
 - **Do**:
   1. Registry tests: register/retrieve, get_providers returns all, duplicate slug ignored, unknown slug returns null, reset clears.
   2. AP_Provider tests: status shape, direct `update_option()` writes to `activitypub_actor_mode` / `activitypub_support_post_types`, post type defaults and overrides, slug and name.
-  3. Bluesky_Provider tests: redirect URI filter integration, persisted-notice read, status disconnected/connected/expired-token.
+  3. Bluesky_Provider tests: redirect URI filter integration, persisted-notice read, status disconnected/connected/expired-token, unauthorized user rejection, bad nonce rejection, handle `@` normalization.
   4. Run `composer run-script lint-php` and `composer run-script test-php`.
+- **Known gap**: `handle_oauth_callback()` success/warning/error branches are not unit-tested because `Client::handle_callback()` requires real PKCE state. These branches rely on manual verification (connect flow, `sync_publication` failure).
 - **Verify**:
   - All tests pass.
   - Lint clean.
 - **Depends on**: Task 3, Task 5
 
 ### Task 9: Exclude `src/` from WordPress.Files.FileName PHPCS sniff
+- **Status**: ✅ Done (#27)
 - **Files**: `.phpcs.xml.dist`
 - **Do**:
   1. Add `<exclude-pattern>src/</exclude-pattern>` to the `WordPress.Files.FileName` rule block (alongside the existing `tests/php/` exclusion).
@@ -117,6 +140,7 @@ Based on: sdd/onboarding-setup-ux/spec.md
 - **Depends on**: none
 
 ### Task 10: Update SDD documentation
+- **Status**: In progress
 - **Files**: `sdd/onboarding-setup-ux/requirements.md`, `spec.md`, `plan.md`, `planned-decisions.md`
 - **Do**:
   1. Update all four SDD documents to reflect the as-built implementation — verify deviations, decisions, and limitations are accurate.

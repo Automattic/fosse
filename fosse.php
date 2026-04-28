@@ -122,6 +122,25 @@ add_action(
 );
 
 /*
+ * Cross-network post-type projector.
+ *
+ * Feeds ActivityPub's stored `activitypub_support_post_types` option into
+ * Atmosphere's `atmosphere_syncable_post_types` filter so the post types a
+ * user selects in AP's settings also federate via Atmosphere. Intentionally
+ * one-way: AP's option is the single source of truth, so FOSSE does not own
+ * a parallel option. Same degradation posture as the Object_Type block.
+ */
+add_action(
+	'init',
+	static function () {
+		if ( ! class_exists( \Automattic\Fosse\Post_Types::class ) ) {
+			return;
+		}
+		\Automattic\Fosse\Post_Types::register();
+	}
+);
+
+/*
  * Long-form composition strategy projector.
  *
  * Translates `fosse_long_form_strategy` into Atmosphere's
@@ -152,6 +171,7 @@ add_action(
  */
 if ( class_exists( \Automattic\Fosse\Provider_Loader::class ) ) {
 	\Automattic\Fosse\Admin\AP_Provider::init();
+	\Automattic\Fosse\Admin\Bluesky_Provider::init();
 
 	\Automattic\Fosse\Provider_Loader::boot();
 }

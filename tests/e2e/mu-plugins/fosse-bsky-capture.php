@@ -115,5 +115,80 @@ add_action(
 				},
 			)
 		);
+
+		\register_rest_route(
+			'fosse-e2e/v1',
+			'/bluesky-state',
+			array(
+				'methods'             => 'POST',
+				'permission_callback' => static function (): bool {
+					return \current_user_can( 'manage_options' );
+				},
+				'args'                => array(
+					'connected'    => array(
+						'type'     => 'boolean',
+						'required' => false,
+					),
+					'handle'       => array(
+						'type'     => 'string',
+						'required' => false,
+					),
+					'did'          => array(
+						'type'     => 'string',
+						'required' => false,
+					),
+					'pds_endpoint' => array(
+						'type'     => 'string',
+						'required' => false,
+					),
+					'auto_publish' => array(
+						'type'     => 'boolean',
+						'required' => false,
+					),
+				),
+				'callback'            => static function ( $request ) {
+					try {
+						$connected = (bool) $request->get_param( 'connected' );
+						$auto_publish = $request->get_param( 'auto_publish' );
+
+						if ( $connected ) {
+							\update_option(
+								'atmosphere_connection',
+								array(
+									'did'          => (string) ( $request->get_param( 'did' ) ?: 'did:plc:fossee2e123' ),
+									'handle'       => (string) ( $request->get_param( 'handle' ) ?: 'alice.bsky.social' ),
+									'pds_endpoint' => (string) ( $request->get_param( 'pds_endpoint' ) ?: 'https://bsky.social' ),
+									'access_token' => \Atmosphere\OAuth\Encryption::encrypt( 'fosse-e2e-token' ),
+								)
+							);
+						} else {
+							\delete_option( 'atmosphere_connection' );
+						}
+
+						if ( null !== $auto_publish ) {
+							\update_option( 'atmosphere_auto_publish', $auto_publish ? '1' : '0' );
+						}
+
+						return \rest_ensure_response(
+							array(
+								'ok'             => true,
+								'connected'      => $connected,
+								'connection'     => \get_option( 'atmosphere_connection', array() ),
+								'auto_publish'   => \get_option( 'atmosphere_auto_publish', '1' ),
+							)
+						);
+					} catch ( \Throwable $e ) {
+						\error_log( // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+							'[fosse-e2e/bluesky-state] ' . $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine()
+						);
+						return new \WP_Error(
+							'fosse_e2e_error',
+							$e->getMessage(),
+							array( 'status' => 500 )
+						);
+					}
+				},
+			)
+		);
 	}
 );
