@@ -18,6 +18,11 @@
 			"toPath": "/wordpress/wp-content/mu-plugins/fosse-bsky-capture.php"
 		},
 		{
+			"step": "cp",
+			"fromPath": "/wordpress/wp-content/plugins/fosse/tests/e2e/mu-plugins/fosse-reactions-seed.php",
+			"toPath": "/wordpress/wp-content/mu-plugins/fosse-reactions-seed.php"
+		},
+		{
 			"step": "setSiteOptions",
 			"options": {
 				"fosse_object_type": "note",
