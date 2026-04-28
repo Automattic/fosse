@@ -154,13 +154,48 @@ The self-host signal piggybacks on what's free (WP.org, GitHub) from day 1; the 
 
 ## The Assignment
 
-Schedule a 30-minute meeting with whoever owns Simple-plan product strategy at wp.com (probably someone in Dotcom leadership) and walk them through this doc. The ask is one of:
+This is a Radical Speed Month project — there's no external sponsor gate, just FOSSE-team agreement. The next move is getting Ryan and whoever else is on the project bought in on the shape:
 
-1. **Yes, ship FOSSE-on-Simple in Radical Speed Month with this shape (Cohort A + B + search-index gate).** If yes, get a name attached and move to coordinating Tracks event schema with the wp.com data team this week.
-2. **Yes, but with modifications.** Capture the modifications and revise.
-3. **No.** If no, we have a much bigger conversation than metrics — we need to revisit the FOSSE-on-Simple commitment from this session, because every metric in this doc collapses without it.
+1. **Cohort A as the volume play, with the search-engine-indexing setting as the federation gate.** Default-on for launched/public/indexed Simple sites.
+2. **Cohort B (fosse.wordpress.com landing page) as a Phase 2 add-on**, deferred until staffing is real, OR descoped from this version of the doc.
+3. **Layered metrics — Tier 1 funnel for early signal, Tier 2 sustained-activity and Tier 3 differential-liveness for the steady-state read.**
+4. **Self-host plugin metrics as a long-tail section, not co-equal billing.**
 
-Don't write the implementation until that meeting happens. The whole doc is conditional on the integration commit.
+Until that agreement is captured (PR conversation, P2 post, doc comments — wherever the FOSSE team coordinates), don't start instrumentation work. Once the shape is agreed, the next move is a strawman Tracks event schema (see Reviewer Concerns below for what's missing) and Cohort C baseline instrumentation as the critical-path-first item.
+
+## Reviewer Concerns
+
+An adversarial review of this doc on 2026-04-28 surfaced thirteen issues at quality score 6/10. They're listed here unfixed, deliberately. The doc is at the right bar for circulating to Ryan and the FOSSE team for agreement; these are the things to resolve once the shape is locked in and we move toward implementation.
+
+### Completeness
+1. **No failure thresholds / kill criteria.** Doc names success conditions but never says what failed numbers look like. Add concrete kill-thresholds: e.g., "if step 3→5 conversion is <X% by week 8, revisit the integration shape"; "if Tier 3 differential is <Y% lift after a quarter, the 'homey' claim is unsubstantiated."
+2. **No "FOSSE-on-Simple ships but no one adopts" diagnostic logic.** Cohort A is auto-on, so adoption-failure manifests as step 3 (network-connection) collapse, but the doc doesn't say which step's collapse maps to which class of failure (UX, integration, demand, network-side).
+3. **No negative-signal metrics.** Opt-out rate (when v2 ships disable), Zendesk tag for federation-related tickets, watchlist for "users who toggled search-indexing off after FOSSE went live" (potential anti-pattern of users escaping FOSSE via the gate).
+4. **No surprise-and-frustration metric.** Default-on means some users will be federated without realizing it. Instrument "discovered federation existed" (first visit to a Connections panel, first federation-related help-center search from a Cohort A user) and treat the gap as a transparency metric.
+5. **No N-floor for funnel reporting.** "Tier 1 percentages not reported until each cohort has ≥N=500 site-creations" or equivalent — low-N percentages are noise.
+6. **No reporting cadence or owner.** Who reads which dashboards, when, and what triggers escalation. Name the dashboard owner and the readout cadence.
+
+### Consistency
+7. **Cohort C definition splits incorrectly across pre-launch and post-launch.** The doc requires Cohort C baseline measured *before* FOSSE ships, but defines Cohort C as "FOSSE not active (eligible-but-disabled)" — a state that only exists post-launch. Split into Cohort C-pre (pre-launch, all comparable Simple sites) and Cohort C-post (post-launch, eligible-but-FOSSE-off because the user opted out of search-indexing).
+8. **Q1 success scene's "site displays reactions" piece isn't mapped to a funnel step.** Either add a step for "reaction surfaces on the WP site" or acknowledge it's covered by Tier 3's "comments per post" proxy and call out the mapping.
+9. **Cohort A excludes existing Simple sites without saying so.** Doc says "created after FOSSE-on-Simple ships." The success scene includes existing site owners. State explicitly whether existing eligible Simple sites get back-filled (and the entry event), or justify why not.
+10. **Cohort A leading indicator starts at step 3, not step 2.** Step 2 (FOSSE active) is 100% by definition for auto-on Cohort A. The actual Cohort A leading indicator is steps 3→5.
+
+### Clarity
+11. **"Search-engine-indexable" not precisely defined.** Option name is `blog_public` (`1` = indexable, `0` = discouraged). Toggle-after-launch behavior unspecified — recommend re-evaluating on each publish; opt-out immediate, opt-in with a 24-hour debounce to prevent oscillation.
+12. **"Native render" (step 5) hand-waved.** Replace "native record (not link-card fallback)" with explicit strategy enum: `strategy ∈ {long-form-teaser-thread, short-form-note}`; `strategy='link-card-fallback'` counts as not-native. Tied to the projector code that already emits this.
+13. **"Author engaged" (step 7) acknowledged as under-defined but funnel reportable from week 1.** Lock v1 definition: "replied OR clicked through to source." OQ4 becomes "iterate after seeing data."
+
+### Scope, Feasibility, Missing Sections (overflow — addressed in groups)
+- Cohort B (fosse.wordpress.com) understates the lift. Marketing site + landing page + new-Simple-site signup hook is multi-team work. Either confirm staffing or descope to "Phase 2."
+- Tier 3 oversells the causal claim with self-selected Cohort C. Either downgrade the framing or propose a small randomized hold-out within Cohort A (5–10%) for the first N weeks.
+- Cohort C-pre baseline window vs Radical Speed Month timing is a real conflict. Cohort C instrumentation must ship and accumulate ≥4 weeks of data before FOSSE-on. If that can't be guaranteed, Tier 3 is descoped to a delayed read.
+- Step 7 (author engaged) feasibility unverified. Confirm the bundled AP/Atmosphere round-trip surfaces inbound reactions in a place the author sees them.
+- Self-host opt-out aggregate pingback understates infra cost (endpoint hosting, abuse/rate-limiting, version-bucketing, retention, GDPR posture, plugin opt-out UI). Either descope from this doc or acknowledge the dependency.
+- Missing draft Tracks event schema appendix.
+- Missing stakeholder map by role and a real timeline with calendar dates against Radical Speed Month.
+- Missing privacy-review path called out for default-on Cohort A.
+- Missing rough effort estimate per tier (eng-weeks).
 
 ## What I noticed about how you think
 
