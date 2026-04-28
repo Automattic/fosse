@@ -164,6 +164,26 @@ add_action(
 );
 
 /*
+ * Reactions block relabel.
+ *
+ * Overlays a FOSSE-flavored title and description onto the bundled
+ * activitypub/reactions block via register_block_type_args. The
+ * block's server-side render is already protocol-agnostic and
+ * aggregates ActivityPub plus Bluesky reactions; the relabel makes
+ * the inserter UI wording match what the block actually shows.
+ * Same degradation posture as the other projectors.
+ */
+add_action(
+	'init',
+	static function () {
+		if ( ! class_exists( \Automattic\Fosse\Reactions_Label::class ) ) {
+			return;
+		}
+		\Automattic\Fosse\Reactions_Label::register();
+	}
+);
+
+/*
  * Provider bootstrap.
  *
  * Providers self-register on the 'fosse_register_providers' action fired
