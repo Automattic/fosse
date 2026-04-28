@@ -306,7 +306,18 @@ class Bluesky_Provider implements Connection_Provider {
 			return;
 		}
 
+		// Clear Atmosphere's query var so its handler at priority 10 returns,
+		// then mark the request 404 so the rewrite rule doesn't render the
+		// front page for the well-known URL. Third-party handlers can still
+		// take over by calling status_header(200) and exit.
 		set_query_var( 'atmosphere_wellknown', '' );
+
+		global $wp_query;
+		if ( $wp_query instanceof \WP_Query ) {
+			$wp_query->set_404();
+		}
+		status_header( 404 );
+		nocache_headers();
 	}
 
 	/**
