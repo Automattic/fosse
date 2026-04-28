@@ -17,7 +17,7 @@ Based on: sdd/bluesky-handle-setup/spec.md
 ## Tasks
 
 ### Task 1: Add `/.well-known/atproto-did` route handler
-- **Status**: Not started
+- **Status**: In progress
 - **Files**: `src/Admin/class-bluesky-provider.php`
 - **Do**:
   1. Add `serve_atproto_did_well_known()` method. Hook to `init` priority 1 inside `register_hooks()`.

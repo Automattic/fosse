@@ -234,6 +234,7 @@ class Bluesky_Provider implements Connection_Provider {
 		add_action( 'admin_post_fosse_connect_bluesky', array( $this, 'handle_connect' ) );
 		add_action( 'admin_post_fosse_disconnect_bluesky', array( $this, 'handle_disconnect' ) );
 		add_action( 'admin_init', array( $this, 'handle_oauth_callback' ) );
+		add_action( 'init', array( $this, 'serve_atproto_did_well_known' ), 1 );
 
 		// Override Atmosphere's OAuth redirect URI so the auth server callback
 		// and the client-metadata REST endpoint both advertise FOSSE's page.
@@ -241,6 +242,48 @@ class Bluesky_Provider implements Connection_Provider {
 		// the auth server fetches client metadata in a separate public request
 		// and validates redirect_uri against it.
 		add_filter( 'atmosphere_oauth_redirect_uri', array( $this, 'filter_oauth_redirect_uri' ) );
+	}
+
+	/**
+	 * Serve /.well-known/atproto-did with the connected account's DID.
+	 *
+	 * Lets a Bluesky user prove their domain ownership for the
+	 * "Change Handle" flow on bsky.app without leaving WordPress.
+	 *
+	 * @return void
+	 */
+	public function serve_atproto_did_well_known(): void {
+		$request_uri = isset( $_SERVER['REQUEST_URI'] ) ? sanitize_text_field( wp_unslash( $_SERVER['REQUEST_URI'] ) ) : '';
+		$path        = wp_parse_url( $request_uri, PHP_URL_PATH );
+
+		if ( '/.well-known/atproto-did' !== $path ) {
+			return;
+		}
+
+		/**
+		 * Filter whether FOSSE serves the /.well-known/atproto-did route.
+		 *
+		 * Disable to let another component (CDN, custom rewrite, etc.) own the path.
+		 *
+		 * @param bool $serve Default true when Bluesky is connected.
+		 */
+		if ( ! apply_filters( 'fosse_serve_atproto_did_well_known', true ) ) {
+			return;
+		}
+
+		$connection = get_option( 'atmosphere_connection' );
+		$did        = is_array( $connection ) && isset( $connection['did'] ) ? (string) $connection['did'] : '';
+
+		if ( '' === $did ) {
+			status_header( 404 );
+			nocache_headers();
+			exit;
+		}
+
+		header( 'Content-Type: text/plain; charset=utf-8' );
+		nocache_headers();
+		echo $did; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- text/plain response with controlled DID value.
+		exit;
 	}
 
 	/**
