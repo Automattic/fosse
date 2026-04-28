@@ -140,6 +140,36 @@ class Long_Form_StrategyTest extends BaseTestCase {
 	}
 
 	/**
+	 * Integer-typed option (corrupt write, legacy migration, etc.) coerces to
+	 * the FOSSE default. WordPress option storage is loose-typed — `update_option`
+	 * preserves whatever PHP type was stored — so the projector's `is_string`
+	 * guard must hold against any non-string value the database can return.
+	 */
+	public function test_int_option_coerces_to_teaser_thread() {
+		update_option( 'fosse_long_form_strategy', 42 );
+
+		$this->assertSame(
+			'teaser-thread',
+			apply_filters( 'atmosphere_long_form_composition', 'link-card', $this->post ),
+			'Non-string option types must coerce to the FOSSE default, not pass through.'
+		);
+	}
+
+	/**
+	 * Array-typed option (corrupt write) coerces to the FOSSE default. Same
+	 * reasoning as the int case; locks the `is_string` guard for the other
+	 * common non-string shape.
+	 */
+	public function test_array_option_coerces_to_teaser_thread() {
+		update_option( 'fosse_long_form_strategy', array( 'teaser-thread' ) );
+
+		$this->assertSame(
+			'teaser-thread',
+			apply_filters( 'atmosphere_long_form_composition', 'link-card', $this->post )
+		);
+	}
+
+	/**
 	 * The projector overrides the upstream-computed default even for
 	 * recognized upstream strategies. Callers registering a higher-priority
 	 * filter with a different default value still see FOSSE's opinion
