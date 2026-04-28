@@ -235,6 +235,7 @@ class Bluesky_Provider implements Connection_Provider {
 		add_action( 'admin_post_fosse_disconnect_bluesky', array( $this, 'handle_disconnect' ) );
 		add_action( 'admin_init', array( $this, 'handle_oauth_callback' ) );
 		add_action( 'init', array( $this, 'serve_atproto_did_well_known' ), 1 );
+		add_action( 'template_redirect', array( $this, 'maybe_suppress_atmosphere_well_known' ), 1 );
 
 		// Override Atmosphere's OAuth redirect URI so the auth server callback
 		// and the client-metadata REST endpoint both advertise FOSSE's page.
@@ -284,6 +285,28 @@ class Bluesky_Provider implements Connection_Provider {
 		nocache_headers();
 		echo $did; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- text/plain response with controlled DID value.
 		exit;
+	}
+
+	/**
+	 * Suppress bundled Atmosphere's /.well-known/atproto-did handler when FOSSE opts out.
+	 *
+	 * The fosse_serve_atproto_did_well_known filter only controls FOSSE's own handler.
+	 * Atmosphere registers an independent template_redirect handler that would otherwise
+	 * still serve the route, defeating the opt-out. Clearing Atmosphere's query var
+	 * makes its handler return early so neither plugin serves the route.
+	 *
+	 * @return void
+	 */
+	public function maybe_suppress_atmosphere_well_known(): void {
+		if ( 'atproto-did' !== get_query_var( 'atmosphere_wellknown' ) ) {
+			return;
+		}
+
+		if ( apply_filters( 'fosse_serve_atproto_did_well_known', true ) ) {
+			return;
+		}
+
+		set_query_var( 'atmosphere_wellknown', '' );
 	}
 
 	/**

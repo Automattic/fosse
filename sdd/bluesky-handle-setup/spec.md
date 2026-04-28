@@ -45,6 +45,8 @@ Hook on `init` priority 1. If `$_SERVER['REQUEST_URI']` matches `/.well-known/at
 
 Filter `fosse_serve_atproto_did_well_known` (default `true`) lets users disable the route if their host serves it differently.
 
+The bundled Atmosphere plugin registers its own `template_redirect` handler for the same path. When the FOSSE filter returns false, FOSSE also clears Atmosphere's `atmosphere_wellknown` query var via a paired `template_redirect` priority 1 hook so neither plugin serves the route (otherwise Atmosphere would silently take over and the opt-out wouldn't actually opt out).
+
 ### Verification check
 
 `Bluesky_Provider::check_handle_verification($domain): array` calls `https://public.api.bsky.app/xrpc/com.atproto.identity.resolveHandle?handle=<domain>` with `wp_remote_get`. Returns `['status' => 'verified'|'mismatch'|'not_found'|'error', 'resolved_did' => string|null, 'error' => string|null]`. The `not_found` status corresponds to the resolver's `HandleNotFound` error (the common "domain not configured yet" case while the user is still setting up DNS or the well-known route).

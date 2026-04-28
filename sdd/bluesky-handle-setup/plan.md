@@ -25,6 +25,7 @@ Based on: sdd/bluesky-handle-setup/spec.md
   3. Apply `fosse_serve_atproto_did_well_known` filter (default `true`). If false, return.
   4. Read `atmosphere_connection['did']`. If empty, send 404 and exit.
   5. Set `Content-Type: text/plain` header. Echo DID with no trailing newline. Exit.
+  6. Add a paired `maybe_suppress_atmosphere_well_known()` method hooked to `template_redirect` priority 1. Clears Atmosphere's `atmosphere_wellknown` query var when the FOSSE filter is false, so Atmosphere's own handler doesn't take over after FOSSE opts out.
 - **Verify**:
   - `composer run-script lint-php` passes.
   - Curl `/.well-known/atproto-did` on a connected site returns plain-text DID.
