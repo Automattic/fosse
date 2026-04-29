@@ -7,9 +7,13 @@
 
 namespace Automattic\Fosse\Tests\Admin;
 
+use Automattic\Fosse\Admin\AP_Provider;
+use Automattic\Fosse\Admin\Connection_Provider_Registry;
 use Automattic\Fosse\Admin\Onboarding_Wizard;
 use PHPUnit\Framework\Attributes\After;
 use PHPUnit\Framework\Attributes\Before;
+use PHPUnit\Framework\Attributes\DataProvider;
+use ReflectionMethod;
 use WorDBless\BaseTestCase;
 
 /**
@@ -18,7 +22,7 @@ use WorDBless\BaseTestCase;
 class Onboarding_WizardTest extends BaseTestCase {
 
 	/**
-	 * Clean option state before each test.
+	 * Clean option and registry state before each test.
 	 *
 	 * @before
 	 */
@@ -27,7 +31,14 @@ class Onboarding_WizardTest extends BaseTestCase {
 		delete_option( Onboarding_Wizard::COMPLETED_OPTION );
 		delete_option( 'activitypub_actor_mode' );
 		delete_option( 'activitypub_support_post_types' );
+		delete_option( Onboarding_Wizard::REDIRECT_OPTION );
 		delete_transient( Onboarding_Wizard::REDIRECT_TRANSIENT );
+
+		// Most tests assume an ActivityPub provider is registered. Tests
+		// that need the unavailable path call Connection_Provider_Registry::reset()
+		// explicitly; the @after restores the provider for the next test.
+		Connection_Provider_Registry::reset();
+		AP_Provider::register_provider();
 	}
 
 	/**
@@ -44,6 +55,10 @@ class Onboarding_WizardTest extends BaseTestCase {
 
 		remove_all_filters( 'wp_redirect' );
 		remove_all_filters( 'wp_die_handler' );
+		remove_all_actions( 'fosse_wizard_unauthorized' );
+
+		Connection_Provider_Registry::reset();
+		AP_Provider::register_provider();
 	}
 
 	// --- is_complete / mark_complete ---
@@ -120,6 +135,34 @@ class Onboarding_WizardTest extends BaseTestCase {
 		}
 
 		$this->assertSame( 'actor', get_option( 'activitypub_actor_mode' ) );
+	}
+
+	/**
+	 * Saving appearance fires AP's native update_option_* hook so
+	 * downstream subscribers (the federation scheduler) propagate the
+	 * mode change. Pre-seeding the option ensures the second write
+	 * fires update_option_* (rather than add_option_*).
+	 */
+	public function test_handle_save_appearance_fires_native_update_hook() {
+		update_option( 'activitypub_actor_mode', 'actor' );
+
+		$fired = false;
+		add_action(
+			'update_option_activitypub_actor_mode',
+			static function () use ( &$fired ) {
+				$fired = true;
+			}
+		);
+
+		$this->simulate_save_request( 'appearance', array( 'activitypub_actor_mode' => 'blog' ) );
+
+		try {
+			Onboarding_Wizard::handle_save();
+		} catch ( \Exception $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$this->assertTrue( $fired, 'update_option_activitypub_actor_mode should fire on value change.' );
 	}
 
 	// --- handle_save: content step ---
@@ -210,219 +253,6 @@ class Onboarding_WizardTest extends BaseTestCase {
 		$this->assertFalse( Onboarding_Wizard::is_complete() );
 	}
 
-	// --- cap and nonce failures ---
-
-	/**
-	 * Non-admin users hitting the save handler trigger wp_die and the
-	 * actor mode option is not written.
-	 */
-	public function test_handle_save_dies_for_non_admin(): void {
-		$this->become_subscriber();
-		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
-		$_POST    = array(
-			'action'                 => 'fosse_wizard_save',
-			'_wpnonce'               => wp_create_nonce( 'fosse_wizard' ),
-			'fosse_wizard_step'      => 'appearance',
-			'activitypub_actor_mode' => 'blog',
-		);
-		$_REQUEST = $_POST;
-		// phpcs:enable WordPress.Security.NonceVerification.Missing
-		$this->arm_die_trap();
-
-		$this->expectException( \Exception::class );
-		try {
-			Onboarding_Wizard::handle_save();
-		} finally {
-			$this->assertFalse( get_option( 'activitypub_actor_mode' ) );
-		}
-	}
-
-	/**
-	 * Save handler with a bad nonce dies before writing the option.
-	 */
-	public function test_handle_save_dies_on_bad_nonce(): void {
-		$user_id = wp_insert_user(
-			array(
-				'user_login' => 'fosse_wiz_' . uniqid( '', true ),
-				'user_pass'  => 'test',
-				'role'       => 'administrator',
-			)
-		);
-		wp_set_current_user( $user_id );
-		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
-		$_POST    = array(
-			'action'                 => 'fosse_wizard_save',
-			'_wpnonce'               => 'invalid',
-			'fosse_wizard_step'      => 'appearance',
-			'activitypub_actor_mode' => 'blog',
-		);
-		$_REQUEST = $_POST;
-		// phpcs:enable WordPress.Security.NonceVerification.Missing
-		$this->arm_die_trap();
-
-		$this->expectException( \Exception::class );
-		try {
-			Onboarding_Wizard::handle_save();
-		} finally {
-			$this->assertFalse( get_option( 'activitypub_actor_mode' ) );
-		}
-	}
-
-	/**
-	 * Skip handler dies for non-admin users and does not mark complete.
-	 */
-	public function test_handle_skip_dies_for_non_admin(): void {
-		$this->become_subscriber();
-		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
-		$_POST    = array(
-			'action'   => 'fosse_wizard_skip',
-			'_wpnonce' => wp_create_nonce( 'fosse_wizard_skip' ),
-		);
-		$_REQUEST = $_POST;
-		// phpcs:enable WordPress.Security.NonceVerification.Missing
-		$this->arm_die_trap();
-
-		$this->expectException( \Exception::class );
-		try {
-			Onboarding_Wizard::handle_skip();
-		} finally {
-			$this->assertFalse( Onboarding_Wizard::is_complete() );
-		}
-	}
-
-	/**
-	 * Skip handler dies on bad nonce and does not mark complete.
-	 */
-	public function test_handle_skip_dies_on_bad_nonce(): void {
-		$user_id = wp_insert_user(
-			array(
-				'user_login' => 'fosse_wiz_' . uniqid( '', true ),
-				'user_pass'  => 'test',
-				'role'       => 'administrator',
-			)
-		);
-		wp_set_current_user( $user_id );
-		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
-		$_POST    = array(
-			'action'   => 'fosse_wizard_skip',
-			'_wpnonce' => 'invalid',
-		);
-		$_REQUEST = $_POST;
-		// phpcs:enable WordPress.Security.NonceVerification.Missing
-		$this->arm_die_trap();
-
-		$this->expectException( \Exception::class );
-		try {
-			Onboarding_Wizard::handle_skip();
-		} finally {
-			$this->assertFalse( Onboarding_Wizard::is_complete() );
-		}
-	}
-
-	/**
-	 * Complete handler dies for non-admin users and does not mark complete.
-	 */
-	public function test_handle_complete_dies_for_non_admin(): void {
-		$this->become_subscriber();
-		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
-		$_POST    = array(
-			'action'   => 'fosse_wizard_complete',
-			'_wpnonce' => wp_create_nonce( 'fosse_wizard_complete' ),
-		);
-		$_REQUEST = $_POST;
-		// phpcs:enable WordPress.Security.NonceVerification.Missing
-		$this->arm_die_trap();
-
-		$this->expectException( \Exception::class );
-		try {
-			Onboarding_Wizard::handle_complete();
-		} finally {
-			$this->assertFalse( Onboarding_Wizard::is_complete() );
-		}
-	}
-
-	/**
-	 * Complete handler dies on bad nonce and does not mark complete.
-	 */
-	public function test_handle_complete_dies_on_bad_nonce(): void {
-		$user_id = wp_insert_user(
-			array(
-				'user_login' => 'fosse_wiz_' . uniqid( '', true ),
-				'user_pass'  => 'test',
-				'role'       => 'administrator',
-			)
-		);
-		wp_set_current_user( $user_id );
-		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
-		$_POST    = array(
-			'action'   => 'fosse_wizard_complete',
-			'_wpnonce' => 'invalid',
-		);
-		$_REQUEST = $_POST;
-		// phpcs:enable WordPress.Security.NonceVerification.Missing
-		$this->arm_die_trap();
-
-		$this->expectException( \Exception::class );
-		try {
-			Onboarding_Wizard::handle_complete();
-		} finally {
-			$this->assertFalse( Onboarding_Wizard::is_complete() );
-		}
-	}
-
-	/**
-	 * Reset handler dies for non-admin users and the completed flag is preserved.
-	 */
-	public function test_handle_reset_dies_for_non_admin(): void {
-		Onboarding_Wizard::mark_complete();
-		$this->become_subscriber();
-		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
-		$_POST    = array(
-			'action'   => 'fosse_wizard_reset',
-			'_wpnonce' => wp_create_nonce( 'fosse_wizard_reset' ),
-		);
-		$_REQUEST = $_POST;
-		// phpcs:enable WordPress.Security.NonceVerification.Missing
-		$this->arm_die_trap();
-
-		$this->expectException( \Exception::class );
-		try {
-			Onboarding_Wizard::handle_reset();
-		} finally {
-			$this->assertTrue( Onboarding_Wizard::is_complete() );
-		}
-	}
-
-	/**
-	 * Reset handler dies on bad nonce and the completed flag is preserved.
-	 */
-	public function test_handle_reset_dies_on_bad_nonce(): void {
-		Onboarding_Wizard::mark_complete();
-		$user_id = wp_insert_user(
-			array(
-				'user_login' => 'fosse_wiz_' . uniqid( '', true ),
-				'user_pass'  => 'test',
-				'role'       => 'administrator',
-			)
-		);
-		wp_set_current_user( $user_id );
-		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
-		$_POST    = array(
-			'action'   => 'fosse_wizard_reset',
-			'_wpnonce' => 'invalid',
-		);
-		$_REQUEST = $_POST;
-		// phpcs:enable WordPress.Security.NonceVerification.Missing
-		$this->arm_die_trap();
-
-		$this->expectException( \Exception::class );
-		try {
-			Onboarding_Wizard::handle_reset();
-		} finally {
-			$this->assertTrue( Onboarding_Wizard::is_complete() );
-		}
-	}
-
 	// --- empty post types redirect ---
 
 	/**
@@ -455,15 +285,198 @@ class Onboarding_WizardTest extends BaseTestCase {
 		$this->assertSame( array( 'post' ), get_option( 'activitypub_support_post_types' ) );
 	}
 
-	// --- redirect transient ---
+	// --- audit hook: render capability failure ---
 
 	/**
-	 * Setting the redirect transient allows retrieval.
+	 * Render fires the audit hook (and dies) for a non-admin user.
 	 */
-	public function test_redirect_transient_round_trip() {
-		set_transient( Onboarding_Wizard::REDIRECT_TRANSIENT, 1, 30 );
+	public function test_render_unauthorized_fires_audit(): void {
+		$this->become_subscriber();
+		$captured = array();
+		$this->hook_audit_capture( $captured );
+		$this->arm_die_trap();
 
-		$this->assertNotFalse( get_transient( Onboarding_Wizard::REDIRECT_TRANSIENT ) );
+		$this->expectException( \Exception::class );
+		try {
+			Onboarding_Wizard::render();
+		} finally {
+			$this->assertCount( 1, $captured );
+			$this->assertSame( 'fosse_wizard_render', $captured[0][0] );
+			$this->assertSame( 'capability', $captured[0][2] );
+		}
+	}
+
+	// --- degraded render ---
+
+	/**
+	 * Render shows a clear notice when no AP provider is registered,
+	 * instead of trying to render steps that depend on AP actor data.
+	 */
+	public function test_render_shows_degraded_notice_when_activitypub_unavailable(): void {
+		$this->become_admin();
+		Connection_Provider_Registry::reset();
+
+		ob_start();
+		try {
+			Onboarding_Wizard::render();
+		} finally {
+			$output = ob_get_clean();
+		}
+
+		$this->assertStringContainsString( 'Setup is unavailable', $output );
+		$this->assertStringContainsString( 'ActivityPub', $output );
+	}
+
+	// --- audit hook: handler cap/nonce failures (parameterized) ---
+
+	/**
+	 * Each handler fires fosse_wizard_unauthorized before wp_die() on
+	 * capability or nonce failure, and preserves handler-specific state.
+	 *
+	 * @dataProvider unauthorized_handler_provider
+	 *
+	 * @param string $handler      Handler method name.
+	 * @param string $action       Wizard action passed to the audit hook.
+	 * @param string $nonce_action Nonce action used by the handler.
+	 * @param string $reason       'capability' or 'nonce'.
+	 */
+	#[DataProvider( 'unauthorized_handler_provider' )]
+	public function test_unauthorized_handler_fires_audit_and_dies(
+		string $handler,
+		string $action,
+		string $nonce_action,
+		string $reason
+	): void {
+		// Reset preserves: handle_reset preserves the completed flag,
+		// so seed it before the request runs.
+		if ( 'handle_reset' === $handler ) {
+			Onboarding_Wizard::mark_complete();
+		}
+
+		if ( 'capability' === $reason ) {
+			$this->become_subscriber();
+		} else {
+			$this->become_admin();
+		}
+
+		$nonce_value = 'capability' === $reason
+			? wp_create_nonce( $nonce_action )
+			: 'invalid';
+
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
+		$post = array(
+			'action'   => $action,
+			'_wpnonce' => $nonce_value,
+		);
+		if ( 'handle_save' === $handler ) {
+			$post['fosse_wizard_step']      = 'appearance';
+			$post['activitypub_actor_mode'] = 'blog';
+		}
+		$_POST    = $post;
+		$_REQUEST = $post;
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+
+		$captured = array();
+		$this->hook_audit_capture( $captured );
+		$this->arm_die_trap();
+
+		$this->expectException( \Exception::class );
+		try {
+			Onboarding_Wizard::$handler();
+		} finally {
+			$this->assertCount( 1, $captured, 'audit hook should fire exactly once' );
+			$this->assertSame( $action, $captured[0][0] );
+			$this->assertSame( $reason, $captured[0][2] );
+
+			switch ( $handler ) {
+				case 'handle_save':
+					$this->assertFalse( get_option( 'activitypub_actor_mode' ) );
+					break;
+				case 'handle_skip':
+				case 'handle_complete':
+					$this->assertFalse( Onboarding_Wizard::is_complete() );
+					break;
+				case 'handle_reset':
+					$this->assertTrue( Onboarding_Wizard::is_complete() );
+					break;
+			}
+		}
+	}
+
+	/**
+	 * Data provider for the unauthorized-handler test.
+	 *
+	 * @return array<string, array<int, string>>
+	 */
+	public static function unauthorized_handler_provider(): array {
+		return array(
+			'save: capability'     => array( 'handle_save', 'fosse_wizard_save', 'fosse_wizard', 'capability' ),
+			'save: nonce'          => array( 'handle_save', 'fosse_wizard_save', 'fosse_wizard', 'nonce' ),
+			'skip: capability'     => array( 'handle_skip', 'fosse_wizard_skip', 'fosse_wizard_skip', 'capability' ),
+			'skip: nonce'          => array( 'handle_skip', 'fosse_wizard_skip', 'fosse_wizard_skip', 'nonce' ),
+			'complete: capability' => array( 'handle_complete', 'fosse_wizard_complete', 'fosse_wizard_complete', 'capability' ),
+			'complete: nonce'      => array( 'handle_complete', 'fosse_wizard_complete', 'fosse_wizard_complete', 'nonce' ),
+			'reset: capability'    => array( 'handle_reset', 'fosse_wizard_reset', 'fosse_wizard_reset', 'capability' ),
+			'reset: nonce'         => array( 'handle_reset', 'fosse_wizard_reset', 'fosse_wizard_reset', 'nonce' ),
+		);
+	}
+
+	// --- normalize_handle_preview ---
+
+	/**
+	 * Empty input returns empty string.
+	 */
+	public function test_normalize_handle_preview_blank_returns_empty(): void {
+		$this->assertSame( '', $this->call_normalize( '' ) );
+	}
+
+	/**
+	 * Single `@` (no local-part, no domain) returns empty string.
+	 */
+	public function test_normalize_handle_preview_at_only_returns_empty(): void {
+		$this->assertSame( '', $this->call_normalize( '@' ) );
+	}
+
+	/**
+	 * `@host` (missing local-part) returns empty string.
+	 */
+	public function test_normalize_handle_preview_at_host_returns_empty(): void {
+		$this->assertSame( '', $this->call_normalize( '@host.example' ) );
+	}
+
+	/**
+	 * `user@` (missing domain) returns empty string.
+	 */
+	public function test_normalize_handle_preview_user_at_returns_empty(): void {
+		$this->assertSame( '', $this->call_normalize( 'user@' ) );
+	}
+
+	/**
+	 * Plain `host` (no `@`) returns empty string.
+	 */
+	public function test_normalize_handle_preview_no_at_returns_empty(): void {
+		$this->assertSame( '', $this->call_normalize( 'host.example' ) );
+	}
+
+	/**
+	 * Multiple `@`s past the leading one (malformed) return empty string.
+	 */
+	public function test_normalize_handle_preview_multi_at_returns_empty(): void {
+		$this->assertSame( '', $this->call_normalize( 'user@host@extra' ) );
+	}
+
+	/**
+	 * Bare `user@host` is normalized to `@user@host`.
+	 */
+	public function test_normalize_handle_preview_user_host_prepends_at(): void {
+		$this->assertSame( '@user@host.example', $this->call_normalize( 'user@host.example' ) );
+	}
+
+	/**
+	 * `@user@host` keeps the leading `@` and is returned unchanged.
+	 */
+	public function test_normalize_handle_preview_at_user_host_passes_through(): void {
+		$this->assertSame( '@user@host.example', $this->call_normalize( '@user@host.example' ) );
 	}
 
 	// --- helpers ---
@@ -479,6 +492,22 @@ class Onboarding_WizardTest extends BaseTestCase {
 				'role'       => 'subscriber',
 			)
 		);
+		$this->assertNotWPError( $user_id );
+		wp_set_current_user( $user_id );
+	}
+
+	/**
+	 * Authenticate as an administrator.
+	 */
+	private function become_admin(): void {
+		$user_id = wp_insert_user(
+			array(
+				'user_login' => 'fosse_admin_' . uniqid( '', true ),
+				'user_pass'  => 'test',
+				'role'       => 'administrator',
+			)
+		);
+		$this->assertNotWPError( $user_id );
 		wp_set_current_user( $user_id );
 	}
 
@@ -498,6 +527,47 @@ class Onboarding_WizardTest extends BaseTestCase {
 	}
 
 	/**
+	 * Hook fosse_wizard_unauthorized and append the firing args to the
+	 * caller's array each time it fires. Pass the bucket by reference
+	 * so the caller can inspect it after the request runs.
+	 *
+	 * @param array<int, array<int, mixed>> $captured Bucket to populate.
+	 */
+	private function hook_audit_capture( array &$captured ): void {
+		add_action(
+			'fosse_wizard_unauthorized',
+			static function () use ( &$captured ): void {
+				$captured[] = func_get_args();
+			},
+			10,
+			3
+		);
+	}
+
+	/**
+	 * Invoke the private normalize_handle_preview() helper via reflection.
+	 *
+	 * @param string $handle Raw handle.
+	 * @return string
+	 */
+	private function call_normalize( string $handle ): string {
+		$method = new ReflectionMethod( Onboarding_Wizard::class, 'normalize_handle_preview' );
+		return (string) $method->invoke( null, $handle );
+	}
+
+	/**
+	 * Fail the test if the value is a WP_Error.
+	 *
+	 * @param mixed $value Value to check.
+	 */
+	private function assertNotWPError( $value ): void {
+		if ( is_wp_error( $value ) ) {
+			$this->fail( 'Unexpected WP_Error: ' . $value->get_error_message() );
+		}
+		$this->assertFalse( is_wp_error( $value ) );
+	}
+
+	/**
 	 * Simulate a wizard save POST request.
 	 *
 	 * @param string               $step      Step slug.
@@ -512,6 +582,7 @@ class Onboarding_WizardTest extends BaseTestCase {
 				'role'       => 'administrator',
 			)
 		);
+		$this->assertNotWPError( $user_id );
 		wp_set_current_user( $user_id );
 
 		$defaults = array(
@@ -546,6 +617,7 @@ class Onboarding_WizardTest extends BaseTestCase {
 				'role'       => 'administrator',
 			)
 		);
+		$this->assertNotWPError( $user_id );
 		wp_set_current_user( $user_id );
 
 		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
@@ -577,6 +649,7 @@ class Onboarding_WizardTest extends BaseTestCase {
 				'role'       => 'administrator',
 			)
 		);
+		$this->assertNotWPError( $user_id );
 		wp_set_current_user( $user_id );
 
 		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
@@ -608,6 +681,7 @@ class Onboarding_WizardTest extends BaseTestCase {
 				'role'       => 'administrator',
 			)
 		);
+		$this->assertNotWPError( $user_id );
 		wp_set_current_user( $user_id );
 
 		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.

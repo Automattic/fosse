@@ -115,10 +115,10 @@ test( 'Completion step shows summary', async ( { page } ) => {
 	).toBeVisible();
 } );
 
-// Wizard-incomplete notice is covered by PHPUnit (Onboarding_WizardTest).
-// The E2E version was flaky because Playground's blueprint activates the
-// plugin, setting the redirect transient, and consuming it deterministically
-// before navigating to the Setup page proved unreliable in CI.
+// Activation-redirect coverage lives in PHPUnit (MenuTest). The E2E
+// version was flaky because Playground's blueprint activates the plugin,
+// sets the redirect signal, and consuming it deterministically before
+// navigating to the Setup page proved unreliable in CI.
 
 test( 'Skip setup marks wizard complete and goes to Setup page', async ( {
 	page,
