@@ -806,11 +806,13 @@ class Onboarding_Wizard {
 			<div class="fosse-wizard__hint">
 				<p>
 					<?php
-					printf(
-						/* translators: %s: opening and closing anchor tag for help link */
-						esc_html__( 'You\'ll need an existing Bluesky account. If you want to use your domain as your Bluesky handle, %1$slearn how to set that up%2$s.', 'fosse' ),
-						'<a href="https://bsky.social/about/blog/4-28-2023-domain-handle-tutorial" target="_blank" rel="noopener noreferrer">',
-						'</a>'
+					echo wp_kses_post(
+						sprintf(
+							/* translators: 1: opening anchor tag, 2: closing anchor tag */
+							__( 'You\'ll need an existing Bluesky account. If you want to use your domain as your Bluesky handle, %1$slearn how to set that up%2$s.', 'fosse' ),
+							'<a href="' . esc_url( 'https://bsky.social/about/blog/4-28-2023-domain-handle-tutorial' ) . '" target="_blank" rel="noopener noreferrer">',
+							'</a>'
+						)
 					);
 					?>
 				</p>
@@ -836,9 +838,17 @@ class Onboarding_Wizard {
 	 * @return void
 	 */
 	private static function render_step_complete(): void {
+		// Direct GET to ?step=complete (URL crafting, browser back/forward) would
+		// otherwise render the success screen without ever marking the wizard
+		// complete via handle_complete(), leaving the Setup notice nagging.
+		if ( ! self::is_complete() ) {
+			self::redirect_to_step( 'welcome' );
+		}
+
 		$actor_mode = get_option( 'activitypub_actor_mode', 'actor' );
 		$post_types = get_option( 'activitypub_support_post_types', array( 'post' ) );
-		$site_url   = wp_parse_url( home_url(), PHP_URL_HOST ) ? wp_parse_url( home_url(), PHP_URL_HOST ) : 'yoursite.com';
+		$site_host  = wp_parse_url( home_url(), PHP_URL_HOST );
+		$site_url   = $site_host ? $site_host : 'yoursite.com';
 
 		$mode_labels = array(
 			'actor'      => __( 'As you (author profiles)', 'fosse' ),
@@ -865,7 +875,7 @@ class Onboarding_Wizard {
 			</div>
 			<h1 class="fosse-wizard__title"><?php esc_html_e( 'You\'re all set!', 'fosse' ); ?></h1>
 			<p class="fosse-wizard__description">
-				<?php esc_html_e( 'Your site is now part of the social web. People can find and follow you from Mastodon, Bluesky, and other compatible apps.', 'fosse' ); ?>
+				<?php esc_html_e( 'Your site is now part of the social web. People can find and follow you from Mastodon and other compatible apps.', 'fosse' ); ?>
 			</p>
 		</div>
 
