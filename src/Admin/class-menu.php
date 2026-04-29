@@ -126,22 +126,32 @@ class Menu {
 	 *
 	 * Fires once for the first qualifying admin request after activation.
 	 * On capability/context guard returns (non-admin user, AJAX/cron/CLI)
-	 * the transient is preserved so a later real admin request can still
+	 * the option is preserved so a later real admin request can still
 	 * consume it. On positive "do not redirect" branches (already
-	 * complete, bulk activation), the transient is deleted to prevent a
-	 * stale redirect within its TTL.
+	 * complete, bulk activation), the option is deleted to prevent a
+	 * stale redirect.
 	 *
 	 * @return void
 	 */
 	public static function maybe_redirect_to_wizard(): void {
-		if ( ! get_transient( Onboarding_Wizard::REDIRECT_TRANSIENT ) ) {
+		// Migrate any leftover legacy transient from a pre-option install
+		// onto the new option-backed signal, then drop the transient so
+		// the rest of the function only consults the option.
+		if ( get_transient( Onboarding_Wizard::REDIRECT_TRANSIENT ) ) {
+			update_option( Onboarding_Wizard::REDIRECT_OPTION, 1, false );
+			// Return value unchecked: we only care that it's gone after
+			// this call, and we already have the option-backed signal.
+			delete_transient( Onboarding_Wizard::REDIRECT_TRANSIENT );
+		}
+
+		if ( ! get_option( Onboarding_Wizard::REDIRECT_OPTION ) ) {
 			return;
 		}
 
 		// Gate on capability and request context before consuming the
-		// transient. The transient is global, so a lower-privileged user
-		// or non-admin request could otherwise consume it and prevent
-		// the intended redirect for the actual site administrator.
+		// option. The signal is global, so a lower-privileged user or
+		// non-admin request could otherwise consume it and prevent the
+		// intended redirect for the actual site administrator.
 		if ( ! current_user_can( 'manage_options' ) ) {
 			return;
 		}
@@ -153,21 +163,26 @@ class Menu {
 
 		// Don't redirect if the wizard was already completed.
 		if ( Onboarding_Wizard::is_complete() ) {
-			delete_transient( Onboarding_Wizard::REDIRECT_TRANSIENT );
+			// Return value unchecked: any of "deleted", "wasn't there",
+			// or "stored value was identical" leaves the option absent,
+			// which is exactly what we want.
+			delete_option( Onboarding_Wizard::REDIRECT_OPTION );
 			return;
 		}
 
 		// Don't redirect if activating multiple plugins at once. Consume
-		// the transient anyway so a follow-up admin request inside the
-		// 30s TTL can't redirect unexpectedly.
+		// the option anyway so a follow-up admin request can't redirect
+		// unexpectedly.
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only check.
 		if ( isset( $_GET['activate-multi'] ) ) {
-			delete_transient( Onboarding_Wizard::REDIRECT_TRANSIENT );
+			// Return value unchecked: same reasoning as above.
+			delete_option( Onboarding_Wizard::REDIRECT_OPTION );
 			return;
 		}
 
-		// All guards passed — consume the transient and redirect.
-		delete_transient( Onboarding_Wizard::REDIRECT_TRANSIENT );
+		// All guards passed — consume the option and redirect.
+		// Return value unchecked: same reasoning as above.
+		delete_option( Onboarding_Wizard::REDIRECT_OPTION );
 
 		wp_safe_redirect( admin_url( 'admin.php?page=fosse-wizard' ) );
 		exit;

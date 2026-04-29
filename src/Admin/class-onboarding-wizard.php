@@ -27,11 +27,27 @@ class Onboarding_Wizard {
 	public const COMPLETED_OPTION = 'fosse_onboarding_completed';
 
 	/**
-	 * Transient key for activation redirect.
+	 * Option key for the one-shot activation redirect signal.
+	 *
+	 * Stored with autoload `false` so the option only hits the DB when
+	 * an activation actually wrote it; consumed and deleted on the
+	 * first qualifying admin request.
 	 *
 	 * @var string
 	 */
-	public const REDIRECT_TRANSIENT = 'fosse_activation_redirect';
+	public const REDIRECT_OPTION = 'fosse_activation_redirect';
+
+	/**
+	 * Legacy transient key for the activation redirect.
+	 *
+	 * Earlier installs of FOSSE used a 30-second transient. Kept as an
+	 * alias so {@see Menu::maybe_redirect_to_wizard()} can migrate any
+	 * lingering transient into the new option-backed signal.
+	 *
+	 * @deprecated Use {@see self::REDIRECT_OPTION} instead.
+	 * @var string
+	 */
+	public const REDIRECT_TRANSIENT = self::REDIRECT_OPTION;
 
 	/**
 	 * Valid step slugs in order.
