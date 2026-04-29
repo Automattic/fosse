@@ -1,5 +1,9 @@
 # Implementation Notes — Bluesky Handle Setup
 
+## Status Snapshot
+
+Task 1 is implemented on this branch: `/.well-known/atproto-did` is served from `Bluesky_Provider`, the FOSSE opt-out filter is honored, and the bundled Atmosphere fallback is suppressed when FOSSE opts out. The resolver, UI, DNS fallback, admin-post handlers, and tests remain planned work.
+
 ## Design Decisions
 
 ### Verification via Bluesky's resolveHandle API, not local DNS
@@ -10,6 +14,10 @@
 - **Decision**: When Bluesky is connected, FOSSE serves `/.well-known/atproto-did` automatically. A `fosse_serve_atproto_did_well_known` filter (default `true`) lets users disable it.
 - **Reason**: The whole point of this feature is to make the verification step disappear for the common case. Most WordPress sites don't have anything else competing for `.well-known/atproto-did`. The filter exists for the edge cases (managed hosts that intercept `.well-known`, sites running multiple ATProto identities, etc.) so users have an out without us needing a settings toggle.
 
+### FOSSE re-serves a route Atmosphere also serves
+- **Decision**: FOSSE serves the well-known response itself and suppresses Atmosphere's handler when `fosse_serve_atproto_did_well_known` returns false.
+- **Reason**: FOSSE owns the unified setup experience and its opt-out filter must mean "FOSSE will not serve this route, and the bundled fallback will not silently serve it either." This behavior is FOSSE-shaped, so it stays out of `bundled/`. A generic upstream Atmosphere opt-out hook can replace the suppression shim later if it becomes useful outside FOSSE.
+
 ### Domain handle UI lives inside Bluesky_Provider, not a new admin page
 - **Decision**: The setup, verification, and status UI all live as a subsection inside `Bluesky_Provider::render_setup_section()`.
 - **Reason**: This is an extension of "your Bluesky connection," not a separate concept. Adding a top-level FOSSE > Domain Handle page would split related state across two admin surfaces and make the connection ↔ handle relationship less obvious. The subsection only renders when Bluesky is connected, so it follows the user's mental model (Bluesky first, then domain handle).
@@ -19,8 +27,12 @@
 - **Reason**: The verification result itself is the source of truth for "is this working?" — we don't want a separate "is verified" boolean that can drift. The boolean is just for UI state ("show the CTA vs. show the verification panel"). Once the user starts, the panel stays even if verification fails, so they have somewhere to retry.
 
 ### Verification cached for 5 minutes
-- **Decision**: Results from `check_handle_verification()` are cached in a transient keyed by hash of `domain + expected DID` for 5 minutes. The "Check verification" button busts the transient. The DID is part of the key so reconnecting a different Bluesky account within the cache window doesn't reuse a stale `verified` result.
+- **Decision**: Results from `check_handle_verification()` are cached in a transient keyed by `md5( $domain . '|' . $expected_did )` for 5 minutes. The "Check verification" button busts the transient. The DID is part of the key so reconnecting a different Bluesky account within the cache window doesn't reuse a stale `verified` result.
 - **Reason**: Page loads in the WordPress admin can hit this multiple times (status card, setup section). 5 minutes is short enough that user intent ("I just changed my DNS, check again") still works via the explicit button, but long enough that incidental page loads don't hammer Bluesky.
+
+### Path-bound installs are ineligible
+- **Decision**: The UI checks `'' === trim( (string) wp_parse_url( home_url(), PHP_URL_PATH ), '/' )` before offering domain-handle setup.
+- **Reason**: ATProto handles are DNS names. A WordPress site at `example.com/blog` cannot use `example.com/blog` as a handle, and offering `example.com` would be misleading because FOSSE does not control that host root. Subdomain multisite remains eligible because each subsite still lives at a host root.
 
 ## Known Limitations (Expected)
 

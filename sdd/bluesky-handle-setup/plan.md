@@ -4,7 +4,7 @@ Based on: sdd/bluesky-handle-setup/spec.md
 
 ## Progress
 
-- [ ] Task 1: Add `/.well-known/atproto-did` route handler
+- [x] Task 1: Add `/.well-known/atproto-did` route handler
 - [ ] Task 2: Add verification check method
 - [ ] Task 2.5: Add `fetch_current_handle($did)` helper
 - [ ] Task 3: Add domain-handle UI to Bluesky_Provider setup section
@@ -17,15 +17,15 @@ Based on: sdd/bluesky-handle-setup/spec.md
 ## Tasks
 
 ### Task 1: Add `/.well-known/atproto-did` route handler
-- **Status**: In progress
+- **Status**: ✅ Done (396985f, 138404f, bc43461)
 - **Files**: `src/Admin/class-bluesky-provider.php`
 - **Do**:
   1. Add `serve_atproto_did_well_known()` method. Hook to `init` priority 1 inside `register_hooks()`.
-  2. Match `$_SERVER['REQUEST_URI']` against `/^\/\.well-known\/atproto-did(\?|$)/`. If no match, return early.
+  2. Parse `$_SERVER['REQUEST_URI']` with `wp_parse_url( ..., PHP_URL_PATH )` and match strict equality against `/.well-known/atproto-did`. If no match, return early.
   3. Apply `fosse_serve_atproto_did_well_known` filter (default `true`). If false, return.
   4. Read `atmosphere_connection['did']`. If empty, send 404 and exit.
   5. Set `Content-Type: text/plain` header. Echo DID with no trailing newline. Exit.
-  6. Add a paired `maybe_suppress_atmosphere_well_known()` method hooked to `template_redirect` priority 1. Clears Atmosphere's `atmosphere_wellknown` query var when the FOSSE filter is false, so Atmosphere's own handler doesn't take over after FOSSE opts out.
+  6. Add a paired `maybe_suppress_atmosphere_well_known()` method hooked to `template_redirect` priority 1. Clears Atmosphere's `atmosphere_wellknown` query var and marks the request 404 when the FOSSE filter is false, so Atmosphere's own handler doesn't take over after FOSSE opts out.
 - **Verify**:
   - `composer run-script lint-php` passes.
   - Curl `/.well-known/atproto-did` on a connected site returns plain-text DID.
@@ -61,20 +61,21 @@ Based on: sdd/bluesky-handle-setup/spec.md
 - **Files**: `src/Admin/class-bluesky-provider.php`
 - **Do**:
   1. Extract a `render_domain_handle_subsection()` method called from the existing `render_setup_section()` when connected.
-  2. Implement five UI states from spec.md (hidden / CTA / pending / verified / active).
-  3. Use `wp_parse_url( home_url(), PHP_URL_HOST )` to extract the host as the suggested handle. This avoids producing invalid handles like `example.com/blog` on subdirectory installs.
-  4. Status pulls from `check_handle_verification($host)`, `fetch_current_handle($did)` (see Task 2.5), and the `fosse_bluesky_handle_setup_started` option. The "active" state is only reached when `fetch_current_handle($did) === $host`, since `atmosphere_connection['handle']` is captured at OAuth time and goes stale after a handle change.
+  2. Implement six UI states from spec.md (hidden / ineligible / CTA / pending / verified / active).
+  3. Derive the candidate handle from `wp_parse_url( home_url(), PHP_URL_HOST )`; normalize to lowercase, strip any trailing dot, reject hosts with ports, and convert IDNs to ASCII with `idn_to_ascii()` when available.
+  4. Check root-domain eligibility before showing setup controls: `'' === trim( (string) wp_parse_url( home_url(), PHP_URL_PATH ), '/' )`. Subdirectory installs and subdirectory-multisite subsites are ineligible because ATProto handles cannot contain paths. Subdomain-multisite subsites and subdirectory-multisite main sites remain eligible when `home_url()` is host-root.
+  5. Status pulls from `check_handle_verification($host)`, `fetch_current_handle($did)` (see Task 2.5), and the `fosse_bluesky_handle_setup_started` option. The "active" state is only reached when `fetch_current_handle($did) === $host`, since `atmosphere_connection['handle']` is captured at OAuth time and goes stale after a handle change.
 - **Verify**:
   - `composer run-script lint-php` passes.
-  - Playground: each UI state renders for a manually-set option combination.
+  - Playground: each UI state renders for a manually-set option combination, including the ineligible subdirectory-install state.
 - **Depends on**: Task 1, Task 2, Task 2.5
 
 ### Task 4: Add admin-post handlers
 - **Status**: Not started
 - **Files**: `src/Admin/class-bluesky-provider.php`
 - **Do**:
-  1. Add `admin_post_fosse_bluesky_start_handle_setup` handler. Verify nonce + capability. Set `fosse_bluesky_handle_setup_started` to `1`. Redirect back to FOSSE Setup with `settings-updated=true`.
-  2. Add `admin_post_fosse_bluesky_check_handle` handler. Verify nonce + capability. Bust both the verification transient (`fosse_handle_check_<md5(domain.did)>`) AND the current-handle transient (`fosse_handle_current_<md5(did)>`) so the UI reflects the post-handoff state immediately. Redirect back to FOSSE Setup with `settings-updated=true`.
+  1. Add `admin_post_fosse_bluesky_start_handle_setup` handler. Verify nonce + capability. Set `fosse_bluesky_handle_setup_started` to `1` with autoload disabled (`add_option( ..., '', false )` on first write; `update_option()` afterward). Redirect back to FOSSE Setup with `settings-updated=true`.
+  2. Add `admin_post_fosse_bluesky_check_handle` handler. Verify nonce + capability. Bust both the verification transient (`fosse_handle_check_<md5(domain . '|' . did)>`) AND the current-handle transient (`fosse_handle_current_<md5(did)>`) so the UI reflects the post-handoff state immediately. Redirect back to FOSSE Setup with `settings-updated=true`.
   3. Register both in `register_hooks()`.
 - **Verify**:
   - `composer run-script lint-php` passes.
@@ -99,7 +100,9 @@ Based on: sdd/bluesky-handle-setup/spec.md
 - **Do**:
   1. Test `serve_atproto_did_well_known`: matches path, ignores other paths, respects filter, returns 404 when not connected.
   2. Test `check_handle_verification`: each status branch via `pre_http_request` intercept. Caching honored.
-  3. Test admin-post handlers: nonce required, capability required, option toggled, transient busted, redirect target correct.
+  3. Test `fetch_current_handle`: happy path returns handle, malformed response returns `null`, HTTP/WP_Error responses return `null`, and caching is honored.
+  4. Test domain normalization/eligibility: lowercase host, strip trailing dot, reject path-bound installs, convert IDNs when supported.
+  5. Test admin-post handlers: nonce required, capability required, option toggled with autoload disabled, transient busted, redirect target correct.
 - **Verify**:
   - `composer run-script test-php` all green.
   - `composer run-script lint-php` clean.
@@ -119,7 +122,7 @@ Based on: sdd/bluesky-handle-setup/spec.md
 
 ### Task 7: Update SDD documentation
 - **Status**: Not started
-- **Files**: `sdd/bluesky-handle-setup/requirements.md`, `spec.md`, `plan.md`, `planned-decisions.md`
+- **Files**: `sdd/bluesky-handle-setup/requirements.md`, `spec.md`, `plan.md`, `implementation-notes.md`
 - **Do**:
   1. Update all four SDD documents to reflect as-built implementation. Add Done markers with PR ref.
 - **Verify**:

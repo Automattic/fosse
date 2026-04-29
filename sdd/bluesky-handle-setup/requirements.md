@@ -18,12 +18,14 @@ Kraft, 2026-04-20: *"I can switch over to use my domain as my handle but looks l
 3. **Verification status UI.** Tell the user whether their domain currently resolves to their DID. Surface clear next-steps if it doesn't.
 4. **Handoff guidance to bsky.app.** Once verification is in place, link the user to Bluesky's "Change Handle" flow with their domain pre-prepared, so they can complete the swap on Bluesky's side.
 5. **Bluesky_Provider extension, not a new component.** This work extends the existing provider rather than introducing a new top-level admin surface.
+6. **Root-domain eligibility only.** The site must live at the host root for its domain to be usable as an ATProto handle. Subdirectory installs and subdirectory-multisite subsites are ineligible because handles cannot contain URL paths.
 
 ## Constraints
 
 - Self-hosted WordPress plugin first.
 - PHP 8.2+, WP 6.9+.
 - Bundled plugins (`bundled/atmosphere/`) must NOT be modified. If an upstream change is needed, open a PR there.
+- The suggested handle is derived from `home_url()`'s host, normalized as a DNS name, and rejected when `home_url()` contains a non-empty path.
 - Must pass the existing CI matrix.
 
 ## Out of Scope
@@ -31,3 +33,4 @@ Kraft, 2026-04-20: *"I can switch over to use my domain as my handle but looks l
 - Helping the user set up DNS records programmatically (we display, they configure their DNS provider).
 - Automating the bsky.app "Change Handle" step itself (Bluesky's API doesn't allow third-party handle changes).
 - Multi-user / per-user handles. Single-site-owner flow only.
+- Path-based domain handles such as `example.com/blog`; ATProto handles are DNS names only.
