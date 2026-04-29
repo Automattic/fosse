@@ -2,7 +2,7 @@
 
 ## Status Snapshot
 
-Task 1 is implemented on this branch: `/.well-known/atproto-did` is served from `Bluesky_Provider`, the FOSSE opt-out filter is honored, and the bundled Atmosphere fallback is suppressed when FOSSE opts out. The resolver, UI, DNS fallback, admin-post handlers, and tests remain planned work.
+Task 1 is implemented on this branch: `/.well-known/atproto-did` is served from `Bluesky_Provider` only when Atmosphere reports a connected account, the FOSSE opt-out filter is honored, and the bundled Atmosphere fallback is suppressed when FOSSE opts out. The resolver, UI, DNS fallback, admin-post handlers, and broader feature tests remain planned work.
 
 ## Design Decisions
 

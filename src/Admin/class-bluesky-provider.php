@@ -255,10 +255,35 @@ class Bluesky_Provider implements Connection_Provider {
 	 */
 	public function serve_atproto_did_well_known(): void {
 		$request_uri = isset( $_SERVER['REQUEST_URI'] ) ? sanitize_text_field( wp_unslash( $_SERVER['REQUEST_URI'] ) ) : '';
-		$path        = wp_parse_url( $request_uri, PHP_URL_PATH );
+		$response    = $this->get_atproto_did_well_known_response( $request_uri );
+
+		if ( null === $response ) {
+			return;
+		}
+
+		if ( 404 === $response['status'] ) {
+			status_header( 404 );
+			nocache_headers();
+			exit;
+		}
+
+		header( 'Content-Type: text/plain; charset=utf-8' );
+		nocache_headers();
+		echo $response['did']; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- text/plain response with controlled DID value.
+		exit;
+	}
+
+	/**
+	 * Resolve the response data for FOSSE's /.well-known/atproto-did handler.
+	 *
+	 * @param string $request_uri Request URI.
+	 * @return array{status:int,did:string}|null Null when FOSSE should not handle the request.
+	 */
+	private function get_atproto_did_well_known_response( string $request_uri ): ?array {
+		$path = wp_parse_url( $request_uri, PHP_URL_PATH );
 
 		if ( '/.well-known/atproto-did' !== $path ) {
-			return;
+			return null;
 		}
 
 		/**
@@ -269,22 +294,30 @@ class Bluesky_Provider implements Connection_Provider {
 		 * @param bool $serve Default true when Bluesky is connected.
 		 */
 		if ( ! apply_filters( 'fosse_serve_atproto_did_well_known', true ) ) {
-			return;
+			return null;
 		}
 
-		$connection = get_option( 'atmosphere_connection' );
-		$did        = is_array( $connection ) && isset( $connection['did'] ) ? (string) $connection['did'] : '';
+		if ( ! function_exists( '\Atmosphere\is_connected' ) || ! \Atmosphere\is_connected() ) {
+			return array(
+				'status' => 404,
+				'did'    => '',
+			);
+		}
+
+		$connection = function_exists( '\Atmosphere\get_connection' ) ? \Atmosphere\get_connection() : array();
+		$did        = isset( $connection['did'] ) ? (string) $connection['did'] : '';
 
 		if ( '' === $did ) {
-			status_header( 404 );
-			nocache_headers();
-			exit;
+			return array(
+				'status' => 404,
+				'did'    => '',
+			);
 		}
 
-		header( 'Content-Type: text/plain; charset=utf-8' );
-		nocache_headers();
-		echo $did; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- text/plain response with controlled DID value.
-		exit;
+		return array(
+			'status' => 200,
+			'did'    => $did,
+		);
 	}
 
 	/**

@@ -13,6 +13,7 @@ use Automattic\Fosse\Admin\Connection_Provider_Registry;
 use Automattic\Fosse\Provider_Loader;
 use PHPUnit\Framework\Attributes\After;
 use PHPUnit\Framework\Attributes\Before;
+use ReflectionMethod;
 use WorDBless\BaseTestCase;
 
 /**
@@ -54,6 +55,7 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		remove_all_filters( 'admin_post_fosse_connect_bluesky' );
 		remove_all_filters( 'admin_post_fosse_disconnect_bluesky' );
 		remove_all_filters( 'admin_init' );
+		remove_all_filters( 'fosse_serve_atproto_did_well_known' );
 
 		global $wp_settings_errors;
 		$wp_settings_errors = array(); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited,WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedVariableFound -- reset core settings-error storage for test isolation.
@@ -223,6 +225,76 @@ class Bluesky_ProviderTest extends BaseTestCase {
 			admin_url( 'admin.php?page=fosse' ),
 			$this->provider->filter_oauth_redirect_uri( admin_url( 'options-general.php?page=atmosphere' ) )
 		);
+	}
+
+	/**
+	 * The well-known route helper ignores unrelated request paths.
+	 */
+	public function test_atproto_did_well_known_response_ignores_other_paths() {
+		$this->assertNull( $this->get_atproto_did_well_known_response( '/about' ) );
+	}
+
+	/**
+	 * The well-known route helper returns the connected DID as plain response data.
+	 */
+	public function test_atproto_did_well_known_response_returns_connected_did() {
+		update_option(
+			'atmosphere_connection',
+			array(
+				'did'          => 'did:plc:test123',
+				'handle'       => 'alice.bsky.social',
+				'pds_endpoint' => 'https://bsky.social',
+				'access_token' => Encryption::encrypt( 'token' ),
+			)
+		);
+
+		$this->assertSame(
+			array(
+				'status' => 200,
+				'did'    => 'did:plc:test123',
+			),
+			$this->get_atproto_did_well_known_response( '/.well-known/atproto-did?ignored=1' )
+		);
+	}
+
+	/**
+	 * A stored DID is not enough to serve the well-known route without a connection.
+	 */
+	public function test_atproto_did_well_known_response_requires_connected_atmosphere() {
+		update_option(
+			'atmosphere_connection',
+			array(
+				'did'    => 'did:plc:test123',
+				'handle' => 'alice.bsky.social',
+			)
+		);
+
+		$this->assertSame(
+			array(
+				'status' => 404,
+				'did'    => '',
+			),
+			$this->get_atproto_did_well_known_response( '/.well-known/atproto-did' )
+		);
+	}
+
+	/**
+	 * The FOSSE opt-out filter prevents FOSSE from serving the well-known route.
+	 */
+	public function test_atproto_did_well_known_response_respects_opt_out_filter() {
+		update_option(
+			'atmosphere_connection',
+			array(
+				'did'          => 'did:plc:test123',
+				'handle'       => 'alice.bsky.social',
+				'pds_endpoint' => 'https://bsky.social',
+				'access_token' => Encryption::encrypt( 'token' ),
+			)
+		);
+
+		add_filter( 'fosse_serve_atproto_did_well_known', '__return_false' );
+
+		$this->assertNull( $this->get_atproto_did_well_known_response( '/.well-known/atproto-did' ) );
 	}
 
 	/**
@@ -477,7 +549,20 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		$this->assertNotFalse( has_action( 'admin_post_fosse_connect_bluesky', array( $this->provider, 'handle_connect' ) ) );
 		$this->assertNotFalse( has_action( 'admin_post_fosse_disconnect_bluesky', array( $this->provider, 'handle_disconnect' ) ) );
 		$this->assertNotFalse( has_action( 'admin_init', array( $this->provider, 'handle_oauth_callback' ) ) );
+		$this->assertNotFalse( has_action( 'init', array( $this->provider, 'serve_atproto_did_well_known' ) ) );
+		$this->assertNotFalse( has_action( 'template_redirect', array( $this->provider, 'maybe_suppress_atmosphere_well_known' ) ) );
 		$this->assertNotFalse( has_filter( 'atmosphere_oauth_redirect_uri', array( $this->provider, 'filter_oauth_redirect_uri' ) ) );
+	}
+
+	/**
+	 * Invoke the private well-known response helper via reflection.
+	 *
+	 * @param string $request_uri Request URI.
+	 * @return array{status:int,did:string}|null
+	 */
+	private function get_atproto_did_well_known_response( string $request_uri ): ?array {
+		$method = new ReflectionMethod( Bluesky_Provider::class, 'get_atproto_did_well_known_response' );
+		return $method->invoke( $this->provider, $request_uri );
 	}
 
 	/**

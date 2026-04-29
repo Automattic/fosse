@@ -23,7 +23,7 @@ Based on: sdd/bluesky-handle-setup/spec.md
   1. Add `serve_atproto_did_well_known()` method. Hook to `init` priority 1 inside `register_hooks()`.
   2. Parse `$_SERVER['REQUEST_URI']` with `wp_parse_url( ..., PHP_URL_PATH )` and match strict equality against `/.well-known/atproto-did`. If no match, return early.
   3. Apply `fosse_serve_atproto_did_well_known` filter (default `true`). If false, return.
-  4. Read `atmosphere_connection['did']`. If empty, send 404 and exit.
+  4. Require Atmosphere to report connected (`did` and access token present), then read `atmosphere_connection['did']`. If not connected or the DID is empty, send 404 and exit.
   5. Set `Content-Type: text/plain` header. Echo DID with no trailing newline. Exit.
   6. Add a paired `maybe_suppress_atmosphere_well_known()` method hooked to `template_redirect` priority 1. Clears Atmosphere's `atmosphere_wellknown` query var and marks the request 404 when the FOSSE filter is false, so Atmosphere's own handler doesn't take over after FOSSE opts out.
 - **Verify**:
@@ -61,7 +61,7 @@ Based on: sdd/bluesky-handle-setup/spec.md
 - **Files**: `src/Admin/class-bluesky-provider.php`
 - **Do**:
   1. Extract a `render_domain_handle_subsection()` method called from the existing `render_setup_section()` when connected.
-  2. Implement six UI states from spec.md (hidden / ineligible / CTA / pending / verified / active).
+  2. Implement the UI states from spec.md (hidden / ineligible / CTA / pending-not-found / mismatch / error / verified / active).
   3. Derive the candidate handle from `wp_parse_url( home_url(), PHP_URL_HOST )`; normalize to lowercase, strip any trailing dot, reject hosts with ports, and convert IDNs to ASCII with `idn_to_ascii()` when available.
   4. Check root-domain eligibility before showing setup controls: `'' === trim( (string) wp_parse_url( home_url(), PHP_URL_PATH ), '/' )`. Subdirectory installs and subdirectory-multisite subsites are ineligible because ATProto handles cannot contain paths. Subdomain-multisite subsites and subdirectory-multisite main sites remain eligible when `home_url()` is host-root.
   5. Status pulls from `check_handle_verification($host)`, `fetch_current_handle($did)` (see Task 2.5), and the `fosse_bluesky_handle_setup_started` option. The "active" state is only reached when `fetch_current_handle($did) === $host`, since `atmosphere_connection['handle']` is captured at OAuth time and goes stale after a handle change.
@@ -112,7 +112,7 @@ Based on: sdd/bluesky-handle-setup/spec.md
 - **Status**: Not started
 - **Files**: `tests/e2e/bluesky-handle.spec.ts`
 - **Do**:
-  1. New spec that activates a fixture mu-plugin which seeds a fake `atmosphere_connection` (with a known DID) so the well-known route has data to serve.
+  1. New spec that activates a fixture mu-plugin which seeds a fake connected `atmosphere_connection` (with a known DID and access token) so the well-known route has data to serve.
   2. Test 1: `GET /.well-known/atproto-did` returns 200, content-type `text/plain`, body equals the seeded DID with no trailing newline.
   3. Test 2: When the fixture mu-plugin clears the connection option, the same request returns 404.
   4. Test 3: When the `fosse_serve_atproto_did_well_known` filter returns `false`, the request returns 404 (verifies the disable filter works).
