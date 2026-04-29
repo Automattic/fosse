@@ -5,11 +5,12 @@
  * @package Automattic\Fosse
  *
  * @var array<string, \Automattic\Fosse\Admin\Connection_Provider> $providers
+ * @var bool                                                       $wizard_incomplete Whether the onboarding wizard has not yet been completed.
  */
 
 defined( 'ABSPATH' ) || exit;
 
-// phpcs:disable VariableAnalysis.CodeAnalysis.VariableAnalysis.UndefinedVariable -- $providers set by Setup_Page::render().
+// phpcs:disable VariableAnalysis.CodeAnalysis.VariableAnalysis.UndefinedVariable -- $providers and $wizard_incomplete are set by Setup_Page::render().
 ?>
 <div class="wrap">
 	<h1><?php esc_html_e( 'FOSSE Setup', 'fosse' ); ?></h1>
