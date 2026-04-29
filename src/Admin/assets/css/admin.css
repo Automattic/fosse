@@ -293,6 +293,15 @@
 	outline-offset: 2px;
 }
 
+/* :focus-within fallback for browsers without :focus-visible (older Safari, etc.).
+   Same outline treatment so keyboard navigation surfaces a focus ring on the
+   card even when :focus-visible isn't honored on the visually-hidden radio. */
+.fosse-mode-card:focus-within {
+	border-color: #3858e9;
+	outline: 2px solid #3858e9;
+	outline-offset: 2px;
+}
+
 .fosse-mode-card__icon {
 	width: 40px;
 	height: 40px;

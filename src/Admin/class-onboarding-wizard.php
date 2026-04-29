@@ -336,9 +336,9 @@ class Onboarding_Wizard {
 	 * Defers to ActivityPub's own actor models so the preview matches the
 	 * webfinger that Mastodon-style clients will actually resolve (blog
 	 * `preferred_username@host`, user nicename, etc.). Returns an empty
-	 * string when AP isn't loaded or the actor can't be resolved — the
-	 * caller hides the row in that case rather than showing a synthetic
-	 * placeholder.
+	 * string when AP isn't loaded, the actor can't be resolved, or the
+	 * upstream value is malformed — callers hide the row in that case
+	 * rather than showing a synthetic placeholder like `@example.com`.
 	 *
 	 * @param string $mode Selected actor mode (`actor`, `blog`, `actor_blog`).
 	 * @return string
@@ -347,10 +347,10 @@ class Onboarding_Wizard {
 		// Blog mode: blog webfinger only.
 		if ( 'blog' === $mode ) {
 			if ( class_exists( '\Activitypub\Model\Blog' ) ) {
-				$blog   = new \Activitypub\Model\Blog();
-				$handle = $blog->get_webfinger();
-				if ( $handle ) {
-					return '@' . ltrim( $handle, '@' );
+				$blog       = new \Activitypub\Model\Blog();
+				$normalized = self::normalize_handle_preview( (string) $blog->get_webfinger() );
+				if ( '' !== $normalized ) {
+					return $normalized;
 				}
 			}
 			return '';
@@ -360,23 +360,59 @@ class Onboarding_Wizard {
 		if ( class_exists( '\Activitypub\Model\User' ) ) {
 			$user = \Activitypub\Model\User::from_wp_user( get_current_user_id() );
 			if ( $user && ! is_wp_error( $user ) ) {
-				$handle = $user->get_webfinger();
-				if ( $handle ) {
-					return '@' . ltrim( $handle, '@' );
+				$normalized = self::normalize_handle_preview( (string) $user->get_webfinger() );
+				if ( '' !== $normalized ) {
+					return $normalized;
 				}
 			}
 		}
 
 		// actor_blog falls back to the blog handle when the user actor isn't available.
 		if ( 'actor_blog' === $mode && class_exists( '\Activitypub\Model\Blog' ) ) {
-			$blog   = new \Activitypub\Model\Blog();
-			$handle = $blog->get_webfinger();
-			if ( $handle ) {
-				return '@' . ltrim( $handle, '@' );
+			$blog       = new \Activitypub\Model\Blog();
+			$normalized = self::normalize_handle_preview( (string) $blog->get_webfinger() );
+			if ( '' !== $normalized ) {
+				return $normalized;
 			}
 		}
 
 		return '';
+	}
+
+	/**
+	 * Normalize a fediverse handle for preview display.
+	 *
+	 * Accepts the upstream `user@host` shape (with or without a leading
+	 * `@`) and returns `@user@host`. Returns an empty string for any
+	 * input that lacks a non-empty local-part and domain — e.g. `@host`,
+	 * `user@`, plain `host`, or empty input — so the caller can hide
+	 * the preview row instead of rendering a synthetic placeholder.
+	 *
+	 * AP models return `user@host`; FOSSE renderers prepend `@`. Kept
+	 * inline rather than shared with `AP_Provider::get_fediverse_address()`
+	 * to avoid changing the AP provider's output shape (which would risk
+	 * `@@user@host` at downstream call sites).
+	 *
+	 * @param string $handle Raw handle, e.g. `user@example.com` or `@user@example.com`.
+	 * @return string Normalized `@user@host`, or empty string if invalid.
+	 */
+	private static function normalize_handle_preview( string $handle ): string {
+		$trimmed = ltrim( $handle, '@' );
+		if ( '' === $trimmed ) {
+			return '';
+		}
+
+		$parts = explode( '@', $trimmed );
+		if ( 2 !== count( $parts ) ) {
+			return '';
+		}
+
+		[ $local, $domain ] = $parts;
+		if ( '' === $local || '' === $domain ) {
+			return '';
+		}
+
+		return '@' . $local . '@' . $domain;
 	}
 
 	/**
@@ -435,7 +471,7 @@ class Onboarding_Wizard {
 		?>
 		<h1 class="fosse-wizard__title"><?php esc_html_e( 'Welcome to FOSSE 🦎', 'fosse' ); ?></h1>
 		<p class="fosse-wizard__description">
-			<?php esc_html_e( 'FOSSE connects your WordPress site to the social web. People can follow your site and see your posts in their feeds, whether they use Mastodon, Bluesky, or any other compatible app.', 'fosse' ); ?>
+			<?php esc_html_e( 'FOSSE helps people follow your WordPress site from social apps that speak the open social web. Publish here, keep ownership here, and let followers read from their feeds.', 'fosse' ); ?>
 		</p>
 
 		<div class="fosse-wizard__card">
@@ -446,7 +482,7 @@ class Onboarding_Wizard {
 					</div>
 					<div class="fosse-welcome-feature__text">
 						<strong><?php esc_html_e( 'Reach new audiences', 'fosse' ); ?></strong><br>
-						<?php esc_html_e( 'Your posts appear across the social web, including Mastodon, Bluesky, and more.', 'fosse' ); ?>
+						<?php esc_html_e( 'Followers can see your new posts from compatible social apps, while WordPress stays the source of truth.', 'fosse' ); ?>
 					</div>
 				</div>
 				<div class="fosse-welcome-feature">
@@ -510,10 +546,11 @@ class Onboarding_Wizard {
 				'title' => __( 'As your site', 'fosse' ),
 				'desc'  => $site_host
 					? sprintf(
-						/* translators: 1: opening <strong> tag with site domain, 2: closing </strong> tag */
-						__( 'People follow %1$s%2$s. All posts appear from your site\'s name. Best for blogs and publications.', 'fosse' ),
-						'<strong>' . esc_html( $site_host ) . '',
-						'</strong>'
+						/* translators: 1: opening <strong> tag, 2: closing </strong> tag, 3: site domain. */
+						__( 'People follow %1$s%3$s%2$s. All posts appear from your site\'s name. Best for blogs and publications.', 'fosse' ),
+						'<strong>',
+						'</strong>',
+						esc_html( $site_host )
 					)
 					: __( 'People follow your site. All posts appear from your site\'s name. Best for blogs and publications.', 'fosse' ),
 			),
