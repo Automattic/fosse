@@ -37,6 +37,13 @@
 	margin-top: 0;
 }
 
+/* Allow long opaque values (Bluesky DIDs, PDS URLs, fediverse handles) to
+   wrap inside the card. Without this, the cell's min-content width is the
+   full identifier and the table pushes past its container. */
+.fosse-status-card td {
+	overflow-wrap: anywhere;
+}
+
 /* Status indicator dots */
 .fosse-status-indicator {
 	display: inline-block;
