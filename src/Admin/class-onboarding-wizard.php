@@ -113,13 +113,10 @@ class Onboarding_Wizard {
 	 * @return void
 	 */
 	public static function render(): void {
-		if ( ! current_user_can( 'manage_options' ) ) {
-			wp_die(
-				esc_html__( 'You do not have permission to access this page.', 'fosse' ),
-				'',
-				array( 'response' => 403 )
-			);
-		}
+		self::require_capability(
+			'fosse_wizard_render',
+			__( 'You do not have permission to access this page.', 'fosse' )
+		);
 
 		?>
 		<div class="wrap fosse-wizard">
@@ -189,12 +186,13 @@ class Onboarding_Wizard {
 	 * @return void
 	 */
 	public static function handle_save(): void {
-		if ( ! current_user_can( 'manage_options' ) ) {
-			wp_die( esc_html__( 'You do not have permission to save wizard settings.', 'fosse' ) );
-		}
+		self::require_capability(
+			'fosse_wizard_save',
+			__( 'You do not have permission to save wizard settings.', 'fosse' )
+		);
+		self::require_nonce( 'fosse_wizard_save', 'fosse_wizard' );
 
-		check_admin_referer( 'fosse_wizard' );
-
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- nonce verified by self::require_nonce() above.
 		$step = sanitize_text_field( wp_unslash( $_POST['fosse_wizard_step'] ?? '' ) );
 
 		if ( 'appearance' === $step ) {
@@ -219,6 +217,7 @@ class Onboarding_Wizard {
 			update_option( 'activitypub_support_post_types', $post_types );
 			self::redirect_to_step( 'bluesky' );
 		}
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
 
 		// Fallback: redirect to next logical step.
 		self::redirect_to_step( 'welcome' );
@@ -230,11 +229,11 @@ class Onboarding_Wizard {
 	 * @return void
 	 */
 	public static function handle_skip(): void {
-		if ( ! current_user_can( 'manage_options' ) ) {
-			wp_die( esc_html__( 'You do not have permission to skip the wizard.', 'fosse' ) );
-		}
-
-		check_admin_referer( 'fosse_wizard_skip' );
+		self::require_capability(
+			'fosse_wizard_skip',
+			__( 'You do not have permission to skip the wizard.', 'fosse' )
+		);
+		self::require_nonce( 'fosse_wizard_skip', 'fosse_wizard_skip' );
 
 		self::mark_complete();
 
@@ -253,11 +252,11 @@ class Onboarding_Wizard {
 	 * @return void
 	 */
 	public static function handle_complete(): void {
-		if ( ! current_user_can( 'manage_options' ) ) {
-			wp_die( esc_html__( 'You do not have permission to complete the wizard.', 'fosse' ) );
-		}
-
-		check_admin_referer( 'fosse_wizard_complete' );
+		self::require_capability(
+			'fosse_wizard_complete',
+			__( 'You do not have permission to complete the wizard.', 'fosse' )
+		);
+		self::require_nonce( 'fosse_wizard_complete', 'fosse_wizard_complete' );
 
 		self::mark_complete();
 
@@ -271,16 +270,75 @@ class Onboarding_Wizard {
 	 * @return void
 	 */
 	public static function handle_reset(): void {
-		if ( ! current_user_can( 'manage_options' ) ) {
-			wp_die( esc_html__( 'You do not have permission to reset the wizard.', 'fosse' ) );
-		}
-
-		check_admin_referer( 'fosse_wizard_reset' );
+		self::require_capability(
+			'fosse_wizard_reset',
+			__( 'You do not have permission to reset the wizard.', 'fosse' )
+		);
+		self::require_nonce( 'fosse_wizard_reset', 'fosse_wizard_reset' );
 
 		delete_option( self::COMPLETED_OPTION );
 
 		wp_safe_redirect( admin_url( 'admin.php?page=fosse-wizard' ) );
 		exit;
+	}
+
+	/**
+	 * Enforce manage_options or fail loudly.
+	 *
+	 * Fires the `fosse_wizard_unauthorized` action so site owners can audit
+	 * unauthorized wizard requests before the request is killed.
+	 *
+	 * @param string $action  Wizard action being attempted (e.g. `fosse_wizard_save`).
+	 * @param string $message Message shown via `wp_die()` on failure.
+	 * @return void
+	 */
+	private static function require_capability( string $action, string $message ): void {
+		if ( current_user_can( 'manage_options' ) ) {
+			return;
+		}
+
+		/**
+		 * Fires before the wizard kills an unauthorized request.
+		 *
+		 * @param string $action  Wizard action that was attempted.
+		 * @param int    $user_id Current user ID (0 for logged-out).
+		 * @param string $reason  Why the request was rejected (`capability` or `nonce`).
+		 */
+		do_action( 'fosse_wizard_unauthorized', $action, get_current_user_id(), 'capability' );
+
+		wp_die(
+			esc_html( $message ),
+			'',
+			array( 'response' => 403 )
+		);
+	}
+
+	/**
+	 * Verify the request nonce or fail loudly.
+	 *
+	 * Replaces direct `check_admin_referer()` calls so the audit hook fires
+	 * before the request is killed.
+	 *
+	 * @param string $action       Wizard action being attempted (e.g. `fosse_wizard_save`).
+	 * @param string $nonce_action Nonce action name (e.g. `fosse_wizard`).
+	 * @return void
+	 */
+	private static function require_nonce( string $action, string $nonce_action ): void {
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- this IS the nonce verification.
+		$nonce = isset( $_REQUEST['_wpnonce'] ) ? sanitize_text_field( wp_unslash( $_REQUEST['_wpnonce'] ) ) : '';
+
+		if ( wp_verify_nonce( $nonce, $nonce_action ) ) {
+			return;
+		}
+
+		/** This action is documented in src/Admin/class-onboarding-wizard.php */
+		do_action( 'fosse_wizard_unauthorized', $action, get_current_user_id(), 'nonce' );
+
+		wp_die(
+			esc_html__( 'The link you followed has expired. Please try again.', 'fosse' ),
+			'',
+			array( 'response' => 403 )
+		);
 	}
 
 	/**
