@@ -188,10 +188,14 @@ class AP_Provider implements Connection_Provider {
 		);
 		?>
 		<div class="fosse-status-card">
-			<h3>
-				<span class="fosse-status-indicator <?php echo $status['connected'] ? 'connected' : 'disconnected'; ?>"></span>
+			<h2>
+				<span
+					class="fosse-status-indicator <?php echo $status['connected'] ? 'connected' : 'disconnected'; ?>"
+					role="img"
+					aria-label="<?php echo esc_attr( $status['connected'] ? __( 'Connected', 'fosse' ) : __( 'Disconnected', 'fosse' ) ); ?>"
+				></span>
 				<?php esc_html_e( 'ActivityPub', 'fosse' ); ?>
-			</h3>
+			</h2>
 
 			<table class="widefat striped">
 				<tbody>
