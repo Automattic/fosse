@@ -179,6 +179,31 @@ if ( class_exists( \Automattic\Fosse\Provider_Loader::class ) ) {
 }
 
 /*
+ * Activation redirect.
+ *
+ * Persists a one-shot signal in the options table on first activation
+ * so the admin-init handler in Menu can redirect to the onboarding
+ * wizard. Stored with autoload `false` and consumed on the first
+ * qualifying admin request. Survives indefinitely if no admin request
+ * ever runs (transients TTLed out and could leave the wizard never
+ * reached on slow-to-visit installs).
+ */
+register_activation_hook(
+	__FILE__,
+	static function () {
+		if ( ! class_exists( \Automattic\Fosse\Admin\Onboarding_Wizard::class ) ) {
+			error_log( 'FOSSE: Onboarding_Wizard class unavailable on activation; skipping redirect signal.' ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- intentional plugin diagnostics; only fires when autoload is broken.
+			return;
+		}
+
+		$option = \Automattic\Fosse\Admin\Onboarding_Wizard::REDIRECT_OPTION;
+		if ( ! update_option( $option, 1, false ) && ! get_option( $option ) ) {
+			error_log( 'FOSSE: Failed to persist activation redirect signal (' . $option . ').' ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- intentional plugin diagnostics; only fires when the option write actually failed.
+		}
+	}
+);
+
+/*
  * Admin UI: FOSSE setup and status pages.
  *
  * Menu registration, bundled-menu suppression, and CSS enqueue.
