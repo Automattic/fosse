@@ -64,11 +64,14 @@ class Menu {
 			array( Status_Page::class, 'render' )
 		);
 
-		// Wizard page: null parent = hidden from all menus, accessible by direct URL.
+		// Wizard page: empty parent slug keeps it out of the sidebar while
+		// preserving a real admin URL. (PHP 8.2 deprecates passing null
+		// through plugin_basename() inside add_submenu_page(), so we keep
+		// the empty-string form rather than the documented null idiom.)
 		add_submenu_page(
 			'',
 			__( 'Setup Wizard', 'fosse' ),
-			'',
+			__( 'Setup Wizard', 'fosse' ),
 			'manage_options',
 			'fosse-wizard',
 			array( Onboarding_Wizard::class, 'render' )
@@ -121,8 +124,12 @@ class Menu {
 	/**
 	 * Redirect to the onboarding wizard on first activation.
 	 *
-	 * Checks for a transient set by the activation hook in fosse.php.
-	 * Fires once, then deletes the transient so it doesn't trigger again.
+	 * Fires once for the first qualifying admin request after activation.
+	 * On capability/context guard returns (non-admin user, AJAX/cron/CLI)
+	 * the transient is preserved so a later real admin request can still
+	 * consume it. On positive "do not redirect" branches (already
+	 * complete, bulk activation), the transient is deleted to prevent a
+	 * stale redirect within its TTL.
 	 *
 	 * @return void
 	 */
@@ -150,9 +157,12 @@ class Menu {
 			return;
 		}
 
-		// Don't redirect if activating multiple plugins at once.
+		// Don't redirect if activating multiple plugins at once. Consume
+		// the transient anyway so a follow-up admin request inside the
+		// 30s TTL can't redirect unexpectedly.
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only check.
 		if ( isset( $_GET['activate-multi'] ) ) {
+			delete_transient( Onboarding_Wizard::REDIRECT_TRANSIENT );
 			return;
 		}
 

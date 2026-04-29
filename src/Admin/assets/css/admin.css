@@ -286,6 +286,13 @@
 	background: rgba(56, 88, 233, 0.02);
 }
 
+/* Keyboard focus state — radio is visually hidden, so surface focus on the card. */
+.fosse-mode-card:has(.fosse-mode-card__input:focus-visible) {
+	border-color: #3858e9;
+	outline: 2px solid #3858e9;
+	outline-offset: 2px;
+}
+
 .fosse-mode-card__icon {
 	width: 40px;
 	height: 40px;

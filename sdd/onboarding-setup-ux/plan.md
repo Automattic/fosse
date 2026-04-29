@@ -74,11 +74,11 @@ Based on: sdd/onboarding-setup-ux/spec.md
 - **Depends on**: Task 2, Task 4
 
 ### Task 5.5: Create first-run onboarding wizard
-- **Status**: Not started
+- **Status**: Done
 - **Files**: `src/Admin/class-onboarding-wizard.php`, `src/Admin/class-menu.php`, `src/Admin/assets/css/admin.css`, `fosse.php`
 - **Do**:
   1. Create `Onboarding_Wizard` class with step-based rendering: Welcome, Appearance (actor mode), Content (post types), Bluesky (placeholder), Complete.
-  2. Register a hidden submenu page (`fosse-wizard`) in `Menu::add_menu()`, then remove it from the visible menu at priority 99 alongside bundled-menu suppression.
+  2. Register the wizard as a hidden admin page in `Menu::add_menu()` by passing a null `parent_slug` to `add_submenu_page()`. The page has a real admin URL (`?page=fosse-wizard`) and inherits capability checks, but never appears in the menu sidebar.
   3. Add `register_activation_hook` in `fosse.php` that sets a `fosse_activation_redirect` transient.
   4. Add `admin_init` handler in `Menu` that checks the transient, deletes it, and redirects to `?page=fosse-wizard` on first activation.
   5. Each step with form data POSTs to `admin_post.php?action=fosse_wizard_save`. Handler validates nonce + capability, saves step settings directly to AP's `activitypub_actor_mode` / `activitypub_support_post_types` options (matching AP_Provider's direct-write pattern), redirects to next step.

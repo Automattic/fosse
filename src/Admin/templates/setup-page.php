@@ -20,10 +20,13 @@ defined( 'ABSPATH' ) || exit;
 		<div class="notice notice-info">
 			<p>
 				<?php
-				printf(
-					/* translators: %s: link to setup wizard */
-					esc_html__( 'First time here? %s to configure federation in a few steps.', 'fosse' ),
-					'<a href="' . esc_url( admin_url( 'admin.php?page=fosse-wizard' ) ) . '">' . esc_html__( 'Run the setup wizard', 'fosse' ) . '</a>'
+				echo wp_kses_post(
+					sprintf(
+						/* translators: 1: opening anchor tag to setup wizard, 2: closing anchor tag */
+						__( 'First time here? %1$sRun the setup wizard%2$s to configure federation in a few steps.', 'fosse' ),
+						'<a href="' . esc_url( admin_url( 'admin.php?page=fosse-wizard' ) ) . '">',
+						'</a>'
+					)
 				);
 				?>
 			</p>

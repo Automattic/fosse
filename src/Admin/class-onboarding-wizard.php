@@ -84,7 +84,11 @@ class Onboarding_Wizard {
 	 */
 	public static function render(): void {
 		if ( ! current_user_can( 'manage_options' ) ) {
-			return;
+			wp_die(
+				esc_html__( 'You do not have permission to access this page.', 'fosse' ),
+				'',
+				array( 'response' => 403 )
+			);
 		}
 
 		$step = self::get_current_step();
@@ -121,7 +125,7 @@ class Onboarding_Wizard {
 	 */
 	public static function handle_save(): void {
 		if ( ! current_user_can( 'manage_options' ) ) {
-			wp_die( esc_html__( 'You do not have permission to do this.', 'fosse' ) );
+			wp_die( esc_html__( 'You do not have permission to save wizard settings.', 'fosse' ) );
 		}
 
 		check_admin_referer( 'fosse_wizard' );
@@ -140,6 +144,13 @@ class Onboarding_Wizard {
 			$submitted   = array_map( 'sanitize_text_field', wp_unslash( (array) ( $_POST['activitypub_support_post_types'] ?? array() ) ) );
 			$valid_types = get_post_types( array( 'public' => true ) );
 			$post_types  = array_values( array_intersect( $submitted, $valid_types ) );
+
+			// Empty selection would silently disable federation. Bounce back
+			// with an error rather than overwrite the option with [].
+			if ( empty( $post_types ) ) {
+				self::redirect_to_step( 'content', array( 'error' => 'empty_post_types' ) );
+			}
+
 			update_option( 'activitypub_support_post_types', $post_types );
 			self::redirect_to_step( 'bluesky' );
 		}
@@ -155,7 +166,7 @@ class Onboarding_Wizard {
 	 */
 	public static function handle_skip(): void {
 		if ( ! current_user_can( 'manage_options' ) ) {
-			wp_die( esc_html__( 'You do not have permission to do this.', 'fosse' ) );
+			wp_die( esc_html__( 'You do not have permission to skip the wizard.', 'fosse' ) );
 		}
 
 		check_admin_referer( 'fosse_wizard_skip' );
@@ -169,15 +180,16 @@ class Onboarding_Wizard {
 	/**
 	 * Handle wizard completion.
 	 *
-	 * Marks the wizard as complete via a nonced POST action, then redirects
-	 * to the completion view. This ensures completion requires explicit user
-	 * intent and cannot be triggered via CSRF.
+	 * Marks the wizard as complete via a nonced `admin-post.php` request
+	 * (reached from a `wp_nonce_url()` link), then redirects to the
+	 * completion view. Capability + nonce verification ensure completion
+	 * requires explicit user intent and cannot be triggered via CSRF.
 	 *
 	 * @return void
 	 */
 	public static function handle_complete(): void {
 		if ( ! current_user_can( 'manage_options' ) ) {
-			wp_die( esc_html__( 'You do not have permission to do this.', 'fosse' ) );
+			wp_die( esc_html__( 'You do not have permission to complete the wizard.', 'fosse' ) );
 		}
 
 		check_admin_referer( 'fosse_wizard_complete' );
@@ -195,7 +207,7 @@ class Onboarding_Wizard {
 	 */
 	public static function handle_reset(): void {
 		if ( ! current_user_can( 'manage_options' ) ) {
-			wp_die( esc_html__( 'You do not have permission to do this.', 'fosse' ) );
+			wp_die( esc_html__( 'You do not have permission to reset the wizard.', 'fosse' ) );
 		}
 
 		check_admin_referer( 'fosse_wizard_reset' );
@@ -225,11 +237,19 @@ class Onboarding_Wizard {
 	/**
 	 * Redirect to a specific wizard step.
 	 *
-	 * @param string $step Step slug.
+	 * @param string                $step       Step slug.
+	 * @param array<string, string> $extra_args Optional extra query args (e.g. an error code).
 	 * @return void
 	 */
-	private static function redirect_to_step( string $step ): void {
-		wp_safe_redirect( admin_url( 'admin.php?page=fosse-wizard&step=' . $step ) );
+	private static function redirect_to_step( string $step, array $extra_args = array() ): void {
+		$args = array_merge(
+			array(
+				'page' => 'fosse-wizard',
+				'step' => $step,
+			),
+			$extra_args
+		);
+		wp_safe_redirect( add_query_arg( $args, admin_url( 'admin.php' ) ) );
 		exit;
 	}
 
@@ -243,6 +263,55 @@ class Onboarding_Wizard {
 			admin_url( 'admin-post.php?action=fosse_wizard_skip' ),
 			'fosse_wizard_skip'
 		);
+	}
+
+	/**
+	 * Build a fediverse handle preview for the selected actor mode.
+	 *
+	 * Defers to ActivityPub's own actor models so the preview matches the
+	 * webfinger that Mastodon-style clients will actually resolve (blog
+	 * `preferred_username@host`, user nicename, etc.). Returns an empty
+	 * string when AP isn't loaded or the actor can't be resolved — the
+	 * caller hides the row in that case rather than showing a synthetic
+	 * placeholder.
+	 *
+	 * @param string $mode Selected actor mode (`actor`, `blog`, `actor_blog`).
+	 * @return string
+	 */
+	private static function get_handle_preview( string $mode ): string {
+		// Blog mode: blog webfinger only.
+		if ( 'blog' === $mode ) {
+			if ( class_exists( '\Activitypub\Model\Blog' ) ) {
+				$blog   = new \Activitypub\Model\Blog();
+				$handle = $blog->get_webfinger();
+				if ( $handle ) {
+					return '@' . ltrim( $handle, '@' );
+				}
+			}
+			return '';
+		}
+
+		// Actor or actor_blog: prefer the user webfinger.
+		if ( class_exists( '\Activitypub\Model\User' ) ) {
+			$user = \Activitypub\Model\User::from_wp_user( get_current_user_id() );
+			if ( $user && ! is_wp_error( $user ) ) {
+				$handle = $user->get_webfinger();
+				if ( $handle ) {
+					return '@' . ltrim( $handle, '@' );
+				}
+			}
+		}
+
+		// actor_blog falls back to the blog handle when the user actor isn't available.
+		if ( 'actor_blog' === $mode && class_exists( '\Activitypub\Model\Blog' ) ) {
+			$blog   = new \Activitypub\Model\Blog();
+			$handle = $blog->get_webfinger();
+			if ( $handle ) {
+				return '@' . ltrim( $handle, '@' );
+			}
+		}
+
+		return '';
 	}
 
 	/**
@@ -367,30 +436,45 @@ class Onboarding_Wizard {
 		self::render_progress( 'appearance' );
 
 		$current_mode = get_option( 'activitypub_actor_mode', 'actor' );
-		$site_url     = wp_parse_url( home_url(), PHP_URL_HOST ) ? wp_parse_url( home_url(), PHP_URL_HOST ) : 'yoursite.com';
+		$site_host    = wp_parse_url( home_url(), PHP_URL_HOST );
 		$nonce        = wp_create_nonce( 'fosse_wizard' );
 
 		$modes = array(
 			'blog'       => array(
 				'icon'  => 'dashicons-admin-site',
 				'title' => __( 'As your site', 'fosse' ),
-				'desc'  => sprintf(
-					/* translators: %s: site domain name */
-					__( 'People follow %s. All posts appear from your site\'s name. Best for blogs and publications.', 'fosse' ),
-					'<strong>' . esc_html( $site_url ) . '</strong>'
-				),
+				'desc'  => $site_host
+					? sprintf(
+						/* translators: 1: opening <strong> tag with site domain, 2: closing </strong> tag */
+						__( 'People follow %1$s%2$s. All posts appear from your site\'s name. Best for blogs and publications.', 'fosse' ),
+						'<strong>' . esc_html( $site_host ) . '',
+						'</strong>'
+					)
+					: __( 'People follow your site. All posts appear from your site\'s name. Best for blogs and publications.', 'fosse' ),
 			),
 			'actor'      => array(
 				'icon'  => 'dashicons-admin-users',
 				'title' => __( 'As you', 'fosse' ),
-				'desc'  => __( 'People follow <strong>you</strong> personally. Posts appear under your author name. Best for personal sites.', 'fosse' ),
+				'desc'  => sprintf(
+					/* translators: 1: opening <strong> tag, 2: closing </strong> tag */
+					__( 'People follow %1$syou%2$s personally. Posts appear under your author name. Best for personal sites.', 'fosse' ),
+					'<strong>',
+					'</strong>'
+				),
 			),
 			'actor_blog' => array(
 				'icon'  => 'dashicons-groups',
 				'title' => __( 'Both', 'fosse' ),
-				'desc'  => __( 'People can follow your site <strong>or</strong> individual authors separately. Best for multi-author sites.', 'fosse' ),
+				'desc'  => sprintf(
+					/* translators: 1: opening <strong> tag, 2: closing </strong> tag */
+					__( 'People can follow your site %1$sor%2$s individual authors separately. Best for multi-author sites.', 'fosse' ),
+					'<strong>',
+					'</strong>'
+				),
 			),
 		);
+
+		$preview_handle = self::get_handle_preview( $current_mode );
 
 		?>
 		<h1 class="fosse-wizard__title"><?php esc_html_e( 'How should your site appear?', 'fosse' ); ?></h1>
@@ -428,10 +512,12 @@ class Onboarding_Wizard {
 					<?php endforeach; ?>
 				</div>
 
-				<div class="fosse-address-preview">
-					<span class="fosse-address-preview__label"><?php esc_html_e( 'Your fediverse address:', 'fosse' ); ?></span>
-					<code class="fosse-address-preview__address">@<?php echo esc_html( $site_url . '@' . $site_url ); ?></code>
-				</div>
+				<?php if ( $preview_handle ) : ?>
+					<div class="fosse-address-preview">
+						<span class="fosse-address-preview__label"><?php esc_html_e( 'Your fediverse address:', 'fosse' ); ?></span>
+						<code class="fosse-address-preview__address"><?php echo esc_html( $preview_handle ); ?></code>
+					</div>
+				<?php endif; ?>
 			</div>
 
 			<div class="fosse-wizard__actions">
@@ -461,11 +547,20 @@ class Onboarding_Wizard {
 		$all_post_types = get_post_types( array( 'public' => true ), 'objects' );
 		$nonce          = wp_create_nonce( 'fosse_wizard' );
 
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only check on a redirect-back error code.
+		$has_empty_error = isset( $_GET['error'] ) && 'empty_post_types' === $_GET['error'];
+
 		?>
 		<h1 class="fosse-wizard__title"><?php esc_html_e( 'What do you want to share?', 'fosse' ); ?></h1>
 		<p class="fosse-wizard__description">
 			<?php esc_html_e( 'Choose which types of content appear in people\'s feeds when they follow you. You can change this anytime.', 'fosse' ); ?>
 		</p>
+
+		<?php if ( $has_empty_error ) : ?>
+			<div class="notice notice-error inline">
+				<p><?php esc_html_e( 'Pick at least one content type so federated followers have something to receive.', 'fosse' ); ?></p>
+			</div>
+		<?php endif; ?>
 
 		<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
 			<input type="hidden" name="action" value="fosse_wizard_save" />
