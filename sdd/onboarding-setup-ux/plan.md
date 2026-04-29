@@ -78,9 +78,9 @@ Based on: sdd/onboarding-setup-ux/spec.md
 - **Files**: `src/Admin/class-onboarding-wizard.php`, `src/Admin/class-menu.php`, `src/Admin/assets/css/admin.css`, `fosse.php`
 - **Do**:
   1. Create `Onboarding_Wizard` class with step-based rendering: Welcome, Appearance (actor mode), Content (post types), Bluesky (placeholder), Complete.
-  2. Register the wizard as a hidden admin page in `Menu::add_menu()` by passing a null `parent_slug` to `add_submenu_page()`. The page has a real admin URL (`?page=fosse-wizard`) and inherits capability checks, but never appears in the menu sidebar.
-  3. Add `register_activation_hook` in `fosse.php` that sets a `fosse_activation_redirect` transient.
-  4. Add `admin_init` handler in `Menu` that checks the transient, deletes it, and redirects to `?page=fosse-wizard` on first activation.
+  2. Register the wizard as a hidden submenu in `Menu::add_menu()` by passing an empty parent slug to `add_submenu_page()`. The page has a real admin URL (`?page=fosse-wizard`) and inherits capability checks, but never appears in the menu sidebar.
+  3. Add `register_activation_hook` in `fosse.php` that writes a one-shot `fosse_activation_redirect` option (autoload `false`).
+  4. Add `admin_init` handler in `Menu` that checks the option, deletes it, and redirects to `?page=fosse-wizard` on first activation.
   5. Each step with form data POSTs to `admin_post.php?action=fosse_wizard_save`. Handler validates nonce + capability, saves step settings directly to AP's `activitypub_actor_mode` / `activitypub_support_post_types` options (matching AP_Provider's direct-write pattern), redirects to next step.
   6. "Skip setup" and the completion step both set `fosse_onboarding_completed` option to `1`.
   7. Actor mode selection uses card-style UI with hidden radio inputs inside `<label>` elements (works without JS). Post type selection uses checkboxes.
