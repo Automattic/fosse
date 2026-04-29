@@ -8,6 +8,7 @@
 namespace Automattic\Fosse\Tests;
 
 use Automattic\Fosse\Reactions_Label;
+use PHPUnit\Framework\Attributes\After;
 use PHPUnit\Framework\Attributes\Before;
 use WorDBless\BaseTestCase;
 
@@ -22,15 +23,40 @@ use WorDBless\BaseTestCase;
 class Reactions_LabelTest extends BaseTestCase {
 
 	/**
-	 * Clean hook state and register the projector before each test.
+	 * Register the projector before each test.
+	 *
+	 * Removes the projector's own callback first so a prior test (or
+	 * stray bootstrap registration) cannot double-register, then calls
+	 * register() to install a single callback. Surgical, not nuke-the-
+	 * whole-hook, so unrelated callbacks other tests/plugins added to
+	 * register_block_type_args survive into this case.
 	 *
 	 * @before
 	 */
 	#[Before]
 	public function reset_state(): void {
-		remove_all_filters( 'register_block_type_args' );
-
+		\remove_filter(
+			'register_block_type_args',
+			array( Reactions_Label::class, 'rewrite_block_args' ),
+			10
+		);
 		Reactions_Label::register();
+	}
+
+	/**
+	 * Remove only the projector's callback after each test, so the next
+	 * test (or unrelated suite running later) sees the same hook state
+	 * it would on a clean boot.
+	 *
+	 * @after
+	 */
+	#[After]
+	public function restore_state(): void {
+		\remove_filter(
+			'register_block_type_args',
+			array( Reactions_Label::class, 'rewrite_block_args' ),
+			10
+		);
 	}
 
 	/**
@@ -75,7 +101,7 @@ class Reactions_LabelTest extends BaseTestCase {
 	 * rewritten in place, description is NOT invented. The projector overlays
 	 * keys upstream supplied; it does not invent shape upstream omits.
 	 */
-	public function test_filter_does_not_invent_missing_keys() {
+	public function test_filter_does_not_invent_missing_description() {
 		$args = array(
 			'title'    => 'Fediverse Reactions',
 			'category' => 'widgets',
@@ -93,10 +119,59 @@ class Reactions_LabelTest extends BaseTestCase {
 	}
 
 	/**
+	 * Same shape, opposite key: missing-title path is independent from the
+	 * missing-description path because the two `isset` guards in the
+	 * projector are independent. Without this case a regression that swaps
+	 * one guard for `array_key_exists` (or removes one outright) would slip
+	 * past the previous test.
+	 */
+	public function test_filter_does_not_invent_missing_title() {
+		$args = array(
+			'description' => 'Display Fediverse likes and reposts for your posts.',
+			'category'    => 'widgets',
+		);
+
+		$result = apply_filters( 'register_block_type_args', $args, 'activitypub/reactions' );
+
+		$this->assertArrayNotHasKey(
+			'title',
+			$result,
+			'Projector must not invent a title key when upstream args omitted it.'
+		);
+		$this->assertSame( 'Display social likes and reposts for your posts.', $result['description'] );
+		$this->assertSame( 'widgets', $result['category'] );
+	}
+
+	/**
+	 * Both keys absent on the matching block name: projector is a structural
+	 * no-op. Guards the contract that the projector overlays existing keys
+	 * rather than inventing shape — so a future ActivityPub refactor that
+	 * registers `activitypub/reactions` with an empty `$args` array fails
+	 * loudly upstream instead of being papered over here.
+	 */
+	public function test_filter_is_noop_when_both_keys_absent() {
+		$args = array(
+			'category' => 'widgets',
+			'icon'     => 'heart',
+		);
+
+		$result = apply_filters( 'register_block_type_args', $args, 'activitypub/reactions' );
+
+		$this->assertSame( $args, $result, 'Both-keys-absent matching block must round-trip unchanged.' );
+	}
+
+	/**
 	 * Repeated register() calls leave exactly one callback at priority 10 on
-	 * register_block_type_args. Mirrors the Post_Types pattern — WP's WP_Hook
-	 * keys callbacks by unique-id, so identical callable-as-array registrations
-	 * overwrite the same slot.
+	 * register_block_type_args, registered with `accepted_args=2`. WP's
+	 * WP_Hook keys callbacks by unique-id, so identical callable-as-array
+	 * registrations overwrite the same slot.
+	 *
+	 * The `accepted_args=2` assertion is load-bearing: a regression that
+	 * drops the `2` makes the second `$name` argument null at every
+	 * invocation, and the matching-name guard would silently relabel every
+	 * block on the site. Pure behavioral assertions wouldn't catch that
+	 * because the existing tests pass `$name` explicitly through
+	 * `apply_filters`.
 	 */
 	public function test_register_is_idempotent() {
 		// reset_state() already registered once via #[Before]; register again.
@@ -109,10 +184,18 @@ class Reactions_LabelTest extends BaseTestCase {
 			$wp_filter,
 			'register() should have added a callback to register_block_type_args.'
 		);
+
+		$callbacks = $wp_filter['register_block_type_args']->callbacks[10];
 		$this->assertCount(
 			1,
-			$wp_filter['register_block_type_args']->callbacks[10],
+			$callbacks,
 			'register() must leave exactly one callback at priority 10 when called twice.'
+		);
+
+		$this->assertSame(
+			2,
+			reset( $callbacks )['accepted_args'],
+			'Projector must be registered with accepted_args=2 so $name is passed.'
 		);
 	}
 }

@@ -9,6 +9,12 @@
 			"pluginPath": "/wordpress/wp-content/plugins/fosse/fosse.php"
 		},
 		{
+			"step": "defineWpConfigConsts",
+			"consts": {
+				"FOSSE_E2E": true
+			}
+		},
+		{
 			"step": "mkdir",
 			"path": "/wordpress/wp-content/mu-plugins"
 		},

@@ -12,9 +12,9 @@ namespace Automattic\Fosse;
  * `activitypub/reactions` block at registration time.
  *
  * The bundled ActivityPub plugin owns the block. Its server-side render
- * is already protocol-agnostic — `get_comments()` filters by
- * `comment_type`, not by the `protocol` comment-meta value — so Bluesky
- * reactions written by `wordpress-atmosphere`'s `Reaction_Sync` (with
+ * is already protocol-agnostic — `get_comments()` queries by
+ * `comment_type` and never inspects the `protocol` comment-meta value —
+ * so Bluesky reactions written by `atmosphere`'s `Reaction_Sync` (with
  * `comment_type='like'`/`'repost'` and `protocol='atproto'`) appear in
  * the same block as ActivityPub-protocol reactions.
  *
@@ -27,50 +27,40 @@ namespace Automattic\Fosse;
  *
  * Scope is deliberately narrow: only the inserter title and description
  * are rewritten. The block's render path is untouched. The legacy
- * v1.0.0 fallback string in the bundled `render.php` is not covered;
- * see `sdd/unified-reactions-display/spec.md` "Known Gaps" for the
- * reasoning.
+ * v1.0.0 fallback string in the bundled `render.php` is also not
+ * covered: it only fires for pre-v1.1 reactions blocks that supplied
+ * the title as a block attribute, which the inserter UI no longer
+ * produces.
  */
 class Reactions_Label {
 
-	/**
-	 * Block name targeted by the relabel. Other registrations pass through.
-	 *
-	 * @var string
-	 */
 	private const BLOCK_NAME = 'activitypub/reactions';
 
 	/**
-	 * FOSSE-flavored title overlaid onto the block's registered metadata.
-	 *
-	 * @var string
-	 */
-	private const TITLE = 'Social Reactions';
-
-	/**
-	 * FOSSE-flavored description overlaid onto the block's registered metadata.
-	 *
-	 * @var string
-	 */
-	private const DESCRIPTION = 'Display social likes and reposts for your posts.';
-
-	/**
-	 * Register the relabel filter. Safe to call more than once per request —
-	 * WordPress dedupes identical callable-as-array registrations via the
-	 * unique-id key in `WP_Hook::add_filter()`, so repeated calls leave a
-	 * single registered callback at this hook + priority.
+	 * Register the relabel filter. No-op if the bundled ActivityPub
+	 * plugin is absent — the block we relabel is owned by AP, so without
+	 * AP there is nothing to overlay. Safe to call more than once per
+	 * request: WordPress dedupes identical callable-as-array
+	 * registrations via the unique-id key in `WP_Hook::add_filter()`,
+	 * leaving a single registered callback at this hook + priority.
 	 *
 	 * @return void
 	 */
 	public static function register(): void {
+		if ( ! \class_exists( '\Activitypub\Activitypub' ) ) {
+			return;
+		}
+
 		\add_filter( 'register_block_type_args', array( self::class, 'rewrite_block_args' ), 10, 2 );
 	}
 
 	/**
 	 * Overlay the FOSSE title and description onto the bundled
 	 * activitypub/reactions block at registration time. Other block names
-	 * pass through unchanged. Existing keys in `$args` that the projector
-	 * does not own are preserved untouched; absent keys are not invented.
+	 * pass through unchanged. Existing string values for the keys we own
+	 * are replaced; absent keys (and non-string values upstream might one
+	 * day pass) are left untouched so a future regression here cannot
+	 * silently coerce a translatable wrapper into a plain string.
 	 *
 	 * @param array  $args Block-type arguments as registered upstream.
 	 * @param string $name Block name being registered.
@@ -81,12 +71,12 @@ class Reactions_Label {
 			return $args;
 		}
 
-		if ( isset( $args['title'] ) ) {
-			$args['title'] = self::TITLE;
+		if ( isset( $args['title'] ) && \is_string( $args['title'] ) ) {
+			$args['title'] = \__( 'Social Reactions', 'fosse' );
 		}
 
-		if ( isset( $args['description'] ) ) {
-			$args['description'] = self::DESCRIPTION;
+		if ( isset( $args['description'] ) && \is_string( $args['description'] ) ) {
+			$args['description'] = \__( 'Display social likes and reposts for your posts.', 'fosse' );
 		}
 
 		return $args;

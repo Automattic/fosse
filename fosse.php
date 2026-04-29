@@ -170,8 +170,9 @@ add_action(
  * activitypub/reactions block via register_block_type_args. The
  * block's server-side render is already protocol-agnostic and
  * aggregates ActivityPub plus Bluesky reactions; the relabel makes
- * the inserter UI wording match what the block actually shows.
- * Same degradation posture as the other projectors.
+ * the inserter UI wording match what the block actually shows. The
+ * register() method itself guards on the AP class_exists check so
+ * the filter is never registered on hosts without ActivityPub.
  */
 add_action(
 	'init',
