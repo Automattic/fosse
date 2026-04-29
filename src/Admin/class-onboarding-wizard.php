@@ -73,6 +73,20 @@ class Onboarding_Wizard {
 	}
 
 	/**
+	 * Whether a registered ActivityPub provider is currently available.
+	 *
+	 * Gates the activation redirect and the wizard render. If neither
+	 * the bundled nor a standalone AP install is loaded, the wizard
+	 * has no actor data to walk users through, so we degrade to a
+	 * notice rather than rendering broken steps.
+	 *
+	 * @return bool
+	 */
+	public static function is_activitypub_available(): bool {
+		return null !== Connection_Provider_Registry::get_provider( 'activitypub' );
+	}
+
+	/**
 	 * Mark the wizard as complete.
 	 *
 	 * @return void
@@ -107,29 +121,64 @@ class Onboarding_Wizard {
 			);
 		}
 
-		$step = self::get_current_step();
-
 		?>
 		<div class="wrap fosse-wizard">
-			<?php
-			switch ( $step ) {
-				case 'appearance':
-					self::render_step_appearance();
-					break;
-				case 'content':
-					self::render_step_content();
-					break;
-				case 'bluesky':
-					self::render_step_bluesky();
-					break;
-				case 'complete':
-					self::render_step_complete();
-					break;
-				default:
-					self::render_step_welcome();
-					break;
-			}
+		<?php
+
+		if ( ! self::is_activitypub_available() ) {
+			self::render_unavailable_notice();
 			?>
+			</div>
+			<?php
+			return;
+		}
+
+		$step = self::get_current_step();
+
+		switch ( $step ) {
+			case 'appearance':
+				self::render_step_appearance();
+				break;
+			case 'content':
+				self::render_step_content();
+				break;
+			case 'bluesky':
+				self::render_step_bluesky();
+				break;
+			case 'complete':
+				self::render_step_complete();
+				break;
+			default:
+				self::render_step_welcome();
+				break;
+		}
+
+		?>
+		</div>
+		<?php
+	}
+
+	/**
+	 * Render the blocking notice shown when ActivityPub is unavailable.
+	 *
+	 * The wizard's appearance and content steps depend on AP's actor
+	 * models and option keys. If AP isn't loaded (bundled load failed
+	 * and no standalone install is present), there's nothing for the
+	 * wizard to walk a user through — show a clear notice instead of
+	 * rendering broken steps.
+	 *
+	 * @return void
+	 */
+	private static function render_unavailable_notice(): void {
+		?>
+		<h1 class="fosse-wizard__title"><?php esc_html_e( 'Setup is unavailable', 'fosse' ); ?></h1>
+		<div class="notice notice-error inline">
+			<p>
+				<?php esc_html_e( 'FOSSE could not find the ActivityPub plugin. The setup wizard needs ActivityPub to be active before it can configure your site.', 'fosse' ); ?>
+			</p>
+			<p>
+				<?php esc_html_e( 'Reactivate FOSSE, or install and activate ActivityPub, then return to this page.', 'fosse' ); ?>
+			</p>
 		</div>
 		<?php
 	}

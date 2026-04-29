@@ -180,6 +180,14 @@ class Menu {
 			return;
 		}
 
+		// Don't redirect when ActivityPub isn't available — the wizard
+		// would just render its degraded notice. Preserve the option so
+		// a later admin request (after the user installs/activates AP)
+		// still triggers the redirect.
+		if ( ! Onboarding_Wizard::is_activitypub_available() ) {
+			return;
+		}
+
 		// All guards passed — consume the option and redirect.
 		// Return value unchecked: same reasoning as above.
 		delete_option( Onboarding_Wizard::REDIRECT_OPTION );
