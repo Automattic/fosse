@@ -106,7 +106,7 @@ class Bluesky_Provider implements Connection_Provider {
 		$status = $this->get_status();
 
 		?>
-		<div class="fosse-provider-section">
+		<div class="fosse-provider-section" id="fosse-provider-bluesky">
 			<h2><?php esc_html_e( 'Bluesky', 'fosse' ); ?></h2>
 
 			<?php settings_errors( 'atmosphere' ); ?>
@@ -217,10 +217,29 @@ class Bluesky_Provider implements Connection_Provider {
 					</tr>
 					<tr>
 						<td><?php esc_html_e( 'Token Health', 'fosse' ); ?></td>
-						<td><?php echo esc_html( $status['token_error'] ? $status['token_error'] : __( 'OK', 'fosse' ) ); ?></td>
+						<td>
+							<?php if ( $status['token_error'] ) : ?>
+								<strong><?php esc_html_e( 'Reconnect required.', 'fosse' ); ?></strong>
+								<a href="<?php echo esc_url( admin_url( 'admin.php?page=fosse#fosse-provider-bluesky' ) ); ?>">
+									<?php esc_html_e( 'Open Bluesky setup', 'fosse' ); ?>
+								</a>
+								<details class="fosse-status-card__error">
+									<summary><?php esc_html_e( 'Error details', 'fosse' ); ?></summary>
+									<code><?php echo esc_html( $status['token_error'] ); ?></code>
+								</details>
+							<?php else : ?>
+								<?php esc_html_e( 'OK', 'fosse' ); ?>
+							<?php endif; ?>
+						</td>
 					</tr>
 				</tbody>
 			</table>
+
+			<p class="fosse-status-card__manage">
+				<a href="<?php echo esc_url( admin_url( 'admin.php?page=fosse#fosse-provider-bluesky' ) ); ?>">
+					<?php esc_html_e( 'Manage Bluesky settings', 'fosse' ); ?>
+				</a>
+			</p>
 		</div>
 		<?php
 	}
