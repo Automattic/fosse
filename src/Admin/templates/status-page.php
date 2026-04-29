@@ -27,8 +27,8 @@ $connected = array_filter(
 			<p>
 				<?php
 				printf(
-					/* translators: 1: number of connected protocols, 2: total available protocols */
-					esc_html__( '%1$d of %2$d protocols active', 'fosse' ),
+					/* translators: 1: number of active connections, 2: total available connections */
+					esc_html__( '%1$d of %2$d connections active', 'fosse' ),
 					count( $connected ),
 					count( $available )
 				);
