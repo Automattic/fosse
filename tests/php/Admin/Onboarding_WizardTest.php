@@ -99,7 +99,7 @@ class Onboarding_WizardTest extends BaseTestCase {
 
 		try {
 			Onboarding_Wizard::handle_save();
-		} catch ( \Exception $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
 			unset( $e );
 		}
 
@@ -114,7 +114,7 @@ class Onboarding_WizardTest extends BaseTestCase {
 
 		try {
 			Onboarding_Wizard::handle_save();
-		} catch ( \Exception $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
 			unset( $e );
 		}
 
@@ -130,7 +130,7 @@ class Onboarding_WizardTest extends BaseTestCase {
 
 		try {
 			Onboarding_Wizard::handle_save();
-		} catch ( \Exception $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
 			unset( $e );
 		}
 
@@ -158,7 +158,7 @@ class Onboarding_WizardTest extends BaseTestCase {
 
 		try {
 			Onboarding_Wizard::handle_save();
-		} catch ( \Exception $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
 			unset( $e );
 		}
 
@@ -175,7 +175,7 @@ class Onboarding_WizardTest extends BaseTestCase {
 
 		try {
 			Onboarding_Wizard::handle_save();
-		} catch ( \Exception $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
 			unset( $e );
 		}
 
@@ -192,7 +192,7 @@ class Onboarding_WizardTest extends BaseTestCase {
 
 		try {
 			Onboarding_Wizard::handle_save();
-		} catch ( \Exception $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
 			unset( $e );
 		}
 
@@ -211,7 +211,7 @@ class Onboarding_WizardTest extends BaseTestCase {
 
 		try {
 			Onboarding_Wizard::handle_skip();
-		} catch ( \Exception $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
 			unset( $e );
 		}
 
@@ -228,7 +228,7 @@ class Onboarding_WizardTest extends BaseTestCase {
 
 		try {
 			Onboarding_Wizard::handle_complete();
-		} catch ( \Exception $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
 			unset( $e );
 		}
 
@@ -246,7 +246,7 @@ class Onboarding_WizardTest extends BaseTestCase {
 
 		try {
 			Onboarding_Wizard::handle_reset();
-		} catch ( \Exception $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
 			unset( $e );
 		}
 
@@ -268,14 +268,14 @@ class Onboarding_WizardTest extends BaseTestCase {
 			'wp_redirect',
 			static function ( $location ) use ( &$captured ) {
 				$captured = (string) $location;
-				throw new \Exception( 'redirect' );
+				throw new RedirectFired( 'redirect' );
 			},
 			9
 		);
 
 		try {
 			Onboarding_Wizard::handle_save();
-		} catch ( \Exception $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
 			unset( $e );
 		}
 
@@ -599,7 +599,7 @@ class Onboarding_WizardTest extends BaseTestCase {
 		add_filter(
 			'wp_redirect',
 			static function () {
-				throw new \Exception( 'redirect' );
+				throw new RedirectFired( 'redirect' );
 			}
 		);
 	}
@@ -631,7 +631,7 @@ class Onboarding_WizardTest extends BaseTestCase {
 		add_filter(
 			'wp_redirect',
 			static function () {
-				throw new \Exception( 'redirect' );
+				throw new RedirectFired( 'redirect' );
 			}
 		);
 	}
@@ -663,7 +663,7 @@ class Onboarding_WizardTest extends BaseTestCase {
 		add_filter(
 			'wp_redirect',
 			static function () {
-				throw new \Exception( 'redirect' );
+				throw new RedirectFired( 'redirect' );
 			}
 		);
 	}
@@ -695,7 +695,7 @@ class Onboarding_WizardTest extends BaseTestCase {
 		add_filter(
 			'wp_redirect',
 			static function () {
-				throw new \Exception( 'redirect' );
+				throw new RedirectFired( 'redirect' );
 			}
 		);
 	}

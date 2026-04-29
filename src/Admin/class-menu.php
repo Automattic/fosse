@@ -157,7 +157,7 @@ class Menu {
 		}
 
 		// Don't redirect during bulk activation, AJAX, or CLI.
-		if ( wp_doing_ajax() || wp_doing_cron() || defined( 'WP_CLI' ) ) {
+		if ( wp_doing_ajax() || wp_doing_cron() || ( defined( 'WP_CLI' ) && WP_CLI ) ) {
 			return;
 		}
 
