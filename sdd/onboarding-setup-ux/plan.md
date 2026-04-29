@@ -7,12 +7,12 @@ Based on: sdd/onboarding-setup-ux/spec.md
 - [x] Task 1: Create Connection_Provider interface + Registry
 - [x] Task 2: Create Menu.php + wire up in fosse.php
 - [x] Task 3: Create AP_Provider + Setup_Page shell
-- [ ] Task 4: Open upstream Atmosphere PRs
-- [ ] Task 5: Create Bluesky_Provider
+- [x] Task 4: Open upstream Atmosphere PRs
+- [x] Task 5: Create Bluesky_Provider
 - [x] Task 5.5: Create first-run onboarding wizard
 - [x] Task 6: Create Status_Page with provider status cards
 - [x] Task 7: Add admin CSS
-- [ ] Task 8: Write tests (Bluesky_Provider tests pending Task 5)
+- [x] Task 8: Write tests
 - [x] Task 9: Exclude `src/` from WordPress.Files.FileName PHPCS sniff
 - [x] Task 10: Update SDD documentation
 
@@ -67,7 +67,7 @@ Based on: sdd/onboarding-setup-ux/spec.md
 - **Depends on**: Task 2
 
 ### Task 4: Open upstream Atmosphere PRs
-- **Status**: Not started
+- **Status**: ✅ Done (Automattic/wordpress-atmosphere#33)
 - **Do**:
   1. Open PR against wordpress-atmosphere for (a) a filter on `Client::redirect_uri()` so consumers can set their own callback URL.
   2. Open PR against wordpress-atmosphere for (b) transient-persisted settings errors on connect (matching what disconnect already does).
@@ -77,7 +77,7 @@ Based on: sdd/onboarding-setup-ux/spec.md
 - **Depends on**: none
 
 ### Task 5: Create Bluesky_Provider
-- **Status**: Not started
+- **Status**: ✅ Done (#34)
 - **Files**: `src/Admin/Bluesky_Provider.php`
 - **Do**:
   1. Create `Bluesky_Provider` implementing `Connection_Provider`. Self-registers on `fosse_register_providers` with `class_exists('\Atmosphere\Atmosphere')` guard.
@@ -139,13 +139,14 @@ Based on: sdd/onboarding-setup-ux/spec.md
 - **Depends on**: Task 6
 
 ### Task 8: Write tests
-- **Status**: In progress (#27 — Bluesky_Provider tests pending Task 5)
+- **Status**: ✅ Done (#27, #34)
 - **Files**: `tests/php/Admin/Connection_Provider_RegistryTest.php`, `tests/php/Admin/AP_ProviderTest.php`, `tests/php/Admin/Bluesky_ProviderTest.php`
 - **Do**:
   1. Registry tests: register/retrieve, get_providers returns all, duplicate slug ignored, unknown slug returns null, reset clears.
   2. AP_Provider tests: status shape, direct `update_option()` writes to `activitypub_actor_mode` / `activitypub_support_post_types`, post type defaults and overrides, slug and name.
-  3. Bluesky_Provider tests: redirect URI filter integration, persisted-notice read, status disconnected/connected/expired-token.
+  3. Bluesky_Provider tests: redirect URI filter integration, persisted-notice read, status disconnected/connected/expired-token, unauthorized user rejection, bad nonce rejection, handle `@` normalization.
   4. Run `composer run-script lint-php` and `composer run-script test-php`.
+- **Known gap**: `handle_oauth_callback()` success/warning/error branches are not unit-tested because `Client::handle_callback()` requires real PKCE state. These branches rely on manual verification (connect flow, `sync_publication` failure).
 - **Verify**:
   - All tests pass.
   - Lint clean.

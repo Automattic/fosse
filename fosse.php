@@ -122,6 +122,48 @@ add_action(
 );
 
 /*
+ * Cross-network post-type projector.
+ *
+ * Feeds ActivityPub's stored `activitypub_support_post_types` option into
+ * Atmosphere's `atmosphere_syncable_post_types` filter so the post types a
+ * user selects in AP's settings also federate via Atmosphere. Intentionally
+ * one-way: AP's option is the single source of truth, so FOSSE does not own
+ * a parallel option. Same degradation posture as the Object_Type block.
+ */
+add_action(
+	'init',
+	static function () {
+		if ( ! class_exists( \Automattic\Fosse\Post_Types::class ) ) {
+			return;
+		}
+		\Automattic\Fosse\Post_Types::register();
+	}
+);
+
+/*
+ * Long-form composition strategy projector.
+ *
+ * Translates `fosse_long_form_strategy` into Atmosphere's
+ * `atmosphere_long_form_composition` filter answer. Installing FOSSE
+ * opts into the teaser-thread default by default (the projector
+ * coerces unset/unknown to 'teaser-thread'), without requiring any
+ * option to be set. Degrades cleanly in two distinct modes: if FOSSE's
+ * own autoload is missing the projector class can't load and the
+ * `class_exists` guard skips registration entirely; if Atmosphere is
+ * absent the callback registers but `apply_filters` is never called,
+ * so the callback simply never runs.
+ */
+add_action(
+	'init',
+	static function () {
+		if ( ! class_exists( \Automattic\Fosse\Long_Form_Strategy::class ) ) {
+			return;
+		}
+		\Automattic\Fosse\Long_Form_Strategy::register();
+	}
+);
+
+/*
  * Provider bootstrap.
  *
  * Providers self-register on the 'fosse_register_providers' action fired
@@ -131,6 +173,7 @@ add_action(
  */
 if ( class_exists( \Automattic\Fosse\Provider_Loader::class ) ) {
 	\Automattic\Fosse\Admin\AP_Provider::init();
+	\Automattic\Fosse\Admin\Bluesky_Provider::init();
 
 	\Automattic\Fosse\Provider_Loader::boot();
 }
