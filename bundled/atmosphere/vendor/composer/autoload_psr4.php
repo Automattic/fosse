@@ -6,4 +6,8 @@ $vendorDir = dirname(__DIR__);
 $baseDir = dirname($vendorDir);
 
 return array(
+    'SpomkyLabs\\Pki\\' => array($vendorDir . '/spomky-labs/pki-framework/src'),
+    'Psr\\Clock\\' => array($vendorDir . '/psr/clock/src'),
+    'Jose\\Component\\' => array($vendorDir . '/web-token/jwt-library'),
+    'Brick\\Math\\' => array($vendorDir . '/brick/math/src'),
 );
