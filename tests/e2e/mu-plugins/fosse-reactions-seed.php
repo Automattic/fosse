@@ -164,10 +164,17 @@ function fosse_e2e_upsert_seed_post() {
 		return $existing_id;
 	}
 
+	// `className: fosse-e2e-seeded` gives the explicit-embed wrapper a
+	// distinctive marker so the spec can scope to it. AP's blockHooks
+	// also auto-injects a second `activitypub/reactions` wrapper after
+	// `core/post-content` on the rendered post, and that auto-injected
+	// one doesn't carry the marker — without scoping, a regression in
+	// the explicit-embed render path would silently pass against the
+	// blockHooks one.
 	$post_id = \wp_insert_post(
 		array(
 			'post_title'   => FOSSE_E2E_SEED_POST_TITLE,
-			'post_content' => "<!-- wp:paragraph -->\n<p>Reactions seed body.</p>\n<!-- /wp:paragraph -->\n\n<!-- wp:activitypub/reactions /-->",
+			'post_content' => "<!-- wp:paragraph -->\n<p>Reactions seed body.</p>\n<!-- /wp:paragraph -->\n\n<!-- wp:activitypub/reactions {\"className\":\"fosse-e2e-seeded\"} /-->",
 			'post_status'  => 'publish',
 			'post_type'    => 'post',
 		),

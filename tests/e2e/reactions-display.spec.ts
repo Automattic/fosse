@@ -72,20 +72,18 @@ test( 'unified reactions: AP + Bluesky rows render in the same block; inserter t
 
 	// 4) Visit the seeded post on the frontend and assert the reactions
 	//    block aggregates both protocols' rows. The seeded post embeds
-	//    the activitypub/reactions block explicitly, so we're exercising
-	//    the user-inserted block path rather than AP's blockHooks
-	//    auto-injection. AP's blockHooks skip auto-injection when the
-	//    target already contains the block, so we expect exactly one
-	//    wrapper — the explicit one. Asserting the count rules out a
-	//    silent regression where the explicit-block path stops rendering
-	//    and the assertions below pass against an auto-injected wrapper.
+	//    the activitypub/reactions block explicitly with a distinctive
+	//    `fosse-e2e-seeded` className so we can scope to *that* wrapper
+	//    rather than picking up the second wrapper AP's blockHooks
+	//    auto-injects after `core/post-content`. Without the scope, a
+	//    regression in the explicit-embed render path would silently
+	//    pass against the auto-injected one.
 	await page.goto( seedBody.post_url );
 
-	const blockWrappers = page.locator(
-		'[data-wp-interactive="activitypub/reactions"]'
+	const blockWrapper = page.locator(
+		'[data-wp-interactive="activitypub/reactions"].fosse-e2e-seeded'
 	);
-	await expect( blockWrappers ).toHaveCount( 1 );
-	const blockWrapper = blockWrappers.first();
+	await expect( blockWrapper ).toHaveCount( 1 );
 	await expect( blockWrapper ).toBeVisible();
 
 	const reactionsInner = blockWrapper.locator( '.activitypub-reactions' );
@@ -184,24 +182,22 @@ test( 'seed endpoint is idempotent: re-invoking yields the same post and the sam
 	// Comments are wiped + reseeded, so IDs are new — but the *count*
 	// must hold. Asserting the rendered counts on the post itself
 	// catches the case where the upsert reused the post but the
-	// cleanup query missed prior rows.
+	// cleanup query missed prior rows. Scope to the explicit-embed
+	// wrapper (see comment in the main test) so the blockHooks auto-
+	// injected wrapper can't mask a regression here.
 	await page.goto( secondBody.post_url );
-	const blockWrappers = page.locator(
-		'[data-wp-interactive="activitypub/reactions"]'
+	const blockWrapper = page.locator(
+		'[data-wp-interactive="activitypub/reactions"].fosse-e2e-seeded'
 	);
-	await expect( blockWrappers ).toHaveCount( 1 );
+	await expect( blockWrapper ).toHaveCount( 1 );
 	await expect(
-		blockWrappers
-			.first()
-			.locator(
-				'.activitypub-reactions .reaction-group[data-reaction-type="like"] .reaction-label'
-			)
+		blockWrapper.locator(
+			'.activitypub-reactions .reaction-group[data-reaction-type="like"] .reaction-label'
+		)
 	).toHaveText( /^\s*2\b/ );
 	await expect(
-		blockWrappers
-			.first()
-			.locator(
-				'.activitypub-reactions .reaction-group[data-reaction-type="repost"] .reaction-label'
-			)
+		blockWrapper.locator(
+			'.activitypub-reactions .reaction-group[data-reaction-type="repost"] .reaction-label'
+		)
 	).toHaveText( /^\s*1\b/ );
 } );
