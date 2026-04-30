@@ -84,10 +84,17 @@ class Bluesky_Provider implements Connection_Provider {
 	/**
 	 * Check if Atmosphere is loaded.
 	 *
+	 * Requires the main class plus the procedural helpers `get_status()`
+	 * relies on. Half-loaded Atmosphere (class present but functions
+	 * missing) reports unavailable so the wizard / Setup page render the
+	 * unavailable notice instead of a connect form that can't be backed.
+	 *
 	 * @return bool
 	 */
 	public function is_available(): bool {
-		return class_exists( '\Atmosphere\Atmosphere' );
+		return class_exists( '\Atmosphere\Atmosphere' )
+			&& function_exists( '\Atmosphere\get_connection' )
+			&& function_exists( '\Atmosphere\is_connected' );
 	}
 
 	/**
@@ -96,8 +103,8 @@ class Bluesky_Provider implements Connection_Provider {
 	 * @return array<string, mixed>
 	 */
 	public function get_status(): array {
-		$connection   = function_exists( '\Atmosphere\get_connection' ) ? \Atmosphere\get_connection() : array();
-		$connected    = function_exists( '\Atmosphere\is_connected' ) ? \Atmosphere\is_connected() : false;
+		$connection   = \Atmosphere\get_connection();
+		$connected    = \Atmosphere\is_connected();
 		$auto_publish = '1' === get_option( 'atmosphere_auto_publish', '1' );
 		$token_error  = null;
 
@@ -286,11 +293,24 @@ class Bluesky_Provider implements Connection_Provider {
 		}
 
 		$handle = sanitize_text_field( wp_unslash( $_POST['bluesky_handle'] ?? '' ) );
-		$handle = ltrim( $handle, '@' );
+		$handle = strtolower( trim( ltrim( trim( $handle ), '@' ) ) );
 
 		if ( empty( $handle ) ) {
 			$this->redirect_with_notice( __( 'Enter a Bluesky handle to continue.', 'fosse' ), 'error', $return_context );
-			return; // redirect_with_notice exits, but guard against future changes.
+			return;
+		}
+
+		// AT Protocol handles are domain names: at least one dot, only ASCII
+		// alphanumerics and hyphens per label, no leading/trailing hyphens.
+		// Pre-validate so users get an actionable hint instead of a raw
+		// upstream error like "PDS lookup failed: dns_get_record returned false".
+		if ( ! preg_match( '/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/', $handle ) ) {
+			$this->redirect_with_notice(
+				__( 'That doesn\'t look like a Bluesky handle. Try something like alice.bsky.social.', 'fosse' ),
+				'error',
+				$return_context
+			);
+			return;
 		}
 
 		$auth_url = \Atmosphere\OAuth\Client::authorize( $handle );
@@ -354,12 +374,24 @@ class Bluesky_Provider implements Connection_Provider {
 		$state = sanitize_text_field( wp_unslash( $_GET['state'] ?? '' ) );
 		// phpcs:enable WordPress.Security.NonceVerification.Recommended
 
-		if ( empty( $code ) || empty( $state ) ) {
+		// No code and no state → ordinary page hit, not an OAuth callback.
+		if ( '' === $code && '' === $state ) {
 			return;
 		}
 
 		if ( ! current_user_can( 'manage_options' ) ) {
 			wp_die( esc_html__( 'You do not have permission to complete the Bluesky connection.', 'fosse' ) );
+		}
+
+		// Exactly one of code/state present means the auth server redirected
+		// back but something stripped the other parameter mid-flight. Treat
+		// it as a real error instead of silently rendering an empty page.
+		if ( '' === $code || '' === $state ) {
+			$this->redirect_with_notice(
+				__( 'Bluesky returned an incomplete response. Please try connecting again.', 'fosse' ),
+				'error'
+			);
+			return;
 		}
 
 		// Resolve the return context against the inbound state before we hand

@@ -508,6 +508,125 @@ class Bluesky_ProviderTest extends BaseTestCase {
 	}
 
 	/**
+	 * Callback URLs missing exactly one of code/state surface an error notice
+	 * instead of silently rendering an empty page that the user can't act on.
+	 */
+	public function test_handle_oauth_callback_partial_params_show_error() {
+		$this->become_admin();
+
+		// phpcs:disable WordPress.Security.NonceVerification.Recommended -- test setup.
+		$_GET = array(
+			'page' => 'fosse',
+			'code' => 'auth-code-only',
+		);
+		// phpcs:enable WordPress.Security.NonceVerification.Recommended
+
+		add_filter(
+			'wp_redirect',
+			static function () {
+				throw new \Exception( 'redirect' );
+			}
+		);
+
+		try {
+			$this->provider->handle_oauth_callback();
+		} catch ( \Exception $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$errors = get_settings_errors( 'atmosphere' );
+		$types  = array_column( $errors, 'type' );
+
+		$this->assertContains( 'error', $types );
+	}
+
+	/**
+	 * Callback URLs with neither code nor state are normal admin page hits
+	 * and must remain a no-op (no redirect, no notice).
+	 */
+	public function test_handle_oauth_callback_no_params_is_silent() {
+		$this->become_admin();
+
+		// phpcs:disable WordPress.Security.NonceVerification.Recommended -- test setup.
+		$_GET = array( 'page' => 'fosse' );
+		// phpcs:enable WordPress.Security.NonceVerification.Recommended
+
+		$this->provider->handle_oauth_callback();
+
+		$this->assertEmpty( get_settings_errors( 'atmosphere' ) );
+	}
+
+	// --- handle validation ---
+
+	/**
+	 * Malformed handles are rejected with an actionable error notice
+	 * before any HTTP call to Atmosphere\OAuth\Client::authorize().
+	 *
+	 * @dataProvider invalid_handle_provider
+	 *
+	 * @param string $raw_handle Raw user input.
+	 */
+	#[\PHPUnit\Framework\Attributes\DataProvider( 'invalid_handle_provider' )]
+	public function test_handle_connect_rejects_malformed_handle( string $raw_handle ) {
+		$this->become_admin();
+
+		$network_called = false;
+		add_filter(
+			'pre_http_request',
+			static function () use ( &$network_called ) {
+				$network_called = true;
+				return new \WP_Error( 'fosse_test', 'should not be called' );
+			}
+		);
+
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
+		$_POST    = array(
+			'_wpnonce'       => wp_create_nonce( 'fosse_connect_bluesky' ),
+			'bluesky_handle' => $raw_handle,
+		);
+		$_REQUEST = $_POST;
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+
+		add_filter(
+			'wp_redirect',
+			static function () {
+				throw new \Exception( 'redirect' );
+			}
+		);
+
+		try {
+			$this->provider->handle_connect();
+		} catch ( \Exception $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$this->assertFalse( $network_called, 'Authorize() must not run for malformed handles.' );
+
+		$errors   = get_settings_errors( 'atmosphere' );
+		$messages = array_column( $errors, 'message' );
+
+		$this->assertNotEmpty( $messages );
+		$this->assertStringContainsString( 'handle', strtolower( implode( ' ', $messages ) ) );
+	}
+
+	/**
+	 * Data provider for malformed handles.
+	 *
+	 * @return array<string, array{0: string}>
+	 */
+	public static function invalid_handle_provider(): array {
+		return array(
+			'no dot, single label' => array( 'alice' ),
+			'leading dot'          => array( '.bsky.social' ),
+			'trailing dot'         => array( 'alice.bsky.social.' ),
+			'space inside'         => array( 'alice bsky.social' ),
+			'underscore'           => array( 'al_ice.bsky.social' ),
+			'mastodon style'       => array( '@alice@host.example' ),
+			'leading hyphen label' => array( '-alice.bsky.social' ),
+		);
+	}
+
+	/**
 	 * Empty-handle connect requests fail early and redirect with an error.
 	 */
 	public function test_handle_connect_rejects_empty_handle() {

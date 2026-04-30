@@ -364,6 +364,47 @@ class Onboarding_WizardTest extends BaseTestCase {
 	}
 
 	/**
+	 * The wizard's connect form embeds a `_wpnonce` that validates against
+	 * the `fosse_connect_bluesky` action — so a typo'd action name in the
+	 * form template would surface as a test failure rather than a 403 in
+	 * production.
+	 */
+	public function test_render_bluesky_step_emits_valid_connect_nonce(): void {
+		$output = $this->render_wizard_step( 'bluesky' );
+
+		$this->assertMatchesRegularExpression(
+			'/<input[^>]*\bname="_wpnonce"[^>]*\bvalue="([^"]+)"/i',
+			$output,
+			'Expected a _wpnonce hidden input in the rendered form.'
+		);
+
+		preg_match( '/<input[^>]*\bname="_wpnonce"[^>]*\bvalue="([^"]+)"/i', $output, $matches );
+		$nonce = $matches[1] ?? '';
+
+		$this->assertNotEmpty( $nonce );
+		$this->assertNotFalse(
+			wp_verify_nonce( $nonce, 'fosse_connect_bluesky' ),
+			'Embedded form nonce must validate against fosse_connect_bluesky.'
+		);
+	}
+
+	/**
+	 * When the Bluesky provider is not registered at all, the wizard renders
+	 * the unavailable notice rather than a connect form whose admin-post
+	 * handler isn't attached.
+	 */
+	public function test_render_bluesky_step_unregistered_provider_shows_unavailable(): void {
+		Connection_Provider_Registry::reset();
+		AP_Provider::register_provider();
+		// Deliberately do NOT register Bluesky_Provider.
+
+		$output = $this->render_wizard_step( 'bluesky' );
+
+		$this->assertStringContainsString( 'Bluesky setup is unavailable', $output );
+		$this->assertStringNotContainsString( 'fosse_connect_bluesky', $output );
+	}
+
+	/**
 	 * The Bluesky wizard step does not render a dead connect form when unavailable.
 	 */
 	public function test_render_bluesky_step_unavailable_omits_connect_form(): void {

@@ -476,15 +476,16 @@ class Onboarding_Wizard {
 	/**
 	 * Read Bluesky connection status from the registered provider.
 	 *
+	 * Reads strictly through the registry. If the provider isn't registered
+	 * (registration hook never fired, third-party removed it, etc.) the
+	 * wizard renders the unavailable notice rather than instantiating a
+	 * provider whose connect form would post to an unhooked admin-post
+	 * action and silently 404.
+	 *
 	 * @return array<string, mixed>
 	 */
 	private static function get_bluesky_status(): array {
 		$provider = Connection_Provider_Registry::get_provider( 'bluesky' );
-
-		if ( null === $provider ) {
-			$fallback_provider = new Bluesky_Provider();
-			$provider          = $fallback_provider->is_available() ? $fallback_provider : null;
-		}
 
 		$defaults = array(
 			'available'    => false,
