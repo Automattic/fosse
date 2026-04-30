@@ -115,7 +115,7 @@ class AP_Provider implements Connection_Provider {
 					<tr>
 						<th scope="row"><?php esc_html_e( 'Actor Mode', 'fosse' ); ?></th>
 						<td>
-							<fieldset aria-describedby="fosse-activitypub-actor-mode-note">
+							<fieldset>
 								<legend class="screen-reader-text"><?php esc_html_e( 'Actor Mode', 'fosse' ); ?></legend>
 								<label>
 									<input
@@ -167,7 +167,7 @@ class AP_Provider implements Connection_Provider {
 										<?php
 										echo wp_kses(
 											sprintf(
-												/* translators: %s: link to ActivityPub blog profile settings. */
+												/* translators: %s: anchor link reading "Blog profile settings" pointing to the ActivityPub blog profile tab. */
 												__( 'Configure the site-wide blog profile name, image, and description in %s.', 'fosse' ),
 												'<a href="' . esc_url( admin_url( 'options-general.php?page=activitypub&tab=blog-profile' ) ) . '">' . esc_html__( 'Blog profile settings', 'fosse' ) . '</a>'
 											),
