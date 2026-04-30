@@ -107,6 +107,32 @@ class AP_ProviderTest extends BaseTestCase {
 		$this->assertSame( array( 'page' ), $this->provider->get_status()['post_types'] );
 	}
 
+	/**
+	 * Setup section carries the fragment target id used by the Status-page
+	 * "Manage ActivityPub settings" deep link. Renaming the id without
+	 * updating the link would silently break navigation.
+	 */
+	public function test_render_setup_section_has_anchor_id() {
+		ob_start();
+		$this->provider->render_setup_section();
+		$output = ob_get_clean();
+
+		$this->assertStringContainsString( 'id="fosse-provider-activitypub"', $output );
+	}
+
+	/**
+	 * Status card deep-links back to the ActivityPub setup section. The
+	 * fragment must match the id rendered by render_setup_section().
+	 */
+	public function test_render_status_card_has_manage_settings_link() {
+		ob_start();
+		$this->provider->render_status_card();
+		$output = ob_get_clean();
+
+		$this->assertStringContainsString( 'Manage ActivityPub settings', $output );
+		$this->assertStringContainsString( '#fosse-provider-activitypub', $output );
+	}
+
 	// --- handle_save tests ---------------------------------------------------
 
 	/**

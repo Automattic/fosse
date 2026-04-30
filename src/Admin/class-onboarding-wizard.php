@@ -14,7 +14,7 @@ namespace Automattic\Fosse\Admin;
  *  1. Welcome - value prop overview
  *  2. Appearance - actor mode selection (blog / actor / actor_blog)
  *  3. Content - post type selection
- *  4. Bluesky - placeholder until Bluesky_Provider ships
+ *  4. Bluesky - optional OAuth connection
  *  5. Complete - summary and handoff to Setup/Status pages
  */
 class Onboarding_Wizard {
@@ -474,6 +474,41 @@ class Onboarding_Wizard {
 	}
 
 	/**
+	 * Read Bluesky connection status from the registered provider.
+	 *
+	 * Reads strictly through the registry. If the provider isn't registered
+	 * (registration hook never fired, third-party removed it, etc.) the
+	 * wizard renders the unavailable notice rather than instantiating a
+	 * provider whose connect form would post to an unhooked admin-post
+	 * action and silently 404.
+	 *
+	 * @return array<string, mixed>
+	 */
+	private static function get_bluesky_status(): array {
+		$provider = Connection_Provider_Registry::get_provider( 'bluesky' );
+
+		$defaults = array(
+			'available'    => false,
+			'connected'    => false,
+			'handle'       => '',
+			'did'          => '',
+			'pds_endpoint' => '',
+			'auto_publish' => false,
+			'token_error'  => null,
+		);
+
+		if ( null === $provider || ! $provider->is_available() ) {
+			return $defaults;
+		}
+
+		return array_merge(
+			$defaults,
+			$provider->get_status(),
+			array( 'available' => true )
+		);
+	}
+
+	/**
 	 * Render the progress indicator.
 	 *
 	 * @param string $current_step Current step slug.
@@ -765,58 +800,98 @@ class Onboarding_Wizard {
 	}
 
 	/**
-	 * Render Step 4: Bluesky (placeholder).
+	 * Render Step 4: Bluesky.
+	 *
+	 * Three states drive the rendered markup:
+	 *  - Unavailable (provider not registered or not is_available): info notice.
+	 *  - Connected: account summary table.
+	 *  - Disconnected: OAuth-start form posting to admin-post.php.
 	 *
 	 * @return void
 	 */
 	private static function render_step_bluesky(): void {
 		self::render_progress( 'bluesky' );
+		$status = self::get_bluesky_status();
 		?>
 		<h1 class="fosse-wizard__title"><?php esc_html_e( 'Connect to Bluesky', 'fosse' ); ?></h1>
 		<p class="fosse-wizard__description">
 			<?php esc_html_e( 'Link your Bluesky account so your posts also appear on Bluesky. This step is optional. You can always connect later from the FOSSE Setup page.', 'fosse' ); ?>
 		</p>
 
+		<?php settings_errors( 'atmosphere' ); ?>
+
 		<div class="fosse-wizard__card">
-			<div class="notice notice-warning inline fosse-wizard__notice">
-				<p>
-					<strong><?php esc_html_e( 'Coming Soon', 'fosse' ); ?></strong>
-					<?php esc_html_e( 'Bluesky connection is being finalized. Skip this step for now and connect once it\'s ready.', 'fosse' ); ?>
-				</p>
-			</div>
-
-			<div class="fosse-bluesky-placeholder">
-				<label for="fosse-bsky-handle" class="fosse-bluesky-placeholder__label">
-					<?php esc_html_e( 'Bluesky Handle', 'fosse' ); ?>
-				</label>
-				<div class="fosse-bluesky-connect">
-					<input
-						type="text"
-						id="fosse-bsky-handle"
-						class="regular-text"
-						placeholder="<?php esc_attr_e( 'yourname.bsky.social', 'fosse' ); ?>"
-						disabled
-					/>
-					<button type="button" class="button" disabled>
-						<?php esc_html_e( 'Connect', 'fosse' ); ?>
-					</button>
+			<?php if ( ! $status['available'] ) : ?>
+				<div class="notice notice-info inline fosse-wizard__notice">
+					<p>
+						<strong><?php esc_html_e( 'Bluesky setup is unavailable.', 'fosse' ); ?></strong>
+						<?php esc_html_e( 'Skip this step for now and connect from the FOSSE Setup page once Bluesky support is available.', 'fosse' ); ?>
+					</p>
 				</div>
-			</div>
+			<?php elseif ( $status['connected'] ) : ?>
+				<div class="notice notice-success inline fosse-wizard__notice">
+					<p>
+						<strong><?php esc_html_e( 'Bluesky is connected.', 'fosse' ); ?></strong>
+						<?php esc_html_e( 'FOSSE can publish eligible posts to this account.', 'fosse' ); ?>
+					</p>
+				</div>
 
-			<div class="fosse-wizard__hint">
-				<p>
-					<?php
-					echo wp_kses_post(
-						sprintf(
-							/* translators: 1: opening anchor tag, 2: closing anchor tag */
-							__( 'You\'ll need an existing Bluesky account. If you want to use your domain as your Bluesky handle, %1$slearn how to set that up%2$s.', 'fosse' ),
-							'<a href="' . esc_url( 'https://bsky.social/about/blog/4-28-2023-domain-handle-tutorial' ) . '" target="_blank" rel="noopener noreferrer">',
-							'</a>'
-						)
-					);
-					?>
-				</p>
-			</div>
+				<table class="fosse-summary">
+					<?php if ( $status['handle'] ) : ?>
+						<tr>
+							<td class="fosse-summary__label"><?php esc_html_e( 'Handle', 'fosse' ); ?></td>
+							<td class="fosse-summary__value"><?php echo esc_html( $status['handle'] ); ?></td>
+						</tr>
+					<?php endif; ?>
+					<?php if ( $status['did'] ) : ?>
+						<tr>
+							<td class="fosse-summary__label"><?php esc_html_e( 'DID', 'fosse' ); ?></td>
+							<td class="fosse-summary__value"><code><?php echo esc_html( $status['did'] ); ?></code></td>
+						</tr>
+					<?php endif; ?>
+					<tr>
+						<td class="fosse-summary__label"><?php esc_html_e( 'Auto Publish', 'fosse' ); ?></td>
+						<td class="fosse-summary__value"><?php echo esc_html( $status['auto_publish'] ? __( 'Enabled', 'fosse' ) : __( 'Disabled', 'fosse' ) ); ?></td>
+					</tr>
+				</table>
+			<?php else : ?>
+				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+					<input type="hidden" name="action" value="fosse_connect_bluesky" />
+					<input type="hidden" name="_wpnonce" value="<?php echo esc_attr( wp_create_nonce( 'fosse_connect_bluesky' ) ); ?>" />
+					<input type="hidden" name="<?php echo esc_attr( Bluesky_Provider::RETURN_CONTEXT_FIELD ); ?>" value="<?php echo esc_attr( Bluesky_Provider::RETURN_CONTEXT_WIZARD ); ?>" />
+
+					<div class="fosse-bluesky-form">
+						<label for="fosse-bsky-handle" class="fosse-bluesky-form__label">
+							<?php esc_html_e( 'Bluesky Handle', 'fosse' ); ?>
+						</label>
+						<div class="fosse-bluesky-form__controls">
+							<input
+								type="text"
+								id="fosse-bsky-handle"
+								name="bluesky_handle"
+								class="regular-text"
+								placeholder="<?php esc_attr_e( 'yourname.bsky.social', 'fosse' ); ?>"
+							/>
+							<?php submit_button( __( 'Connect Bluesky', 'fosse' ), 'primary', 'submit', false ); ?>
+						</div>
+					</div>
+				</form>
+
+				<div class="fosse-wizard__hint">
+					<p>
+						<?php
+						echo wp_kses_post(
+							sprintf(
+								/* translators: 1: opening anchor tag, 2: closing anchor tag */
+								__( 'Want your domain as your handle? %1$sLearn how%2$s.', 'fosse' ),
+								'<a href="' . esc_url( 'https://bsky.social/about/blog/4-28-2023-domain-handle-tutorial' ) . '" target="_blank" rel="noopener noreferrer">',
+								'</a>'
+							)
+						);
+						?>
+					</p>
+				</div>
+			<?php endif; ?>
 		</div>
 
 		<div class="fosse-wizard__actions">
@@ -825,7 +900,7 @@ class Onboarding_Wizard {
 			</a>
 			<div class="fosse-wizard__actions-primary">
 				<a href="<?php echo esc_url( wp_nonce_url( admin_url( 'admin-post.php?action=fosse_wizard_complete' ), 'fosse_wizard_complete' ) ); ?>" class="button button-primary">
-					<?php esc_html_e( 'Skip for now', 'fosse' ); ?>
+					<?php echo esc_html( $status['connected'] ? __( 'Finish setup', 'fosse' ) : __( 'Skip for now', 'fosse' ) ); ?>
 				</a>
 			</div>
 		</div>
@@ -849,6 +924,7 @@ class Onboarding_Wizard {
 		$post_types = get_option( 'activitypub_support_post_types', array( 'post' ) );
 		$site_host  = wp_parse_url( home_url(), PHP_URL_HOST );
 		$site_url   = $site_host ? $site_host : 'yoursite.com';
+		$bluesky    = self::get_bluesky_status();
 
 		$mode_labels = array(
 			'actor'      => __( 'As you (author profiles)', 'fosse' ),
@@ -867,6 +943,17 @@ class Onboarding_Wizard {
 			},
 			$post_types
 		);
+
+		$bluesky_summary = $bluesky['available'] ? __( 'Not connected', 'fosse' ) : __( 'Unavailable', 'fosse' );
+		if ( $bluesky['connected'] ) {
+			$bluesky_summary = $bluesky['handle']
+				? sprintf(
+					/* translators: %s: Bluesky handle. */
+					__( 'Connected as %s', 'fosse' ),
+					$bluesky['handle']
+				)
+				: __( 'Connected', 'fosse' );
+		}
 
 		?>
 		<div class="fosse-wizard__complete-header">
@@ -891,7 +978,7 @@ class Onboarding_Wizard {
 				</tr>
 				<tr>
 					<td class="fosse-summary__label"><?php esc_html_e( 'Bluesky', 'fosse' ); ?></td>
-					<td class="fosse-summary__value fosse-summary__value--muted"><?php esc_html_e( 'Not connected', 'fosse' ); ?></td>
+					<td class="fosse-summary__value<?php echo $bluesky['connected'] ? '' : ' fosse-summary__value--muted'; ?>"><?php echo esc_html( $bluesky_summary ); ?></td>
 				</tr>
 			</table>
 

@@ -3,7 +3,7 @@
         'name' => 'automattic/atmosphere',
         'pretty_version' => 'dev-trunk',
         'version' => 'dev-trunk',
-        'reference' => '28af19597650543b9b24076cb9cdf758adcd6a14',
+        'reference' => 'ee1df08f4baeb1113bf92ab864ee68dc9bf0e08c',
         'type' => 'wordpress-plugin',
         'install_path' => __DIR__ . '/../../',
         'aliases' => array(),
@@ -13,7 +13,7 @@
         'automattic/atmosphere' => array(
             'pretty_version' => 'dev-trunk',
             'version' => 'dev-trunk',
-            'reference' => '28af19597650543b9b24076cb9cdf758adcd6a14',
+            'reference' => 'ee1df08f4baeb1113bf92ab864ee68dc9bf0e08c',
             'type' => 'wordpress-plugin',
             'install_path' => __DIR__ . '/../../',
             'aliases' => array(),
