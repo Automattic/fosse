@@ -24,17 +24,6 @@ const setBlueskyState = async (
 };
 
 test.describe( 'Bluesky provider UI', () => {
-	// FOSSE's first-run activation redirect intercepts the first hit to
-	// /wp-admin/post-new.php and bounces the browser to the onboarding
-	// wizard, which doesn't expose wpApiSettings.nonce. Visit the wizard
-	// once up front so the one-shot redirect option is consumed before
-	// the per-test setup runs.
-	test.beforeAll( async ( { browser } ) => {
-		const page = await browser.newPage();
-		await page.goto( '/wp-admin/admin.php?page=fosse-wizard' );
-		await page.close();
-	} );
-
 	// The connected-state test below leaves atmosphere_connection set,
 	// which flips the onboarding wizard's Bluesky step (rendered by
 	// later specs) to its connected-summary branch and hides the
