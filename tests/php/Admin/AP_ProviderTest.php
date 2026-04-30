@@ -133,6 +133,42 @@ class AP_ProviderTest extends BaseTestCase {
 		$this->assertStringContainsString( '#fosse-provider-activitypub', $output );
 	}
 
+	/**
+	 * Setup UI explains the available actor modes and links to blog profile settings.
+	 */
+	public function test_render_setup_section_explains_actor_modes() {
+		ob_start();
+		$this->provider->render_setup_section();
+		$output = ob_get_clean();
+
+		$this->assertStringContainsString( 'Each WordPress author publishes from their own fediverse profile.', $output );
+		$this->assertStringContainsString( 'One site-wide profile publishes every post, regardless of author.', $output );
+		$this->assertStringContainsString( 'Authors keep individual profiles, and the site also has its own blog profile.', $output );
+		$this->assertStringContainsString( 'Changing modes does not move followers between profiles.', $output );
+		$this->assertStringContainsString( 'Configure the site-wide blog profile name, image, and description', $output );
+		$this->assertStringContainsString( '<fieldset aria-describedby="fosse-activitypub-actor-mode-note">', $output );
+		$this->assertMatchesRegularExpression(
+			'~<input[^>]+id="fosse-activitypub-actor-mode-actor"[^>]+aria-describedby="fosse-activitypub-actor-mode-actor-desc"[^>]+/>~',
+			$output
+		);
+		$this->assertMatchesRegularExpression(
+			'~<input[^>]+id="fosse-activitypub-actor-mode-blog"[^>]+aria-describedby="fosse-activitypub-actor-mode-blog-desc"[^>]+/>~',
+			$output
+		);
+		$this->assertMatchesRegularExpression(
+			'~<input[^>]+id="fosse-activitypub-actor-mode-actor-blog"[^>]+aria-describedby="fosse-activitypub-actor-mode-actor-blog-desc"[^>]+/>~',
+			$output
+		);
+		$this->assertStringContainsString( 'id="fosse-activitypub-actor-mode-actor-desc"', $output );
+		$this->assertStringContainsString( 'id="fosse-activitypub-actor-mode-blog-desc"', $output );
+		$this->assertStringContainsString( 'id="fosse-activitypub-actor-mode-actor-blog-desc"', $output );
+		$this->assertStringContainsString( '<div id="fosse-activitypub-actor-mode-note" class="fosse-activitypub-actor-mode-note">', $output );
+		$this->assertMatchesRegularExpression(
+			'~<a href="[^"]*options-general\.php\?page=activitypub(?:&#038;|&amp;|&)tab=blog-profile">Blog profile settings</a>~',
+			$output
+		);
+	}
+
 	// --- handle_save tests ---------------------------------------------------
 
 	/**
