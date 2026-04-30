@@ -300,6 +300,82 @@ class Bluesky_ProviderTest extends BaseTestCase {
 	}
 
 	/**
+	 * Setup-origin connect requests clear stale wizard OAuth return context.
+	 */
+	public function test_handle_connect_from_setup_clears_stale_wizard_return_context() {
+		$this->become_admin();
+
+		$return_key = 'fosse_bluesky_oauth_return_' . get_current_user_id();
+		set_transient( $return_key, 'wizard', HOUR_IN_SECONDS );
+
+		$captured = null;
+
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
+		$_POST    = array(
+			'_wpnonce'       => wp_create_nonce( 'fosse_connect_bluesky' ),
+			'bluesky_handle' => '',
+		);
+		$_REQUEST = $_POST;
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+
+		add_filter(
+			'wp_redirect',
+			static function ( $location ) use ( &$captured ) {
+				$captured = (string) $location;
+				throw new \Exception( 'redirect' );
+			}
+		);
+
+		try {
+			$this->provider->handle_connect();
+		} catch ( \Exception $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$this->assertNotNull( $captured );
+		$this->assertStringContainsString( 'page=fosse', $captured );
+		$this->assertStringNotContainsString( 'page=fosse-wizard', $captured );
+		$this->assertFalse( get_transient( $return_key ) );
+	}
+
+	/**
+	 * Empty-handle connect requests from the wizard redirect back to the Bluesky step.
+	 */
+	public function test_handle_connect_rejects_empty_handle_from_wizard() {
+		$this->become_admin();
+
+		$captured = null;
+
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
+		$_POST    = array(
+			'_wpnonce'             => wp_create_nonce( 'fosse_connect_bluesky' ),
+			'bluesky_handle'       => '',
+			'fosse_bluesky_return' => 'wizard',
+		);
+		$_REQUEST = $_POST;
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+
+		add_filter(
+			'wp_redirect',
+			static function ( $location ) use ( &$captured ) {
+				$captured = (string) $location;
+				throw new \Exception( 'redirect' );
+			}
+		);
+
+		try {
+			$this->provider->handle_connect();
+		} catch ( \Exception $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$this->assertNotNull( $captured );
+		$this->assertStringContainsString( 'page=fosse-wizard', $captured );
+		$this->assertStringContainsString( 'step=bluesky', $captured );
+		$this->assertStringContainsString( 'settings-updated=true', $captured );
+	}
+
+	/**
 	 * Callback handling is a no-op when the request is not for the FOSSE page.
 	 */
 	public function test_handle_oauth_callback_ignores_non_fosse_page() {
@@ -316,6 +392,45 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		$this->provider->handle_oauth_callback();
 
 		$this->assertEmpty( get_settings_errors( 'atmosphere' ) );
+	}
+
+	/**
+	 * OAuth callbacks from wizard-origin flows redirect back to the Bluesky step.
+	 */
+	public function test_handle_oauth_callback_returns_to_wizard_when_context_was_remembered() {
+		$this->become_admin();
+
+		set_transient( 'fosse_bluesky_oauth_return_' . get_current_user_id(), 'wizard', HOUR_IN_SECONDS );
+
+		$captured = null;
+
+		// phpcs:disable WordPress.Security.NonceVerification.Recommended -- test setup.
+		$_GET = array(
+			'page'  => 'fosse',
+			'code'  => 'abc',
+			'state' => 'def',
+		);
+		// phpcs:enable WordPress.Security.NonceVerification.Recommended
+
+		add_filter(
+			'wp_redirect',
+			static function ( $location ) use ( &$captured ) {
+				$captured = (string) $location;
+				throw new \Exception( 'redirect' );
+			}
+		);
+
+		try {
+			$this->provider->handle_oauth_callback();
+		} catch ( \Exception $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$this->assertNotNull( $captured );
+		$this->assertStringContainsString( 'page=fosse-wizard', $captured );
+		$this->assertStringContainsString( 'step=bluesky', $captured );
+		$this->assertStringContainsString( 'settings-updated=true', $captured );
+		$this->assertFalse( get_transient( 'fosse_bluesky_oauth_return_' . get_current_user_id() ) );
 	}
 
 	// --- unauthorized user tests ---

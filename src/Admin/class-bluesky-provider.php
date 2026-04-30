@@ -22,6 +22,27 @@ namespace Automattic\Fosse\Admin;
 class Bluesky_Provider implements Connection_Provider {
 
 	/**
+	 * Hidden form field used to identify wizard-origin connect flows.
+	 *
+	 * @var string
+	 */
+	private const RETURN_CONTEXT_FIELD = 'fosse_bluesky_return';
+
+	/**
+	 * Return context value for the first-run wizard.
+	 *
+	 * @var string
+	 */
+	private const RETURN_CONTEXT_WIZARD = 'wizard';
+
+	/**
+	 * Per-user transient prefix for pending OAuth return context.
+	 *
+	 * @var string
+	 */
+	private const OAUTH_RETURN_TRANSIENT_PREFIX = 'fosse_bluesky_oauth_return_';
+
+	/**
 	 * Hook into fosse_register_providers to self-register.
 	 *
 	 * @return void
@@ -259,20 +280,27 @@ class Bluesky_Provider implements Connection_Provider {
 
 		check_admin_referer( 'fosse_connect_bluesky' );
 
+		$return_context = $this->get_connect_return_context();
+		if ( self::RETURN_CONTEXT_WIZARD !== $return_context ) {
+			$this->forget_oauth_return_context();
+		}
+
 		$handle = sanitize_text_field( wp_unslash( $_POST['bluesky_handle'] ?? '' ) );
 		$handle = ltrim( $handle, '@' );
 
 		if ( empty( $handle ) ) {
-			$this->redirect_with_notice( __( 'Enter a Bluesky handle to continue.', 'fosse' ), 'error' );
+			$this->redirect_with_notice( __( 'Enter a Bluesky handle to continue.', 'fosse' ), 'error', $return_context );
 			return; // redirect_with_notice exits, but guard against future changes.
 		}
 
 		$auth_url = \Atmosphere\OAuth\Client::authorize( $handle );
 
 		if ( is_wp_error( $auth_url ) ) {
-			$this->redirect_with_notice( $auth_url->get_error_message(), 'error' );
+			$this->redirect_with_notice( $auth_url->get_error_message(), 'error', $return_context );
 			return; // redirect_with_notice exits, but guard against future changes.
 		}
+
+		$this->remember_oauth_return_context( $return_context );
 
 		wp_redirect( $auth_url ); // phpcs:ignore WordPress.Security.SafeRedirect.wp_redirect_wp_redirect
 		exit;
@@ -319,10 +347,11 @@ class Bluesky_Provider implements Connection_Provider {
 			wp_die( esc_html__( 'You do not have permission to complete the Bluesky connection.', 'fosse' ) );
 		}
 
-		$result = \Atmosphere\OAuth\Client::handle_callback( $code, $state );
+		$result         = \Atmosphere\OAuth\Client::handle_callback( $code, $state );
+		$return_context = $this->consume_oauth_return_context();
 
 		if ( is_wp_error( $result ) ) {
-			$this->redirect_with_notice( $result->get_error_message(), 'error' );
+			$this->redirect_with_notice( $result->get_error_message(), 'error', $return_context );
 			return; // redirect_with_notice exits, but guard against future changes.
 		}
 
@@ -337,12 +366,13 @@ class Bluesky_Provider implements Connection_Provider {
 					__( 'Connected to Bluesky, but publication setup failed: %s', 'fosse' ),
 					$sync_result->get_error_message()
 				),
-				'warning'
+				'warning',
+				$return_context
 			);
 			return;
 		}
 
-		$this->redirect_with_notice( __( 'Successfully connected to Bluesky.', 'fosse' ), 'success' );
+		$this->redirect_with_notice( __( 'Successfully connected to Bluesky.', 'fosse' ), 'success', $return_context );
 	}
 
 	/**
@@ -356,17 +386,103 @@ class Bluesky_Provider implements Connection_Provider {
 	}
 
 	/**
-	 * Persist an admin notice and redirect back to the FOSSE setup page.
+	 * Persist an admin notice and redirect back to the originating FOSSE screen.
 	 *
-	 * @param string $message Notice message.
-	 * @param string $type    Notice type.
+	 * @param string $message        Notice message.
+	 * @param string $type           Notice type.
+	 * @param string $return_context Optional return context.
 	 * @return void
 	 */
-	private function redirect_with_notice( string $message, string $type ): void {
+	private function redirect_with_notice( string $message, string $type, string $return_context = '' ): void {
 		add_settings_error( 'atmosphere', 'fosse_bluesky_notice', $message, $type );
 		set_transient( 'settings_errors', get_settings_errors(), 30 );
 
-		wp_safe_redirect( admin_url( 'admin.php?page=fosse&settings-updated=true' ) );
+		wp_safe_redirect( $this->get_redirect_url( $return_context ) );
 		exit;
+	}
+
+	/**
+	 * Read the requested return context from a connect form submission.
+	 *
+	 * @return string
+	 */
+	private function get_connect_return_context(): string {
+		// phpcs:ignore WordPress.Security.NonceVerification.Missing -- nonce is checked in handle_connect() before this helper is called.
+		$return_context = isset( $_POST[ self::RETURN_CONTEXT_FIELD ] ) ? sanitize_key( wp_unslash( $_POST[ self::RETURN_CONTEXT_FIELD ] ) ) : '';
+
+		return self::RETURN_CONTEXT_WIZARD === $return_context ? self::RETURN_CONTEXT_WIZARD : '';
+	}
+
+	/**
+	 * Remember where a successful OAuth start should return after callback.
+	 *
+	 * @param string $return_context Return context.
+	 * @return void
+	 */
+	private function remember_oauth_return_context( string $return_context ): void {
+		$this->forget_oauth_return_context();
+
+		if ( self::RETURN_CONTEXT_WIZARD !== $return_context ) {
+			return;
+		}
+
+		set_transient(
+			$this->get_oauth_return_transient_key(),
+			self::RETURN_CONTEXT_WIZARD,
+			HOUR_IN_SECONDS
+		);
+	}
+
+	/**
+	 * Clear any remembered OAuth return context for the current user.
+	 *
+	 * @return void
+	 */
+	private function forget_oauth_return_context(): void {
+		delete_transient( $this->get_oauth_return_transient_key() );
+	}
+
+	/**
+	 * Consume any remembered OAuth return context for the current user.
+	 *
+	 * @return string
+	 */
+	private function consume_oauth_return_context(): string {
+		$key            = $this->get_oauth_return_transient_key();
+		$return_context = get_transient( $key );
+
+		delete_transient( $key );
+
+		return self::RETURN_CONTEXT_WIZARD === $return_context ? self::RETURN_CONTEXT_WIZARD : '';
+	}
+
+	/**
+	 * Build the per-user OAuth return transient key.
+	 *
+	 * @return string
+	 */
+	private function get_oauth_return_transient_key(): string {
+		return self::OAUTH_RETURN_TRANSIENT_PREFIX . get_current_user_id();
+	}
+
+	/**
+	 * Build the admin URL for a return context.
+	 *
+	 * @param string $return_context Return context.
+	 * @return string
+	 */
+	private function get_redirect_url( string $return_context ): string {
+		if ( self::RETURN_CONTEXT_WIZARD === $return_context ) {
+			return add_query_arg(
+				array(
+					'page'             => 'fosse-wizard',
+					'step'             => 'bluesky',
+					'settings-updated' => 'true',
+				),
+				admin_url( 'admin.php' )
+			);
+		}
+
+		return admin_url( 'admin.php?page=fosse&settings-updated=true' );
 	}
 }
