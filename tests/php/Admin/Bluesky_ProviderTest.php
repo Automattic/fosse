@@ -322,6 +322,29 @@ class Bluesky_ProviderTest extends BaseTestCase {
 	}
 
 	/**
+	 * A stored DID with a single trailing newline is rejected (PHP's $ would have allowed it).
+	 */
+	public function test_atproto_did_well_known_response_rejects_did_with_trailing_newline() {
+		update_option(
+			'atmosphere_connection',
+			array(
+				'did'          => "did:plc:test123\n",
+				'handle'       => 'alice.bsky.social',
+				'pds_endpoint' => 'https://bsky.social',
+				'access_token' => Encryption::encrypt( 'token' ),
+			)
+		);
+
+		$this->assertSame(
+			array(
+				'status' => 404,
+				'did'    => '',
+			),
+			$this->get_atproto_did_well_known_response( '/.well-known/atproto-did' )
+		);
+	}
+
+	/**
 	 * The suppression hook is a no-op for unrelated atmosphere_wellknown query vars.
 	 */
 	public function test_maybe_suppress_atmosphere_well_known_no_op_for_other_query_vars() {
