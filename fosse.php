@@ -164,6 +164,27 @@ add_action(
 );
 
 /*
+ * Reactions block relabel.
+ *
+ * Overlays a FOSSE-flavored title and description onto the bundled
+ * activitypub/reactions block via register_block_type_args. The
+ * block's server-side render is already protocol-agnostic and
+ * aggregates ActivityPub plus Bluesky reactions; the relabel makes
+ * the inserter UI wording match what the block actually shows. The
+ * register() method itself guards on the AP class_exists check so
+ * the filter is never registered on hosts without ActivityPub.
+ */
+add_action(
+	'init',
+	static function () {
+		if ( ! class_exists( \Automattic\Fosse\Reactions_Label::class ) ) {
+			return;
+		}
+		\Automattic\Fosse\Reactions_Label::register();
+	}
+);
+
+/*
  * Provider bootstrap.
  *
  * Providers self-register on the 'fosse_register_providers' action fired
