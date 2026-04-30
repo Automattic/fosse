@@ -161,6 +161,94 @@ class Reactions_LabelTest extends BaseTestCase {
 	}
 
 	/**
+	 * The overlaid title and description must go through `__()` with the
+	 * `fosse` text domain so non-English admin/editor surfaces get the
+	 * translated wording instead of untranslatable English overwriting
+	 * AP's localized metadata. Asserting the rendered string alone
+	 * (`'Social Reactions'`) wouldn't catch a regression that dropped
+	 * the `__()` wrapper, because the wrapped and unwrapped paths
+	 * produce identical output in a no-translation test environment.
+	 *
+	 * Hooks `gettext` to capture the (text, domain) pairs the projector
+	 * passes through, then asserts both strings were registered against
+	 * the `fosse` domain. The filter is removed in a `finally` so a
+	 * later test isn't polluted with the capture.
+	 */
+	public function test_filter_translates_via_fosse_textdomain() {
+		$captured = array();
+		$capture  = static function ( $translation, $text, $domain ) use ( &$captured ) {
+			$captured[ $text ] = $domain;
+			return $translation;
+		};
+
+		\add_filter( 'gettext', $capture, 10, 3 );
+
+		try {
+			$args = array(
+				'title'       => 'Fediverse Reactions',
+				'description' => 'Display Fediverse likes and reposts for your posts.',
+			);
+			\apply_filters( 'register_block_type_args', $args, 'activitypub/reactions' );
+		} finally {
+			\remove_filter( 'gettext', $capture, 10 );
+		}
+
+		$this->assertSame(
+			'fosse',
+			$captured['Social Reactions'] ?? null,
+			'Title overlay must call __() with the fosse text domain.'
+		);
+		$this->assertSame(
+			'fosse',
+			$captured['Display social likes and reposts for your posts.'] ?? null,
+			'Description overlay must call __() with the fosse text domain.'
+		);
+	}
+
+	/**
+	 * Non-string values for `title` / `description` (e.g. a Stringable
+	 * wrapper, a translation deferral object, or upstream accidentally
+	 * passing an array) must round-trip untouched. The projector's
+	 * `is_string` guard treats this as a structural no-op rather than
+	 * silently coercing the wrapper into a plain string. Tests the
+	 * "silent no-op" branch the projector docblock explicitly commits
+	 * to — without this case a refactor that drops the `is_string`
+	 * guard would slip through every other test in this suite, since
+	 * they all pass plain strings.
+	 */
+	public function test_filter_passes_through_non_string_title_unchanged() {
+		$stringable = new class() {
+			/**
+			 * Stand-in for any future Stringable / translation-deferral
+			 * wrapper upstream might pass as `$args['title']`.
+			 */
+			public function __toString(): string {
+				return 'Stringable Title';
+			}
+		};
+
+		$args = array(
+			'title'       => $stringable,
+			'description' => 'Display Fediverse likes and reposts for your posts.',
+			'category'    => 'widgets',
+		);
+
+		$result = apply_filters( 'register_block_type_args', $args, 'activitypub/reactions' );
+
+		$this->assertSame(
+			$stringable,
+			$result['title'],
+			'Non-string title must round-trip untouched (silent no-op).'
+		);
+		$this->assertSame(
+			'Display social likes and reposts for your posts.',
+			$result['description'],
+			'String description on the same matching block must still be overlaid.'
+		);
+		$this->assertSame( 'widgets', $result['category'] );
+	}
+
+	/**
 	 * Repeated register() calls leave exactly one callback at priority 10 on
 	 * register_block_type_args, registered with `accepted_args=2`. WP's
 	 * WP_Hook keys callbacks by unique-id, so identical callable-as-array

@@ -17,16 +17,30 @@
 
 defined( 'ABSPATH' ) || exit;
 
-// Defense-in-depth: register nothing if the blueprint-set FOSSE_E2E
-// constant is absent. `manage_options` already gates the endpoint, but
-// this also keeps the route from showing up in /wp-json schema dumps on
-// any host that ever ends up with this file in mu-plugins/ outside the
-// Playwright harness.
-if ( ! defined( 'FOSSE_E2E' ) || ! FOSSE_E2E ) {
+// Defense-in-depth: register nothing unless FOSSE_E2E is strictly true.
+// `manage_options` already gates the endpoint, but a strict check rules
+// out a future blueprint variant defining the constant as a truthy
+// non-true value (e.g. `define('FOSSE_E2E', 'false')` — the string
+// 'false' is truthy in PHP). When the constant is defined but rejected,
+// a one-shot warning makes the test harness leave a breadcrumb instead
+// of vanishing into a 404.
+if ( ! defined( 'FOSSE_E2E' ) ) {
+	return;
+}
+if ( true !== FOSSE_E2E ) {
+	// phpcs:disable WordPress.PHP.DevelopmentFunctions.error_log_error_log, WordPress.PHP.DevelopmentFunctions.error_log_var_export
+	\error_log(
+		sprintf(
+			'[fosse-e2e/seed-reactions] FOSSE_E2E is defined but not strictly (bool) true (got %s); seed endpoint not registered.',
+			\var_export( FOSSE_E2E, true )
+		)
+	);
+	// phpcs:enable WordPress.PHP.DevelopmentFunctions.error_log_error_log, WordPress.PHP.DevelopmentFunctions.error_log_var_export
 	return;
 }
 
 const FOSSE_E2E_SEED_POST_TITLE = 'FOSSE e2e Reactions test post';
+const FOSSE_E2E_SEED_META_KEY   = '_fosse_e2e_seed';
 
 add_action(
 	'rest_api_init',
@@ -60,18 +74,18 @@ add_action(
 							)
 						);
 					} catch ( \Throwable $e ) {
+						$location = sprintf( '%s:%d', $e->getFile(), $e->getLine() );
 						\error_log( // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
 							sprintf(
-								'[fosse-e2e/seed-reactions] %s: %s @ %s:%d',
+								'[fosse-e2e/seed-reactions] %s: %s @ %s',
 								get_class( $e ),
 								$e->getMessage(),
-								$e->getFile(),
-								$e->getLine()
+								$location
 							)
 						);
 						return new \WP_Error(
 							'fosse_e2e_seed_error',
-							sprintf( '%s: %s', get_class( $e ), $e->getMessage() ),
+							sprintf( '%s: %s @ %s', get_class( $e ), $e->getMessage(), $location ),
 							array( 'status' => 500 )
 						);
 					}
@@ -90,29 +104,62 @@ add_action(
  * so the spec exercises a user-inserted block, not whatever AP's
  * `blockHooks` happens to auto-inject this release.
  *
+ * Cleanup is scoped via the FOSSE_E2E_SEED_META_KEY post-meta marker
+ * (and the matching comment-meta marker on each seeded comment) so
+ * we never delete unrelated comments off a post that happens to
+ * collide on title.
+ *
  * @return int|\WP_Error
  */
 function fosse_e2e_upsert_seed_post() {
+	global $wpdb;
+
 	$existing = \get_posts(
 		array(
 			'post_type'      => 'post',
 			'post_status'    => 'any',
 			'title'          => FOSSE_E2E_SEED_POST_TITLE,
+			'meta_key'       => FOSSE_E2E_SEED_META_KEY, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key
+			'meta_value'     => '1', // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_value
 			'posts_per_page' => 1,
 			'fields'         => 'ids',
 		)
 	);
+	// `get_posts()` returns `array()` for both "no rows" and "query
+	// failed" — without this `last_error` check the second case
+	// silently flows into `wp_insert_post`, accumulating duplicate
+	// seed posts across runs.
+	if ( ! empty( $wpdb->last_error ) ) {
+		return new \WP_Error(
+			'fosse_e2e_seed_post_lookup_failed',
+			'Existing-post lookup failed: ' . $wpdb->last_error,
+			array( 'status' => 500 )
+		);
+	}
+
 	if ( ! empty( $existing ) ) {
 		$existing_id = (int) $existing[0];
-		// Wipe prior comments so each spec run sees a clean count.
+		// Wipe ONLY the prior seed-marked comments. Anything else on
+		// the post (real AP/AT comments that landed here in a long-
+		// running Playground session, hand-added test fixtures) stays.
 		$prior = \get_comments(
 			array(
-				'post_id' => $existing_id,
-				'fields'  => 'ids',
+				'post_id'    => $existing_id,
+				'meta_key'   => FOSSE_E2E_SEED_META_KEY, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key
+				'meta_value' => '1', // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_value
+				'fields'     => 'ids',
+				'status'     => 'any',
 			)
 		);
 		foreach ( $prior as $cid ) {
-			\wp_delete_comment( (int) $cid, true );
+			$deleted = \wp_delete_comment( (int) $cid, true );
+			if ( ! $deleted ) {
+				return new \WP_Error(
+					'fosse_e2e_seed_cleanup_failed',
+					sprintf( 'wp_delete_comment(%d) returned false during seed cleanup.', $cid ),
+					array( 'status' => 500 )
+				);
+			}
 		}
 		return $existing_id;
 	}
@@ -141,6 +188,8 @@ function fosse_e2e_upsert_seed_post() {
 			array( 'status' => 500 )
 		);
 	}
+
+	\update_post_meta( (int) $post_id, FOSSE_E2E_SEED_META_KEY, '1' );
 
 	return (int) $post_id;
 }
@@ -218,9 +267,10 @@ function fosse_e2e_seed_reaction_comments( int $post_id ) {
 		// `false` return on this fresh-insert path is a real failure
 		// worth surfacing.
 		$meta_writes = array(
-			'protocol'   => $spec['protocol'],
-			'source_id'  => $spec['source_id'],
-			'source_url' => $spec['source_url'],
+			'protocol'              => $spec['protocol'],
+			'source_id'             => $spec['source_id'],
+			'source_url'            => $spec['source_url'],
+			FOSSE_E2E_SEED_META_KEY => '1',
 		);
 		foreach ( $meta_writes as $meta_key => $meta_value ) {
 			if ( false === \update_comment_meta( $cid, $meta_key, $meta_value ) ) {

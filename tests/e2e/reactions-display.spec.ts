@@ -74,12 +74,18 @@ test( 'unified reactions: AP + Bluesky rows render in the same block; inserter t
 	//    block aggregates both protocols' rows. The seeded post embeds
 	//    the activitypub/reactions block explicitly, so we're exercising
 	//    the user-inserted block path rather than AP's blockHooks
-	//    auto-injection.
+	//    auto-injection. AP's blockHooks skip auto-injection when the
+	//    target already contains the block, so we expect exactly one
+	//    wrapper — the explicit one. Asserting the count rules out a
+	//    silent regression where the explicit-block path stops rendering
+	//    and the assertions below pass against an auto-injected wrapper.
 	await page.goto( seedBody.post_url );
 
-	const blockWrapper = page
-		.locator( '[data-wp-interactive="activitypub/reactions"]' )
-		.first();
+	const blockWrappers = page.locator(
+		'[data-wp-interactive="activitypub/reactions"]'
+	);
+	await expect( blockWrappers ).toHaveCount( 1 );
+	const blockWrapper = blockWrappers.first();
 	await expect( blockWrapper ).toBeVisible();
 
 	const reactionsInner = blockWrapper.locator( '.activitypub-reactions' );
@@ -123,4 +129,79 @@ test( 'unified reactions: AP + Bluesky rows render in the same block; inserter t
 	await expect(
 		repostGroup.locator( '.reaction-avatars a[title="Carol via Bluesky"]' )
 	).toHaveCount( 1 );
+} );
+
+test( 'seed endpoint is idempotent: re-invoking yields the same post and the same reaction counts', async ( {
+	page,
+} ) => {
+	// Locks the upsert path in fosse-reactions-seed.php — Playwright
+	// retries / `--repeat-each` / a flaky CI re-run must not pile up
+	// duplicate posts or stack additional reaction comments on the same
+	// post. Without this case, a regression that drops the seed-meta
+	// upsert or the seed-meta-scoped cleanup goes undetected.
+	await page.goto( '/wp-admin/post-new.php' );
+	await page.waitForFunction(
+		() => !! ( window as any ).wpApiSettings?.nonce
+	);
+
+	const post = async () =>
+		page.evaluate( async () => {
+			const res = await fetch( '/wp-json/fosse-e2e/v1/seed-reactions', {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+					'X-WP-Nonce': ( window as any ).wpApiSettings.nonce,
+				},
+			} );
+			const text = await res.text();
+			return { status: res.status, text };
+		} );
+
+	const first = await post();
+	expect(
+		first.status,
+		`first POST returned: ${ first.text.slice( 0, 300 ) }`
+	).toBe( 200 );
+	const firstBody = JSON.parse( first.text ) as SeedResponse;
+	expect( firstBody.ok ).toBe( true );
+	expect( firstBody.comment_ids.length ).toBe( 3 );
+
+	const second = await post();
+	expect(
+		second.status,
+		`second POST returned: ${ second.text.slice( 0, 300 ) }`
+	).toBe( 200 );
+	const secondBody = JSON.parse( second.text ) as SeedResponse;
+	expect( secondBody.ok ).toBe( true );
+	expect(
+		secondBody.post_id,
+		'seed-reactions must reuse the same post on re-invocation'
+	).toBe( firstBody.post_id );
+	expect(
+		secondBody.comment_ids.length,
+		'seed-reactions must yield exactly three comments on re-invocation, not stack'
+	).toBe( 3 );
+	// Comments are wiped + reseeded, so IDs are new — but the *count*
+	// must hold. Asserting the rendered counts on the post itself
+	// catches the case where the upsert reused the post but the
+	// cleanup query missed prior rows.
+	await page.goto( secondBody.post_url );
+	const blockWrappers = page.locator(
+		'[data-wp-interactive="activitypub/reactions"]'
+	);
+	await expect( blockWrappers ).toHaveCount( 1 );
+	await expect(
+		blockWrappers
+			.first()
+			.locator(
+				'.activitypub-reactions .reaction-group[data-reaction-type="like"] .reaction-label'
+			)
+	).toHaveText( /^\s*2\b/ );
+	await expect(
+		blockWrappers
+			.first()
+			.locator(
+				'.activitypub-reactions .reaction-group[data-reaction-type="repost"] .reaction-label'
+			)
+	).toHaveText( /^\s*1\b/ );
 } );
