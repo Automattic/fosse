@@ -124,7 +124,7 @@ Re-vendors `bundled/activitypub/` and `bundled/atmosphere/` from local upstream 
 -   `FOSSE_AP_SOURCE` — path to the wordpress-activitypub checkout (default: `~/code/wordpress-activitypub`)
 -   `FOSSE_ATMO_SOURCE` — path to the wordpress-atmosphere checkout (default: `~/code/wordpress-atmosphere`)
 
-The script runs `composer install --no-dev --optimize-autoloader` inside the Atmosphere source before rsyncing so the vendored copy is self-contained. Bundling the federation backends is a short-term bootstrap; long-term we expect to drop this in favor of a cleaner distribution approach.
+The script runs `composer update --no-dev --optimize-autoloader` inside the Atmosphere source before rsyncing so the vendored copy is self-contained. We use `update` (not `install`) because Atmosphere gitignores `composer.lock`; a stale untracked lock from a previous install would otherwise quietly resurrect dropped dependencies. Atmosphere has no runtime composer deps today (it uses a custom autoloader since [`#23`](https://github.com/Automattic/wordpress-atmosphere/pull/23)), so the rsynced `vendor/` is mostly composer's own autoload scaffolding — but we keep building it so that if upstream adds runtime deps later, FOSSE picks them up automatically on the next sync. Bundling the federation backends is a short-term bootstrap; long-term we expect to drop this in favor of a cleaner distribution approach.
 
 ## Code Conventions
 

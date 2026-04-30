@@ -67,7 +67,8 @@ coverage/
 
 # --- Composer vendor is excluded from the main sync; Atmosphere's
 #     production vendor/ is rsync'd separately by sync-bundled.sh
-#     AFTER a `composer install --no-dev --optimize-autoloader`.
+#     AFTER a `composer update --no-dev --optimize-autoloader`
+#     (update, not install — atmosphere gitignores composer.lock).
 vendor/
 
 # --- Lockfiles ---
