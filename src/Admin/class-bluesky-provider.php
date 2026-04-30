@@ -347,17 +347,41 @@ class Bluesky_Provider implements Connection_Provider {
 			wp_die( esc_html__( 'You do not have permission to complete the Bluesky connection.', 'fosse' ) );
 		}
 
-		$result         = \Atmosphere\OAuth\Client::handle_callback( $code, $state );
-		$return_context = $this->consume_oauth_return_context();
+		// Resolve the return context against the inbound state before we hand
+		// off to Atmosphere so a stale or replayed callback can't strip the
+		// wizard marker away from a legitimate callback that arrives later.
+		$return_context = $this->consume_oauth_return_context( $state );
+
+		$result = \Atmosphere\OAuth\Client::handle_callback( $code, $state );
 
 		if ( is_wp_error( $result ) ) {
 			$this->redirect_with_notice( $result->get_error_message(), 'error', $return_context );
-			return; // redirect_with_notice exits, but guard against future changes.
+			return;
 		}
 
-		$sync_result = method_exists( '\Atmosphere\Publisher', 'sync_publication' )
-			? \Atmosphere\Publisher::sync_publication()
-			: null;
+		// Atmosphere reports success on token exchange but writes the
+		// connection option separately. If that write was lost (DB error,
+		// hostile filter), `is_connected()` flips back to false — surface
+		// that instead of falsely telling the user they're connected.
+		if ( ! \Atmosphere\is_connected() ) {
+			$this->redirect_with_notice(
+				__( 'Bluesky responded successfully, but the connection was not saved. Please try connecting again.', 'fosse' ),
+				'error',
+				$return_context
+			);
+			return;
+		}
+
+		if ( ! method_exists( '\Atmosphere\Publisher', 'sync_publication' ) ) {
+			$this->redirect_with_notice(
+				__( 'Connected to Bluesky, but publication setup is unavailable in the current Atmosphere version. Posts will not sync until this is resolved.', 'fosse' ),
+				'warning',
+				$return_context
+			);
+			return;
+		}
+
+		$sync_result = \Atmosphere\Publisher::sync_publication();
 
 		if ( is_wp_error( $sync_result ) ) {
 			$this->redirect_with_notice(
@@ -416,6 +440,11 @@ class Bluesky_Provider implements Connection_Provider {
 	/**
 	 * Remember where a successful OAuth start should return after callback.
 	 *
+	 * Binds the return context to Atmosphere's freshly-minted OAuth state so a
+	 * stale or replayed callback can't consume it before the legitimate one
+	 * arrives. `Client::authorize()` always writes `atmosphere_oauth_state`
+	 * before returning the auth URL, so reading it here is safe.
+	 *
 	 * @param string $return_context Return context.
 	 * @return void
 	 */
@@ -426,9 +455,17 @@ class Bluesky_Provider implements Connection_Provider {
 			return;
 		}
 
+		$oauth_state = get_transient( 'atmosphere_oauth_state' );
+		if ( ! is_string( $oauth_state ) || '' === $oauth_state ) {
+			return;
+		}
+
 		set_transient(
 			$this->get_oauth_return_transient_key(),
-			self::RETURN_CONTEXT_WIZARD,
+			array(
+				'context' => self::RETURN_CONTEXT_WIZARD,
+				'state'   => $oauth_state,
+			),
 			HOUR_IN_SECONDS
 		);
 	}
@@ -445,15 +482,31 @@ class Bluesky_Provider implements Connection_Provider {
 	/**
 	 * Consume any remembered OAuth return context for the current user.
 	 *
+	 * Only deletes and returns the context when the inbound callback state
+	 * matches the OAuth state the marker was bound to. A non-matching state
+	 * leaves the marker intact so the legitimate callback can still find it.
+	 *
+	 * @param string $callback_state Inbound OAuth `state` query arg.
 	 * @return string
 	 */
-	private function consume_oauth_return_context(): string {
-		$key            = $this->get_oauth_return_transient_key();
-		$return_context = get_transient( $key );
+	private function consume_oauth_return_context( string $callback_state ): string {
+		$key    = $this->get_oauth_return_transient_key();
+		$stored = get_transient( $key );
+
+		if ( ! is_array( $stored ) ) {
+			return '';
+		}
+
+		$stored_state   = isset( $stored['state'] ) && is_string( $stored['state'] ) ? $stored['state'] : '';
+		$stored_context = isset( $stored['context'] ) && is_string( $stored['context'] ) ? $stored['context'] : '';
+
+		if ( '' === $stored_state || '' === $callback_state || ! hash_equals( $stored_state, $callback_state ) ) {
+			return '';
+		}
 
 		delete_transient( $key );
 
-		return self::RETURN_CONTEXT_WIZARD === $return_context ? self::RETURN_CONTEXT_WIZARD : '';
+		return self::RETURN_CONTEXT_WIZARD === $stored_context ? self::RETURN_CONTEXT_WIZARD : '';
 	}
 
 	/**

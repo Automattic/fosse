@@ -395,12 +395,20 @@ class Bluesky_ProviderTest extends BaseTestCase {
 	}
 
 	/**
-	 * OAuth callbacks from wizard-origin flows redirect back to the Bluesky step.
+	 * OAuth callbacks from wizard-origin flows redirect back to the Bluesky step
+	 * when the inbound state matches the state the wizard marker was bound to.
 	 */
 	public function test_handle_oauth_callback_returns_to_wizard_when_context_was_remembered() {
 		$this->become_admin();
 
-		set_transient( 'fosse_bluesky_oauth_return_' . get_current_user_id(), 'wizard', HOUR_IN_SECONDS );
+		set_transient(
+			'fosse_bluesky_oauth_return_' . get_current_user_id(),
+			array(
+				'context' => 'wizard',
+				'state'   => 'def',
+			),
+			HOUR_IN_SECONDS
+		);
 
 		$captured = null;
 
@@ -431,6 +439,97 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		$this->assertStringContainsString( 'step=bluesky', $captured );
 		$this->assertStringContainsString( 'settings-updated=true', $captured );
 		$this->assertFalse( get_transient( 'fosse_bluesky_oauth_return_' . get_current_user_id() ) );
+	}
+
+	/**
+	 * A callback whose state does not match the wizard marker leaves the
+	 * marker in place and falls back to the default (Setup-page) redirect,
+	 * so a legitimate callback that arrives later can still recover it.
+	 */
+	public function test_handle_oauth_callback_with_mismatched_state_preserves_wizard_marker() {
+		$this->become_admin();
+
+		$transient_key = 'fosse_bluesky_oauth_return_' . get_current_user_id();
+		set_transient(
+			$transient_key,
+			array(
+				'context' => 'wizard',
+				'state'   => 'real-state',
+			),
+			HOUR_IN_SECONDS
+		);
+
+		$captured = null;
+
+		// phpcs:disable WordPress.Security.NonceVerification.Recommended -- test setup.
+		$_GET = array(
+			'page'  => 'fosse',
+			'code'  => 'abc',
+			'state' => 'stale-state',
+		);
+		// phpcs:enable WordPress.Security.NonceVerification.Recommended
+
+		add_filter(
+			'wp_redirect',
+			static function ( $location ) use ( &$captured ) {
+				$captured = (string) $location;
+				throw new \Exception( 'redirect' );
+			}
+		);
+
+		try {
+			$this->provider->handle_oauth_callback();
+		} catch ( \Exception $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$this->assertNotNull( $captured );
+		$this->assertStringContainsString( 'page=fosse', $captured );
+		$this->assertStringNotContainsString( 'page=fosse-wizard', $captured );
+
+		$stored = get_transient( $transient_key );
+		$this->assertIsArray( $stored );
+		$this->assertSame( 'wizard', $stored['context'] );
+		$this->assertSame( 'real-state', $stored['state'] );
+	}
+
+	/**
+	 * Legacy single-string transients (pre state-binding) are not honored —
+	 * an upgraded site with a stale legacy marker falls back to the default
+	 * redirect rather than mistaking a string for a valid bound context.
+	 */
+	public function test_handle_oauth_callback_ignores_legacy_string_transient() {
+		$this->become_admin();
+
+		// Pre-state-binding transients stored just the literal context string.
+		set_transient( 'fosse_bluesky_oauth_return_' . get_current_user_id(), 'wizard', HOUR_IN_SECONDS );
+
+		$captured = null;
+
+		// phpcs:disable WordPress.Security.NonceVerification.Recommended -- test setup.
+		$_GET = array(
+			'page'  => 'fosse',
+			'code'  => 'abc',
+			'state' => 'def',
+		);
+		// phpcs:enable WordPress.Security.NonceVerification.Recommended
+
+		add_filter(
+			'wp_redirect',
+			static function ( $location ) use ( &$captured ) {
+				$captured = (string) $location;
+				throw new \Exception( 'redirect' );
+			}
+		);
+
+		try {
+			$this->provider->handle_oauth_callback();
+		} catch ( \Exception $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$this->assertNotNull( $captured );
+		$this->assertStringNotContainsString( 'page=fosse-wizard', $captured );
 	}
 
 	// --- unauthorized user tests ---
