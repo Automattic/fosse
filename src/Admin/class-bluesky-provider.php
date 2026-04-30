@@ -246,15 +246,21 @@ class Bluesky_Provider implements Connection_Provider {
 	}
 
 	/**
-	 * Serve /.well-known/atproto-did with the connected account's DID.
+	 * Serve /.well-known/atproto-did when FOSSE owns the route.
 	 *
-	 * Lets a Bluesky user prove their domain ownership for the
-	 * "Change Handle" flow on bsky.app without leaving WordPress.
+	 * Returns silently for unrelated paths, when the
+	 * `fosse_serve_atproto_did_well_known` filter opts out, and when
+	 * Atmosphere isn't loaded. Sends a 404 and exits when Atmosphere is
+	 * loaded but no DID is available; otherwise sends a `text/plain` body
+	 * containing the connected DID and exits.
 	 *
 	 * @return void
 	 */
 	public function serve_atproto_did_well_known(): void {
-		$request_uri = isset( $_SERVER['REQUEST_URI'] ) ? sanitize_text_field( wp_unslash( $_SERVER['REQUEST_URI'] ) ) : '';
+		// Path-match below uses strict equality; sanitize_text_field can normalize
+		// encoded characters in surprising ways, so read raw.
+		// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
+		$request_uri = isset( $_SERVER['REQUEST_URI'] ) ? (string) wp_unslash( $_SERVER['REQUEST_URI'] ) : '';
 		$response    = $this->get_atproto_did_well_known_response( $request_uri );
 
 		if ( null === $response ) {
@@ -269,7 +275,7 @@ class Bluesky_Provider implements Connection_Provider {
 
 		header( 'Content-Type: text/plain; charset=utf-8' );
 		nocache_headers();
-		echo $response['did']; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- text/plain response with controlled DID value.
+		echo esc_html( $response['did'] );
 		exit;
 	}
 
@@ -277,7 +283,7 @@ class Bluesky_Provider implements Connection_Provider {
 	 * Resolve the response data for FOSSE's /.well-known/atproto-did handler.
 	 *
 	 * @param string $request_uri Request URI.
-	 * @return array{status:int,did:string}|null Null when FOSSE should not handle the request.
+	 * @return array{status:200|404,did:string}|null Null when FOSSE should not handle the request; otherwise a status code and the DID (empty for 404).
 	 */
 	private function get_atproto_did_well_known_response( string $request_uri ): ?array {
 		$path = wp_parse_url( $request_uri, PHP_URL_PATH );
@@ -291,20 +297,27 @@ class Bluesky_Provider implements Connection_Provider {
 		 *
 		 * Disable to let another component (CDN, custom rewrite, etc.) own the path.
 		 *
-		 * @param bool $serve Default true when Bluesky is connected.
+		 * @param bool $serve Default true.
 		 */
 		if ( ! apply_filters( 'fosse_serve_atproto_did_well_known', true ) ) {
 			return null;
 		}
 
-		if ( ! function_exists( '\Atmosphere\is_connected' ) || ! \Atmosphere\is_connected() ) {
+		if ( ! function_exists( '\Atmosphere\is_connected' ) ) {
+			// Atmosphere isn't loaded. That's a structural error, not a
+			// user-facing "no connection" state. Decline to handle so a
+			// normal 404 happens via WordPress's main request flow.
+			return null;
+		}
+
+		if ( ! \Atmosphere\is_connected() ) {
 			return array(
 				'status' => 404,
 				'did'    => '',
 			);
 		}
 
-		$connection = function_exists( '\Atmosphere\get_connection' ) ? \Atmosphere\get_connection() : array();
+		$connection = \Atmosphere\get_connection();
 		$did        = isset( $connection['did'] ) ? (string) $connection['did'] : '';
 
 		if ( '' === $did ) {
@@ -326,7 +339,8 @@ class Bluesky_Provider implements Connection_Provider {
 	 * The fosse_serve_atproto_did_well_known filter only controls FOSSE's own handler.
 	 * Atmosphere registers an independent template_redirect handler that would otherwise
 	 * still serve the route, defeating the opt-out. Clearing Atmosphere's query var
-	 * makes its handler return early so neither plugin serves the route.
+	 * makes its handler return early so neither plugin serves the route. Also flags the
+	 * request 404 so WordPress doesn't render the front page for the well-known URL.
 	 *
 	 * @return void
 	 */
@@ -341,8 +355,9 @@ class Bluesky_Provider implements Connection_Provider {
 
 		// Clear Atmosphere's query var so its handler at priority 10 returns,
 		// then mark the request 404 so the rewrite rule doesn't render the
-		// front page for the well-known URL. Third-party handlers can still
-		// take over by calling status_header(200) and exit.
+		// front page for the well-known URL. Third-party handlers attached at
+		// template_redirect priority > 1 can still take over by calling
+		// status_header( 200 ), $wp_query->set_404( false ), and exit().
 		set_query_var( 'atmosphere_wellknown', '' );
 
 		global $wp_query;

@@ -298,6 +298,50 @@ class Bluesky_ProviderTest extends BaseTestCase {
 	}
 
 	/**
+	 * The suppression hook is a no-op for unrelated atmosphere_wellknown query vars.
+	 */
+	public function test_maybe_suppress_atmosphere_well_known_no_op_for_other_query_vars() {
+		global $wp_query;
+		$wp_query = new \WP_Query(); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- isolating $wp_query state for the suppression hook.
+		set_query_var( 'atmosphere_wellknown', 'publication' );
+		add_filter( 'fosse_serve_atproto_did_well_known', '__return_false' );
+
+		$this->provider->maybe_suppress_atmosphere_well_known();
+
+		$this->assertSame( 'publication', get_query_var( 'atmosphere_wellknown' ) );
+		$this->assertFalse( $wp_query->is_404() );
+	}
+
+	/**
+	 * The suppression hook is a no-op when FOSSE will serve the route itself.
+	 */
+	public function test_maybe_suppress_atmosphere_well_known_no_op_when_filter_true() {
+		global $wp_query;
+		$wp_query = new \WP_Query(); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- isolating $wp_query state for the suppression hook.
+		set_query_var( 'atmosphere_wellknown', 'atproto-did' );
+
+		$this->provider->maybe_suppress_atmosphere_well_known();
+
+		$this->assertSame( 'atproto-did', get_query_var( 'atmosphere_wellknown' ) );
+		$this->assertFalse( $wp_query->is_404() );
+	}
+
+	/**
+	 * Opting out via filter clears Atmosphere's query var and forces a 404.
+	 */
+	public function test_maybe_suppress_atmosphere_well_known_clears_query_var_and_404s_when_opted_out() {
+		global $wp_query;
+		$wp_query = new \WP_Query(); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- isolating $wp_query state for the suppression hook.
+		set_query_var( 'atmosphere_wellknown', 'atproto-did' );
+		add_filter( 'fosse_serve_atproto_did_well_known', '__return_false' );
+
+		$this->provider->maybe_suppress_atmosphere_well_known();
+
+		$this->assertSame( '', get_query_var( 'atmosphere_wellknown' ) );
+		$this->assertTrue( $wp_query->is_404() );
+	}
+
+	/**
 	 * Disconnect clears the Atmosphere connection and redirects back to FOSSE.
 	 */
 	public function test_handle_disconnect_clears_connection_and_redirects() {
@@ -549,8 +593,8 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		$this->assertNotFalse( has_action( 'admin_post_fosse_connect_bluesky', array( $this->provider, 'handle_connect' ) ) );
 		$this->assertNotFalse( has_action( 'admin_post_fosse_disconnect_bluesky', array( $this->provider, 'handle_disconnect' ) ) );
 		$this->assertNotFalse( has_action( 'admin_init', array( $this->provider, 'handle_oauth_callback' ) ) );
-		$this->assertNotFalse( has_action( 'init', array( $this->provider, 'serve_atproto_did_well_known' ) ) );
-		$this->assertNotFalse( has_action( 'template_redirect', array( $this->provider, 'maybe_suppress_atmosphere_well_known' ) ) );
+		$this->assertSame( 1, has_action( 'init', array( $this->provider, 'serve_atproto_did_well_known' ) ) );
+		$this->assertSame( 1, has_action( 'template_redirect', array( $this->provider, 'maybe_suppress_atmosphere_well_known' ) ) );
 		$this->assertNotFalse( has_filter( 'atmosphere_oauth_redirect_uri', array( $this->provider, 'filter_oauth_redirect_uri' ) ) );
 	}
 
