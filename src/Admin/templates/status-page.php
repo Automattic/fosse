@@ -34,6 +34,13 @@ $connected = array_filter(
 				);
 				?>
 			</p>
+			<?php if ( empty( $connected ) ) : ?>
+				<p>
+					<a class="button button-primary" href="<?php echo esc_url( admin_url( 'admin.php?page=fosse' ) ); ?>">
+						<?php esc_html_e( 'Set up FOSSE', 'fosse' ); ?>
+					</a>
+				</p>
+			<?php endif; ?>
 		</div>
 
 		<div class="fosse-status-cards">

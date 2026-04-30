@@ -216,6 +216,80 @@ class Bluesky_ProviderTest extends BaseTestCase {
 	}
 
 	/**
+	 * Setup section carries the fragment target id used by the Status-page
+	 * "Manage Bluesky settings" deep link. Renaming the id without updating
+	 * the link would silently break navigation.
+	 */
+	public function test_render_setup_section_has_anchor_id() {
+		ob_start();
+		$this->provider->render_setup_section();
+		$output = ob_get_clean();
+
+		$this->assertStringContainsString( 'id="fosse-provider-bluesky"', $output );
+	}
+
+	/**
+	 * Status card surfaces the reconnect UI and a details element with the
+	 * raw error when the stored access token can't be decrypted.
+	 */
+	public function test_render_status_card_token_error_shows_reconnect_ui() {
+		update_option(
+			'atmosphere_connection',
+			array(
+				'did'          => 'did:plc:test123',
+				'handle'       => 'alice.bsky.social',
+				'pds_endpoint' => 'https://bsky.social',
+				'access_token' => 'garbage',
+			)
+		);
+
+		ob_start();
+		$this->provider->render_status_card();
+		$output = ob_get_clean();
+
+		$this->assertStringContainsString( 'Reconnect required', $output );
+		$this->assertStringContainsString( '#fosse-provider-bluesky', $output );
+		$this->assertStringContainsString( '<details', $output );
+	}
+
+	/**
+	 * Status card reports OK token health and omits the reconnect UI when
+	 * the connection is healthy.
+	 */
+	public function test_render_status_card_ok_state_omits_reconnect_ui() {
+		update_option(
+			'atmosphere_connection',
+			array(
+				'did'          => 'did:plc:test123',
+				'handle'       => 'alice.bsky.social',
+				'pds_endpoint' => 'https://bsky.social',
+				'access_token' => Encryption::encrypt( 'token' ),
+			)
+		);
+
+		ob_start();
+		$this->provider->render_status_card();
+		$output = ob_get_clean();
+
+		$this->assertMatchesRegularExpression( '/<td>\s*OK\s*<\/td>/', $output );
+		$this->assertStringNotContainsString( 'Reconnect required', $output );
+		$this->assertStringNotContainsString( '<details', $output );
+	}
+
+	/**
+	 * Status card deep-links back to the Bluesky setup section. The fragment
+	 * must match the id rendered by render_setup_section().
+	 */
+	public function test_render_status_card_has_manage_settings_link() {
+		ob_start();
+		$this->provider->render_status_card();
+		$output = ob_get_clean();
+
+		$this->assertStringContainsString( 'Manage Bluesky settings', $output );
+		$this->assertStringContainsString( '#fosse-provider-bluesky', $output );
+	}
+
+	/**
 	 * FOSSE-initiated OAuth should return to the FOSSE setup page.
 	 */
 	public function test_filter_oauth_redirect_uri_returns_fosse_page() {
