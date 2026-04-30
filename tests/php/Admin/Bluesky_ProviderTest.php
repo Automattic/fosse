@@ -54,6 +54,8 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		remove_all_filters( 'admin_post_fosse_connect_bluesky' );
 		remove_all_filters( 'admin_post_fosse_disconnect_bluesky' );
 		remove_all_filters( 'admin_init' );
+		remove_all_filters( 'pre_http_request' );
+		remove_all_filters( 'pre_option_atmosphere_connection' );
 
 		global $wp_settings_errors;
 		$wp_settings_errors = array(); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited,WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedVariableFound -- reset core settings-error storage for test isolation.
@@ -73,6 +75,8 @@ class Bluesky_ProviderTest extends BaseTestCase {
 
 		remove_all_filters( 'wp_redirect' );
 		remove_all_filters( 'wp_die_handler' );
+		remove_all_filters( 'pre_http_request' );
+		remove_all_filters( 'pre_option_atmosphere_connection' );
 	}
 
 	/**
@@ -263,6 +267,244 @@ class Bluesky_ProviderTest extends BaseTestCase {
 
 		$this->assertSame( array(), get_option( 'atmosphere_connection', array() ) );
 		$this->assertNotEmpty( get_settings_errors( 'atmosphere' ) );
+	}
+
+	/**
+	 * Disconnect clears any orphan wizard return-context transient so a
+	 * subsequent connect attempt starts from a clean slate.
+	 */
+	public function test_handle_disconnect_clears_wizard_return_context() {
+		$this->seed_connected_atmosphere_connection();
+
+		$this->become_admin();
+
+		$transient_key = 'fosse_bluesky_oauth_return_' . get_current_user_id();
+		set_transient(
+			$transient_key,
+			array(
+				'context' => 'wizard',
+				'state'   => 'pending-state',
+			),
+			HOUR_IN_SECONDS
+		);
+
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
+		$_POST    = array(
+			'_wpnonce' => wp_create_nonce( 'fosse_disconnect_bluesky' ),
+		);
+		$_REQUEST = $_POST;
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+
+		add_filter(
+			'wp_redirect',
+			static function () {
+				throw new \Exception( 'redirect' );
+			}
+		);
+
+		try {
+			$this->provider->handle_disconnect();
+		} catch ( \Exception $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$this->assertFalse( get_transient( $transient_key ) );
+	}
+
+	/**
+	 * Disconnect surfaces an error notice when the connection option fails
+	 * to clear (e.g. a hostile filter pins it). The success notice would
+	 * otherwise mislead the user into thinking the disconnect worked.
+	 */
+	public function test_handle_disconnect_reports_error_when_connection_persists() {
+		$this->seed_connected_atmosphere_connection();
+
+		// Pin the connection in place so Atmosphere's delete_option call
+		// can't make is_connected() flip to false.
+		$pinned = get_option( 'atmosphere_connection' );
+		add_filter(
+			'pre_option_atmosphere_connection',
+			static function () use ( $pinned ) {
+				return $pinned;
+			}
+		);
+
+		$this->become_admin();
+
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
+		$_POST    = array(
+			'_wpnonce' => wp_create_nonce( 'fosse_disconnect_bluesky' ),
+		);
+		$_REQUEST = $_POST;
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+
+		add_filter(
+			'wp_redirect',
+			static function () {
+				throw new \Exception( 'redirect' );
+			}
+		);
+
+		try {
+			$this->provider->handle_disconnect();
+		} catch ( \Exception $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$errors = get_settings_errors( 'atmosphere' );
+		$types  = array_column( $errors, 'type' );
+
+		$this->assertNotEmpty( $errors );
+		$this->assertContains( 'error', $types );
+		$this->assertNotContains( 'info', $types );
+	}
+
+	// --- handle_oauth_callback: success branches ---
+
+	/**
+	 * A fully successful OAuth round-trip (token exchange OK, connection
+	 * persisted, sync_publication OK) emits the success notice and
+	 * redirects back to the originating screen.
+	 */
+	public function test_handle_oauth_callback_success_emits_success_notice() {
+		$this->become_admin();
+
+		$state = 'state-success';
+		$this->fake_atmosphere_oauth_environment( $state );
+		$this->intercept_token_endpoint_success();
+		$this->intercept_pds_create_record_success();
+
+		set_transient(
+			'fosse_bluesky_oauth_return_' . get_current_user_id(),
+			array(
+				'context' => 'wizard',
+				'state'   => $state,
+			),
+			HOUR_IN_SECONDS
+		);
+
+		$captured = null;
+
+		// phpcs:disable WordPress.Security.NonceVerification.Recommended -- test setup.
+		$_GET = array(
+			'page'  => 'fosse',
+			'code'  => 'auth-code',
+			'state' => $state,
+		);
+		// phpcs:enable WordPress.Security.NonceVerification.Recommended
+
+		add_filter(
+			'wp_redirect',
+			static function ( $location ) use ( &$captured ) {
+				$captured = (string) $location;
+				throw new \Exception( 'redirect' );
+			}
+		);
+
+		try {
+			$this->provider->handle_oauth_callback();
+		} catch ( \Exception $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$this->assertNotNull( $captured );
+		$this->assertStringContainsString( 'page=fosse-wizard', $captured );
+
+		$errors = get_settings_errors( 'atmosphere' );
+		$types  = array_column( $errors, 'type' );
+		$this->assertContains( 'success', $types );
+		$this->assertNotContains( 'error', $types );
+		$this->assertNotContains( 'warning', $types );
+
+		$this->assertTrue( \Atmosphere\is_connected() );
+	}
+
+	/**
+	 * Token exchange succeeds but the connection option does not persist
+	 * (e.g. DB write fails or a filter blocks it). The user must see an
+	 * error notice rather than a misleading success banner.
+	 */
+	public function test_handle_oauth_callback_warns_when_connection_not_persisted() {
+		$this->become_admin();
+
+		$state = 'state-not-saved';
+		$this->fake_atmosphere_oauth_environment( $state );
+		$this->intercept_token_endpoint_success();
+
+		// Force is_connected() to return false even though Atmosphere
+		// reports success — simulate a lost option write.
+		add_filter( 'pre_option_atmosphere_connection', static fn() => array() );
+
+		// phpcs:disable WordPress.Security.NonceVerification.Recommended -- test setup.
+		$_GET = array(
+			'page'  => 'fosse',
+			'code'  => 'auth-code',
+			'state' => $state,
+		);
+		// phpcs:enable WordPress.Security.NonceVerification.Recommended
+
+		add_filter(
+			'wp_redirect',
+			static function () {
+				throw new \Exception( 'redirect' );
+			}
+		);
+
+		try {
+			$this->provider->handle_oauth_callback();
+		} catch ( \Exception $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$errors   = get_settings_errors( 'atmosphere' );
+		$types    = array_column( $errors, 'type' );
+		$messages = array_column( $errors, 'message' );
+
+		$this->assertContains( 'error', $types );
+		$this->assertNotContains( 'success', $types );
+		$this->assertStringContainsString( 'not saved', strtolower( implode( ' ', $messages ) ) );
+	}
+
+	/**
+	 * Token exchange succeeds and the connection persists, but the PDS
+	 * publication record write fails. The user should see a `warning`
+	 * notice (connected, but publication setup failed) rather than a
+	 * green success banner.
+	 */
+	public function test_handle_oauth_callback_warns_when_sync_publication_fails() {
+		$this->become_admin();
+
+		$state = 'state-sync-error';
+		$this->fake_atmosphere_oauth_environment( $state );
+		$this->intercept_token_endpoint_success();
+		$this->intercept_pds_create_record_failure();
+
+		// phpcs:disable WordPress.Security.NonceVerification.Recommended -- test setup.
+		$_GET = array(
+			'page'  => 'fosse',
+			'code'  => 'auth-code',
+			'state' => $state,
+		);
+		// phpcs:enable WordPress.Security.NonceVerification.Recommended
+
+		add_filter(
+			'wp_redirect',
+			static function () {
+				throw new \Exception( 'redirect' );
+			}
+		);
+
+		try {
+			$this->provider->handle_oauth_callback();
+		} catch ( \Exception $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$errors = get_settings_errors( 'atmosphere' );
+		$types  = array_column( $errors, 'type' );
+
+		$this->assertContains( 'warning', $types );
+		$this->assertNotContains( 'success', $types );
 	}
 
 	/**
@@ -692,6 +934,141 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		$this->assertNotFalse( has_action( 'admin_post_fosse_disconnect_bluesky', array( $this->provider, 'handle_disconnect' ) ) );
 		$this->assertNotFalse( has_action( 'admin_init', array( $this->provider, 'handle_oauth_callback' ) ) );
 		$this->assertNotFalse( has_filter( 'atmosphere_oauth_redirect_uri', array( $this->provider, 'filter_oauth_redirect_uri' ) ) );
+	}
+
+	/**
+	 * Seed a connected Atmosphere connection (handle, did, encrypted token).
+	 *
+	 * @return void
+	 */
+	private function seed_connected_atmosphere_connection(): void {
+		update_option(
+			'atmosphere_connection',
+			array(
+				'did'          => 'did:plc:test123',
+				'handle'       => 'alice.bsky.social',
+				'pds_endpoint' => 'https://bsky.social',
+				'access_token' => Encryption::encrypt( 'token' ),
+			)
+		);
+	}
+
+	/**
+	 * Seed the OAuth transients Atmosphere\OAuth\Client::handle_callback()
+	 * expects to find when validating an inbound callback.
+	 *
+	 * @param string $state          Stored OAuth state value.
+	 * @param string $token_endpoint Token endpoint URL the test will intercept.
+	 * @return void
+	 */
+	private function fake_atmosphere_oauth_environment(
+		string $state,
+		string $token_endpoint = 'https://example.test/oauth/token'
+	): void {
+		set_transient( 'atmosphere_oauth_state', $state, HOUR_IN_SECONDS );
+		set_transient( 'atmosphere_oauth_verifier', 'test-verifier-' . uniqid( '', true ), HOUR_IN_SECONDS );
+		set_transient( 'atmosphere_oauth_dpop_jwk', \Atmosphere\OAuth\DPoP::generate_key(), HOUR_IN_SECONDS );
+		set_transient(
+			'atmosphere_oauth_resolved',
+			array(
+				'did'          => 'did:plc:test123',
+				'pds_endpoint' => 'https://bsky.social',
+				'auth_server'  => array(
+					'token_endpoint' => $token_endpoint,
+					'issuer_url'     => 'https://example.test',
+				),
+				'handle'       => 'alice.bsky.social',
+			),
+			HOUR_IN_SECONDS
+		);
+	}
+
+	/**
+	 * Intercept the OAuth token endpoint and return a 200 with valid token data.
+	 *
+	 * @param string $token_endpoint Token endpoint URL to match.
+	 * @return void
+	 */
+	private function intercept_token_endpoint_success( string $token_endpoint = 'https://example.test/oauth/token' ): void {
+		add_filter(
+			'pre_http_request',
+			static function ( $preempt, $args, $url ) use ( $token_endpoint ) {
+				if ( $url !== $token_endpoint ) {
+					return $preempt;
+				}
+				return array(
+					'response' => array( 'code' => 200 ),
+					'body'     => wp_json_encode( // phpcs:ignore Jetpack.Functions.JsonEncodeFlags.Missing -- test fixture, no escaping concerns.
+						array(
+							'access_token'  => 'access-tk',
+							'refresh_token' => 'refresh-tk',
+							'expires_in'    => 3600,
+						)
+					),
+					'headers'  => array(),
+				);
+			},
+			10,
+			3
+		);
+	}
+
+	/**
+	 * Intercept PDS createRecord/putRecord requests with a successful response,
+	 * so Publisher::sync_publication() returns array (not WP_Error).
+	 *
+	 * @return void
+	 */
+	private function intercept_pds_create_record_success(): void {
+		add_filter(
+			'pre_http_request',
+			static function ( $preempt, $args, $url ) {
+				if ( false === strpos( $url, '/xrpc/com.atproto.repo.' ) ) {
+					return $preempt;
+				}
+				return array(
+					'response' => array( 'code' => 200 ),
+					'body'     => wp_json_encode( // phpcs:ignore Jetpack.Functions.JsonEncodeFlags.Missing -- test fixture, no escaping concerns.
+						array(
+							'uri' => 'at://did:plc:test123/site.standard.publication/self',
+							'cid' => 'bafyrei-test-cid',
+						)
+					),
+					'headers'  => array(),
+				);
+			},
+			10,
+			3
+		);
+	}
+
+	/**
+	 * Intercept PDS createRecord/putRecord requests with a 500 response,
+	 * so Publisher::sync_publication() returns WP_Error.
+	 *
+	 * @return void
+	 */
+	private function intercept_pds_create_record_failure(): void {
+		add_filter(
+			'pre_http_request',
+			static function ( $preempt, $args, $url ) {
+				if ( false === strpos( $url, '/xrpc/com.atproto.repo.' ) ) {
+					return $preempt;
+				}
+				return array(
+					'response' => array( 'code' => 500 ),
+					'body'     => wp_json_encode( // phpcs:ignore Jetpack.Functions.JsonEncodeFlags.Missing -- test fixture, no escaping concerns.
+						array(
+							'error'   => 'InternalServerError',
+							'message' => 'PDS unavailable',
+						)
+					),
+					'headers'  => array(),
+				);
+			},
+			10,
+			3
+		);
 	}
 
 	/**

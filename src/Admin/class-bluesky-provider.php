@@ -320,6 +320,21 @@ class Bluesky_Provider implements Connection_Provider {
 
 		\Atmosphere\OAuth\Client::disconnect();
 
+		// Disconnect orphans any in-flight wizard return marker; clear it so
+		// a subsequent connect attempt starts from a clean slate.
+		$this->forget_oauth_return_context();
+
+		// Atmosphere's `disconnect()` returns void and just deletes the
+		// connection option. Verify the option actually went away so a DB
+		// or filter failure surfaces instead of falsely showing "Disconnected".
+		if ( \Atmosphere\is_connected() ) {
+			$this->redirect_with_notice(
+				__( 'Could not disconnect from Bluesky. Please try again.', 'fosse' ),
+				'error'
+			);
+			return;
+		}
+
 		$this->redirect_with_notice( __( 'Disconnected from Bluesky.', 'fosse' ), 'info' );
 	}
 
