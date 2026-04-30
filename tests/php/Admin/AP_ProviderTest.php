@@ -133,6 +133,84 @@ class AP_ProviderTest extends BaseTestCase {
 		$this->assertStringContainsString( '#fosse-provider-activitypub', $output );
 	}
 
+	/**
+	 * Setup UI explains the available actor modes and links to blog profile settings.
+	 */
+	public function test_render_setup_section_explains_actor_modes() {
+		ob_start();
+		$this->provider->render_setup_section();
+		$output = ob_get_clean();
+
+		$this->assertStringContainsString( 'Each WordPress author publishes from their own fediverse profile.', $output );
+		$this->assertStringContainsString( 'One site-wide profile publishes every post, regardless of author.', $output );
+		$this->assertStringContainsString( 'Authors keep individual profiles, and the site also has its own blog profile.', $output );
+		$this->assertStringContainsString( 'Changing modes does not move followers between profiles.', $output );
+		$this->assertStringContainsString( 'Configure the site-wide blog profile name, image, and description', $output );
+		$this->assertStringNotContainsString( '<fieldset aria-describedby="fosse-activitypub-actor-mode-note">', $output );
+		$this->assertStringContainsString( '<legend class="screen-reader-text">Actor Mode</legend>', $output );
+		$this->assertMatchesRegularExpression(
+			'~<input[^>]+id="fosse-activitypub-actor-mode-actor"[^>]+aria-describedby="fosse-activitypub-actor-mode-actor-desc fosse-activitypub-actor-mode-note"[^>]+/>~',
+			$output
+		);
+		$this->assertMatchesRegularExpression(
+			'~<input[^>]+id="fosse-activitypub-actor-mode-blog"[^>]+aria-describedby="fosse-activitypub-actor-mode-blog-desc fosse-activitypub-actor-mode-note"[^>]+/>~',
+			$output
+		);
+		$this->assertMatchesRegularExpression(
+			'~<input[^>]+id="fosse-activitypub-actor-mode-actor-blog"[^>]+aria-describedby="fosse-activitypub-actor-mode-actor-blog-desc fosse-activitypub-actor-mode-note"[^>]+/>~',
+			$output
+		);
+		$this->assertStringContainsString( '<p id="fosse-activitypub-actor-mode-note" class="description">', $output );
+		$this->assertMatchesRegularExpression(
+			'~<a href="[^"]*options-general\.php\?page=activitypub(?:&#038;|&amp;)tab=blog-profile">Blog profile settings</a>~',
+			$output
+		);
+	}
+
+	/**
+	 * Setup UI selects the stored actor mode.
+	 */
+	public function test_render_setup_section_checks_selected_actor_mode() {
+		$modes = array( 'actor', 'blog', 'actor_blog' );
+
+		foreach ( $modes as $selected_mode ) {
+			update_option( 'activitypub_actor_mode', $selected_mode );
+
+			ob_start();
+			$this->provider->render_setup_section();
+			$output = ob_get_clean();
+
+			foreach ( $modes as $mode ) {
+				$input = $this->get_actor_mode_input_markup( $output, $mode );
+
+				if ( $selected_mode === $mode ) {
+					$this->assertStringContainsString( "checked='checked'", $input );
+				} else {
+					$this->assertStringNotContainsString( "checked='checked'", $input );
+				}
+			}
+		}
+	}
+
+	/**
+	 * Get the rendered radio input for an ActivityPub actor mode.
+	 *
+	 * @param string $output Rendered setup section markup.
+	 * @param string $mode   Actor mode value.
+	 * @return string
+	 */
+	private function get_actor_mode_input_markup( string $output, string $mode ): string {
+		preg_match(
+			'~<input\b(?=[^>]*\bname="activitypub_actor_mode")(?=[^>]*\bvalue="' . preg_quote( $mode, '~' ) . '")[^>]*>~s',
+			$output,
+			$matches
+		);
+
+		$this->assertNotEmpty( $matches, 'Expected actor mode input to be present.' );
+
+		return $matches[0];
+	}
+
 	// --- handle_save tests ---------------------------------------------------
 
 	/**
