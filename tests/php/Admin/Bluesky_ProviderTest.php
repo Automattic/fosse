@@ -14,6 +14,7 @@ use Automattic\Fosse\Provider_Loader;
 use PHPUnit\Framework\Attributes\After;
 use PHPUnit\Framework\Attributes\Before;
 use PHPUnit\Framework\Attributes\DataProvider;
+use ReflectionMethod;
 use WorDBless\BaseTestCase;
 
 /**
@@ -55,6 +56,8 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		remove_all_filters( 'admin_post_fosse_connect_bluesky' );
 		remove_all_filters( 'admin_post_fosse_disconnect_bluesky' );
 		remove_all_filters( 'admin_init' );
+		remove_all_filters( 'fosse_serve_atproto_did_well_known' );
+		remove_all_filters( 'status_header' );
 		remove_all_filters( 'pre_http_request' );
 		remove_all_filters( 'pre_option_atmosphere_connection' );
 
@@ -302,6 +305,175 @@ class Bluesky_ProviderTest extends BaseTestCase {
 			admin_url( 'admin.php?page=fosse' ),
 			$this->provider->filter_oauth_redirect_uri( admin_url( 'options-general.php?page=atmosphere' ) )
 		);
+	}
+
+	/**
+	 * The well-known route helper ignores unrelated request paths.
+	 */
+	public function test_atproto_did_well_known_response_ignores_other_paths() {
+		$this->assertNull( $this->get_atproto_did_well_known_response( '/about' ) );
+	}
+
+	/**
+	 * The well-known route helper returns the connected DID as plain response data.
+	 */
+	public function test_atproto_did_well_known_response_returns_connected_did() {
+		update_option(
+			'atmosphere_connection',
+			array(
+				'did'          => 'did:plc:test123',
+				'handle'       => 'alice.bsky.social',
+				'pds_endpoint' => 'https://bsky.social',
+				'access_token' => Encryption::encrypt( 'token' ),
+			)
+		);
+
+		$this->assertSame(
+			array(
+				'status' => 200,
+				'did'    => 'did:plc:test123',
+			),
+			$this->get_atproto_did_well_known_response( '/.well-known/atproto-did?ignored=1' )
+		);
+	}
+
+	/**
+	 * A stored DID is not enough to serve the well-known route without a connection.
+	 */
+	public function test_atproto_did_well_known_response_requires_connected_atmosphere() {
+		update_option(
+			'atmosphere_connection',
+			array(
+				'did'    => 'did:plc:test123',
+				'handle' => 'alice.bsky.social',
+			)
+		);
+
+		$this->assertSame(
+			array(
+				'status' => 404,
+				'did'    => '',
+			),
+			$this->get_atproto_did_well_known_response( '/.well-known/atproto-did' )
+		);
+	}
+
+	/**
+	 * The FOSSE opt-out filter prevents FOSSE from serving the well-known route.
+	 */
+	public function test_atproto_did_well_known_response_respects_opt_out_filter() {
+		update_option(
+			'atmosphere_connection',
+			array(
+				'did'          => 'did:plc:test123',
+				'handle'       => 'alice.bsky.social',
+				'pds_endpoint' => 'https://bsky.social',
+				'access_token' => Encryption::encrypt( 'token' ),
+			)
+		);
+
+		add_filter( 'fosse_serve_atproto_did_well_known', '__return_false' );
+
+		$this->assertNull( $this->get_atproto_did_well_known_response( '/.well-known/atproto-did' ) );
+	}
+
+	/**
+	 * A stored DID that doesn't match AT Proto syntax is rejected with a 404.
+	 */
+	public function test_atproto_did_well_known_response_rejects_malformed_did() {
+		update_option(
+			'atmosphere_connection',
+			array(
+				'did'          => "did:plc:abc\n<script>alert(1)</script>",
+				'handle'       => 'alice.bsky.social',
+				'pds_endpoint' => 'https://bsky.social',
+				'access_token' => Encryption::encrypt( 'token' ),
+			)
+		);
+
+		$this->assertSame(
+			array(
+				'status' => 404,
+				'did'    => '',
+			),
+			$this->get_atproto_did_well_known_response( '/.well-known/atproto-did' )
+		);
+	}
+
+	/**
+	 * A stored DID with a single trailing newline is rejected (PHP's $ would have allowed it).
+	 */
+	public function test_atproto_did_well_known_response_rejects_did_with_trailing_newline() {
+		update_option(
+			'atmosphere_connection',
+			array(
+				'did'          => "did:plc:test123\n",
+				'handle'       => 'alice.bsky.social',
+				'pds_endpoint' => 'https://bsky.social',
+				'access_token' => Encryption::encrypt( 'token' ),
+			)
+		);
+
+		$this->assertSame(
+			array(
+				'status' => 404,
+				'did'    => '',
+			),
+			$this->get_atproto_did_well_known_response( '/.well-known/atproto-did' )
+		);
+	}
+
+	/**
+	 * The suppression hook is a no-op for unrelated atmosphere_wellknown query vars.
+	 */
+	public function test_maybe_suppress_atmosphere_well_known_no_op_for_other_query_vars() {
+		global $wp_query;
+		$wp_query = new \WP_Query(); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- isolating $wp_query state for the suppression hook.
+		set_query_var( 'atmosphere_wellknown', 'publication' );
+		add_filter( 'fosse_serve_atproto_did_well_known', '__return_false' );
+
+		$status_header_called = $this->capture_status_header();
+
+		$this->provider->maybe_suppress_atmosphere_well_known();
+
+		$this->assertSame( 'publication', get_query_var( 'atmosphere_wellknown' ) );
+		$this->assertFalse( $wp_query->is_404() );
+		$this->assertNull( $status_header_called->code, 'status_header should not be called for unrelated query vars.' );
+	}
+
+	/**
+	 * The suppression hook is a no-op when FOSSE will serve the route itself.
+	 */
+	public function test_maybe_suppress_atmosphere_well_known_no_op_when_filter_true() {
+		global $wp_query;
+		$wp_query = new \WP_Query(); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- isolating $wp_query state for the suppression hook.
+		set_query_var( 'atmosphere_wellknown', 'atproto-did' );
+
+		$status_header_called = $this->capture_status_header();
+
+		$this->provider->maybe_suppress_atmosphere_well_known();
+
+		$this->assertSame( 'atproto-did', get_query_var( 'atmosphere_wellknown' ) );
+		$this->assertFalse( $wp_query->is_404() );
+		$this->assertNull( $status_header_called->code, 'status_header should not be called when FOSSE will serve the route.' );
+	}
+
+	/**
+	 * Opting out via filter clears Atmosphere's query var and forces a 404.
+	 */
+	public function test_maybe_suppress_atmosphere_well_known_clears_query_var_and_404s_when_opted_out() {
+		global $wp_query;
+		$wp_query = new \WP_Query(); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- isolating $wp_query state for the suppression hook.
+		set_query_var( 'atmosphere_wellknown', 'atproto-did' );
+		add_filter( 'fosse_serve_atproto_did_well_known', '__return_false' );
+
+		$status_header_called = $this->capture_status_header();
+
+		$this->provider->maybe_suppress_atmosphere_well_known();
+
+		$this->assertSame( '', get_query_var( 'atmosphere_wellknown' ) );
+		$this->assertTrue( $wp_query->is_404() );
+		$this->assertSame( 404, $status_header_called->code, 'status_header( 404 ) should be sent on opt-out.' );
 	}
 
 	/**
@@ -1127,7 +1299,40 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		$this->assertNotFalse( has_action( 'admin_post_fosse_connect_bluesky', array( $this->provider, 'handle_connect' ) ) );
 		$this->assertNotFalse( has_action( 'admin_post_fosse_disconnect_bluesky', array( $this->provider, 'handle_disconnect' ) ) );
 		$this->assertNotFalse( has_action( 'admin_init', array( $this->provider, 'handle_oauth_callback' ) ) );
+		$this->assertSame( 1, has_action( 'init', array( $this->provider, 'serve_atproto_did_well_known' ) ) );
+		$this->assertSame( 1, has_action( 'template_redirect', array( $this->provider, 'maybe_suppress_atmosphere_well_known' ) ) );
 		$this->assertNotFalse( has_filter( 'atmosphere_oauth_redirect_uri', array( $this->provider, 'filter_oauth_redirect_uri' ) ) );
+	}
+
+	/**
+	 * Invoke the private well-known response helper via reflection.
+	 *
+	 * @param string $request_uri Request URI.
+	 * @return array{status:int,did:string}|null
+	 */
+	private function get_atproto_did_well_known_response( string $request_uri ): ?array {
+		$method = new ReflectionMethod( Bluesky_Provider::class, 'get_atproto_did_well_known_response' );
+		return $method->invoke( $this->provider, $request_uri );
+	}
+
+	/**
+	 * Capture the next status_header call into a returned object's `code` property.
+	 *
+	 * @return object Object with a nullable int `code` property; null until status_header fires.
+	 */
+	private function capture_status_header(): object {
+		$capture       = new \stdClass();
+		$capture->code = null;
+		add_filter(
+			'status_header',
+			static function ( $header, $code ) use ( $capture ) {
+				$capture->code = (int) $code;
+				return $header;
+			},
+			10,
+			2
+		);
+		return $capture;
 	}
 
 	/**
