@@ -77,6 +77,19 @@ Setup_Page and Status_Page iterate `Connection_Provider_Registry::get_providers(
 
 Disconnect uses `admin_post_fosse_disconnect_bluesky`, calls `\Atmosphere\OAuth\Client::disconnect()` (public static), redirects back to FOSSE.
 
+### First-run Wizard Bluesky Step
+
+The wizard's Bluesky step is optional and backed by the same provider state as the Setup page:
+
+- Disconnected: render a handle input form that POSTs to `admin_post.php?action=fosse_connect_bluesky`.
+- Connected: render the connected handle/DID/auto-publish summary and a "Finish setup" action.
+- Unavailable: render a skip-only notice instead of a connect form.
+- Complete: include the current Bluesky status in the final summary row.
+
+The wizard does not own a separate Bluesky option. It reads `Bluesky_Provider::get_status()` through the provider registry so the Setup page, Status page, and wizard remain consistent.
+
+OAuth client metadata still advertises the FOSSE Setup page as the callback URI (`admin.php?page=fosse`), because the ATProto auth server validates the callback against Atmosphere's client metadata endpoint. When the connect form starts from the wizard, FOSSE stores a per-user return-context transient before redirecting to the auth server. After Atmosphere completes the callback on the Setup page, `Bluesky_Provider` consumes that transient and redirects back to `admin.php?page=fosse-wizard&step=bluesky&settings-updated=true`.
+
 ### AP Settings Integration (AP_Provider)
 
 Minimum viable configuration on the Setup page. Start with the two settings that gate whether federation works:

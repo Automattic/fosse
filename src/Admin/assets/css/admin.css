@@ -437,14 +437,12 @@
 	flex: 1;
 }
 
-/* Bluesky placeholder */
-.fosse-bluesky-placeholder {
-	opacity: 0.5;
-	pointer-events: none;
+/* Bluesky wizard */
+.fosse-bluesky-form {
 	margin-top: 16px;
 }
 
-.fosse-bluesky-placeholder__label {
+.fosse-bluesky-form__label {
 	display: block;
 	font-size: 11px;
 	font-weight: 500;
@@ -453,12 +451,12 @@
 	margin-bottom: 8px;
 }
 
-.fosse-bluesky-connect {
+.fosse-bluesky-form__controls {
 	display: flex;
 	gap: 8px;
 }
 
-.fosse-bluesky-connect .regular-text {
+.fosse-bluesky-form__controls .regular-text {
 	flex: 1;
 }
 
