@@ -7,8 +7,15 @@
 #
 # DO NOT exclude:
 #   - build/       (ActivityPub ships pre-built blocks here)
-#   - composer.json / vendor/  (Atmosphere's vendor/autoload.php is
-#                               required at plugin load time)
+#   - composer.json / vendor/  (kept for forward-compat; Atmosphere
+#                               currently uses a custom autoloader
+#                               (includes/class-autoloader.php) and
+#                               has no runtime composer deps, so the
+#                               rsync'd vendor/ is just the composer
+#                               autoload scaffolding. If upstream
+#                               adds runtime deps later, sync-bundled
+#                               already builds vendor/ via
+#                               composer install --no-dev before rsync.)
 #   - readme.txt   (WordPress.org plugin directory metadata)
 #   - assets/, includes/, integration/, integrations/, patterns/,
 #     templates/, languages/, *.php, LICENSE
