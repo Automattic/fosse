@@ -116,13 +116,14 @@ class AP_Provider implements Connection_Provider {
 						<th scope="row"><?php esc_html_e( 'Actor Mode', 'fosse' ); ?></th>
 						<td>
 							<fieldset aria-describedby="fosse-activitypub-actor-mode-note">
+								<legend class="screen-reader-text"><?php esc_html_e( 'Actor Mode', 'fosse' ); ?></legend>
 								<label>
 									<input
 										type="radio"
 										id="fosse-activitypub-actor-mode-actor"
 										name="activitypub_actor_mode"
 										value="actor"
-										aria-describedby="fosse-activitypub-actor-mode-actor-desc"
+										aria-describedby="fosse-activitypub-actor-mode-actor-desc fosse-activitypub-actor-mode-note"
 										<?php checked( 'actor', $actor_mode ); ?>
 									/>
 									<?php esc_html_e( 'Author profiles', 'fosse' ); ?>
@@ -136,7 +137,7 @@ class AP_Provider implements Connection_Provider {
 										id="fosse-activitypub-actor-mode-blog"
 										name="activitypub_actor_mode"
 										value="blog"
-										aria-describedby="fosse-activitypub-actor-mode-blog-desc"
+										aria-describedby="fosse-activitypub-actor-mode-blog-desc fosse-activitypub-actor-mode-note"
 										<?php checked( 'blog', $actor_mode ); ?>
 									/>
 									<?php esc_html_e( 'Blog profile', 'fosse' ); ?>
@@ -150,7 +151,7 @@ class AP_Provider implements Connection_Provider {
 										id="fosse-activitypub-actor-mode-actor-blog"
 										name="activitypub_actor_mode"
 										value="actor_blog"
-										aria-describedby="fosse-activitypub-actor-mode-actor-blog-desc"
+										aria-describedby="fosse-activitypub-actor-mode-actor-blog-desc fosse-activitypub-actor-mode-note"
 										<?php checked( 'actor_blog', $actor_mode ); ?>
 									/>
 									<?php esc_html_e( 'Both', 'fosse' ); ?>
@@ -158,8 +159,8 @@ class AP_Provider implements Connection_Provider {
 								<p id="fosse-activitypub-actor-mode-actor-blog-desc" class="description">
 									<?php esc_html_e( 'Authors keep individual profiles, and the site also has its own blog profile. People can follow either.', 'fosse' ); ?>
 								</p>
-								<div id="fosse-activitypub-actor-mode-note" class="fosse-activitypub-actor-mode-note">
-									<p class="description">
+								<div class="fosse-activitypub-actor-mode-note">
+									<p id="fosse-activitypub-actor-mode-note" class="description">
 										<?php esc_html_e( 'Changing modes does not move followers between profiles. Future posts publish from the profiles enabled by the selected mode.', 'fosse' ); ?>
 									</p>
 									<p class="description">

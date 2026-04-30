@@ -147,22 +147,24 @@ class AP_ProviderTest extends BaseTestCase {
 		$this->assertStringContainsString( 'Changing modes does not move followers between profiles.', $output );
 		$this->assertStringContainsString( 'Configure the site-wide blog profile name, image, and description', $output );
 		$this->assertStringContainsString( '<fieldset aria-describedby="fosse-activitypub-actor-mode-note">', $output );
+		$this->assertStringContainsString( '<legend class="screen-reader-text">Actor Mode</legend>', $output );
 		$this->assertMatchesRegularExpression(
-			'~<input[^>]+id="fosse-activitypub-actor-mode-actor"[^>]+aria-describedby="fosse-activitypub-actor-mode-actor-desc"[^>]+/>~',
+			'~<input[^>]+id="fosse-activitypub-actor-mode-actor"[^>]+aria-describedby="fosse-activitypub-actor-mode-actor-desc fosse-activitypub-actor-mode-note"[^>]+/>~',
 			$output
 		);
 		$this->assertMatchesRegularExpression(
-			'~<input[^>]+id="fosse-activitypub-actor-mode-blog"[^>]+aria-describedby="fosse-activitypub-actor-mode-blog-desc"[^>]+/>~',
+			'~<input[^>]+id="fosse-activitypub-actor-mode-blog"[^>]+aria-describedby="fosse-activitypub-actor-mode-blog-desc fosse-activitypub-actor-mode-note"[^>]+/>~',
 			$output
 		);
 		$this->assertMatchesRegularExpression(
-			'~<input[^>]+id="fosse-activitypub-actor-mode-actor-blog"[^>]+aria-describedby="fosse-activitypub-actor-mode-actor-blog-desc"[^>]+/>~',
+			'~<input[^>]+id="fosse-activitypub-actor-mode-actor-blog"[^>]+aria-describedby="fosse-activitypub-actor-mode-actor-blog-desc fosse-activitypub-actor-mode-note"[^>]+/>~',
 			$output
 		);
 		$this->assertStringContainsString( 'id="fosse-activitypub-actor-mode-actor-desc"', $output );
 		$this->assertStringContainsString( 'id="fosse-activitypub-actor-mode-blog-desc"', $output );
 		$this->assertStringContainsString( 'id="fosse-activitypub-actor-mode-actor-blog-desc"', $output );
-		$this->assertStringContainsString( '<div id="fosse-activitypub-actor-mode-note" class="fosse-activitypub-actor-mode-note">', $output );
+		$this->assertStringContainsString( '<p id="fosse-activitypub-actor-mode-note" class="description">', $output );
+		$this->assertStringContainsString( '<div class="fosse-activitypub-actor-mode-note">', $output );
 		$this->assertMatchesRegularExpression(
 			'~<a href="[^"]*options-general\.php\?page=activitypub(?:&#038;|&amp;|&)tab=blog-profile">Blog profile settings</a>~',
 			$output
