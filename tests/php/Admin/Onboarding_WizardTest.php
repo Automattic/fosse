@@ -7,7 +7,10 @@
 
 namespace Automattic\Fosse\Tests\Admin;
 
+use Atmosphere\OAuth\Encryption;
 use Automattic\Fosse\Admin\AP_Provider;
+use Automattic\Fosse\Admin\Bluesky_Provider;
+use Automattic\Fosse\Admin\Connection_Provider;
 use Automattic\Fosse\Admin\Connection_Provider_Registry;
 use Automattic\Fosse\Admin\Onboarding_Wizard;
 use PHPUnit\Framework\Attributes\After;
@@ -28,17 +31,29 @@ class Onboarding_WizardTest extends BaseTestCase {
 	 */
 	#[Before]
 	public function set_up_state(): void {
+		if ( ! defined( 'AUTH_KEY' ) ) {
+			define( 'AUTH_KEY', 'fosse-test-auth-key' );
+		}
+
+		if ( ! defined( 'AUTH_SALT' ) ) {
+			define( 'AUTH_SALT', 'fosse-test-auth-salt' );
+		}
+
 		delete_option( Onboarding_Wizard::COMPLETED_OPTION );
 		delete_option( 'activitypub_actor_mode' );
 		delete_option( 'activitypub_support_post_types' );
+		delete_option( 'atmosphere_connection' );
+		delete_option( 'atmosphere_auto_publish' );
 		delete_option( Onboarding_Wizard::REDIRECT_OPTION );
 		delete_transient( Onboarding_Wizard::REDIRECT_TRANSIENT );
 
 		// Most tests assume an ActivityPub provider is registered. Tests
 		// that need the unavailable path call Connection_Provider_Registry::reset()
-		// explicitly; the @after restores the provider for the next test.
+		// explicitly; the #[After] hook re-registers AP and Bluesky for the
+		// next test.
 		Connection_Provider_Registry::reset();
 		AP_Provider::register_provider();
+		Bluesky_Provider::register_provider();
 	}
 
 	/**
@@ -59,6 +74,7 @@ class Onboarding_WizardTest extends BaseTestCase {
 
 		Connection_Provider_Registry::reset();
 		AP_Provider::register_provider();
+		Bluesky_Provider::register_provider();
 	}
 
 	// --- is_complete / mark_complete ---
@@ -327,6 +343,172 @@ class Onboarding_WizardTest extends BaseTestCase {
 		$this->assertStringContainsString( 'ActivityPub', $output );
 	}
 
+	// --- Bluesky step render ---
+
+	/**
+	 * The Bluesky wizard step renders the live OAuth connect form when disconnected.
+	 */
+	public function test_render_bluesky_step_disconnected_shows_connect_form(): void {
+		$output = $this->render_wizard_step( 'bluesky' );
+
+		$this->assertStringContainsString( 'fosse_connect_bluesky', $output );
+		$this->assertStringContainsString( 'bluesky_handle', $output );
+		$this->assertStringContainsString( 'fosse_bluesky_return', $output );
+		$this->assertStringContainsString( 'value="wizard"', $output );
+		$this->assertStringContainsString( 'Connect Bluesky', $output );
+		$this->assertStringContainsString( 'Skip for now', $output );
+		$this->assertStringContainsString( 'fosse-bluesky-form', $output );
+		$this->assertStringNotContainsString( 'fosse-bluesky-placeholder', $output );
+		$this->assertStringNotContainsString( 'Coming Soon', $output );
+		$this->assertMatchesRegularExpression( '/<input\b(?=[^>]*\bid="fosse-bsky-handle")(?=[^>]*\bname="bluesky_handle")[^>]*>/i', $output );
+		$this->assertDoesNotMatchRegularExpression( '/<input\b(?=[^>]*\bid="fosse-bsky-handle")[^>]*\bdisabled\b/i', $output );
+	}
+
+	/**
+	 * The wizard's connect form embeds a `_wpnonce` that validates against
+	 * the `fosse_connect_bluesky` action — so a typo'd action name in the
+	 * form template would surface as a test failure rather than a 403 in
+	 * production.
+	 */
+	public function test_render_bluesky_step_emits_valid_connect_nonce(): void {
+		$output = $this->render_wizard_step( 'bluesky' );
+
+		$this->assertMatchesRegularExpression(
+			'/<input[^>]*\bname="_wpnonce"[^>]*\bvalue="([^"]+)"/i',
+			$output,
+			'Expected a _wpnonce hidden input in the rendered form.'
+		);
+
+		preg_match( '/<input[^>]*\bname="_wpnonce"[^>]*\bvalue="([^"]+)"/i', $output, $matches );
+		$nonce = $matches[1] ?? '';
+
+		$this->assertNotEmpty( $nonce );
+		$this->assertNotFalse(
+			wp_verify_nonce( $nonce, 'fosse_connect_bluesky' ),
+			'Embedded form nonce must validate against fosse_connect_bluesky.'
+		);
+	}
+
+	/**
+	 * When the Bluesky provider is not registered at all, the wizard renders
+	 * the unavailable notice rather than a connect form whose admin-post
+	 * handler isn't attached.
+	 */
+	public function test_render_bluesky_step_unregistered_provider_shows_unavailable(): void {
+		Connection_Provider_Registry::reset();
+		AP_Provider::register_provider();
+		// Deliberately do NOT register Bluesky_Provider.
+
+		$output = $this->render_wizard_step( 'bluesky' );
+
+		$this->assertStringContainsString( 'Bluesky setup is unavailable', $output );
+		$this->assertStringNotContainsString( 'fosse_connect_bluesky', $output );
+	}
+
+	/**
+	 * The Bluesky wizard step does not render a dead connect form when unavailable.
+	 */
+	public function test_render_bluesky_step_unavailable_omits_connect_form(): void {
+		Connection_Provider_Registry::reset();
+		AP_Provider::register_provider();
+		Connection_Provider_Registry::register(
+			new class() implements Connection_Provider {
+				/**
+				 * Get the provider slug.
+				 *
+				 * @return string
+				 */
+				public function get_slug(): string {
+					return 'bluesky';
+				}
+
+				/**
+				 * Get the provider display name.
+				 *
+				 * @return string
+				 */
+				public function get_name(): string {
+					return 'Bluesky';
+				}
+
+				/**
+				 * Whether the provider is available.
+				 *
+				 * @return bool
+				 */
+				public function is_available(): bool {
+					return false;
+				}
+
+				/**
+				 * Get current provider status.
+				 *
+				 * @return array<string, mixed>
+				 */
+				public function get_status(): array {
+					return array( 'connected' => false );
+				}
+
+				/**
+				 * Render setup UI.
+				 *
+				 * @return void
+				 */
+				public function render_setup_section(): void {}
+
+				/**
+				 * Render status UI.
+				 *
+				 * @return void
+				 */
+				public function render_status_card(): void {}
+
+				/**
+				 * Register hooks.
+				 *
+				 * @return void
+				 */
+				public function register_hooks(): void {}
+			}
+		);
+
+		$output = $this->render_wizard_step( 'bluesky' );
+
+		$this->assertStringContainsString( 'Bluesky setup is unavailable', $output );
+		$this->assertStringContainsString( 'Skip for now', $output );
+		$this->assertStringNotContainsString( 'fosse_connect_bluesky', $output );
+		$this->assertStringNotContainsString( 'fosse-bsky-handle', $output );
+	}
+
+	/**
+	 * The Bluesky wizard step renders connected account details instead of the form.
+	 */
+	public function test_render_bluesky_step_connected_shows_connection_details(): void {
+		$this->seed_bluesky_connection( 'alice.bsky.social', 'did:plc:alice123' );
+
+		$output = $this->render_wizard_step( 'bluesky' );
+
+		$this->assertStringContainsString( 'Bluesky is connected', $output );
+		$this->assertStringContainsString( 'alice.bsky.social', $output );
+		$this->assertStringContainsString( 'did:plc:alice123', $output );
+		$this->assertStringContainsString( 'Finish setup', $output );
+		$this->assertStringNotContainsString( 'fosse_connect_bluesky', $output );
+	}
+
+	/**
+	 * The completion summary reflects an already-connected Bluesky account.
+	 */
+	public function test_complete_summary_shows_connected_bluesky_account(): void {
+		Onboarding_Wizard::mark_complete();
+		$this->seed_bluesky_connection( 'alice.bsky.social', 'did:plc:alice123' );
+
+		$output = $this->render_wizard_step( 'complete' );
+
+		$this->assertStringContainsString( 'Bluesky', $output );
+		$this->assertStringContainsString( 'Connected as alice.bsky.social', $output );
+		$this->assertStringNotContainsString( 'Not connected', $output );
+	}
+
 	// --- audit hook: handler cap/nonce failures (parameterized) ---
 
 	/**
@@ -553,6 +735,50 @@ class Onboarding_WizardTest extends BaseTestCase {
 	private function call_normalize( string $handle ): string {
 		$method = new ReflectionMethod( Onboarding_Wizard::class, 'normalize_handle_preview' );
 		return (string) $method->invoke( null, $handle );
+	}
+
+	/**
+	 * Render the wizard at a specific step and return the captured markup.
+	 *
+	 * @param string $step Step slug.
+	 * @return string
+	 */
+	private function render_wizard_step( string $step ): string {
+		$this->become_admin();
+
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- test setup.
+		$_GET = array(
+			'page' => 'fosse-wizard',
+			'step' => $step,
+		);
+
+		ob_start();
+		try {
+			Onboarding_Wizard::render();
+		} finally {
+			$output = ob_get_clean();
+		}
+
+		return (string) $output;
+	}
+
+	/**
+	 * Seed Atmosphere's connected account option.
+	 *
+	 * @param string $handle Connected Bluesky handle.
+	 * @param string $did    Connected Bluesky DID.
+	 * @return void
+	 */
+	private function seed_bluesky_connection( string $handle, string $did ): void {
+		update_option(
+			'atmosphere_connection',
+			array(
+				'did'          => $did,
+				'handle'       => $handle,
+				'pds_endpoint' => 'https://bsky.social',
+				'access_token' => Encryption::encrypt( 'token' ),
+			)
+		);
 	}
 
 	/**

@@ -27,13 +27,20 @@ $connected = array_filter(
 			<p>
 				<?php
 				printf(
-					/* translators: 1: number of connected protocols, 2: total available protocols */
-					esc_html__( '%1$d of %2$d protocols active', 'fosse' ),
+					/* translators: 1: number of active connections, 2: total available connections */
+					esc_html__( '%1$d of %2$d connections active', 'fosse' ),
 					count( $connected ),
 					count( $available )
 				);
 				?>
 			</p>
+			<?php if ( empty( $connected ) ) : ?>
+				<p>
+					<a class="button button-primary" href="<?php echo esc_url( admin_url( 'admin.php?page=fosse' ) ); ?>">
+						<?php esc_html_e( 'Set up FOSSE', 'fosse' ); ?>
+					</a>
+				</p>
+			<?php endif; ?>
 		</div>
 
 		<div class="fosse-status-cards">

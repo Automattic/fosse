@@ -22,6 +22,27 @@ namespace Automattic\Fosse\Admin;
 class Bluesky_Provider implements Connection_Provider {
 
 	/**
+	 * Hidden form field used to identify wizard-origin connect flows.
+	 *
+	 * Exposed so callers (e.g. the onboarding wizard template) can render a
+	 * hidden input that round-trips through admin-post and is read back by
+	 * `get_connect_return_context()` without duplicating the literal string.
+	 */
+	public const RETURN_CONTEXT_FIELD = 'fosse_bluesky_return';
+
+	/**
+	 * Return context value for the first-run wizard.
+	 *
+	 * Public for the same reason as {@see self::RETURN_CONTEXT_FIELD}.
+	 */
+	public const RETURN_CONTEXT_WIZARD = 'wizard';
+
+	/**
+	 * Per-user transient prefix for pending OAuth return context.
+	 */
+	private const OAUTH_RETURN_TRANSIENT_PREFIX = 'fosse_bluesky_oauth_return_';
+
+	/**
 	 * Hook into fosse_register_providers to self-register.
 	 *
 	 * @return void
@@ -63,10 +84,17 @@ class Bluesky_Provider implements Connection_Provider {
 	/**
 	 * Check if Atmosphere is loaded.
 	 *
+	 * Requires the main class plus the procedural helpers `get_status()`
+	 * relies on. Half-loaded Atmosphere (class present but functions
+	 * missing) reports unavailable so the wizard / Setup page render the
+	 * unavailable notice instead of a connect form that can't be backed.
+	 *
 	 * @return bool
 	 */
 	public function is_available(): bool {
-		return class_exists( '\Atmosphere\Atmosphere' );
+		return class_exists( '\Atmosphere\Atmosphere' )
+			&& function_exists( '\Atmosphere\get_connection' )
+			&& function_exists( '\Atmosphere\is_connected' );
 	}
 
 	/**
@@ -75,8 +103,8 @@ class Bluesky_Provider implements Connection_Provider {
 	 * @return array<string, mixed>
 	 */
 	public function get_status(): array {
-		$connection   = function_exists( '\Atmosphere\get_connection' ) ? \Atmosphere\get_connection() : array();
-		$connected    = function_exists( '\Atmosphere\is_connected' ) ? \Atmosphere\is_connected() : false;
+		$connection   = \Atmosphere\get_connection();
+		$connected    = \Atmosphere\is_connected();
 		$auto_publish = '1' === get_option( 'atmosphere_auto_publish', '1' );
 		$token_error  = null;
 
@@ -106,7 +134,7 @@ class Bluesky_Provider implements Connection_Provider {
 		$status = $this->get_status();
 
 		?>
-		<div class="fosse-provider-section">
+		<div class="fosse-provider-section" id="fosse-provider-bluesky">
 			<h2><?php esc_html_e( 'Bluesky', 'fosse' ); ?></h2>
 
 			<?php settings_errors( 'atmosphere' ); ?>
@@ -182,10 +210,14 @@ class Bluesky_Provider implements Connection_Provider {
 		$status = $this->get_status();
 		?>
 		<div class="fosse-status-card">
-			<h3>
-				<span class="fosse-status-indicator <?php echo $status['connected'] ? 'connected' : 'disconnected'; ?>"></span>
+			<h2>
+				<span
+					class="fosse-status-indicator <?php echo $status['connected'] ? 'connected' : 'disconnected'; ?>"
+					role="img"
+					aria-label="<?php echo esc_attr( $status['connected'] ? __( 'Connected', 'fosse' ) : __( 'Disconnected', 'fosse' ) ); ?>"
+				></span>
 				<?php esc_html_e( 'Bluesky', 'fosse' ); ?>
-			</h3>
+			</h2>
 
 			<table class="widefat striped">
 				<tbody>
@@ -217,10 +249,29 @@ class Bluesky_Provider implements Connection_Provider {
 					</tr>
 					<tr>
 						<td><?php esc_html_e( 'Token Health', 'fosse' ); ?></td>
-						<td><?php echo esc_html( $status['token_error'] ? $status['token_error'] : __( 'OK', 'fosse' ) ); ?></td>
+						<td>
+							<?php if ( $status['token_error'] ) : ?>
+								<strong><?php esc_html_e( 'Reconnect required.', 'fosse' ); ?></strong>
+								<a href="<?php echo esc_url( admin_url( 'admin.php?page=fosse#fosse-provider-bluesky' ) ); ?>">
+									<?php esc_html_e( 'Open Bluesky setup', 'fosse' ); ?>
+								</a>
+								<details class="fosse-status-card__error">
+									<summary><?php esc_html_e( 'Error details', 'fosse' ); ?></summary>
+									<code><?php echo esc_html( $status['token_error'] ); ?></code>
+								</details>
+							<?php else : ?>
+								<?php esc_html_e( 'OK', 'fosse' ); ?>
+							<?php endif; ?>
+						</td>
 					</tr>
 				</tbody>
 			</table>
+
+			<p class="fosse-status-card__manage">
+				<a href="<?php echo esc_url( admin_url( 'admin.php?page=fosse#fosse-provider-bluesky' ) ); ?>">
+					<?php esc_html_e( 'Manage Bluesky settings', 'fosse' ); ?>
+				</a>
+			</p>
 		</div>
 		<?php
 	}
@@ -386,20 +437,40 @@ class Bluesky_Provider implements Connection_Provider {
 
 		check_admin_referer( 'fosse_connect_bluesky' );
 
+		$return_context = $this->get_connect_return_context();
+		if ( self::RETURN_CONTEXT_WIZARD !== $return_context ) {
+			$this->forget_oauth_return_context();
+		}
+
 		$handle = sanitize_text_field( wp_unslash( $_POST['bluesky_handle'] ?? '' ) );
-		$handle = ltrim( $handle, '@' );
+		$handle = strtolower( trim( ltrim( trim( $handle ), '@' ) ) );
 
 		if ( empty( $handle ) ) {
-			$this->redirect_with_notice( __( 'Enter a Bluesky handle to continue.', 'fosse' ), 'error' );
-			return; // redirect_with_notice exits, but guard against future changes.
+			$this->redirect_with_notice( __( 'Enter a Bluesky handle to continue.', 'fosse' ), 'error', $return_context );
+			return;
+		}
+
+		// AT Protocol handles are domain names: at least one dot, only ASCII
+		// alphanumerics and hyphens per label, no leading/trailing hyphens.
+		// Pre-validate so users get an actionable hint instead of a raw
+		// upstream error like "PDS lookup failed: dns_get_record returned false".
+		if ( ! preg_match( '/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/', $handle ) ) {
+			$this->redirect_with_notice(
+				__( 'That doesn\'t look like a Bluesky handle. Try something like alice.bsky.social.', 'fosse' ),
+				'error',
+				$return_context
+			);
+			return;
 		}
 
 		$auth_url = \Atmosphere\OAuth\Client::authorize( $handle );
 
 		if ( is_wp_error( $auth_url ) ) {
-			$this->redirect_with_notice( $auth_url->get_error_message(), 'error' );
-			return; // redirect_with_notice exits, but guard against future changes.
+			$this->redirect_with_notice( $auth_url->get_error_message(), 'error', $return_context );
+			return;
 		}
+
+		$this->remember_oauth_return_context( $return_context );
 
 		wp_redirect( $auth_url ); // phpcs:ignore WordPress.Security.SafeRedirect.wp_redirect_wp_redirect
 		exit;
@@ -418,6 +489,21 @@ class Bluesky_Provider implements Connection_Provider {
 		check_admin_referer( 'fosse_disconnect_bluesky' );
 
 		\Atmosphere\OAuth\Client::disconnect();
+
+		// Disconnect orphans any in-flight wizard return marker; clear it so
+		// a subsequent connect attempt starts from a clean slate.
+		$this->forget_oauth_return_context();
+
+		// Atmosphere's `disconnect()` returns void and just deletes the
+		// connection option. Verify the option actually went away so a DB
+		// or filter failure surfaces instead of falsely showing "Disconnected".
+		if ( \Atmosphere\is_connected() ) {
+			$this->redirect_with_notice(
+				__( 'Could not disconnect from Bluesky. Please try again.', 'fosse' ),
+				'error'
+			);
+			return;
+		}
 
 		$this->redirect_with_notice( __( 'Disconnected from Bluesky.', 'fosse' ), 'info' );
 	}
@@ -438,7 +524,8 @@ class Bluesky_Provider implements Connection_Provider {
 		$state = sanitize_text_field( wp_unslash( $_GET['state'] ?? '' ) );
 		// phpcs:enable WordPress.Security.NonceVerification.Recommended
 
-		if ( empty( $code ) || empty( $state ) ) {
+		// No code and no state → ordinary page hit, not an OAuth callback.
+		if ( '' === $code && '' === $state ) {
 			return;
 		}
 
@@ -446,16 +533,52 @@ class Bluesky_Provider implements Connection_Provider {
 			wp_die( esc_html__( 'You do not have permission to complete the Bluesky connection.', 'fosse' ) );
 		}
 
+		// Exactly one of code/state present means the auth server redirected
+		// back but something stripped the other parameter mid-flight. Treat
+		// it as a real error instead of silently rendering an empty page.
+		if ( '' === $code || '' === $state ) {
+			$this->redirect_with_notice(
+				__( 'Bluesky returned an incomplete response. Please try connecting again.', 'fosse' ),
+				'error'
+			);
+			return;
+		}
+
+		// Resolve the return context against the inbound state before we hand
+		// off to Atmosphere so a stale or replayed callback can't strip the
+		// wizard marker away from a legitimate callback that arrives later.
+		$return_context = $this->consume_oauth_return_context( $state );
+
 		$result = \Atmosphere\OAuth\Client::handle_callback( $code, $state );
 
 		if ( is_wp_error( $result ) ) {
-			$this->redirect_with_notice( $result->get_error_message(), 'error' );
-			return; // redirect_with_notice exits, but guard against future changes.
+			$this->redirect_with_notice( $result->get_error_message(), 'error', $return_context );
+			return;
 		}
 
-		$sync_result = method_exists( '\Atmosphere\Publisher', 'sync_publication' )
-			? \Atmosphere\Publisher::sync_publication()
-			: null;
+		// Atmosphere reports success on token exchange but writes the
+		// connection option separately. If that write was lost (DB error,
+		// hostile filter), `is_connected()` flips back to false — surface
+		// that instead of falsely telling the user they're connected.
+		if ( ! \Atmosphere\is_connected() ) {
+			$this->redirect_with_notice(
+				__( 'Bluesky responded successfully, but the connection was not saved. Please try connecting again.', 'fosse' ),
+				'error',
+				$return_context
+			);
+			return;
+		}
+
+		if ( ! method_exists( '\Atmosphere\Publisher', 'sync_publication' ) ) {
+			$this->redirect_with_notice(
+				__( 'Connected to Bluesky, but publication setup is unavailable in the current Atmosphere version. Posts will not sync until this is resolved.', 'fosse' ),
+				'warning',
+				$return_context
+			);
+			return;
+		}
+
+		$sync_result = \Atmosphere\Publisher::sync_publication();
 
 		if ( is_wp_error( $sync_result ) ) {
 			$this->redirect_with_notice(
@@ -464,12 +587,13 @@ class Bluesky_Provider implements Connection_Provider {
 					__( 'Connected to Bluesky, but publication setup failed: %s', 'fosse' ),
 					$sync_result->get_error_message()
 				),
-				'warning'
+				'warning',
+				$return_context
 			);
 			return;
 		}
 
-		$this->redirect_with_notice( __( 'Successfully connected to Bluesky.', 'fosse' ), 'success' );
+		$this->redirect_with_notice( __( 'Successfully connected to Bluesky.', 'fosse' ), 'success', $return_context );
 	}
 
 	/**
@@ -483,17 +607,173 @@ class Bluesky_Provider implements Connection_Provider {
 	}
 
 	/**
-	 * Persist an admin notice and redirect back to the FOSSE setup page.
+	 * Persist an admin notice and redirect back to the originating FOSSE screen.
 	 *
-	 * @param string $message Notice message.
-	 * @param string $type    Notice type.
+	 * @param string $message        Notice message.
+	 * @param string $type           Notice type.
+	 * @param string $return_context Optional return context.
 	 * @return void
 	 */
-	private function redirect_with_notice( string $message, string $type ): void {
+	private function redirect_with_notice( string $message, string $type, string $return_context = '' ): void {
 		add_settings_error( 'atmosphere', 'fosse_bluesky_notice', $message, $type );
 		set_transient( 'settings_errors', get_settings_errors(), 30 );
 
-		wp_safe_redirect( admin_url( 'admin.php?page=fosse&settings-updated=true' ) );
+		wp_safe_redirect( $this->get_redirect_url( $return_context ) );
 		exit;
+	}
+
+	/**
+	 * Read the requested return context from a connect form submission.
+	 *
+	 * Caller MUST verify the form nonce before invoking — the PHPCS nonce
+	 * check is suppressed on that assumption.
+	 *
+	 * @return string
+	 */
+	private function get_connect_return_context(): string {
+		// phpcs:ignore WordPress.Security.NonceVerification.Missing -- caller (handle_connect) verifies the nonce before this helper runs.
+		$raw = isset( $_POST[ self::RETURN_CONTEXT_FIELD ] ) ? sanitize_key( wp_unslash( $_POST[ self::RETURN_CONTEXT_FIELD ] ) ) : '';
+
+		return self::normalize_return_context( $raw );
+	}
+
+	/**
+	 * Coerce an arbitrary value to a known return-context slug.
+	 *
+	 * Single chokepoint for return-context normalization: every read,
+	 * write, and comparison routes through here so adding a new context
+	 * value is a one-line change.
+	 *
+	 * @param mixed $raw Raw value to normalize.
+	 * @return string Normalized context slug, or `''` for unknown input.
+	 */
+	private static function normalize_return_context( $raw ): string {
+		return is_string( $raw ) && self::RETURN_CONTEXT_WIZARD === $raw ? self::RETURN_CONTEXT_WIZARD : '';
+	}
+
+	/**
+	 * Remember where a successful OAuth start should return after callback.
+	 *
+	 * Binds the return context to Atmosphere's freshly-minted OAuth state so a
+	 * stale or replayed callback can't consume it before the legitimate one
+	 * arrives. `Client::authorize()` always writes `atmosphere_oauth_state`
+	 * before returning the auth URL, so reading it here is safe.
+	 *
+	 * @param string $return_context Return context.
+	 * @return void
+	 */
+	private function remember_oauth_return_context( string $return_context ): void {
+		$key = $this->get_oauth_return_transient_key();
+		if ( '' === $key ) {
+			return;
+		}
+
+		delete_transient( $key );
+
+		$context = self::normalize_return_context( $return_context );
+		if ( '' === $context ) {
+			return;
+		}
+
+		$oauth_state = get_transient( 'atmosphere_oauth_state' );
+		if ( ! is_string( $oauth_state ) || '' === $oauth_state ) {
+			return;
+		}
+
+		set_transient(
+			$key,
+			array(
+				'context' => $context,
+				'state'   => $oauth_state,
+			),
+			HOUR_IN_SECONDS
+		);
+	}
+
+	/**
+	 * Clear any remembered OAuth return context for the current user.
+	 *
+	 * @return void
+	 */
+	private function forget_oauth_return_context(): void {
+		$key = $this->get_oauth_return_transient_key();
+		if ( '' === $key ) {
+			return;
+		}
+
+		delete_transient( $key );
+	}
+
+	/**
+	 * Consume any remembered OAuth return context for the current user.
+	 *
+	 * Only deletes and returns the context when the inbound callback state
+	 * matches the OAuth state the marker was bound to. A non-matching state
+	 * leaves the marker intact so the legitimate callback can still find it.
+	 *
+	 * @param string $callback_state Inbound OAuth `state` query arg.
+	 * @return string
+	 */
+	private function consume_oauth_return_context( string $callback_state ): string {
+		$key = $this->get_oauth_return_transient_key();
+		if ( '' === $key ) {
+			return '';
+		}
+
+		$stored = get_transient( $key );
+
+		if ( ! is_array( $stored ) ) {
+			return '';
+		}
+
+		$stored_state   = isset( $stored['state'] ) && is_string( $stored['state'] ) ? $stored['state'] : '';
+		$stored_context = isset( $stored['context'] ) && is_string( $stored['context'] ) ? $stored['context'] : '';
+
+		if ( '' === $stored_state || '' === $callback_state || ! hash_equals( $stored_state, $callback_state ) ) {
+			return '';
+		}
+
+		delete_transient( $key );
+
+		return self::normalize_return_context( $stored_context );
+	}
+
+	/**
+	 * Build the per-user OAuth return transient key.
+	 *
+	 * Returns `''` for an unauthenticated context (`get_current_user_id() === 0`)
+	 * so the per-user namespace can't collapse into a shared key for all
+	 * anonymous requests. Callers MUST treat an empty key as "skip".
+	 *
+	 * @return string
+	 */
+	private function get_oauth_return_transient_key(): string {
+		$user_id = get_current_user_id();
+		if ( 0 === $user_id ) {
+			return '';
+		}
+
+		return self::OAUTH_RETURN_TRANSIENT_PREFIX . $user_id;
+	}
+
+	/**
+	 * Build the admin URL for a return context.
+	 *
+	 * @param string $return_context Return context.
+	 * @return string
+	 */
+	private function get_redirect_url( string $return_context ): string {
+		if ( self::RETURN_CONTEXT_WIZARD === self::normalize_return_context( $return_context ) ) {
+			return add_query_arg(
+				array(
+					'page'             => 'fosse-wizard',
+					'step'             => 'bluesky',
+					'settings-updated' => 'true',
+				),
+				admin_url( 'admin.php' )
+			);
+		}
+
+		return admin_url( 'admin.php?page=fosse&settings-updated=true' );
 	}
 }

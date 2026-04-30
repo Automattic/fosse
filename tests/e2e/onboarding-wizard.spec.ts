@@ -81,7 +81,7 @@ test( 'Content step saves post types and advances to Bluesky', async ( {
 	await expect( page ).toHaveURL( /step=bluesky/ );
 } );
 
-test( 'Bluesky step shows coming soon notice', async ( { page } ) => {
+test( 'Bluesky step shows connect form', async ( { page } ) => {
 	await page.goto( '/wp-admin/admin.php?page=fosse-wizard&step=bluesky' );
 
 	await expect(
@@ -89,7 +89,11 @@ test( 'Bluesky step shows coming soon notice', async ( { page } ) => {
 			hasText: 'Connect to Bluesky',
 		} )
 	).toBeVisible();
-	await expect( page.locator( 'text=Coming Soon' ) ).toBeVisible();
+	await expect( page.locator( '#fosse-bsky-handle' ) ).toBeVisible();
+	await expect(
+		page.getByRole( 'button', { name: 'Connect Bluesky' } )
+	).toBeVisible();
+	await expect( page.locator( 'text=Coming Soon' ) ).toHaveCount( 0 );
 } );
 
 test( 'Skip for now on Bluesky step goes to completion', async ( { page } ) => {

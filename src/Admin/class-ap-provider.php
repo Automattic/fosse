@@ -104,7 +104,7 @@ class AP_Provider implements Connection_Provider {
 		$address        = $this->get_fediverse_address();
 		$nonce          = wp_create_nonce( 'fosse_save_ap_settings' );
 		?>
-		<div class="fosse-provider-section">
+		<div class="fosse-provider-section" id="fosse-provider-activitypub">
 			<h2><?php esc_html_e( 'ActivityPub', 'fosse' ); ?></h2>
 
 			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
@@ -188,10 +188,14 @@ class AP_Provider implements Connection_Provider {
 		);
 		?>
 		<div class="fosse-status-card">
-			<h3>
-				<span class="fosse-status-indicator <?php echo $status['connected'] ? 'connected' : 'disconnected'; ?>"></span>
+			<h2>
+				<span
+					class="fosse-status-indicator <?php echo $status['connected'] ? 'connected' : 'disconnected'; ?>"
+					role="img"
+					aria-label="<?php echo esc_attr( $status['connected'] ? __( 'Connected', 'fosse' ) : __( 'Disconnected', 'fosse' ) ); ?>"
+				></span>
 				<?php esc_html_e( 'ActivityPub', 'fosse' ); ?>
-			</h3>
+			</h2>
 
 			<table class="widefat striped">
 				<tbody>
@@ -212,6 +216,12 @@ class AP_Provider implements Connection_Provider {
 					<?php $this->render_follower_count_row(); ?>
 				</tbody>
 			</table>
+
+			<p class="fosse-status-card__manage">
+				<a href="<?php echo esc_url( admin_url( 'admin.php?page=fosse#fosse-provider-activitypub' ) ); ?>">
+					<?php esc_html_e( 'Manage ActivityPub settings', 'fosse' ); ?>
+				</a>
+			</p>
 		</div>
 		<?php
 	}

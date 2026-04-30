@@ -10,6 +10,7 @@ Based on: sdd/onboarding-setup-ux/spec.md
 - [x] Task 4: Open upstream Atmosphere PRs
 - [x] Task 5: Create Bluesky_Provider
 - [x] Task 5.5: Create first-run onboarding wizard
+- [ ] Task 5.6: Replace Bluesky wizard placeholder with live connect form
 - [x] Task 6: Create Status_Page with provider status cards
 - [x] Task 7: Add admin CSS
 - [x] Task 8: Write tests
@@ -95,15 +96,15 @@ Based on: sdd/onboarding-setup-ux/spec.md
 - **Status**: ✅ Done (#33)
 - **Files**: `src/Admin/class-onboarding-wizard.php`, `src/Admin/class-menu.php`, `src/Admin/assets/css/admin.css`, `fosse.php`
 - **Do**:
-  1. Create `Onboarding_Wizard` class with step-based rendering: Welcome, Appearance (actor mode), Content (post types), Bluesky (placeholder), Complete.
+  1. Create `Onboarding_Wizard` class with step-based rendering: Welcome, Appearance (actor mode), Content (post types), Bluesky, Complete.
   2. Register the wizard as a hidden submenu in `Menu::add_menu()` by passing an empty parent slug to `add_submenu_page()`. The page has a real admin URL (`?page=fosse-wizard`) and inherits capability checks, but never appears in the menu sidebar.
   3. Add `register_activation_hook` in `fosse.php` that writes a one-shot `fosse_activation_redirect` option (autoload `false`).
   4. Add `admin_init` handler in `Menu` that checks the option, deletes it, and redirects to `?page=fosse-wizard` on first activation.
   5. Each step with form data POSTs to `admin_post.php?action=fosse_wizard_save`. Handler validates nonce + capability, saves step settings directly to AP's `activitypub_actor_mode` / `activitypub_support_post_types` options (matching AP_Provider's direct-write pattern), redirects to next step.
   6. "Skip setup" and the completion step both set `fosse_onboarding_completed` option to `1`.
   7. Actor mode selection uses card-style UI with hidden radio inputs inside `<label>` elements (works without JS). Post type selection uses checkboxes.
-  8. Bluesky step renders a placeholder/coming-soon state since `Bluesky_Provider` is not yet built.
-  9. Completion step shows summary of configured values with links to Status Dashboard and Setup page.
+  8. Bluesky step renders a placeholder for future Bluesky setup work.
+  9. Completion step shows summary of configured values, with links to Status Dashboard and Setup page.
   10. Add wizard CSS to `admin.css` under `.fosse-wizard` prefix. Styles use WP design tokens (colors, spacing, radii) and lean on native WP admin classes where possible.
 - **Verify**:
   - `composer run-script lint-php` passes.
@@ -113,6 +114,26 @@ Based on: sdd/onboarding-setup-ux/spec.md
   - Playground: after completion, visiting FOSSE menu goes to Setup page (not wizard).
   - Wizard page is not visible in the admin menu sidebar.
 - **Depends on**: Task 3
+
+### Task 5.6: Replace Bluesky wizard placeholder with live connect form
+- **Status**: In progress
+- **Files**: `src/Admin/class-onboarding-wizard.php`, `src/Admin/class-bluesky-provider.php`, `src/Admin/assets/css/admin.css`, `tests/php/Admin/Onboarding_WizardTest.php`, `tests/php/Admin/Bluesky_ProviderTest.php`, `tests/e2e/onboarding-wizard.spec.ts`, `sdd/onboarding-setup-ux/spec.md`, `sdd/onboarding-setup-ux/planned-decisions.md`
+- **Do**:
+  1. Have the wizard Bluesky step read Bluesky provider status through the provider registry, with a direct provider fallback for tests and early admin boot.
+  2. When disconnected, render the live OAuth handle form that posts to `admin-post.php?action=fosse_connect_bluesky`.
+  3. Include a hidden wizard return context so successful wizard-origin OAuth flows return to `?page=fosse-wizard&step=bluesky`.
+  4. When connected, render the connected handle/DID/auto-publish summary and make the primary action finish setup.
+  5. When unavailable, render a skip-only notice instead of a connect form.
+  6. Include Bluesky connection status in the completion summary.
+  7. Clear stale wizard return context when a later setup-page connect attempt starts without the wizard return marker.
+  8. Update wizard CSS, PHP tests, e2e coverage, and SDD docs for the live Bluesky step.
+- **Verify**:
+  - `composer run-script lint-php` passes.
+  - `composer run-script test-php` passes.
+  - `pnpm run format:check` passes.
+  - `pnpm run lint` passes.
+  - `pnpm exec playwright test tests/e2e/onboarding-wizard.spec.ts` passes.
+- **Depends on**: Task 5, Task 5.5
 
 ### Task 6: Create Status_Page with provider status cards
 - **Status**: ✅ Done (#27)

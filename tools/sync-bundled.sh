@@ -15,8 +15,16 @@
 # This is a short-term bootstrap: we vendor release-build copies of both
 # plugins so FOSSE ships with Mastodon + Bluesky federation working out of
 # the box. Excludes follow each upstream plugin's .gitattributes
-# (export-ignore patterns). Atmosphere's production vendor/ is built and
-# rsync'd separately because it must be present at plugin load time.
+# (export-ignore patterns).
+#
+# Atmosphere's production vendor/ is built and rsync'd separately. Atmosphere
+# itself uses a custom autoloader (includes/class-autoloader.php) and has no
+# runtime composer deps today, so the resulting vendor/ is mostly composer's
+# own autoload scaffolding — but we keep building it so that if upstream adds
+# runtime deps later, FOSSE picks them up automatically on the next sync.
+# We use `composer update` (not `composer install`) because Atmosphere
+# gitignores composer.lock; a stale untracked lock from a previous install
+# would otherwise quietly resurrect dropped dependencies.
 
 set -euo pipefail
 
@@ -44,7 +52,7 @@ mkdir -p "$AP_DEST"
 rsync -a --delete --exclude-from="$EXCLUDES" "$AP_SOURCE/" "$AP_DEST/"
 
 log "Building Atmosphere production vendor/ in $ATMO_SOURCE"
-( cd "$ATMO_SOURCE" && composer install --no-dev --optimize-autoloader --no-interaction --no-progress )
+( cd "$ATMO_SOURCE" && composer update --no-dev --optimize-autoloader --no-interaction --no-progress )
 
 log "Vendoring Atmosphere from $ATMO_SOURCE → $ATMO_DEST (excluding vendor/)"
 mkdir -p "$ATMO_DEST"
