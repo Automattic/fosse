@@ -1,0 +1,919 @@
+<?php
+/**
+ * First-run onboarding wizard.
+ *
+ * @package Automattic\Fosse
+ */
+
+namespace Automattic\Fosse\Admin;
+
+/**
+ * Renders and handles the multi-step onboarding wizard shown on first activation.
+ *
+ * Steps:
+ *  1. Welcome - value prop overview
+ *  2. Appearance - actor mode selection (blog / actor / actor_blog)
+ *  3. Content - post type selection
+ *  4. Bluesky - placeholder until Bluesky_Provider ships
+ *  5. Complete - summary and handoff to Setup/Status pages
+ */
+class Onboarding_Wizard {
+
+	/**
+	 * Option key tracking wizard completion.
+	 *
+	 * @var string
+	 */
+	public const COMPLETED_OPTION = 'fosse_onboarding_completed';
+
+	/**
+	 * Option key for the one-shot activation redirect signal.
+	 *
+	 * Stored with autoload `false` so the option only hits the DB when
+	 * an activation actually wrote it; consumed and deleted on the
+	 * first qualifying admin request.
+	 *
+	 * @var string
+	 */
+	public const REDIRECT_OPTION = 'fosse_activation_redirect';
+
+	/**
+	 * Legacy transient key for the activation redirect.
+	 *
+	 * Earlier installs of FOSSE used a 30-second transient. Kept as an
+	 * alias so {@see Menu::maybe_redirect_to_wizard()} can migrate any
+	 * lingering transient into the new option-backed signal.
+	 *
+	 * @deprecated Use {@see self::REDIRECT_OPTION} instead.
+	 * @var string
+	 */
+	public const REDIRECT_TRANSIENT = self::REDIRECT_OPTION;
+
+	/**
+	 * Valid step slugs in order.
+	 *
+	 * @var string[]
+	 */
+	private const STEPS = array( 'welcome', 'appearance', 'content', 'bluesky', 'complete' );
+
+	/**
+	 * Allowed actor mode values.
+	 *
+	 * @var string[]
+	 */
+	private const ACTOR_MODES = array( 'actor', 'blog', 'actor_blog' );
+
+	/**
+	 * Whether the wizard has been completed.
+	 *
+	 * @return bool
+	 */
+	public static function is_complete(): bool {
+		return (bool) get_option( self::COMPLETED_OPTION );
+	}
+
+	/**
+	 * Whether a registered ActivityPub provider is currently available.
+	 *
+	 * Gates the activation redirect and the wizard render. If neither
+	 * the bundled nor a standalone AP install is loaded, the wizard
+	 * has no actor data to walk users through, so we degrade to a
+	 * notice rather than rendering broken steps.
+	 *
+	 * @return bool
+	 */
+	public static function is_activitypub_available(): bool {
+		return null !== Connection_Provider_Registry::get_provider( 'activitypub' );
+	}
+
+	/**
+	 * Mark the wizard as complete.
+	 *
+	 * @return void
+	 */
+	public static function mark_complete(): void {
+		update_option( self::COMPLETED_OPTION, 1, false );
+	}
+
+	/**
+	 * Register hooks for the wizard.
+	 *
+	 * @return void
+	 */
+	public static function register(): void {
+		add_action( 'admin_post_fosse_wizard_save', array( static::class, 'handle_save' ) );
+		add_action( 'admin_post_fosse_wizard_skip', array( static::class, 'handle_skip' ) );
+		add_action( 'admin_post_fosse_wizard_complete', array( static::class, 'handle_complete' ) );
+		add_action( 'admin_post_fosse_wizard_reset', array( static::class, 'handle_reset' ) );
+	}
+
+	/**
+	 * Render the wizard page.
+	 *
+	 * @return void
+	 */
+	public static function render(): void {
+		self::require_capability(
+			'fosse_wizard_render',
+			__( 'You do not have permission to access this page.', 'fosse' )
+		);
+
+		?>
+		<div class="wrap fosse-wizard">
+		<?php
+
+		if ( ! self::is_activitypub_available() ) {
+			self::render_unavailable_notice();
+			?>
+			</div>
+			<?php
+			return;
+		}
+
+		$step = self::get_current_step();
+
+		switch ( $step ) {
+			case 'appearance':
+				self::render_step_appearance();
+				break;
+			case 'content':
+				self::render_step_content();
+				break;
+			case 'bluesky':
+				self::render_step_bluesky();
+				break;
+			case 'complete':
+				self::render_step_complete();
+				break;
+			default:
+				self::render_step_welcome();
+				break;
+		}
+
+		?>
+		</div>
+		<?php
+	}
+
+	/**
+	 * Render the blocking notice shown when ActivityPub is unavailable.
+	 *
+	 * The wizard's appearance and content steps depend on AP's actor
+	 * models and option keys. If AP isn't loaded (bundled load failed
+	 * and no standalone install is present), there's nothing for the
+	 * wizard to walk a user through — show a clear notice instead of
+	 * rendering broken steps.
+	 *
+	 * @return void
+	 */
+	private static function render_unavailable_notice(): void {
+		?>
+		<h1 class="fosse-wizard__title"><?php esc_html_e( 'Setup is unavailable', 'fosse' ); ?></h1>
+		<div class="notice notice-error inline">
+			<p>
+				<?php esc_html_e( 'FOSSE could not find the ActivityPub plugin. The setup wizard needs ActivityPub to be active before it can configure your site.', 'fosse' ); ?>
+			</p>
+			<p>
+				<?php esc_html_e( 'Reactivate FOSSE, or install and activate ActivityPub, then return to this page.', 'fosse' ); ?>
+			</p>
+		</div>
+		<?php
+	}
+
+	/**
+	 * Handle form submissions from wizard steps.
+	 *
+	 * @return void
+	 */
+	public static function handle_save(): void {
+		self::require_capability(
+			'fosse_wizard_save',
+			__( 'You do not have permission to save wizard settings.', 'fosse' )
+		);
+		self::require_nonce( 'fosse_wizard_save', 'fosse_wizard' );
+
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- nonce verified by self::require_nonce() above.
+		$step = sanitize_text_field( wp_unslash( $_POST['fosse_wizard_step'] ?? '' ) );
+
+		if ( 'appearance' === $step ) {
+			$mode = sanitize_text_field( wp_unslash( $_POST['activitypub_actor_mode'] ?? '' ) );
+			if ( in_array( $mode, self::ACTOR_MODES, true ) ) {
+				update_option( 'activitypub_actor_mode', $mode );
+			}
+			self::redirect_to_step( 'content' );
+		}
+
+		if ( 'content' === $step ) {
+			$submitted   = array_map( 'sanitize_text_field', wp_unslash( (array) ( $_POST['activitypub_support_post_types'] ?? array() ) ) );
+			$valid_types = get_post_types( array( 'public' => true ) );
+			$post_types  = array_values( array_intersect( $submitted, $valid_types ) );
+
+			// Empty selection would silently disable federation. Bounce back
+			// with an error rather than overwrite the option with [].
+			if ( empty( $post_types ) ) {
+				self::redirect_to_step( 'content', array( 'error' => 'empty_post_types' ) );
+			}
+
+			update_option( 'activitypub_support_post_types', $post_types );
+			self::redirect_to_step( 'bluesky' );
+		}
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+
+		// Fallback: redirect to next logical step.
+		self::redirect_to_step( 'welcome' );
+	}
+
+	/**
+	 * Handle the "Skip setup" action.
+	 *
+	 * @return void
+	 */
+	public static function handle_skip(): void {
+		self::require_capability(
+			'fosse_wizard_skip',
+			__( 'You do not have permission to skip the wizard.', 'fosse' )
+		);
+		self::require_nonce( 'fosse_wizard_skip', 'fosse_wizard_skip' );
+
+		self::mark_complete();
+
+		wp_safe_redirect( admin_url( 'admin.php?page=fosse' ) );
+		exit;
+	}
+
+	/**
+	 * Handle wizard completion.
+	 *
+	 * Marks the wizard as complete via a nonced `admin-post.php` request
+	 * (reached from a `wp_nonce_url()` link), then redirects to the
+	 * completion view. Capability + nonce verification ensure completion
+	 * requires explicit user intent and cannot be triggered via CSRF.
+	 *
+	 * @return void
+	 */
+	public static function handle_complete(): void {
+		self::require_capability(
+			'fosse_wizard_complete',
+			__( 'You do not have permission to complete the wizard.', 'fosse' )
+		);
+		self::require_nonce( 'fosse_wizard_complete', 'fosse_wizard_complete' );
+
+		self::mark_complete();
+
+		wp_safe_redirect( admin_url( 'admin.php?page=fosse-wizard&step=complete' ) );
+		exit;
+	}
+
+	/**
+	 * Reset the wizard so it can be run again.
+	 *
+	 * @return void
+	 */
+	public static function handle_reset(): void {
+		self::require_capability(
+			'fosse_wizard_reset',
+			__( 'You do not have permission to reset the wizard.', 'fosse' )
+		);
+		self::require_nonce( 'fosse_wizard_reset', 'fosse_wizard_reset' );
+
+		delete_option( self::COMPLETED_OPTION );
+
+		wp_safe_redirect( admin_url( 'admin.php?page=fosse-wizard' ) );
+		exit;
+	}
+
+	/**
+	 * Enforce manage_options or fail loudly.
+	 *
+	 * Fires the `fosse_wizard_unauthorized` action so site owners can audit
+	 * unauthorized wizard requests before the request is killed.
+	 *
+	 * @param string $action  Wizard action being attempted (e.g. `fosse_wizard_save`).
+	 * @param string $message Message shown via `wp_die()` on failure.
+	 * @return void
+	 */
+	private static function require_capability( string $action, string $message ): void {
+		if ( current_user_can( 'manage_options' ) ) {
+			return;
+		}
+
+		/**
+		 * Fires before the wizard kills an unauthorized request.
+		 *
+		 * @param string $action  Wizard action that was attempted.
+		 * @param int    $user_id Current user ID (0 for logged-out).
+		 * @param string $reason  Why the request was rejected (`capability` or `nonce`).
+		 */
+		do_action( 'fosse_wizard_unauthorized', $action, get_current_user_id(), 'capability' );
+
+		wp_die(
+			esc_html( $message ),
+			'',
+			array( 'response' => 403 )
+		);
+	}
+
+	/**
+	 * Verify the request nonce or fail loudly.
+	 *
+	 * Replaces direct `check_admin_referer()` calls so the audit hook fires
+	 * before the request is killed.
+	 *
+	 * @param string $action       Wizard action being attempted (e.g. `fosse_wizard_save`).
+	 * @param string $nonce_action Nonce action name (e.g. `fosse_wizard`).
+	 * @return void
+	 */
+	private static function require_nonce( string $action, string $nonce_action ): void {
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- this IS the nonce verification.
+		$nonce = isset( $_REQUEST['_wpnonce'] ) ? sanitize_text_field( wp_unslash( $_REQUEST['_wpnonce'] ) ) : '';
+
+		if ( wp_verify_nonce( $nonce, $nonce_action ) ) {
+			return;
+		}
+
+		/** This action is documented in src/Admin/class-onboarding-wizard.php */
+		do_action( 'fosse_wizard_unauthorized', $action, get_current_user_id(), 'nonce' );
+
+		wp_die(
+			esc_html__( 'The link you followed has expired. Please try again.', 'fosse' ),
+			'',
+			array( 'response' => 403 )
+		);
+	}
+
+	/**
+	 * Get the current step from the query string, validated against known steps.
+	 *
+	 * @return string
+	 */
+	private static function get_current_step(): string {
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only navigation, no state change.
+		$step = sanitize_text_field( wp_unslash( $_GET['step'] ?? 'welcome' ) );
+
+		if ( in_array( $step, self::STEPS, true ) ) {
+			return $step;
+		}
+
+		return 'welcome';
+	}
+
+	/**
+	 * Redirect to a specific wizard step.
+	 *
+	 * @param string                $step       Step slug.
+	 * @param array<string, string> $extra_args Optional extra query args (e.g. an error code).
+	 * @return void
+	 */
+	private static function redirect_to_step( string $step, array $extra_args = array() ): void {
+		$args = array_merge(
+			array(
+				'page' => 'fosse-wizard',
+				'step' => $step,
+			),
+			$extra_args
+		);
+		wp_safe_redirect( add_query_arg( $args, admin_url( 'admin.php' ) ) );
+		exit;
+	}
+
+	/**
+	 * Get the URL for the skip-setup action.
+	 *
+	 * @return string
+	 */
+	private static function get_skip_url(): string {
+		return wp_nonce_url(
+			admin_url( 'admin-post.php?action=fosse_wizard_skip' ),
+			'fosse_wizard_skip'
+		);
+	}
+
+	/**
+	 * Build a fediverse handle preview for the selected actor mode.
+	 *
+	 * Defers to ActivityPub's own actor models so the preview matches the
+	 * webfinger that Mastodon-style clients will actually resolve (blog
+	 * `preferred_username@host`, user nicename, etc.). Returns an empty
+	 * string when AP isn't loaded, the actor can't be resolved, or the
+	 * upstream value is malformed — callers hide the row in that case
+	 * rather than showing a synthetic placeholder like `@example.com`.
+	 *
+	 * @param string $mode Selected actor mode (`actor`, `blog`, `actor_blog`).
+	 * @return string
+	 */
+	private static function get_handle_preview( string $mode ): string {
+		// Blog mode: blog webfinger only.
+		if ( 'blog' === $mode ) {
+			if ( class_exists( '\Activitypub\Model\Blog' ) ) {
+				$blog       = new \Activitypub\Model\Blog();
+				$normalized = self::normalize_handle_preview( (string) $blog->get_webfinger() );
+				if ( '' !== $normalized ) {
+					return $normalized;
+				}
+			}
+			return '';
+		}
+
+		// Actor or actor_blog: prefer the user webfinger.
+		if ( class_exists( '\Activitypub\Model\User' ) ) {
+			$user = \Activitypub\Model\User::from_wp_user( get_current_user_id() );
+			if ( $user && ! is_wp_error( $user ) ) {
+				$normalized = self::normalize_handle_preview( (string) $user->get_webfinger() );
+				if ( '' !== $normalized ) {
+					return $normalized;
+				}
+			}
+		}
+
+		// actor_blog falls back to the blog handle when the user actor isn't available.
+		if ( 'actor_blog' === $mode && class_exists( '\Activitypub\Model\Blog' ) ) {
+			$blog       = new \Activitypub\Model\Blog();
+			$normalized = self::normalize_handle_preview( (string) $blog->get_webfinger() );
+			if ( '' !== $normalized ) {
+				return $normalized;
+			}
+		}
+
+		return '';
+	}
+
+	/**
+	 * Normalize a fediverse handle for preview display.
+	 *
+	 * Accepts the upstream `user@host` shape (with or without a leading
+	 * `@`) and returns `@user@host`. Returns an empty string for any
+	 * input that lacks a non-empty local-part and domain — e.g. `@host`,
+	 * `user@`, plain `host`, or empty input — so the caller can hide
+	 * the preview row instead of rendering a synthetic placeholder.
+	 *
+	 * AP models return `user@host`; FOSSE renderers prepend `@`. Kept
+	 * inline rather than shared with `AP_Provider::get_fediverse_address()`
+	 * to avoid changing the AP provider's output shape (which would risk
+	 * `@@user@host` at downstream call sites).
+	 *
+	 * @param string $handle Raw handle, e.g. `user@example.com` or `@user@example.com`.
+	 * @return string Normalized `@user@host`, or empty string if invalid.
+	 */
+	private static function normalize_handle_preview( string $handle ): string {
+		$trimmed = ltrim( $handle, '@' );
+		if ( '' === $trimmed ) {
+			return '';
+		}
+
+		$parts = explode( '@', $trimmed );
+		if ( 2 !== count( $parts ) ) {
+			return '';
+		}
+
+		[ $local, $domain ] = $parts;
+		if ( '' === $local || '' === $domain ) {
+			return '';
+		}
+
+		return '@' . $local . '@' . $domain;
+	}
+
+	/**
+	 * Render the progress indicator.
+	 *
+	 * @param string $current_step Current step slug.
+	 * @return void
+	 */
+	private static function render_progress( string $current_step ): void {
+		$labels    = array(
+			'welcome'    => __( 'Welcome', 'fosse' ),
+			'appearance' => __( 'Appearance', 'fosse' ),
+			'content'    => __( 'Content', 'fosse' ),
+			'bluesky'    => __( 'Bluesky', 'fosse' ),
+		);
+		$step_keys = array_keys( $labels );
+		$current_i = array_search( $current_step, $step_keys, true );
+
+		if ( false === $current_i ) {
+			return;
+		}
+
+		?>
+		<div class="fosse-wizard__progress">
+			<?php foreach ( $step_keys as $i => $key ) : ?>
+				<?php
+				$is_complete = $i < $current_i;
+				$is_active   = $i === $current_i;
+				$classes     = 'fosse-wizard__progress-step';
+				if ( $is_complete ) {
+					$classes .= ' is-complete';
+				}
+				if ( $is_active ) {
+					$classes .= ' is-active';
+				}
+				?>
+				<?php if ( $i > 0 ) : ?>
+					<div class="fosse-wizard__progress-line<?php echo $is_complete ? ' is-complete' : ''; ?>"></div>
+				<?php endif; ?>
+				<div class="<?php echo esc_attr( $classes ); ?>">
+					<span class="fosse-wizard__progress-dot"></span>
+					<?php echo esc_html( $labels[ $key ] ); ?>
+				</div>
+			<?php endforeach; ?>
+		</div>
+		<?php
+	}
+
+	/**
+	 * Render Step 1: Welcome.
+	 *
+	 * @return void
+	 */
+	private static function render_step_welcome(): void {
+		self::render_progress( 'welcome' );
+		?>
+		<h1 class="fosse-wizard__title"><?php esc_html_e( 'Welcome to FOSSE 🦎', 'fosse' ); ?></h1>
+		<p class="fosse-wizard__description">
+			<?php esc_html_e( 'FOSSE helps people follow your WordPress site from social apps that speak the open social web. Publish here, keep ownership here, and let followers read from their feeds.', 'fosse' ); ?>
+		</p>
+
+		<div class="fosse-wizard__card">
+			<div class="fosse-welcome-features">
+				<div class="fosse-welcome-feature">
+					<div class="fosse-welcome-feature__icon">
+						<span class="dashicons dashicons-admin-site-alt3"></span>
+					</div>
+					<div class="fosse-welcome-feature__text">
+						<strong><?php esc_html_e( 'Reach new audiences', 'fosse' ); ?></strong><br>
+						<?php esc_html_e( 'Followers can see your new posts from compatible social apps, while WordPress stays the source of truth.', 'fosse' ); ?>
+					</div>
+				</div>
+				<div class="fosse-welcome-feature">
+					<div class="fosse-welcome-feature__icon">
+						<span class="dashicons dashicons-admin-home"></span>
+					</div>
+					<div class="fosse-welcome-feature__text">
+						<strong><?php esc_html_e( 'Your site, your home', 'fosse' ); ?></strong><br>
+						<?php esc_html_e( 'Everything lives on your WordPress site. You own your content.', 'fosse' ); ?>
+					</div>
+				</div>
+				<div class="fosse-welcome-feature">
+					<div class="fosse-welcome-feature__icon">
+						<span class="dashicons dashicons-groups"></span>
+					</div>
+					<div class="fosse-welcome-feature__text">
+						<strong><?php esc_html_e( 'Get followers', 'fosse' ); ?></strong><br>
+						<?php esc_html_e( 'People follow you from their favorite app. No account needed on your site.', 'fosse' ); ?>
+					</div>
+				</div>
+				<div class="fosse-welcome-feature">
+					<div class="fosse-welcome-feature__icon">
+						<span class="dashicons dashicons-share"></span>
+					</div>
+					<div class="fosse-welcome-feature__text">
+						<strong><?php esc_html_e( 'Publish once', 'fosse' ); ?></strong><br>
+						<?php esc_html_e( 'Write in WordPress, reach everywhere. No copy-pasting between platforms.', 'fosse' ); ?>
+					</div>
+				</div>
+			</div>
+		</div>
+
+		<div class="fosse-wizard__actions fosse-wizard__actions--center">
+			<div class="fosse-wizard__actions-column">
+				<a href="<?php echo esc_url( admin_url( 'admin.php?page=fosse-wizard&step=appearance' ) ); ?>" class="button button-primary button-hero">
+					<?php esc_html_e( 'Get Started', 'fosse' ); ?>
+				</a>
+				<a href="<?php echo esc_url( self::get_skip_url() ); ?>" class="fosse-wizard__skip">
+					<?php esc_html_e( 'Skip setup', 'fosse' ); ?>
+				</a>
+			</div>
+		</div>
+		<?php
+	}
+
+	/**
+	 * Render Step 2: Appearance (actor mode).
+	 *
+	 * @return void
+	 */
+	private static function render_step_appearance(): void {
+		self::render_progress( 'appearance' );
+
+		$current_mode = get_option( 'activitypub_actor_mode', 'actor' );
+		$site_host    = wp_parse_url( home_url(), PHP_URL_HOST );
+		$nonce        = wp_create_nonce( 'fosse_wizard' );
+
+		$modes = array(
+			'blog'       => array(
+				'icon'  => 'dashicons-admin-site',
+				'title' => __( 'As your site', 'fosse' ),
+				'desc'  => $site_host
+					? sprintf(
+						/* translators: 1: opening <strong> tag, 2: closing </strong> tag, 3: site domain. */
+						__( 'People follow %1$s%3$s%2$s. All posts appear from your site\'s name. Best for blogs and publications.', 'fosse' ),
+						'<strong>',
+						'</strong>',
+						esc_html( $site_host )
+					)
+					: __( 'People follow your site. All posts appear from your site\'s name. Best for blogs and publications.', 'fosse' ),
+			),
+			'actor'      => array(
+				'icon'  => 'dashicons-admin-users',
+				'title' => __( 'As you', 'fosse' ),
+				'desc'  => sprintf(
+					/* translators: 1: opening <strong> tag, 2: closing </strong> tag */
+					__( 'People follow %1$syou%2$s personally. Posts appear under your author name. Best for personal sites.', 'fosse' ),
+					'<strong>',
+					'</strong>'
+				),
+			),
+			'actor_blog' => array(
+				'icon'  => 'dashicons-groups',
+				'title' => __( 'Both', 'fosse' ),
+				'desc'  => sprintf(
+					/* translators: 1: opening <strong> tag, 2: closing </strong> tag */
+					__( 'People can follow your site %1$sor%2$s individual authors separately. Best for multi-author sites.', 'fosse' ),
+					'<strong>',
+					'</strong>'
+				),
+			),
+		);
+
+		$preview_handle = self::get_handle_preview( $current_mode );
+
+		?>
+		<h1 class="fosse-wizard__title"><?php esc_html_e( 'How should your site appear?', 'fosse' ); ?></h1>
+		<p class="fosse-wizard__description">
+			<?php esc_html_e( 'Choose how people on the social web will see your site. This affects who they follow and how your posts appear in their feeds.', 'fosse' ); ?>
+		</p>
+
+		<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+			<input type="hidden" name="action" value="fosse_wizard_save" />
+			<input type="hidden" name="fosse_wizard_step" value="appearance" />
+			<input type="hidden" name="_wpnonce" value="<?php echo esc_attr( $nonce ); ?>" />
+
+			<div class="fosse-wizard__card">
+				<div class="fosse-mode-cards">
+					<?php foreach ( $modes as $value => $mode ) : ?>
+						<label class="fosse-mode-card">
+							<input
+								type="radio"
+								name="activitypub_actor_mode"
+								value="<?php echo esc_attr( $value ); ?>"
+								class="fosse-mode-card__input"
+								<?php checked( $value, $current_mode ); ?>
+							/>
+							<div class="fosse-mode-card__icon">
+								<span class="dashicons <?php echo esc_attr( $mode['icon'] ); ?>"></span>
+							</div>
+							<div class="fosse-mode-card__content">
+								<div class="fosse-mode-card__title"><?php echo esc_html( $mode['title'] ); ?></div>
+								<div class="fosse-mode-card__desc"><?php echo wp_kses( $mode['desc'], array( 'strong' => array() ) ); ?></div>
+							</div>
+							<div class="fosse-mode-card__check">
+								<span class="dashicons dashicons-yes-alt"></span>
+							</div>
+						</label>
+					<?php endforeach; ?>
+				</div>
+
+				<?php if ( $preview_handle ) : ?>
+					<div class="fosse-address-preview">
+						<span class="fosse-address-preview__label"><?php esc_html_e( 'Your fediverse address:', 'fosse' ); ?></span>
+						<code class="fosse-address-preview__address"><?php echo esc_html( $preview_handle ); ?></code>
+					</div>
+				<?php endif; ?>
+			</div>
+
+			<div class="fosse-wizard__actions">
+				<a href="<?php echo esc_url( admin_url( 'admin.php?page=fosse-wizard&step=welcome' ) ); ?>" class="button">
+					&larr; <?php esc_html_e( 'Back', 'fosse' ); ?>
+				</a>
+				<div class="fosse-wizard__actions-primary">
+					<a href="<?php echo esc_url( self::get_skip_url() ); ?>" class="fosse-wizard__skip">
+						<?php esc_html_e( 'Skip setup', 'fosse' ); ?>
+					</a>
+					<?php submit_button( __( 'Continue', 'fosse' ), 'primary', 'submit', false ); ?>
+				</div>
+			</div>
+		</form>
+		<?php
+	}
+
+	/**
+	 * Render Step 3: Content (post types).
+	 *
+	 * @return void
+	 */
+	private static function render_step_content(): void {
+		self::render_progress( 'content' );
+
+		$post_types     = get_option( 'activitypub_support_post_types', array( 'post' ) );
+		$all_post_types = get_post_types( array( 'public' => true ), 'objects' );
+		$nonce          = wp_create_nonce( 'fosse_wizard' );
+
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only check on a redirect-back error code.
+		$has_empty_error = isset( $_GET['error'] ) && 'empty_post_types' === $_GET['error'];
+
+		?>
+		<h1 class="fosse-wizard__title"><?php esc_html_e( 'What do you want to share?', 'fosse' ); ?></h1>
+		<p class="fosse-wizard__description">
+			<?php esc_html_e( 'Choose which types of content appear in people\'s feeds when they follow you. You can change this anytime.', 'fosse' ); ?>
+		</p>
+
+		<?php if ( $has_empty_error ) : ?>
+			<div class="notice notice-error inline">
+				<p><?php esc_html_e( 'Pick at least one content type so federated followers have something to receive.', 'fosse' ); ?></p>
+			</div>
+		<?php endif; ?>
+
+		<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+			<input type="hidden" name="action" value="fosse_wizard_save" />
+			<input type="hidden" name="fosse_wizard_step" value="content" />
+			<input type="hidden" name="_wpnonce" value="<?php echo esc_attr( $nonce ); ?>" />
+
+			<div class="fosse-wizard__card">
+				<div class="fosse-post-types">
+					<?php foreach ( $all_post_types as $pt ) : ?>
+						<label class="fosse-post-type-item">
+							<input
+								type="checkbox"
+								name="activitypub_support_post_types[]"
+								value="<?php echo esc_attr( $pt->name ); ?>"
+								<?php checked( in_array( $pt->name, $post_types, true ) ); ?>
+							/>
+							<span class="fosse-post-type-item__label">
+								<?php echo esc_html( $pt->label ); ?>
+							</span>
+						</label>
+					<?php endforeach; ?>
+				</div>
+
+				<div class="fosse-wizard__hint">
+					<p><?php esc_html_e( 'Only future posts will be shared. Existing content won\'t be sent to anyone\'s feed retroactively.', 'fosse' ); ?></p>
+				</div>
+			</div>
+
+			<div class="fosse-wizard__actions">
+				<a href="<?php echo esc_url( admin_url( 'admin.php?page=fosse-wizard&step=appearance' ) ); ?>" class="button">
+					&larr; <?php esc_html_e( 'Back', 'fosse' ); ?>
+				</a>
+				<div class="fosse-wizard__actions-primary">
+					<a href="<?php echo esc_url( self::get_skip_url() ); ?>" class="fosse-wizard__skip">
+						<?php esc_html_e( 'Skip setup', 'fosse' ); ?>
+					</a>
+					<?php submit_button( __( 'Continue', 'fosse' ), 'primary', 'submit', false ); ?>
+				</div>
+			</div>
+		</form>
+		<?php
+	}
+
+	/**
+	 * Render Step 4: Bluesky (placeholder).
+	 *
+	 * @return void
+	 */
+	private static function render_step_bluesky(): void {
+		self::render_progress( 'bluesky' );
+		?>
+		<h1 class="fosse-wizard__title"><?php esc_html_e( 'Connect to Bluesky', 'fosse' ); ?></h1>
+		<p class="fosse-wizard__description">
+			<?php esc_html_e( 'Link your Bluesky account so your posts also appear on Bluesky. This step is optional. You can always connect later from the FOSSE Setup page.', 'fosse' ); ?>
+		</p>
+
+		<div class="fosse-wizard__card">
+			<div class="notice notice-warning inline fosse-wizard__notice">
+				<p>
+					<strong><?php esc_html_e( 'Coming Soon', 'fosse' ); ?></strong>
+					<?php esc_html_e( 'Bluesky connection is being finalized. Skip this step for now and connect once it\'s ready.', 'fosse' ); ?>
+				</p>
+			</div>
+
+			<div class="fosse-bluesky-placeholder">
+				<label for="fosse-bsky-handle" class="fosse-bluesky-placeholder__label">
+					<?php esc_html_e( 'Bluesky Handle', 'fosse' ); ?>
+				</label>
+				<div class="fosse-bluesky-connect">
+					<input
+						type="text"
+						id="fosse-bsky-handle"
+						class="regular-text"
+						placeholder="<?php esc_attr_e( 'yourname.bsky.social', 'fosse' ); ?>"
+						disabled
+					/>
+					<button type="button" class="button" disabled>
+						<?php esc_html_e( 'Connect', 'fosse' ); ?>
+					</button>
+				</div>
+			</div>
+
+			<div class="fosse-wizard__hint">
+				<p>
+					<?php
+					echo wp_kses_post(
+						sprintf(
+							/* translators: 1: opening anchor tag, 2: closing anchor tag */
+							__( 'You\'ll need an existing Bluesky account. If you want to use your domain as your Bluesky handle, %1$slearn how to set that up%2$s.', 'fosse' ),
+							'<a href="' . esc_url( 'https://bsky.social/about/blog/4-28-2023-domain-handle-tutorial' ) . '" target="_blank" rel="noopener noreferrer">',
+							'</a>'
+						)
+					);
+					?>
+				</p>
+			</div>
+		</div>
+
+		<div class="fosse-wizard__actions">
+			<a href="<?php echo esc_url( admin_url( 'admin.php?page=fosse-wizard&step=content' ) ); ?>" class="button">
+				&larr; <?php esc_html_e( 'Back', 'fosse' ); ?>
+			</a>
+			<div class="fosse-wizard__actions-primary">
+				<a href="<?php echo esc_url( wp_nonce_url( admin_url( 'admin-post.php?action=fosse_wizard_complete' ), 'fosse_wizard_complete' ) ); ?>" class="button button-primary">
+					<?php esc_html_e( 'Skip for now', 'fosse' ); ?>
+				</a>
+			</div>
+		</div>
+		<?php
+	}
+
+	/**
+	 * Render Step 5: Complete.
+	 *
+	 * @return void
+	 */
+	private static function render_step_complete(): void {
+		// Direct GET to ?step=complete (URL crafting, browser back/forward) would
+		// otherwise render the success screen without ever marking the wizard
+		// complete via handle_complete(), leaving the Setup notice nagging.
+		if ( ! self::is_complete() ) {
+			self::redirect_to_step( 'welcome' );
+		}
+
+		$actor_mode = get_option( 'activitypub_actor_mode', 'actor' );
+		$post_types = get_option( 'activitypub_support_post_types', array( 'post' ) );
+		$site_host  = wp_parse_url( home_url(), PHP_URL_HOST );
+		$site_url   = $site_host ? $site_host : 'yoursite.com';
+
+		$mode_labels = array(
+			'actor'      => __( 'As you (author profiles)', 'fosse' ),
+			'blog'       => sprintf(
+				/* translators: %s: site domain */
+				__( 'As your site (%s)', 'fosse' ),
+				$site_url
+			),
+			'actor_blog' => __( 'Both (site + authors)', 'fosse' ),
+		);
+
+		$type_labels = array_map(
+			static function ( $pt_name ) {
+				$pt = get_post_type_object( $pt_name );
+				return $pt ? $pt->label : $pt_name;
+			},
+			$post_types
+		);
+
+		?>
+		<div class="fosse-wizard__complete-header">
+			<div class="fosse-complete-icon">
+				<span class="dashicons dashicons-yes-alt"></span>
+			</div>
+			<h1 class="fosse-wizard__title"><?php esc_html_e( 'You\'re all set!', 'fosse' ); ?></h1>
+			<p class="fosse-wizard__description">
+				<?php esc_html_e( 'Your site is now part of the social web. People can find and follow you from Mastodon and other compatible apps.', 'fosse' ); ?>
+			</p>
+		</div>
+
+		<div class="fosse-wizard__card">
+			<table class="fosse-summary">
+				<tr>
+					<td class="fosse-summary__label"><?php esc_html_e( 'Site appears as', 'fosse' ); ?></td>
+					<td class="fosse-summary__value"><?php echo esc_html( $mode_labels[ $actor_mode ] ?? $actor_mode ); ?></td>
+				</tr>
+				<tr>
+					<td class="fosse-summary__label"><?php esc_html_e( 'Sharing', 'fosse' ); ?></td>
+					<td class="fosse-summary__value"><?php echo esc_html( implode( ', ', $type_labels ) ); ?></td>
+				</tr>
+				<tr>
+					<td class="fosse-summary__label"><?php esc_html_e( 'Bluesky', 'fosse' ); ?></td>
+					<td class="fosse-summary__value fosse-summary__value--muted"><?php esc_html_e( 'Not connected', 'fosse' ); ?></td>
+				</tr>
+			</table>
+
+			<div class="fosse-wizard__hint">
+				<p><?php esc_html_e( 'You can change any of these settings from the FOSSE Setup page at any time.', 'fosse' ); ?></p>
+			</div>
+		</div>
+
+		<div class="fosse-wizard__actions fosse-wizard__actions--center">
+			<a href="<?php echo esc_url( admin_url( 'admin.php?page=fosse-status' ) ); ?>" class="button button-primary">
+				<?php esc_html_e( 'View Status Dashboard', 'fosse' ); ?>
+			</a>
+			<a href="<?php echo esc_url( admin_url( 'admin.php?page=fosse' ) ); ?>" class="button">
+				<?php esc_html_e( 'Go to Setup', 'fosse' ); ?>
+			</a>
+		</div>
+
+		<p class="fosse-wizard__reset">
+			<a href="<?php echo esc_url( wp_nonce_url( admin_url( 'admin-post.php?action=fosse_wizard_reset' ), 'fosse_wizard_reset' ) ); ?>">
+				<?php esc_html_e( 'Run wizard again', 'fosse' ); ?>
+			</a>
+		</p>
+		<?php
+	}
+}

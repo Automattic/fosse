@@ -1,5 +1,7 @@
 # Bundled Backends — Requirements
 
+Tracked under: [DOTCOM-16799](https://linear.app/a8c/issue/DOTCOM-16799) "7. Distribution, infrastructure, and external partnerships".
+
 ## Goal
 
 Bundle the release-build versions of `wordpress-activitypub` and `wordpress-atmosphere` into FOSSE so the plugin ships with Mastodon (ActivityPub) and Bluesky (AT Protocol) federation working out of the box. When the standalone plugin is already active on the site, skip loading FOSSE's bundled copy to avoid collisions. This is an intentionally short-term bootstrap — a "rough starting point" for the Week 1 milestone — that FOSSE will iterate on (crisp, unified UI replacing the bundled plugins' admin screens is a later SDD item).

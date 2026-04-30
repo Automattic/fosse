@@ -22,7 +22,8 @@ class Setup_Page {
 			return;
 		}
 
-		$providers = Connection_Provider_Registry::get_providers(); // phpcs:ignore VariableAnalysis.CodeAnalysis.VariableAnalysis.UnusedVariable -- used in template.
+		$providers         = Connection_Provider_Registry::get_providers(); // phpcs:ignore VariableAnalysis.CodeAnalysis.VariableAnalysis.UnusedVariable -- used in template.
+		$wizard_incomplete = ! Onboarding_Wizard::is_complete(); // phpcs:ignore VariableAnalysis.CodeAnalysis.VariableAnalysis.UnusedVariable -- used in template.
 
 		include __DIR__ . '/templates/setup-page.php';
 	}

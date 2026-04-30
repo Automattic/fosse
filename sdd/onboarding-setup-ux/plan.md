@@ -9,11 +9,12 @@ Based on: sdd/onboarding-setup-ux/spec.md
 - [x] Task 3: Create AP_Provider + Setup_Page shell
 - [x] Task 4: Open upstream Atmosphere PRs
 - [x] Task 5: Create Bluesky_Provider
+- [x] Task 5.5: Create first-run onboarding wizard
 - [x] Task 6: Create Status_Page with provider status cards
 - [x] Task 7: Add admin CSS
 - [x] Task 8: Write tests
 - [x] Task 9: Exclude `src/` from WordPress.Files.FileName PHPCS sniff
-- [ ] Task 10: Update SDD documentation
+- [x] Task 10: Update SDD documentation
 
 ## Tasks
 
@@ -67,7 +68,6 @@ Based on: sdd/onboarding-setup-ux/spec.md
 
 ### Task 4: Open upstream Atmosphere PRs
 - **Status**: ✅ Done (Automattic/wordpress-atmosphere#33)
-
 - **Do**:
   1. Open PR against wordpress-atmosphere for (a) a filter on `Client::redirect_uri()` so consumers can set their own callback URL.
   2. Open PR against wordpress-atmosphere for (b) transient-persisted settings errors on connect (matching what disconnect already does).
@@ -90,6 +90,29 @@ Based on: sdd/onboarding-setup-ux/spec.md
   - Playground: FOSSE > Setup page shows Bluesky connect form.
   - End-to-end OAuth return-to-FOSSE flow verified once the required upstream Atmosphere changes are available. (Full OAuth flow requires a real Bluesky account and cannot be tested in Playground.)
 - **Depends on**: Task 2, Task 4
+
+### Task 5.5: Create first-run onboarding wizard
+- **Status**: ✅ Done (#33)
+- **Files**: `src/Admin/class-onboarding-wizard.php`, `src/Admin/class-menu.php`, `src/Admin/assets/css/admin.css`, `fosse.php`
+- **Do**:
+  1. Create `Onboarding_Wizard` class with step-based rendering: Welcome, Appearance (actor mode), Content (post types), Bluesky (placeholder), Complete.
+  2. Register the wizard as a hidden submenu in `Menu::add_menu()` by passing an empty parent slug to `add_submenu_page()`. The page has a real admin URL (`?page=fosse-wizard`) and inherits capability checks, but never appears in the menu sidebar.
+  3. Add `register_activation_hook` in `fosse.php` that writes a one-shot `fosse_activation_redirect` option (autoload `false`).
+  4. Add `admin_init` handler in `Menu` that checks the option, deletes it, and redirects to `?page=fosse-wizard` on first activation.
+  5. Each step with form data POSTs to `admin_post.php?action=fosse_wizard_save`. Handler validates nonce + capability, saves step settings directly to AP's `activitypub_actor_mode` / `activitypub_support_post_types` options (matching AP_Provider's direct-write pattern), redirects to next step.
+  6. "Skip setup" and the completion step both set `fosse_onboarding_completed` option to `1`.
+  7. Actor mode selection uses card-style UI with hidden radio inputs inside `<label>` elements (works without JS). Post type selection uses checkboxes.
+  8. Bluesky step renders a placeholder/coming-soon state since `Bluesky_Provider` is not yet built.
+  9. Completion step shows summary of configured values with links to Status Dashboard and Setup page.
+  10. Add wizard CSS to `admin.css` under `.fosse-wizard` prefix. Styles use WP design tokens (colors, spacing, radii) and lean on native WP admin classes where possible.
+- **Verify**:
+  - `composer run-script lint-php` passes.
+  - Playground: activating FOSSE for the first time redirects to the wizard.
+  - Playground: completing all steps saves correct option values.
+  - Playground: "Skip setup" marks wizard complete and lands on Setup page.
+  - Playground: after completion, visiting FOSSE menu goes to Setup page (not wizard).
+  - Wizard page is not visible in the admin menu sidebar.
+- **Depends on**: Task 3
 
 ### Task 6: Create Status_Page with provider status cards
 - **Status**: ✅ Done (#27)
@@ -140,7 +163,7 @@ Based on: sdd/onboarding-setup-ux/spec.md
 - **Depends on**: none
 
 ### Task 10: Update SDD documentation
-- **Status**: In progress
+- **Status**: ✅ Done (#33)
 - **Files**: `sdd/onboarding-setup-ux/requirements.md`, `spec.md`, `plan.md`, `planned-decisions.md`
 - **Do**:
   1. Update all four SDD documents to reflect the as-built implementation — verify deviations, decisions, and limitations are accurate.

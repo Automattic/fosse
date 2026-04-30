@@ -11,6 +11,7 @@
 	border: 1px solid #c3c4c7;
 	border-left-width: 4px;
 	border-left-color: #00a32a;
+	border-radius: 4px;
 	padding: 12px 16px;
 	margin: 16px 0;
 }
@@ -30,11 +31,19 @@
 .fosse-status-card {
 	background: #fff;
 	border: 1px solid #c3c4c7;
+	border-radius: 4px;
 	padding: 16px;
 }
 
-.fosse-status-card h3 {
+.fosse-status-card h2 {
 	margin-top: 0;
+}
+
+/* Allow long opaque values (Bluesky DIDs, PDS URLs, fediverse handles) to
+   wrap inside the card. Without this, the cell's min-content width is the
+   full identifier and the table pushes past its container. */
+.fosse-status-card td {
+	overflow-wrap: anywhere;
 }
 
 /* Status indicator dots */
@@ -59,10 +68,475 @@
 .fosse-provider-section {
 	background: #fff;
 	border: 1px solid #c3c4c7;
+	border-radius: 4px;
 	padding: 16px 24px;
 	margin: 16px 0;
 }
 
 .fosse-provider-section h2 {
 	margin-top: 0;
+}
+
+/* =============================================
+   Onboarding Wizard
+   ============================================= */
+
+.fosse-wizard {
+	max-width: 700px;
+	margin: 0 auto;
+}
+
+/* Progress indicator */
+.fosse-wizard__progress {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	margin-bottom: 32px;
+}
+
+.fosse-wizard__progress-step {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	font-size: 12px;
+	color: #949494;
+}
+
+.fosse-wizard__progress-step.is-active {
+	color: #3858e9;
+	font-weight: 500;
+}
+
+.fosse-wizard__progress-step.is-complete {
+	color: #4ab866;
+}
+
+.fosse-wizard__progress-dot {
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	background: #ddd;
+	flex-shrink: 0;
+}
+
+.fosse-wizard__progress-step.is-active .fosse-wizard__progress-dot {
+	background: #3858e9;
+	width: 10px;
+	height: 10px;
+}
+
+.fosse-wizard__progress-step.is-complete .fosse-wizard__progress-dot {
+	background: #4ab866;
+}
+
+.fosse-wizard__progress-line {
+	flex: 1;
+	height: 2px;
+	background: #ddd;
+}
+
+.fosse-wizard__progress-line.is-complete {
+	background: #4ab866;
+}
+
+/* Title and description */
+.fosse-wizard__title {
+	font-size: 32px;
+	font-weight: 500;
+	line-height: 1.2;
+	margin-bottom: 12px;
+}
+
+.fosse-wizard__description {
+	font-size: 15px;
+	color: #757575;
+	line-height: 1.6;
+	margin-bottom: 32px;
+	max-width: 560px;
+}
+
+/* Main content card */
+.fosse-wizard__card {
+	background: #fff;
+	border: 1px solid #c3c4c7;
+	border-radius: 8px;
+	padding: 32px;
+	margin-bottom: 24px;
+}
+
+/* Action bar */
+.fosse-wizard__actions {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding-top: 16px;
+}
+
+.fosse-wizard__actions--center {
+	justify-content: center;
+	gap: 12px;
+}
+
+.fosse-wizard__actions-primary {
+	display: flex;
+	align-items: center;
+	gap: 16px;
+}
+
+.fosse-wizard__actions-column {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 12px;
+}
+
+.fosse-wizard__skip {
+	font-size: 12px;
+	color: #757575;
+	text-decoration: none;
+}
+
+.fosse-wizard__skip:hover {
+	color: #1e1e1e;
+	text-decoration: underline;
+}
+
+/* Hint boxes */
+.fosse-wizard__hint {
+	margin-top: 16px;
+	padding: 12px 16px;
+	background: #f0f0f0;
+	border-radius: 4px;
+}
+
+.fosse-wizard__hint p {
+	font-size: 12px;
+	color: #757575;
+	margin: 0;
+}
+
+/* Notice within wizard card */
+.fosse-wizard__notice {
+	margin: 0 0 24px;
+}
+
+/* Welcome features grid */
+.fosse-welcome-features {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: 16px;
+}
+
+.fosse-welcome-feature {
+	display: flex;
+	align-items: flex-start;
+	gap: 12px;
+}
+
+.fosse-welcome-feature__icon {
+	width: 32px;
+	height: 32px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	flex-shrink: 0;
+}
+
+.fosse-welcome-feature__icon .dashicons {
+	color: #3858e9;
+	font-size: 20px;
+	width: 20px;
+	height: 20px;
+}
+
+.fosse-welcome-feature__text {
+	font-size: 13px;
+	color: #757575;
+	line-height: 1.5;
+}
+
+.fosse-welcome-feature__text strong {
+	color: #1e1e1e;
+}
+
+/* Actor mode cards */
+.fosse-mode-cards {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+	margin-bottom: 24px;
+}
+
+.fosse-mode-card {
+	display: flex;
+	align-items: flex-start;
+	gap: 16px;
+	padding: 16px 24px;
+	border: 2px solid #e0e0e0;
+	border-radius: 8px;
+	cursor: pointer;
+	transition: border-color 0.15s ease;
+	background: #fff;
+}
+
+.fosse-mode-card:hover {
+	border-color: #ccc;
+}
+
+/* Hide the real radio input */
+.fosse-mode-card__input {
+	position: absolute;
+	opacity: 0;
+	pointer-events: none;
+}
+
+/* Selected state via :has(:checked) */
+.fosse-mode-card:has(.fosse-mode-card__input:checked) {
+	border-color: #3858e9;
+	background: rgba(56, 88, 233, 0.02);
+}
+
+/* Keyboard focus state — radio is visually hidden, so surface focus on the card. */
+.fosse-mode-card:has(.fosse-mode-card__input:focus-visible) {
+	border-color: #3858e9;
+	outline: 2px solid #3858e9;
+	outline-offset: 2px;
+}
+
+/* :focus-within fallback for browsers without :focus-visible (older Safari, etc.).
+   Same outline treatment so keyboard navigation surfaces a focus ring on the
+   card even when :focus-visible isn't honored on the visually-hidden radio. */
+.fosse-mode-card:focus-within {
+	border-color: #3858e9;
+	outline: 2px solid #3858e9;
+	outline-offset: 2px;
+}
+
+.fosse-mode-card__icon {
+	width: 40px;
+	height: 40px;
+	border-radius: 8px;
+	background: #f0f0f0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	flex-shrink: 0;
+	margin-top: 2px;
+}
+
+.fosse-mode-card:has(.fosse-mode-card__input:checked) .fosse-mode-card__icon {
+	background: rgba(56, 88, 233, 0.08);
+}
+
+.fosse-mode-card__icon .dashicons {
+	font-size: 20px;
+	width: 20px;
+	height: 20px;
+	color: #757575;
+}
+
+.fosse-mode-card:has(.fosse-mode-card__input:checked)
+	.fosse-mode-card__icon
+	.dashicons {
+	color: #3858e9;
+}
+
+.fosse-mode-card__content {
+	flex: 1;
+}
+
+.fosse-mode-card__title {
+	font-size: 15px;
+	font-weight: 500;
+	margin-bottom: 4px;
+}
+
+.fosse-mode-card__desc {
+	font-size: 13px;
+	color: #757575;
+	line-height: 1.5;
+}
+
+.fosse-mode-card__check {
+	width: 24px;
+	height: 24px;
+	flex-shrink: 0;
+	margin-top: 4px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+
+.fosse-mode-card__check .dashicons {
+	font-size: 24px;
+	width: 24px;
+	height: 24px;
+	color: #ddd;
+}
+
+.fosse-mode-card:has(.fosse-mode-card__input:checked)
+	.fosse-mode-card__check
+	.dashicons {
+	color: #3858e9;
+}
+
+/* Fediverse address preview */
+.fosse-address-preview {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	background: #f0f0f0;
+	border-radius: 4px;
+	padding: 12px 16px;
+	font-size: 13px;
+}
+
+.fosse-address-preview__label {
+	color: #757575;
+}
+
+.fosse-address-preview__address {
+	font-size: 12px;
+	background: #fff;
+	padding: 4px 8px;
+	border-radius: 2px;
+	border: 1px solid #e0e0e0;
+}
+
+/* Post type selection */
+.fosse-post-types {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+}
+
+.fosse-post-type-item {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	padding: 12px 16px;
+	border: 1px solid #e0e0e0;
+	border-radius: 4px;
+	background: #fff;
+	cursor: pointer;
+}
+
+.fosse-post-type-item:has(input:checked) {
+	border-color: rgba(56, 88, 233, 0.3);
+	background: rgba(56, 88, 233, 0.02);
+}
+
+.fosse-post-type-item input[type="checkbox"] {
+	margin: 0;
+}
+
+.fosse-post-type-item__label {
+	font-size: 13px;
+	font-weight: 500;
+	color: #1e1e1e;
+	flex: 1;
+}
+
+/* Bluesky placeholder */
+.fosse-bluesky-placeholder {
+	opacity: 0.5;
+	pointer-events: none;
+	margin-top: 16px;
+}
+
+.fosse-bluesky-placeholder__label {
+	display: block;
+	font-size: 11px;
+	font-weight: 500;
+	text-transform: uppercase;
+	color: #757575;
+	margin-bottom: 8px;
+}
+
+.fosse-bluesky-connect {
+	display: flex;
+	gap: 8px;
+}
+
+.fosse-bluesky-connect .regular-text {
+	flex: 1;
+}
+
+/* Completion screen */
+.fosse-wizard__complete-header,
+.fosse-wizard__complete-header + .fosse-wizard__card {
+	text-align: left;
+}
+
+.fosse-wizard__complete-header {
+	text-align: center;
+	margin-bottom: 16px;
+}
+
+.fosse-complete-icon {
+	width: 64px;
+	height: 64px;
+	border-radius: 50%;
+	background: #e6f6e9;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	margin: 0 auto 24px;
+}
+
+.fosse-complete-icon .dashicons {
+	font-size: 32px;
+	width: 32px;
+	height: 32px;
+	color: #4ab866;
+}
+
+/* Summary table */
+.fosse-summary {
+	width: 100%;
+	border-collapse: collapse;
+	margin-bottom: 8px;
+}
+
+.fosse-summary tr {
+	border-bottom: 1px solid #e0e0e0;
+}
+
+.fosse-summary tr:last-child {
+	border-bottom: none;
+}
+
+.fosse-summary td {
+	padding: 12px 0;
+	font-size: 13px;
+}
+
+.fosse-summary__label {
+	color: #757575;
+	width: 40%;
+}
+
+.fosse-summary__value {
+	font-weight: 500;
+	color: #1e1e1e;
+}
+
+.fosse-summary__value--muted {
+	color: #757575;
+	font-weight: 400;
+}
+
+/* Reset link */
+.fosse-wizard__reset {
+	text-align: center;
+	margin-top: 16px;
+	font-size: 12px;
+}
+
+.fosse-wizard__reset a {
+	color: #757575;
+}
+
+.fosse-wizard__reset a:hover {
+	color: #1e1e1e;
 }
