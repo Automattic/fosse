@@ -56,6 +56,7 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		remove_all_filters( 'admin_post_fosse_disconnect_bluesky' );
 		remove_all_filters( 'admin_init' );
 		remove_all_filters( 'fosse_serve_atproto_did_well_known' );
+		remove_all_filters( 'status_header' );
 
 		global $wp_settings_errors;
 		$wp_settings_errors = array(); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited,WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedVariableFound -- reset core settings-error storage for test isolation.
@@ -298,6 +299,29 @@ class Bluesky_ProviderTest extends BaseTestCase {
 	}
 
 	/**
+	 * A stored DID that doesn't match AT Proto syntax is rejected with a 404.
+	 */
+	public function test_atproto_did_well_known_response_rejects_malformed_did() {
+		update_option(
+			'atmosphere_connection',
+			array(
+				'did'          => "did:plc:abc\n<script>alert(1)</script>",
+				'handle'       => 'alice.bsky.social',
+				'pds_endpoint' => 'https://bsky.social',
+				'access_token' => Encryption::encrypt( 'token' ),
+			)
+		);
+
+		$this->assertSame(
+			array(
+				'status' => 404,
+				'did'    => '',
+			),
+			$this->get_atproto_did_well_known_response( '/.well-known/atproto-did' )
+		);
+	}
+
+	/**
 	 * The suppression hook is a no-op for unrelated atmosphere_wellknown query vars.
 	 */
 	public function test_maybe_suppress_atmosphere_well_known_no_op_for_other_query_vars() {
@@ -306,10 +330,13 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		set_query_var( 'atmosphere_wellknown', 'publication' );
 		add_filter( 'fosse_serve_atproto_did_well_known', '__return_false' );
 
+		$status_header_called = $this->capture_status_header();
+
 		$this->provider->maybe_suppress_atmosphere_well_known();
 
 		$this->assertSame( 'publication', get_query_var( 'atmosphere_wellknown' ) );
 		$this->assertFalse( $wp_query->is_404() );
+		$this->assertNull( $status_header_called->code, 'status_header should not be called for unrelated query vars.' );
 	}
 
 	/**
@@ -320,10 +347,13 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		$wp_query = new \WP_Query(); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- isolating $wp_query state for the suppression hook.
 		set_query_var( 'atmosphere_wellknown', 'atproto-did' );
 
+		$status_header_called = $this->capture_status_header();
+
 		$this->provider->maybe_suppress_atmosphere_well_known();
 
 		$this->assertSame( 'atproto-did', get_query_var( 'atmosphere_wellknown' ) );
 		$this->assertFalse( $wp_query->is_404() );
+		$this->assertNull( $status_header_called->code, 'status_header should not be called when FOSSE will serve the route.' );
 	}
 
 	/**
@@ -335,10 +365,13 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		set_query_var( 'atmosphere_wellknown', 'atproto-did' );
 		add_filter( 'fosse_serve_atproto_did_well_known', '__return_false' );
 
+		$status_header_called = $this->capture_status_header();
+
 		$this->provider->maybe_suppress_atmosphere_well_known();
 
 		$this->assertSame( '', get_query_var( 'atmosphere_wellknown' ) );
 		$this->assertTrue( $wp_query->is_404() );
+		$this->assertSame( 404, $status_header_called->code, 'status_header( 404 ) should be sent on opt-out.' );
 	}
 
 	/**
@@ -607,6 +640,26 @@ class Bluesky_ProviderTest extends BaseTestCase {
 	private function get_atproto_did_well_known_response( string $request_uri ): ?array {
 		$method = new ReflectionMethod( Bluesky_Provider::class, 'get_atproto_did_well_known_response' );
 		return $method->invoke( $this->provider, $request_uri );
+	}
+
+	/**
+	 * Capture the next status_header call into a returned object's `code` property.
+	 *
+	 * @return object Object with a nullable int `code` property; null until status_header fires.
+	 */
+	private function capture_status_header(): object {
+		$capture       = new \stdClass();
+		$capture->code = null;
+		add_filter(
+			'status_header',
+			static function ( $header, $code ) use ( $capture ) {
+				$capture->code = (int) $code;
+				return $header;
+			},
+			10,
+			2
+		);
+		return $capture;
 	}
 
 	/**

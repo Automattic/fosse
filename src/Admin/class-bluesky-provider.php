@@ -275,7 +275,7 @@ class Bluesky_Provider implements Connection_Provider {
 
 		header( 'Content-Type: text/plain; charset=utf-8' );
 		nocache_headers();
-		echo esc_html( $response['did'] );
+		echo $response['did']; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- text/plain response; DID syntax validated in get_atproto_did_well_known_response().
 		exit;
 	}
 
@@ -320,7 +320,11 @@ class Bluesky_Provider implements Connection_Provider {
 		$connection = \Atmosphere\get_connection();
 		$did        = isset( $connection['did'] ) ? (string) $connection['did'] : '';
 
-		if ( '' === $did ) {
+		// Validate the DID against AT Proto syntax before promising to serve it.
+		// The response is plain text and a malformed value (newlines, control chars,
+		// HTML bytes) would corrupt the body or worse. Valid AT Proto DIDs are
+		// "did:" + method + ":" + ASCII alphanumerics with a small punctuation set.
+		if ( ! preg_match( '/^did:[a-z]+:[A-Za-z0-9._:%\-]+$/', $did ) ) {
 			return array(
 				'status' => 404,
 				'did'    => '',
