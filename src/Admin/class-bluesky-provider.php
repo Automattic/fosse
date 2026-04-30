@@ -24,21 +24,21 @@ class Bluesky_Provider implements Connection_Provider {
 	/**
 	 * Hidden form field used to identify wizard-origin connect flows.
 	 *
-	 * @var string
+	 * Exposed so callers (e.g. the onboarding wizard template) can render a
+	 * hidden input that round-trips through admin-post and is read back by
+	 * `get_connect_return_context()` without duplicating the literal string.
 	 */
-	private const RETURN_CONTEXT_FIELD = 'fosse_bluesky_return';
+	public const RETURN_CONTEXT_FIELD = 'fosse_bluesky_return';
 
 	/**
 	 * Return context value for the first-run wizard.
 	 *
-	 * @var string
+	 * Public for the same reason as {@see self::RETURN_CONTEXT_FIELD}.
 	 */
-	private const RETURN_CONTEXT_WIZARD = 'wizard';
+	public const RETURN_CONTEXT_WIZARD = 'wizard';
 
 	/**
 	 * Per-user transient prefix for pending OAuth return context.
-	 *
-	 * @var string
 	 */
 	private const OAUTH_RETURN_TRANSIENT_PREFIX = 'fosse_bluesky_oauth_return_';
 
@@ -317,7 +317,7 @@ class Bluesky_Provider implements Connection_Provider {
 
 		if ( is_wp_error( $auth_url ) ) {
 			$this->redirect_with_notice( $auth_url->get_error_message(), 'error', $return_context );
-			return; // redirect_with_notice exits, but guard against future changes.
+			return;
 		}
 
 		$this->remember_oauth_return_context( $return_context );
@@ -475,13 +475,30 @@ class Bluesky_Provider implements Connection_Provider {
 	/**
 	 * Read the requested return context from a connect form submission.
 	 *
+	 * Caller MUST verify the form nonce before invoking — the PHPCS nonce
+	 * check is suppressed on that assumption.
+	 *
 	 * @return string
 	 */
 	private function get_connect_return_context(): string {
-		// phpcs:ignore WordPress.Security.NonceVerification.Missing -- nonce is checked in handle_connect() before this helper is called.
-		$return_context = isset( $_POST[ self::RETURN_CONTEXT_FIELD ] ) ? sanitize_key( wp_unslash( $_POST[ self::RETURN_CONTEXT_FIELD ] ) ) : '';
+		// phpcs:ignore WordPress.Security.NonceVerification.Missing -- caller (handle_connect) verifies the nonce before this helper runs.
+		$raw = isset( $_POST[ self::RETURN_CONTEXT_FIELD ] ) ? sanitize_key( wp_unslash( $_POST[ self::RETURN_CONTEXT_FIELD ] ) ) : '';
 
-		return self::RETURN_CONTEXT_WIZARD === $return_context ? self::RETURN_CONTEXT_WIZARD : '';
+		return self::normalize_return_context( $raw );
+	}
+
+	/**
+	 * Coerce an arbitrary value to a known return-context slug.
+	 *
+	 * Single chokepoint for return-context normalization: every read,
+	 * write, and comparison routes through here so adding a new context
+	 * value is a one-line change.
+	 *
+	 * @param mixed $raw Raw value to normalize.
+	 * @return string Normalized context slug, or `''` for unknown input.
+	 */
+	private static function normalize_return_context( $raw ): string {
+		return is_string( $raw ) && self::RETURN_CONTEXT_WIZARD === $raw ? self::RETURN_CONTEXT_WIZARD : '';
 	}
 
 	/**
@@ -496,9 +513,15 @@ class Bluesky_Provider implements Connection_Provider {
 	 * @return void
 	 */
 	private function remember_oauth_return_context( string $return_context ): void {
-		$this->forget_oauth_return_context();
+		$key = $this->get_oauth_return_transient_key();
+		if ( '' === $key ) {
+			return;
+		}
 
-		if ( self::RETURN_CONTEXT_WIZARD !== $return_context ) {
+		delete_transient( $key );
+
+		$context = self::normalize_return_context( $return_context );
+		if ( '' === $context ) {
 			return;
 		}
 
@@ -508,9 +531,9 @@ class Bluesky_Provider implements Connection_Provider {
 		}
 
 		set_transient(
-			$this->get_oauth_return_transient_key(),
+			$key,
 			array(
-				'context' => self::RETURN_CONTEXT_WIZARD,
+				'context' => $context,
 				'state'   => $oauth_state,
 			),
 			HOUR_IN_SECONDS
@@ -523,7 +546,12 @@ class Bluesky_Provider implements Connection_Provider {
 	 * @return void
 	 */
 	private function forget_oauth_return_context(): void {
-		delete_transient( $this->get_oauth_return_transient_key() );
+		$key = $this->get_oauth_return_transient_key();
+		if ( '' === $key ) {
+			return;
+		}
+
+		delete_transient( $key );
 	}
 
 	/**
@@ -537,7 +565,11 @@ class Bluesky_Provider implements Connection_Provider {
 	 * @return string
 	 */
 	private function consume_oauth_return_context( string $callback_state ): string {
-		$key    = $this->get_oauth_return_transient_key();
+		$key = $this->get_oauth_return_transient_key();
+		if ( '' === $key ) {
+			return '';
+		}
+
 		$stored = get_transient( $key );
 
 		if ( ! is_array( $stored ) ) {
@@ -553,16 +585,25 @@ class Bluesky_Provider implements Connection_Provider {
 
 		delete_transient( $key );
 
-		return self::RETURN_CONTEXT_WIZARD === $stored_context ? self::RETURN_CONTEXT_WIZARD : '';
+		return self::normalize_return_context( $stored_context );
 	}
 
 	/**
 	 * Build the per-user OAuth return transient key.
 	 *
+	 * Returns `''` for an unauthenticated context (`get_current_user_id() === 0`)
+	 * so the per-user namespace can't collapse into a shared key for all
+	 * anonymous requests. Callers MUST treat an empty key as "skip".
+	 *
 	 * @return string
 	 */
 	private function get_oauth_return_transient_key(): string {
-		return self::OAUTH_RETURN_TRANSIENT_PREFIX . get_current_user_id();
+		$user_id = get_current_user_id();
+		if ( 0 === $user_id ) {
+			return '';
+		}
+
+		return self::OAUTH_RETURN_TRANSIENT_PREFIX . $user_id;
 	}
 
 	/**
@@ -572,7 +613,7 @@ class Bluesky_Provider implements Connection_Provider {
 	 * @return string
 	 */
 	private function get_redirect_url( string $return_context ): string {
-		if ( self::RETURN_CONTEXT_WIZARD === $return_context ) {
+		if ( self::RETURN_CONTEXT_WIZARD === self::normalize_return_context( $return_context ) ) {
 			return add_query_arg(
 				array(
 					'page'             => 'fosse-wizard',

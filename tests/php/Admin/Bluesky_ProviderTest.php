@@ -13,6 +13,7 @@ use Automattic\Fosse\Admin\Connection_Provider_Registry;
 use Automattic\Fosse\Provider_Loader;
 use PHPUnit\Framework\Attributes\After;
 use PHPUnit\Framework\Attributes\Before;
+use PHPUnit\Framework\Attributes\DataProvider;
 use WorDBless\BaseTestCase;
 
 /**
@@ -255,13 +256,13 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		add_filter(
 			'wp_redirect',
 			static function () {
-				throw new \Exception( 'redirect' );
+				throw new RedirectFired( 'redirect' );
 			}
 		);
 
 		try {
 			$this->provider->handle_disconnect();
-		} catch ( \Exception $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
 			unset( $e );
 		}
 
@@ -298,13 +299,13 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		add_filter(
 			'wp_redirect',
 			static function () {
-				throw new \Exception( 'redirect' );
+				throw new RedirectFired( 'redirect' );
 			}
 		);
 
 		try {
 			$this->provider->handle_disconnect();
-		} catch ( \Exception $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
 			unset( $e );
 		}
 
@@ -341,13 +342,13 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		add_filter(
 			'wp_redirect',
 			static function () {
-				throw new \Exception( 'redirect' );
+				throw new RedirectFired( 'redirect' );
 			}
 		);
 
 		try {
 			$this->provider->handle_disconnect();
-		} catch ( \Exception $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
 			unset( $e );
 		}
 
@@ -397,13 +398,13 @@ class Bluesky_ProviderTest extends BaseTestCase {
 			'wp_redirect',
 			static function ( $location ) use ( &$captured ) {
 				$captured = (string) $location;
-				throw new \Exception( 'redirect' );
+				throw new RedirectFired( 'redirect' );
 			}
 		);
 
 		try {
 			$this->provider->handle_oauth_callback();
-		} catch ( \Exception $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
 			unset( $e );
 		}
 
@@ -446,13 +447,13 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		add_filter(
 			'wp_redirect',
 			static function () {
-				throw new \Exception( 'redirect' );
+				throw new RedirectFired( 'redirect' );
 			}
 		);
 
 		try {
 			$this->provider->handle_oauth_callback();
-		} catch ( \Exception $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
 			unset( $e );
 		}
 
@@ -490,13 +491,13 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		add_filter(
 			'wp_redirect',
 			static function () {
-				throw new \Exception( 'redirect' );
+				throw new RedirectFired( 'redirect' );
 			}
 		);
 
 		try {
 			$this->provider->handle_oauth_callback();
-		} catch ( \Exception $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
 			unset( $e );
 		}
 
@@ -524,13 +525,13 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		add_filter(
 			'wp_redirect',
 			static function () {
-				throw new \Exception( 'redirect' );
+				throw new RedirectFired( 'redirect' );
 			}
 		);
 
 		try {
 			$this->provider->handle_oauth_callback();
-		} catch ( \Exception $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
 			unset( $e );
 		}
 
@@ -566,7 +567,7 @@ class Bluesky_ProviderTest extends BaseTestCase {
 	 *
 	 * @param string $raw_handle Raw user input.
 	 */
-	#[\PHPUnit\Framework\Attributes\DataProvider( 'invalid_handle_provider' )]
+	#[DataProvider( 'invalid_handle_provider' )]
 	public function test_handle_connect_rejects_malformed_handle( string $raw_handle ) {
 		$this->become_admin();
 
@@ -590,13 +591,13 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		add_filter(
 			'wp_redirect',
 			static function () {
-				throw new \Exception( 'redirect' );
+				throw new RedirectFired( 'redirect' );
 			}
 		);
 
 		try {
 			$this->provider->handle_connect();
-		} catch ( \Exception $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
 			unset( $e );
 		}
 
@@ -643,13 +644,13 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		add_filter(
 			'wp_redirect',
 			static function () {
-				throw new \Exception( 'redirect' );
+				throw new RedirectFired( 'redirect' );
 			}
 		);
 
 		try {
 			$this->provider->handle_connect();
-		} catch ( \Exception $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
 			unset( $e );
 		}
 
@@ -683,13 +684,13 @@ class Bluesky_ProviderTest extends BaseTestCase {
 			'wp_redirect',
 			static function ( $location ) use ( &$captured ) {
 				$captured = (string) $location;
-				throw new \Exception( 'redirect' );
+				throw new RedirectFired( 'redirect' );
 			}
 		);
 
 		try {
 			$this->provider->handle_connect();
-		} catch ( \Exception $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
 			unset( $e );
 		}
 
@@ -720,13 +721,13 @@ class Bluesky_ProviderTest extends BaseTestCase {
 			'wp_redirect',
 			static function ( $location ) use ( &$captured ) {
 				$captured = (string) $location;
-				throw new \Exception( 'redirect' );
+				throw new RedirectFired( 'redirect' );
 			}
 		);
 
 		try {
 			$this->provider->handle_connect();
-		} catch ( \Exception $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
 			unset( $e );
 		}
 
@@ -785,13 +786,13 @@ class Bluesky_ProviderTest extends BaseTestCase {
 			'wp_redirect',
 			static function ( $location ) use ( &$captured ) {
 				$captured = (string) $location;
-				throw new \Exception( 'redirect' );
+				throw new RedirectFired( 'redirect' );
 			}
 		);
 
 		try {
 			$this->provider->handle_oauth_callback();
-		} catch ( \Exception $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
 			unset( $e );
 		}
 
@@ -834,13 +835,13 @@ class Bluesky_ProviderTest extends BaseTestCase {
 			'wp_redirect',
 			static function ( $location ) use ( &$captured ) {
 				$captured = (string) $location;
-				throw new \Exception( 'redirect' );
+				throw new RedirectFired( 'redirect' );
 			}
 		);
 
 		try {
 			$this->provider->handle_oauth_callback();
-		} catch ( \Exception $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
 			unset( $e );
 		}
 
@@ -879,13 +880,13 @@ class Bluesky_ProviderTest extends BaseTestCase {
 			'wp_redirect',
 			static function ( $location ) use ( &$captured ) {
 				$captured = (string) $location;
-				throw new \Exception( 'redirect' );
+				throw new RedirectFired( 'redirect' );
 			}
 		);
 
 		try {
 			$this->provider->handle_oauth_callback();
-		} catch ( \Exception $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
 			unset( $e );
 		}
 
@@ -1025,13 +1026,13 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		add_filter(
 			'wp_redirect',
 			static function () {
-				throw new \Exception( 'redirect' );
+				throw new RedirectFired( 'redirect' );
 			}
 		);
 
 		try {
 			$this->provider->handle_connect();
-		} catch ( \Exception $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
 			unset( $e );
 		}
 

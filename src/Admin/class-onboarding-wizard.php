@@ -802,6 +802,11 @@ class Onboarding_Wizard {
 	/**
 	 * Render Step 4: Bluesky.
 	 *
+	 * Three states drive the rendered markup:
+	 *  - Unavailable (provider not registered or not is_available): info notice.
+	 *  - Connected: account summary table.
+	 *  - Disconnected: OAuth-start form posting to admin-post.php.
+	 *
 	 * @return void
 	 */
 	private static function render_step_bluesky(): void {
@@ -853,7 +858,7 @@ class Onboarding_Wizard {
 				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
 					<input type="hidden" name="action" value="fosse_connect_bluesky" />
 					<input type="hidden" name="_wpnonce" value="<?php echo esc_attr( wp_create_nonce( 'fosse_connect_bluesky' ) ); ?>" />
-					<input type="hidden" name="fosse_bluesky_return" value="wizard" />
+					<input type="hidden" name="<?php echo esc_attr( Bluesky_Provider::RETURN_CONTEXT_FIELD ); ?>" value="<?php echo esc_attr( Bluesky_Provider::RETURN_CONTEXT_WIZARD ); ?>" />
 
 					<div class="fosse-bluesky-form">
 						<label for="fosse-bsky-handle" class="fosse-bluesky-form__label">

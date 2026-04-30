@@ -49,7 +49,8 @@ class Onboarding_WizardTest extends BaseTestCase {
 
 		// Most tests assume an ActivityPub provider is registered. Tests
 		// that need the unavailable path call Connection_Provider_Registry::reset()
-		// explicitly; the @after restores the provider for the next test.
+		// explicitly; the #[After] hook re-registers AP and Bluesky for the
+		// next test.
 		Connection_Provider_Registry::reset();
 		AP_Provider::register_provider();
 		Bluesky_Provider::register_provider();
