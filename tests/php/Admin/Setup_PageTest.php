@@ -163,6 +163,123 @@ class Setup_PageTest extends BaseTestCase {
 	}
 
 	/**
+	 * A Settings save while Bluesky is disconnected does NOT flip
+	 * `atmosphere_auto_publish` to `'0'` even though the toggle isn't in
+	 * the form. The Bluesky provider's disconnect guard owns the policy;
+	 * this test exercises it through the full unified handler.
+	 */
+	public function test_handle_save_disconnected_preserves_auto_publish(): void {
+		// No `seed_connected_atmosphere_connection()` — provider stays
+		// disconnected so save_settings() should bail out.
+		update_option( 'atmosphere_auto_publish', '1' );
+		$this->become_admin();
+
+		$this->simulate_post(
+			array(
+				'activitypub_actor_mode'         => 'actor',
+				'activitypub_support_post_types' => array( 'post' ),
+			)
+		);
+
+		$this->arm_redirect_trap();
+
+		try {
+			Setup_Page::handle_save();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$this->assertSame( '1', get_option( 'atmosphere_auto_publish' ) );
+	}
+
+	/**
+	 * General-section post-type save filters out post types that aren't
+	 * registered as public — anything submitted via a crafted POST that
+	 * isn't a valid public type is silently dropped before the option
+	 * write.
+	 */
+	public function test_handle_save_filters_invalid_post_types(): void {
+		$this->become_admin();
+
+		$this->simulate_post(
+			array(
+				'activitypub_actor_mode'         => 'blog',
+				'activitypub_support_post_types' => array( 'post', 'nonexistent_type', 'page' ),
+			)
+		);
+
+		$this->arm_redirect_trap();
+
+		try {
+			Setup_Page::handle_save();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$saved = get_option( 'activitypub_support_post_types' );
+		$this->assertContains( 'post', $saved );
+		$this->assertContains( 'page', $saved );
+		$this->assertNotContains( 'nonexistent_type', $saved );
+	}
+
+	/**
+	 * A non-array POST value for post types collapses cleanly to an empty
+	 * list rather than tripping a type warning (`failOnWarning` would turn
+	 * one into a test failure).
+	 */
+	public function test_handle_save_handles_non_array_post_types(): void {
+		$this->become_admin();
+
+		$this->simulate_post(
+			array(
+				'activitypub_actor_mode'         => 'blog',
+				'activitypub_support_post_types' => 'not_an_array',
+			)
+		);
+
+		$this->arm_redirect_trap();
+
+		try {
+			Setup_Page::handle_save();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$this->assertIsArray( get_option( 'activitypub_support_post_types' ) );
+	}
+
+	/**
+	 * The General post-types option is owned by Setup_Page itself, not by
+	 * any provider — so the save lands even on a hypothetical install
+	 * where ActivityPub is missing. Re-asserts the architectural contract
+	 * that General writes don't depend on the AP provider being available.
+	 */
+	public function test_handle_save_persists_post_types_without_ap_provider(): void {
+		Connection_Provider_Registry::reset();
+		// Deliberately do NOT register AP so save_settings() can't write
+		// the option indirectly. Bluesky stays registered but disconnected.
+		Bluesky_Provider::register_provider();
+
+		$this->become_admin();
+
+		$this->simulate_post(
+			array(
+				'activitypub_support_post_types' => array( 'post', 'page' ),
+			)
+		);
+
+		$this->arm_redirect_trap();
+
+		try {
+			Setup_Page::handle_save();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$this->assertSame( array( 'post', 'page' ), get_option( 'activitypub_support_post_types' ) );
+	}
+
+	/**
 	 * A provider-side rejection (here: AP's blog-identifier sanitizer
 	 * adding an error) suppresses the blanket `fosse_saved` success notice
 	 * so the user isn't told everything saved while a sibling field

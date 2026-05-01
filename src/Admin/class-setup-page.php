@@ -13,8 +13,9 @@ namespace Automattic\Fosse\Admin;
  * Owns the General (cross-protocol) section directly and delegates
  * protocol-specific fields to each provider's `render_setup_section()`.
  * A single submit button posts to {@see self::handle_save()}, which
- * applies the General writes and then asks each provider to persist
- * its own protocol-specific settings.
+ * persists the General options itself (`activitypub_support_post_types`)
+ * and then asks each available provider to persist its own
+ * protocol-specific settings via {@see Connection_Provider::save_settings()}.
  */
 class Setup_Page {
 
@@ -64,11 +65,13 @@ class Setup_Page {
 	/**
 	 * Handle the unified Settings save.
 	 *
-	 * Verifies the nonce and capability, then delegates per-protocol
-	 * persistence to each provider via {@see Connection_Provider::save_settings()}.
-	 * Suppresses the blanket success notice when any provider rejected
-	 * its input — providers add their own explanatory error notices in
-	 * that case so the redirected page surfaces what didn't save.
+	 * Verifies the nonce and capability, persists the General (cross-
+	 * protocol) options directly, then delegates per-protocol persistence
+	 * to each available provider via
+	 * {@see Connection_Provider::save_settings()}. Suppresses the blanket
+	 * success notice when any provider rejected its input — providers add
+	 * their own explanatory error notices in that case so the redirected
+	 * page surfaces what didn't save.
 	 *
 	 * @return void
 	 */
@@ -79,11 +82,16 @@ class Setup_Page {
 
 		check_admin_referer( self::SAVE_ACTION );
 
+		// Pass the still-slashed POST through to providers so each
+		// implementation can `wp_unslash` per field at the same point as
+		// it sanitizes — matching the WordPress convention for handling
+		// raw `$_POST` input.
 		// phpcs:ignore WordPress.Security.NonceVerification.Missing -- nonce verified above via check_admin_referer.
-		$post_data = wp_unslash( $_POST );
+		$post_data = (array) ( $_POST ?? array() );
+
+		self::save_general_settings( $post_data );
 
 		$ok = true;
-
 		foreach ( Connection_Provider_Registry::get_providers() as $provider ) {
 			if ( ! $provider->is_available() ) {
 				continue;
@@ -104,5 +112,27 @@ class Setup_Page {
 
 		wp_safe_redirect( admin_url( 'admin.php?page=fosse&settings-updated=true' ) );
 		exit;
+	}
+
+	/**
+	 * Persist the General (cross-protocol) options.
+	 *
+	 * Currently just `activitypub_support_post_types`, which AP reads
+	 * directly and Atmosphere consumes via FOSSE's post-type projector
+	 * (see {@see \Automattic\Fosse\Post_Types}). Owned by Setup_Page
+	 * rather than a provider so the write happens regardless of which
+	 * federation backends are loaded — keeping the Settings UI honest
+	 * even on installs where one or both providers are unavailable.
+	 *
+	 * @param array<string, mixed> $post_data Raw, slashed POST payload.
+	 * @return void
+	 */
+	private static function save_general_settings( array $post_data ): void {
+		$submitted   = isset( $post_data['activitypub_support_post_types'] )
+			? array_map( 'sanitize_text_field', wp_unslash( (array) $post_data['activitypub_support_post_types'] ) )
+			: array();
+		$valid_types = get_post_types( array( 'public' => true ) );
+		$post_types  = array_values( array_intersect( $submitted, $valid_types ) );
+		update_option( 'activitypub_support_post_types', $post_types );
 	}
 }

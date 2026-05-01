@@ -241,15 +241,6 @@ class AP_ProviderTest extends BaseTestCase {
 	}
 
 	/**
-	 * Valid save stores the post types option.
-	 */
-	public function test_save_settings_stores_post_types() {
-		$this->provider->save_settings( $this->build_post( array( 'activitypub_support_post_types' => array( 'post', 'page' ) ) ) );
-
-		$this->assertSame( array( 'post', 'page' ), get_option( 'activitypub_support_post_types' ) );
-	}
-
-	/**
 	 * Invalid actor mode is rejected — option is not updated.
 	 */
 	public function test_save_settings_rejects_invalid_actor_mode() {
@@ -292,29 +283,6 @@ class AP_ProviderTest extends BaseTestCase {
 		$fired = false;
 		$this->provider->save_settings( $this->build_post( array( 'activitypub_actor_mode' => 'actor_blog' ) ) );
 		$this->assertTrue( $fired, 'update_option_activitypub_actor_mode should fire on value change.' );
-	}
-
-	/**
-	 * Invalid post types are filtered out.
-	 */
-	public function test_save_settings_filters_invalid_post_types() {
-		$this->provider->save_settings(
-			$this->build_post( array( 'activitypub_support_post_types' => array( 'post', 'nonexistent_type', 'page' ) ) )
-		);
-
-		$saved = get_option( 'activitypub_support_post_types' );
-		$this->assertContains( 'post', $saved );
-		$this->assertContains( 'page', $saved );
-		$this->assertNotContains( 'nonexistent_type', $saved );
-	}
-
-	/**
-	 * Non-array post types input is safely handled.
-	 */
-	public function test_save_settings_handles_non_array_post_types() {
-		$this->provider->save_settings( $this->build_post( array( 'activitypub_support_post_types' => 'not_an_array' ) ) );
-
-		$this->assertIsArray( get_option( 'activitypub_support_post_types' ) );
 	}
 
 	// --- Default blog username filter ---------------------------------------

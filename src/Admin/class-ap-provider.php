@@ -282,11 +282,12 @@ class AP_Provider implements Connection_Provider {
 	/**
 	 * Persist AP-side settings from the unified save submission.
 	 *
-	 * Validates actor mode, post types, and the optional site handle. The
-	 * post-types option is also consumed by Atmosphere via the FOSSE
-	 * post-type projector, so a single write here covers both networks.
+	 * Validates actor mode and the optional site handle. The post-types
+	 * option is owned by {@see Setup_Page::handle_save()} since FOSSE
+	 * treats it as a cross-protocol General setting; this method only
+	 * touches AP-specific options.
 	 *
-	 * @param array<string, mixed> $post_data POST payload to read.
+	 * @param array<string, mixed> $post_data Raw, slashed POST payload.
 	 * @return bool False when the site handle was rejected, otherwise true.
 	 */
 	public function save_settings( array $post_data ): bool {
@@ -300,12 +301,6 @@ class AP_Provider implements Connection_Provider {
 			add_settings_error( 'fosse', 'fosse_invalid_mode', __( 'Invalid actor mode. Setting was not changed.', 'fosse' ), 'error' );
 			$ok = false;
 		}
-
-		// Sanitize post types against registered public types.
-		$submitted   = array_map( 'sanitize_text_field', wp_unslash( (array) ( $post_data['activitypub_support_post_types'] ?? array() ) ) );
-		$valid_types = get_post_types( array( 'public' => true ) );
-		$post_types  = array_values( array_intersect( $submitted, $valid_types ) );
-		update_option( 'activitypub_support_post_types', $post_types );
 
 		// Site Handle: only persist when the field was submitted with a non-
 		// empty value. Empty submissions preserve any existing stored value

@@ -251,8 +251,9 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		$this->provider->render_setup_section();
 		$output = ob_get_clean();
 
-		// `checked()` emits `checked='checked'` (single-quoted) on WP < 6.x
-		// and `checked` (bare attribute) on newer cores. Match either.
+		// WordPress's `checked()` may emit `checked='checked'` or a bare
+		// `checked` attribute depending on core version; match either form
+		// so the assertion stays stable across the supported floor.
 		$this->assertMatchesRegularExpression(
 			'~<input[^>]+name="atmosphere_auto_publish"[^>]+(checked(?:=\'checked\'|="checked")?)~',
 			$output
@@ -1495,6 +1496,8 @@ class Bluesky_ProviderTest extends BaseTestCase {
 	 * publish flow remains enabled after save.
 	 */
 	public function test_save_settings_stores_auto_publish_when_checked() {
+		$this->seed_connected_atmosphere_connection();
+
 		$ok = $this->provider->save_settings( array( 'atmosphere_auto_publish' => '1' ) );
 
 		$this->assertTrue( $ok );
@@ -1502,11 +1505,12 @@ class Bluesky_ProviderTest extends BaseTestCase {
 	}
 
 	/**
-	 * An omitted checkbox is the legitimate "disabled" submission — HTML
-	 * forms drop unchecked checkboxes from the POST body, so absence must
-	 * persist `'0'` instead of preserving the previous value.
+	 * An omitted checkbox while connected is the legitimate "disabled"
+	 * submission — HTML forms drop unchecked checkboxes from the POST body,
+	 * so absence must persist `'0'` instead of preserving the previous value.
 	 */
 	public function test_save_settings_disables_auto_publish_when_unchecked() {
+		$this->seed_connected_atmosphere_connection();
 		update_option( 'atmosphere_auto_publish', '1' );
 
 		$ok = $this->provider->save_settings( array() );
@@ -1521,11 +1525,29 @@ class Bluesky_ProviderTest extends BaseTestCase {
 	 * field name without a value.
 	 */
 	public function test_save_settings_disables_auto_publish_for_empty_value() {
+		$this->seed_connected_atmosphere_connection();
 		update_option( 'atmosphere_auto_publish', '1' );
 
 		$this->provider->save_settings( array( 'atmosphere_auto_publish' => '' ) );
 
 		$this->assertSame( '0', get_option( 'atmosphere_auto_publish' ) );
+	}
+
+	/**
+	 * A Settings save while disconnected must NOT touch
+	 * `atmosphere_auto_publish` — the toggle isn't rendered in that state,
+	 * so an omitted checkbox is the absence of a setting, not an
+	 * intentional "uncheck". Without this guard a routine General-section
+	 * save would silently flip the option to `'0'`.
+	 */
+	public function test_save_settings_disconnected_preserves_auto_publish() {
+		// Provider is disconnected by set_up_provider() (no connection seed).
+		update_option( 'atmosphere_auto_publish', '1' );
+
+		$ok = $this->provider->save_settings( array() );
+
+		$this->assertTrue( $ok );
+		$this->assertSame( '1', get_option( 'atmosphere_auto_publish' ) );
 	}
 
 	/**

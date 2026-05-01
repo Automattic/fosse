@@ -333,7 +333,7 @@ class Bluesky_Provider implements Connection_Provider {
 							<?php if ( $status['token_error'] ) : ?>
 								<strong><?php esc_html_e( 'Reconnect required.', 'fosse' ); ?></strong>
 								<a href="<?php echo esc_url( admin_url( 'admin.php?page=fosse#fosse-provider-bluesky' ) ); ?>">
-									<?php esc_html_e( 'Open Bluesky setup', 'fosse' ); ?>
+									<?php esc_html_e( 'Open Bluesky settings', 'fosse' ); ?>
 								</a>
 								<details class="fosse-status-card__error">
 									<summary><?php esc_html_e( 'Error details', 'fosse' ); ?></summary>
@@ -379,11 +379,20 @@ class Bluesky_Provider implements Connection_Provider {
 	 * `'0'` to match Atmosphere's own setting registration, where an unset
 	 * checkbox simply omits the field and reads as "disabled".
 	 *
+	 * Bails when disconnected so a Settings save can't silently flip
+	 * `atmosphere_auto_publish` to `'0'`: the toggle isn't rendered in that
+	 * state, so the omitted checkbox would otherwise be misread as an
+	 * intentional "uncheck".
+	 *
 	 * @param array<string, mixed> $post_data POST payload to read.
 	 * @return bool Always true — auto-publish input cannot be "rejected"; an
 	 *              omitted checkbox is the legitimate "disabled" submission.
 	 */
 	public function save_settings( array $post_data ): bool {
+		if ( ! $this->get_status()['connected'] ) {
+			return true;
+		}
+
 		$auto_publish = ! empty( $post_data['atmosphere_auto_publish'] ) ? '1' : '0';
 		update_option( 'atmosphere_auto_publish', $auto_publish );
 

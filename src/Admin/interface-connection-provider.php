@@ -88,9 +88,9 @@ interface Connection_Provider {
 	 * blanket "settings saved" success notice; the implementation is
 	 * responsible for adding any explanatory `add_settings_error` entries.
 	 *
-	 * @param array<string, mixed> $post_data Sanitized-by-WordPress superglobal copy
-	 *                                        (`wp_unslash`-ready). The handler is
-	 *                                        responsible for further sanitization.
+	 * @param array<string, mixed> $post_data Raw POST payload — still slashed.
+	 *                                        Implementations are responsible for
+	 *                                        `wp_unslash` and per-field sanitization.
 	 * @return bool
 	 */
 	public function save_settings( array $post_data ): bool;

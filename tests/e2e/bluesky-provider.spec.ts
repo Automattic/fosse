@@ -34,19 +34,23 @@ test.describe( 'Bluesky provider UI', () => {
 
 		await page.goto( '/wp-admin/admin.php?page=fosse' );
 
-		const blueskySection = page
-			.locator( '.fosse-provider-section' )
-			.filter( { hasText: 'Bluesky' } );
+		// The Bluesky connection panel renders below the unified Settings
+		// form; the in-form `#fosse-provider-bluesky-settings` block is
+		// suppressed while disconnected (no auto-publish toggle to save).
+		const blueskyConnection = page.locator( '#fosse-provider-bluesky' );
 
 		await expect(
-			page.getByRole( 'heading', { name: 'Bluesky' } )
+			page.getByRole( 'heading', { name: 'Bluesky connection' } )
 		).toBeVisible();
 		await expect(
-			blueskySection.locator( '#fosse_bluesky_handle' )
+			blueskyConnection.locator( '#fosse_bluesky_handle' )
 		).toBeVisible();
 		await expect(
 			page.getByRole( 'button', { name: 'Connect Bluesky' } )
 		).toBeVisible();
+		await expect(
+			page.locator( '#fosse-provider-bluesky-settings' )
+		).toHaveCount( 0 );
 
 		await page.goto( '/wp-admin/admin.php?page=fosse-status' );
 
@@ -70,16 +74,22 @@ test.describe( 'Bluesky provider UI', () => {
 
 		await page.goto( '/wp-admin/admin.php?page=fosse' );
 
-		const blueskySection = page
-			.locator( '.fosse-provider-section' )
-			.filter( { hasText: 'Bluesky' } );
+		// The connection details (handle, DID, PDS, token health) live in
+		// the connection panel; the auto-publish checkbox lives in the
+		// in-form settings block — separate sections, separate IDs.
+		const blueskyConnection = page.locator( '#fosse-provider-bluesky' );
+		const blueskySettings = page.locator(
+			'#fosse-provider-bluesky-settings'
+		);
 
 		await expect(
 			page.getByRole( 'button', { name: 'Disconnect Bluesky' } )
 		).toBeVisible();
-		await expect( blueskySection ).toContainText( 'alice.bsky.social' );
-		await expect( blueskySection ).toContainText( 'did:plc:alice123' );
-		await expect( blueskySection ).toContainText( 'Disabled' );
+		await expect( blueskyConnection ).toContainText( 'alice.bsky.social' );
+		await expect( blueskyConnection ).toContainText( 'did:plc:alice123' );
+		await expect(
+			blueskySettings.locator( 'input[name="atmosphere_auto_publish"]' )
+		).not.toBeChecked();
 
 		await page.goto( '/wp-admin/admin.php?page=fosse-status' );
 
