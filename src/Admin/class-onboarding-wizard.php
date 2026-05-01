@@ -898,12 +898,24 @@ class Onboarding_Wizard {
 				</div>
 
 				<?php
-				// Render all three preview containers regardless of saved
-				// mode. Inactive containers carry `is-hidden`; a small JS
-				// helper swaps that class on radio change. With JS off the
-				// page still surfaces the active mode's preview.
-				$preview_modes = array( 'actor', 'blog', 'actor_blog' );
+				// Render preview containers for every mode that has content
+				// to show. Skip empty modes entirely so the active container
+				// never renders as an empty styled grey box (`get_user_address`
+				// can legitimately return '' when the current user can't have
+				// an actor; the same applies to the blog handle when AP isn't
+				// fully configured). Inactive containers carry `is-hidden`; a
+				// small JS helper swaps that class on radio change. With JS
+				// off the page still surfaces the active mode's preview.
+				$preview_modes       = array( 'actor', 'blog', 'actor_blog' );
+				$preview_has_content = array(
+					'actor'      => '' !== $user_handle,
+					'blog'       => '' !== $blog_handle,
+					'actor_blog' => '' !== $user_handle || '' !== $blog_handle,
+				);
 				foreach ( $preview_modes as $preview_mode ) :
+					if ( ! $preview_has_content[ $preview_mode ] ) {
+						continue;
+					}
 					$preview_classes = 'fosse-address-preview';
 					if ( $preview_mode !== $current_mode ) {
 						$preview_classes .= ' is-hidden';

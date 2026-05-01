@@ -71,7 +71,6 @@ class Onboarding_WizardTest extends BaseTestCase {
 
 		remove_all_filters( 'wp_redirect' );
 		remove_all_filters( 'wp_die_handler' );
-		remove_all_filters( 'sanitize_option_activitypub_blog_identifier' );
 		remove_all_actions( 'fosse_wizard_unauthorized' );
 
 		global $wp_settings_errors;
@@ -362,7 +361,12 @@ class Onboarding_WizardTest extends BaseTestCase {
 	public function test_render_appearance_renders_all_three_preview_containers(): void {
 		update_option( 'activitypub_actor_mode', 'actor' );
 
+		// Grant AP eligibility so `get_user_address()` returns a real
+		// webfinger; without it the wrapper for that mode renders empty
+		// and is now suppressed to avoid an empty styled grey box.
+		add_filter( 'activitypub_user_can_activitypub', '__return_true' );
 		$output = $this->render_wizard_step( 'appearance' );
+		remove_filter( 'activitypub_user_can_activitypub', '__return_true' );
 
 		$this->assertMatchesRegularExpression(
 			'/<div[^>]*\bclass="[^"]*\bfosse-address-preview\b[^"]*"[^>]*\bdata-fosse-mode="actor"/i',
@@ -390,7 +394,13 @@ class Onboarding_WizardTest extends BaseTestCase {
 	public function test_render_appearance_marks_inactive_previews_hidden(): void {
 		update_option( 'activitypub_actor_mode', 'blog' );
 
+		// Grant AP eligibility so `get_user_address()` returns a real
+		// webfinger; without it the actor / actor_blog wrappers would be
+		// suppressed (empty-content path) and the inactive-hidden assertion
+		// would have nothing to match.
+		add_filter( 'activitypub_user_can_activitypub', '__return_true' );
 		$output = $this->render_wizard_step( 'appearance' );
+		remove_filter( 'activitypub_user_can_activitypub', '__return_true' );
 
 		$this->assertMatchesRegularExpression(
 			'/<div[^>]*\bclass="[^"]*\bfosse-address-preview\b(?:(?!is-hidden)[^"])*"[^>]*\bdata-fosse-mode="blog"/i',
@@ -406,6 +416,26 @@ class Onboarding_WizardTest extends BaseTestCase {
 			'/<div[^>]*\bclass="[^"]*\bfosse-address-preview\b[^"]*\bis-hidden\b[^"]*"[^>]*\bdata-fosse-mode="actor_blog"/i',
 			$output,
 			'Inactive containers must be marked is-hidden.'
+		);
+	}
+
+	/**
+	 * Modes whose handle resolves to an empty string suppress their preview
+	 * wrapper entirely. Without this, the active mode would render as an
+	 * empty styled grey box (the `.fosse-address-preview` rule applies
+	 * background + padding even when no inner row is emitted).
+	 */
+	public function test_render_appearance_skips_actor_preview_when_user_handle_empty(): void {
+		update_option( 'activitypub_actor_mode', 'actor' );
+		// No `activitypub_user_can_activitypub` filter — `get_user_address()`
+		// returns '' so the actor wrapper has nothing to render.
+
+		$output = $this->render_wizard_step( 'appearance' );
+
+		$this->assertDoesNotMatchRegularExpression(
+			'/<div[^>]*\bdata-fosse-mode="actor"[^>]*>/i',
+			$output,
+			'Actor wrapper must not render when the user handle is empty.'
 		);
 	}
 
@@ -513,19 +543,19 @@ class Onboarding_WizardTest extends BaseTestCase {
 	 * a colliding user wouldn't trip AP's collision path.
 	 */
 	public function test_handle_save_appearance_rewires_ap_settings_errors_to_fosse_group(): void {
-		add_filter(
-			'sanitize_option_activitypub_blog_identifier',
-			static function ( $value ) {
-				add_settings_error(
-					'activitypub_blog_identifier',
-					'collision_test',
-					'Collision test error.',
-					'error'
-				);
-				return $value;
-			},
-			11 // After AP's own callback.
-		);
+		// Capture the closure so cleanup can target only this callback —
+		// `remove_all_filters` would also wipe AP's own sanitizer (and any
+		// other registered callbacks), affecting unrelated tests.
+		$rejector = static function ( $value ) {
+			add_settings_error(
+				'activitypub_blog_identifier',
+				'collision_test',
+				'Collision test error.',
+				'error'
+			);
+			return $value;
+		};
+		add_filter( 'sanitize_option_activitypub_blog_identifier', $rejector, 11 );
 
 		$this->simulate_save_request(
 			'appearance',
@@ -541,6 +571,8 @@ class Onboarding_WizardTest extends BaseTestCase {
 			unset( $e );
 		}
 
+		remove_filter( 'sanitize_option_activitypub_blog_identifier', $rejector, 11 );
+
 		$fosse_codes = array_column( get_settings_errors( 'fosse' ), 'code' );
 		$this->assertContains( 'collision_test', $fosse_codes );
 	}
@@ -551,19 +583,16 @@ class Onboarding_WizardTest extends BaseTestCase {
 	 * surfaced error and correct the input.
 	 */
 	public function test_handle_save_appearance_redirects_back_on_blog_identifier_rejection(): void {
-		add_filter(
-			'sanitize_option_activitypub_blog_identifier',
-			static function ( $value ) {
-				add_settings_error(
-					'activitypub_blog_identifier',
-					'collision_test',
-					'Collision test error.',
-					'error'
-				);
-				return $value;
-			},
-			11
-		);
+		$rejector = static function ( $value ) {
+			add_settings_error(
+				'activitypub_blog_identifier',
+				'collision_test',
+				'Collision test error.',
+				'error'
+			);
+			return $value;
+		};
+		add_filter( 'sanitize_option_activitypub_blog_identifier', $rejector, 11 );
 
 		$captured = null;
 		$this->simulate_save_request(
@@ -587,6 +616,8 @@ class Onboarding_WizardTest extends BaseTestCase {
 		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
 			unset( $e );
 		}
+
+		remove_filter( 'sanitize_option_activitypub_blog_identifier', $rejector, 11 );
 
 		$this->assertNotNull( $captured );
 		$this->assertStringContainsString( 'step=appearance', $captured );
