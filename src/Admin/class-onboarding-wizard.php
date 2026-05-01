@@ -524,6 +524,62 @@ class Onboarding_Wizard {
 	}
 
 	/**
+	 * Resolve the completion-step "Publish your first ..." CTA.
+	 *
+	 * Deep-links the new-post screen at the post type the user actually
+	 * federates, so a wizard run that selected only `page` (or a custom
+	 * type) doesn't drop the user at the default `post` editor where
+	 * their content wouldn't reach the social web. Prefers `post` when
+	 * it's in the selection — most users think of `post` as the default
+	 * — and falls back to the first valid public type otherwise.
+	 *
+	 * The label uses the post type's `singular_name` lowercased so the
+	 * sentence reads naturally ("Publish your first page", "Publish your
+	 * first movie"). `mb_strtolower` is preferred for multi-byte locales
+	 * but falls back to `strtolower` when the extension is missing.
+	 *
+	 * @param array<int, string> $post_types Federated post types from
+	 *                                       `activitypub_support_post_types`.
+	 * @return array{url: string, label: string}
+	 */
+	private static function resolve_publish_cta( array $post_types ): array {
+		$selected = 'post';
+		$has_post = in_array( 'post', $post_types, true ) && post_type_exists( 'post' );
+
+		if ( ! $has_post ) {
+			foreach ( $post_types as $candidate ) {
+				if ( is_string( $candidate ) && post_type_exists( $candidate ) ) {
+					$selected = $candidate;
+					break;
+				}
+			}
+		}
+
+		$url = 'post' === $selected
+			? admin_url( 'post-new.php' )
+			: add_query_arg( 'post_type', $selected, admin_url( 'post-new.php' ) );
+
+		$pt_object = get_post_type_object( $selected );
+		$singular  = $pt_object && isset( $pt_object->labels->singular_name )
+			? (string) $pt_object->labels->singular_name
+			: __( 'post', 'fosse' );
+		$noun      = function_exists( 'mb_strtolower' )
+			? mb_strtolower( $singular )
+			: strtolower( $singular );
+
+		$label = sprintf(
+			/* translators: %s: post type singular name (e.g. "post", "page"). */
+			__( 'Publish your first %s', 'fosse' ),
+			$noun
+		);
+
+		return array(
+			'url'   => $url,
+			'label' => $label,
+		);
+	}
+
+	/**
 	 * Read Bluesky connection status from the registered provider.
 	 *
 	 * Reads strictly through the registry. If the provider isn't registered
@@ -1100,9 +1156,12 @@ class Onboarding_Wizard {
 			</div>
 		</div>
 
+		<?php
+		$cta = self::resolve_publish_cta( $post_types );
+		?>
 		<div class="fosse-wizard__actions fosse-wizard__actions--center">
-			<a href="<?php echo esc_url( admin_url( 'post-new.php' ) ); ?>" class="button button-primary button-hero fosse-wizard__cta-publish">
-				<?php esc_html_e( 'Publish your first post', 'fosse' ); ?>
+			<a href="<?php echo esc_url( $cta['url'] ); ?>" class="button button-primary button-hero fosse-wizard__cta-publish">
+				<?php echo esc_html( $cta['label'] ); ?>
 			</a>
 		</div>
 

@@ -21,6 +21,18 @@ use WorDBless\BaseTestCase;
 class MenuTest extends BaseTestCase {
 
 	/**
+	 * Notice-canary callbacks registered by the current test.
+	 *
+	 * Tracked by reference so `tear_down_state()` can remove only the
+	 * callbacks this test added, instead of `remove_all_actions()` on
+	 * the four core notice hooks (which would also drop legitimate
+	 * WordPress core callbacks for the rest of the PHPUnit process).
+	 *
+	 * @var array<string, callable>
+	 */
+	private array $canary_callbacks = array();
+
+	/**
 	 * Reset state before each test.
 	 *
 	 * @before
@@ -52,14 +64,12 @@ class MenuTest extends BaseTestCase {
 		$_GET = array();
 		remove_all_filters( 'wp_redirect' );
 
-		// Drop notice canaries from the suppression tests. The
-		// "does_not_suppress" cases register callbacks and never call
-		// remove_all_actions() on those hooks, so they would leak into
-		// later tests if we didn't clear them here.
-		remove_all_actions( 'admin_notices' );
-		remove_all_actions( 'all_admin_notices' );
-		remove_all_actions( 'network_admin_notices' );
-		remove_all_actions( 'user_admin_notices' );
+		// Drop only the canary callbacks this test registered, leaving any
+		// WordPress core hooks intact so later tests aren't order-dependent.
+		foreach ( $this->canary_callbacks as $hook => $callback ) {
+			remove_action( $hook, $callback );
+		}
+		$this->canary_callbacks = array();
 
 		// Restore the AP registration so a test that called
 		// Connection_Provider_Registry::reset() doesn't leave the next
@@ -360,17 +370,22 @@ class MenuTest extends BaseTestCase {
 	 * Register one canary callback per notice hook so the suppression
 	 * tests can observe which hooks still fire.
 	 *
+	 * Each closure is captured on the test instance via
+	 * {@see self::$canary_callbacks} so `tear_down_state()` can remove
+	 * exactly these callbacks (and only these) — instead of nuking every
+	 * registered handler on the four notice hooks, which would also drop
+	 * legitimate core callbacks.
+	 *
 	 * @param array<int, string> $fired Bucket to populate, indexed by hook name.
 	 * @return void
 	 */
 	private function register_notice_canaries( array &$fired ): void {
 		foreach ( array( 'admin_notices', 'all_admin_notices', 'network_admin_notices', 'user_admin_notices' ) as $hook ) {
-			add_action(
-				$hook,
-				static function () use ( $hook, &$fired ): void {
-					$fired[] = $hook;
-				}
-			);
+			$callback                        = static function () use ( $hook, &$fired ): void {
+				$fired[] = $hook;
+			};
+			$this->canary_callbacks[ $hook ] = $callback;
+			add_action( $hook, $callback );
 		}
 	}
 

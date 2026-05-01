@@ -665,6 +665,46 @@ class Onboarding_WizardTest extends BaseTestCase {
 		);
 	}
 
+	/**
+	 * When the wizard's content step selected only `page` (or any non-`post`
+	 * type), the publish CTA deep-links to that post type's new-post screen
+	 * and the label adapts. Otherwise the user lands at the default `post`
+	 * editor, which produces content that won't be federated.
+	 */
+	public function test_render_complete_step_cta_deep_links_selected_post_type(): void {
+		Onboarding_Wizard::mark_complete();
+		update_option( 'activitypub_support_post_types', array( 'page' ) );
+
+		$output = $this->render_wizard_step( 'complete' );
+
+		$this->assertMatchesRegularExpression(
+			'/<a[^>]*href="[^"]*post-new\.php\?[^"]*post_type=page[^"]*"[^>]*class="[^"]*fosse-wizard__cta-publish[^"]*"/i',
+			$output,
+			'Publish CTA must deep-link to post-new.php?post_type=page when only page is federated.'
+		);
+		$this->assertStringContainsString( 'Publish your first page', $output );
+		$this->assertStringNotContainsString( 'Publish your first post', $output );
+	}
+
+	/**
+	 * Default selection (which includes `post`) produces the un-parameterized
+	 * `post-new.php` URL — so the existing default-test assertion stays
+	 * meaningful and the URL stays clean for the most common case.
+	 */
+	public function test_render_complete_step_cta_omits_post_type_param_when_post_selected(): void {
+		Onboarding_Wizard::mark_complete();
+		update_option( 'activitypub_support_post_types', array( 'post', 'page' ) );
+
+		$output = $this->render_wizard_step( 'complete' );
+
+		$this->assertMatchesRegularExpression(
+			'/<a[^>]*href="[^"]*post-new\.php"[^>]*class="[^"]*fosse-wizard__cta-publish[^"]*"/i',
+			$output,
+			'Publish CTA URL must not include post_type=post when post is among the selected types.'
+		);
+		$this->assertStringContainsString( 'Publish your first post', $output );
+	}
+
 	// --- audit hook: handler cap/nonce failures (parameterized) ---
 
 	/**
