@@ -389,52 +389,102 @@ class Onboarding_Wizard {
 	}
 
 	/**
-	 * Build a fediverse handle preview for the selected actor mode.
+	 * Build fediverse handle previews for the selected actor mode.
 	 *
-	 * Defers to ActivityPub's own actor models so the preview matches the
-	 * webfinger that Mastodon-style clients will actually resolve (blog
-	 * `preferred_username@host`, user nicename, etc.). Returns an empty
-	 * string when AP isn't loaded, the actor can't be resolved, or the
-	 * upstream value is malformed — callers hide the row in that case
-	 * rather than showing a synthetic placeholder like `@example.com`.
+	 * Defers to the ActivityPub provider's helpers so the preview matches
+	 * the webfinger that Mastodon-style clients will actually resolve
+	 * (blog `preferred_username@host`, user nicename, etc.). Returns an
+	 * associative array keyed by `'user'` and `'blog'`, with each value
+	 * either a normalized `@user@host` string or an empty string when
+	 * the actor can't be resolved or the upstream value is malformed.
+	 * Modes that do not surface a given identity simply omit it (e.g.
+	 * `actor` mode never returns a `'blog'` entry).
 	 *
 	 * @param string $mode Selected actor mode (`actor`, `blog`, `actor_blog`).
+	 * @return array{user?: string, blog?: string}
+	 */
+	private static function get_handle_previews( string $mode ): array {
+		$provider = Connection_Provider_Registry::get_provider( 'activitypub' );
+		if ( ! $provider instanceof AP_Provider ) {
+			return array();
+		}
+
+		$previews = array();
+
+		if ( $provider->mode_includes_user( $mode ) ) {
+			$previews['user'] = self::normalize_handle_preview( $provider->get_user_address() );
+		}
+
+		if ( $provider->mode_includes_blog( $mode ) ) {
+			$previews['blog'] = self::normalize_handle_preview( $provider->get_blog_address() );
+		}
+
+		return $previews;
+	}
+
+	/**
+	 * Format the "Site appears as" summary label for the completion step.
+	 *
+	 * Embeds the resolved fediverse handle(s) so users see the actual
+	 * identity they just stood up rather than just the bare host. Falls
+	 * back gracefully when a handle is missing (AP not loaded, user
+	 * actor unavailable) — never shows an `@` with no local-part.
+	 *
+	 * Returns an HTML string; the consumer escapes via `wp_kses` with
+	 * `code` and `br` allowed.
+	 *
+	 * @param string $mode        Actor mode value.
+	 * @param string $user_handle Normalized `@user@host` for the current user, or empty.
+	 * @param string $blog_handle Normalized `@blog@host` for the site, or empty.
 	 * @return string
 	 */
-	private static function get_handle_preview( string $mode ): string {
-		// Blog mode: blog webfinger only.
-		if ( 'blog' === $mode ) {
-			if ( class_exists( '\Activitypub\Model\Blog' ) ) {
-				$blog       = new \Activitypub\Model\Blog();
-				$normalized = self::normalize_handle_preview( (string) $blog->get_webfinger() );
-				if ( '' !== $normalized ) {
-					return $normalized;
+	private static function format_mode_label( string $mode, string $user_handle, string $blog_handle ): string {
+		switch ( $mode ) {
+			case 'actor':
+				if ( '' !== $user_handle ) {
+					return sprintf(
+						/* translators: %s: HTML <code> element wrapping a fediverse handle in @user@host form. */
+						esc_html__( 'As you (%s)', 'fosse' ),
+						'<code>' . esc_html( $user_handle ) . '</code>'
+					);
 				}
-			}
-			return '';
-		}
+				return esc_html__( 'As you (author profiles)', 'fosse' );
 
-		// Actor or actor_blog: prefer the user webfinger.
-		if ( class_exists( '\Activitypub\Model\User' ) ) {
-			$user = \Activitypub\Model\User::from_wp_user( get_current_user_id() );
-			if ( $user && ! is_wp_error( $user ) ) {
-				$normalized = self::normalize_handle_preview( (string) $user->get_webfinger() );
-				if ( '' !== $normalized ) {
-					return $normalized;
+			case 'blog':
+				if ( '' !== $blog_handle ) {
+					return sprintf(
+						/* translators: %s: HTML <code> element wrapping a fediverse handle in @user@host form. */
+						esc_html__( 'As your site (%s)', 'fosse' ),
+						'<code>' . esc_html( $blog_handle ) . '</code>'
+					);
 				}
-			}
+				$site_host = wp_parse_url( home_url(), PHP_URL_HOST );
+				return sprintf(
+					/* translators: %s: site domain. */
+					esc_html__( 'As your site (%s)', 'fosse' ),
+					esc_html( $site_host ? $site_host : 'yoursite.com' )
+				);
+
+			case 'actor_blog':
+				$lines = array( esc_html__( 'Both (site + authors)', 'fosse' ) );
+				if ( '' !== $user_handle ) {
+					$lines[] = sprintf(
+						/* translators: %s: HTML <code> element wrapping a fediverse handle in @user@host form. */
+						esc_html__( 'As you: %s', 'fosse' ),
+						'<code>' . esc_html( $user_handle ) . '</code>'
+					);
+				}
+				if ( '' !== $blog_handle ) {
+					$lines[] = sprintf(
+						/* translators: %s: HTML <code> element wrapping a fediverse handle in @user@host form. */
+						esc_html__( 'As your site: %s', 'fosse' ),
+						'<code>' . esc_html( $blog_handle ) . '</code>'
+					);
+				}
+				return implode( '<br />', $lines );
 		}
 
-		// actor_blog falls back to the blog handle when the user actor isn't available.
-		if ( 'actor_blog' === $mode && class_exists( '\Activitypub\Model\Blog' ) ) {
-			$blog       = new \Activitypub\Model\Blog();
-			$normalized = self::normalize_handle_preview( (string) $blog->get_webfinger() );
-			if ( '' !== $normalized ) {
-				return $normalized;
-			}
-		}
-
-		return '';
+		return esc_html( $mode );
 	}
 
 	/**
@@ -669,7 +719,10 @@ class Onboarding_Wizard {
 			),
 		);
 
-		$preview_handle = self::get_handle_preview( $current_mode );
+		$preview_handles = self::get_handle_previews( $current_mode );
+		$preview_user    = $preview_handles['user'] ?? '';
+		$preview_blog    = $preview_handles['blog'] ?? '';
+		$preview_both    = 'actor_blog' === $current_mode && '' !== $preview_user && '' !== $preview_blog;
 
 		?>
 		<h1 class="fosse-wizard__title"><?php esc_html_e( 'How should your site appear?', 'fosse' ); ?></h1>
@@ -707,10 +760,26 @@ class Onboarding_Wizard {
 					<?php endforeach; ?>
 				</div>
 
-				<?php if ( $preview_handle ) : ?>
+				<?php if ( $preview_both ) : ?>
+					<div class="fosse-address-preview">
+						<div class="fosse-address-preview__row">
+							<span class="fosse-address-preview__label"><?php esc_html_e( 'As you:', 'fosse' ); ?></span>
+							<code class="fosse-address-preview__address"><?php echo esc_html( $preview_user ); ?></code>
+						</div>
+						<div class="fosse-address-preview__row">
+							<span class="fosse-address-preview__label"><?php esc_html_e( 'As your site:', 'fosse' ); ?></span>
+							<code class="fosse-address-preview__address"><?php echo esc_html( $preview_blog ); ?></code>
+						</div>
+					</div>
+				<?php elseif ( '' !== $preview_user ) : ?>
 					<div class="fosse-address-preview">
 						<span class="fosse-address-preview__label"><?php esc_html_e( 'Your fediverse address:', 'fosse' ); ?></span>
-						<code class="fosse-address-preview__address"><?php echo esc_html( $preview_handle ); ?></code>
+						<code class="fosse-address-preview__address"><?php echo esc_html( $preview_user ); ?></code>
+					</div>
+				<?php elseif ( '' !== $preview_blog ) : ?>
+					<div class="fosse-address-preview">
+						<span class="fosse-address-preview__label"><?php esc_html_e( 'Site fediverse address:', 'fosse' ); ?></span>
+						<code class="fosse-address-preview__address"><?php echo esc_html( $preview_blog ); ?></code>
 					</div>
 				<?php endif; ?>
 			</div>
@@ -922,19 +991,12 @@ class Onboarding_Wizard {
 
 		$actor_mode = get_option( 'activitypub_actor_mode', 'actor' );
 		$post_types = get_option( 'activitypub_support_post_types', array( 'post' ) );
-		$site_host  = wp_parse_url( home_url(), PHP_URL_HOST );
-		$site_url   = $site_host ? $site_host : 'yoursite.com';
 		$bluesky    = self::get_bluesky_status();
 
-		$mode_labels = array(
-			'actor'      => __( 'As you (author profiles)', 'fosse' ),
-			'blog'       => sprintf(
-				/* translators: %s: site domain */
-				__( 'As your site (%s)', 'fosse' ),
-				$site_url
-			),
-			'actor_blog' => __( 'Both (site + authors)', 'fosse' ),
-		);
+		$handles     = self::get_handle_previews( $actor_mode );
+		$user_handle = $handles['user'] ?? '';
+		$blog_handle = $handles['blog'] ?? '';
+		$mode_label  = self::format_mode_label( $actor_mode, $user_handle, $blog_handle );
 
 		$type_labels = array_map(
 			static function ( $pt_name ) {
@@ -970,7 +1032,17 @@ class Onboarding_Wizard {
 			<table class="fosse-summary">
 				<tr>
 					<td class="fosse-summary__label"><?php esc_html_e( 'Site appears as', 'fosse' ); ?></td>
-					<td class="fosse-summary__value"><?php echo esc_html( $mode_labels[ $actor_mode ] ?? $actor_mode ); ?></td>
+					<td class="fosse-summary__value">
+						<?php
+						echo wp_kses(
+							$mode_label,
+							array(
+								'code' => array(),
+								'br'   => array(),
+							)
+						);
+						?>
+					</td>
 				</tr>
 				<tr>
 					<td class="fosse-summary__label"><?php esc_html_e( 'Sharing', 'fosse' ); ?></td>

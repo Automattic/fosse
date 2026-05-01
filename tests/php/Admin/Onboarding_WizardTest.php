@@ -509,6 +509,44 @@ class Onboarding_WizardTest extends BaseTestCase {
 		$this->assertStringNotContainsString( 'Not connected', $output );
 	}
 
+	/**
+	 * In `actor_blog` mode, the completion screen shows both the user and
+	 * site fediverse handles instead of dropping them in favor of a bare
+	 * mode label. Stub `activitypub_user_can_activitypub` because WorDBless
+	 * doesn't fire AP's activation, so the admin lacks the
+	 * `activitypub` capability by default.
+	 */
+	public function test_complete_summary_shows_user_and_blog_handles_in_both_mode(): void {
+		Onboarding_Wizard::mark_complete();
+		update_option( 'activitypub_actor_mode', 'actor_blog' );
+
+		add_filter( 'activitypub_user_can_activitypub', '__return_true' );
+		$output = $this->render_wizard_step( 'complete' );
+		remove_filter( 'activitypub_user_can_activitypub', '__return_true' );
+
+		$this->assertStringContainsString( 'Both (site + authors)', $output );
+		$this->assertStringContainsString( 'As you:', $output );
+		$this->assertStringContainsString( 'As your site:', $output );
+		// Fediverse handle markup should be wrapped in <code>, not bare text.
+		$this->assertMatchesRegularExpression( '~As you:\s*<code>@[^<]+@[^<]+</code>~', $output );
+		$this->assertMatchesRegularExpression( '~As your site:\s*<code>@[^<]+@[^<]+</code>~', $output );
+	}
+
+	/**
+	 * In `blog` mode, the completion summary embeds the resolved blog
+	 * handle in the "As your site" line — fixing #60 where the line
+	 * previously dropped to the bare host.
+	 */
+	public function test_complete_summary_shows_blog_handle_in_blog_mode(): void {
+		Onboarding_Wizard::mark_complete();
+		update_option( 'activitypub_actor_mode', 'blog' );
+
+		$output = $this->render_wizard_step( 'complete' );
+
+		$this->assertStringContainsString( 'As your site', $output );
+		$this->assertMatchesRegularExpression( '~As your site \(<code>@[^<]+@[^<]+</code>\)~', $output );
+	}
+
 	// --- audit hook: handler cap/nonce failures (parameterized) ---
 
 	/**
