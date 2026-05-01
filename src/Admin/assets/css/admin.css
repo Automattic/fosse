@@ -509,6 +509,14 @@
 	margin-bottom: 16px;
 }
 
+/* On the Complete step, the description's narrower 560px max-width left it
+   visually offset from the title (700px) and summary card (also 700px).
+   Drop the narrower cap here so all three share the wizard's own
+   max-width and read as one centered column. */
+.fosse-wizard__complete-header .fosse-wizard__description {
+	max-width: none;
+}
+
 .fosse-complete-icon {
 	width: 64px;
 	height: 64px;
@@ -575,6 +583,14 @@
 
 .fosse-wizard__reset a:hover {
 	color: #1e1e1e;
+}
+
+/* WordPress's default `.button-hero` leaves anchor labels left-aligned, which
+   reads as off-center inside the wizard's wider hero CTAs. Force the label to
+   center within the button so it sits visually balanced with the surrounding
+   centered layout. */
+.fosse-wizard .button-hero {
+	text-align: center;
 }
 
 /* Completion publish CTA */

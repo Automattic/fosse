@@ -442,44 +442,29 @@ class Onboarding_Wizard {
 		switch ( $mode ) {
 			case 'actor':
 				if ( '' !== $user_handle ) {
-					return sprintf(
-						/* translators: %s: HTML <code> element wrapping a fediverse handle in @user@host form. */
-						esc_html__( 'As you (%s)', 'fosse' ),
-						'<code>' . esc_html( $user_handle ) . '</code>'
-					);
+					return esc_html__( 'As you', 'fosse' )
+						. '<br /><code>' . esc_html( $user_handle ) . '</code>';
 				}
 				return esc_html__( 'As you (author profiles)', 'fosse' );
 
 			case 'blog':
 				if ( '' !== $blog_handle ) {
-					return sprintf(
-						/* translators: %s: HTML <code> element wrapping a fediverse handle in @user@host form. */
-						esc_html__( 'As your site (%s)', 'fosse' ),
-						'<code>' . esc_html( $blog_handle ) . '</code>'
-					);
+					return esc_html__( 'As your site', 'fosse' )
+						. '<br /><code>' . esc_html( $blog_handle ) . '</code>';
 				}
 				$site_host = wp_parse_url( home_url(), PHP_URL_HOST );
-				return sprintf(
-					/* translators: %s: site domain. */
-					esc_html__( 'As your site (%s)', 'fosse' ),
-					esc_html( $site_host ? $site_host : 'yoursite.com' )
-				);
+				return esc_html__( 'As your site', 'fosse' )
+					. '<br /><code>' . esc_html( $site_host ? $site_host : 'yoursite.com' ) . '</code>';
 
 			case 'actor_blog':
 				$lines = array( esc_html__( 'Both (site + authors)', 'fosse' ) );
 				if ( '' !== $user_handle ) {
-					$lines[] = sprintf(
-						/* translators: %s: HTML <code> element wrapping a fediverse handle in @user@host form. */
-						esc_html__( 'As you: %s', 'fosse' ),
-						'<code>' . esc_html( $user_handle ) . '</code>'
-					);
+					$lines[] = esc_html__( 'As you:', 'fosse' )
+						. '<br /><code>' . esc_html( $user_handle ) . '</code>';
 				}
 				if ( '' !== $blog_handle ) {
-					$lines[] = sprintf(
-						/* translators: %s: HTML <code> element wrapping a fediverse handle in @user@host form. */
-						esc_html__( 'As your site: %s', 'fosse' ),
-						'<code>' . esc_html( $blog_handle ) . '</code>'
-					);
+					$lines[] = esc_html__( 'As your site:', 'fosse' )
+						. '<br /><code>' . esc_html( $blog_handle ) . '</code>';
 				}
 				return implode( '<br />', $lines );
 		}
@@ -972,7 +957,26 @@ class Onboarding_Wizard {
 			<?php echo esc_html( $description ); ?>
 		</p>
 
-		<?php settings_errors( 'atmosphere' ); ?>
+		<?php
+		// Atmosphere posts a settings_error after every OAuth round-trip — a
+		// "Successfully connected" success notice on the happy path, and an
+		// error notice on failure. The wizard's in-card connected state
+		// already speaks for the success case, so rendering the top success
+		// notice would double-up the confirmation. Surface only error/warning
+		// here so a failed connect doesn't go silent on the Bluesky step.
+		foreach ( get_settings_errors( 'atmosphere' ) as $atmosphere_notice ) {
+			$notice_type = isset( $atmosphere_notice['type'] ) ? (string) $atmosphere_notice['type'] : 'error';
+			if ( in_array( $notice_type, array( 'success', 'updated', 'info' ), true ) ) {
+				continue;
+			}
+
+			printf(
+				'<div class="notice notice-%1$s inline"><p>%2$s</p></div>',
+				esc_attr( $notice_type ),
+				esc_html( isset( $atmosphere_notice['message'] ) ? (string) $atmosphere_notice['message'] : '' )
+			);
+		}
+		?>
 
 		<div class="fosse-wizard__card">
 			<?php if ( ! $status['available'] ) : ?>
