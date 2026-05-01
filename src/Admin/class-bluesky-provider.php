@@ -160,6 +160,18 @@ class Bluesky_Provider implements Connection_Provider {
 									placeholder="alice.bsky.social"
 								/>
 								<p class="description"><?php esc_html_e( 'Your AT Protocol handle, e.g. alice.bsky.social or your own domain.', 'fosse' ); ?></p>
+								<p class="description fosse-bluesky-signup">
+									<?php
+									echo wp_kses_post(
+										sprintf(
+											/* translators: 1: opening anchor tag, 2: closing anchor tag */
+											__( 'Need a Bluesky account? %1$sCreate one at bsky.app%2$s, then come back here to connect.', 'fosse' ),
+											'<a href="' . esc_url( 'https://bsky.app/' ) . '" target="_blank" rel="noopener noreferrer" class="fosse-bluesky-signup__link">',
+											'</a>'
+										)
+									);
+									?>
+								</p>
 							</td>
 						</tr>
 					</table>

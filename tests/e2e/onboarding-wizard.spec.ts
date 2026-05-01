@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { resetBlueskyState, setBlueskyState } from './test-helpers';
 
 test( 'Wizard page loads without errors', async ( { page } ) => {
 	const response = await page.goto( '/wp-admin/admin.php?page=fosse-wizard' );
@@ -96,6 +97,71 @@ test( 'Bluesky step shows connect form', async ( { page } ) => {
 	await expect( page.locator( 'text=Coming Soon' ) ).toHaveCount( 0 );
 } );
 
+test( 'Bluesky step (disconnected) shows sign-up help linking to bsky.app', async ( {
+	page,
+} ) => {
+	await page.goto( '/wp-admin/admin.php?page=fosse-wizard&step=bluesky' );
+
+	const signupLink = page.locator(
+		'.fosse-bluesky-signup a[href="https://bsky.app/"]'
+	);
+	await expect( signupLink ).toBeVisible();
+	await expect( signupLink ).toHaveAttribute( 'target', '_blank' );
+	await expect( signupLink ).toHaveAttribute( 'rel', /noopener/ );
+} );
+
+test.describe( 'Bluesky step — connected (post-OAuth completion)', () => {
+	// Reset to disconnected so this group's seeded connection cannot bleed
+	// into the sibling specs that assume the disconnected default.
+	test.afterAll( async ( { browser }, testInfo ) => {
+		const baseURL = testInfo.project.use.baseURL;
+		if ( ! baseURL ) {
+			throw new Error(
+				'baseURL must be configured in playwright.config.ts'
+			);
+		}
+		await resetBlueskyState( browser, baseURL );
+	} );
+
+	test.beforeEach( async ( { page } ) => {
+		await page.goto( '/wp-admin/post-new.php' );
+		await page.waitForFunction(
+			() => !! ( window as any ).wpApiSettings?.nonce
+		);
+		await setBlueskyState( page, {
+			connected: true,
+			handle: 'alice.bsky.social',
+			did: 'did:plc:alice123',
+			pds_endpoint: 'https://bsky.social',
+			auto_publish: true,
+		} );
+	} );
+
+	test( 'connected state suppresses "connect later" copy and shows summary', async ( {
+		page,
+	} ) => {
+		await page.goto( '/wp-admin/admin.php?page=fosse-wizard&step=bluesky' );
+
+		await expect(
+			page.locator( '.fosse-wizard__title', {
+				hasText: 'Bluesky is connected',
+			} )
+		).toBeVisible();
+		await expect(
+			page.locator( '.fosse-wizard__description' )
+		).not.toContainText( 'connect later' );
+		await expect( page.locator( '.fosse-summary' ) ).toContainText(
+			'alice.bsky.social'
+		);
+		await expect( page.locator( '.fosse-bluesky-signup' ) ).toHaveCount(
+			0
+		);
+		await expect(
+			page.getByRole( 'link', { name: 'Finish setup' } )
+		).toBeVisible();
+	} );
+} );
+
 test( 'Skip for now on Bluesky step goes to completion', async ( { page } ) => {
 	await page.goto( '/wp-admin/admin.php?page=fosse-wizard&step=bluesky' );
 
@@ -117,6 +183,20 @@ test( 'Completion step shows summary', async ( { page } ) => {
 	await expect(
 		page.locator( '.fosse-summary__label', { hasText: 'Bluesky' } )
 	).toBeVisible();
+} );
+
+test( 'Completion step exposes "Publish your first Post" CTA to post-new.php', async ( {
+	page,
+} ) => {
+	await page.goto( '/wp-admin/admin.php?page=fosse-wizard&step=complete' );
+
+	const publishCta = page.locator( '.fosse-wizard__cta-publish' );
+	await expect( publishCta ).toBeVisible();
+	// Capitalization mirrors the post type's `singular_name` ("Post") so
+	// the assertion matches the PHP-side behavior — see PHPUnit
+	// `test_render_complete_step_renders_publish_cta`.
+	await expect( publishCta ).toContainText( 'Publish your first Post' );
+	await expect( publishCta ).toHaveAttribute( 'href', /post-new\.php$/ );
 } );
 
 // Activation-redirect coverage lives in PHPUnit (MenuTest). The E2E

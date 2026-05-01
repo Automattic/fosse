@@ -576,3 +576,24 @@
 .fosse-wizard__reset a:hover {
 	color: #1e1e1e;
 }
+
+/* Completion publish CTA */
+.fosse-wizard__cta-publish {
+	min-width: 240px;
+}
+
+.fosse-wizard__cta-help {
+	text-align: center;
+	margin: 8px 0 16px;
+	font-size: 13px;
+	color: #50575e;
+}
+
+.fosse-wizard__actions--secondary {
+	margin-top: 8px;
+}
+
+/* Bluesky signup affordance */
+.fosse-bluesky-signup__link {
+	font-weight: 500;
+}

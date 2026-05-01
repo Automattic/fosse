@@ -26,6 +26,16 @@ class Menu {
 		add_action( 'admin_bar_menu', array( static::class, 'hide_bundled_admin_bar' ), 101 );
 		add_action( 'admin_enqueue_scripts', array( static::class, 'enqueue_styles' ) );
 		add_action( 'admin_init', array( static::class, 'maybe_redirect_to_wizard' ) );
+		// Suppress at two stages so plugins can't bypass us by registering
+		// notices in hooks that fire between current_screen and the notice
+		// hooks themselves. current_screen strips the typical case where
+		// notices are registered at admin_init or plugin load. in_admin_header
+		// fires immediately before the four notice hooks, catching anything
+		// re-added by admin_head, admin_enqueue_scripts, admin_print_scripts,
+		// or admin_print_styles handlers. PHP_INT_MAX on both so we run after
+		// every same-hook callback a plugin could register at normal priority.
+		add_action( 'current_screen', array( static::class, 'maybe_suppress_admin_notices' ), PHP_INT_MAX );
+		add_action( 'in_admin_header', array( static::class, 'maybe_suppress_admin_notices_late' ), PHP_INT_MAX );
 
 		Onboarding_Wizard::register();
 	}
@@ -212,6 +222,76 @@ class Menu {
 			plugins_url( 'src/Admin/assets/css/admin.css', dirname( __DIR__, 2 ) . '/fosse.php' ),
 			array(),
 			filemtime( __DIR__ . '/assets/css/admin.css' )
+		);
+	}
+
+	/**
+	 * Suppress foreign admin notices on FOSSE Setup and Wizard screens.
+	 *
+	 * The wizard and Setup page are focused flows; third-party notices
+	 * (host banners, plugin upsells, "rate this plugin" prompts) inject
+	 * themselves into the wizard surface and break the orientation.
+	 * Strip the four core notice hooks on those screens only — the Status
+	 * page is exempt because it's a long-lived dashboard where foreign
+	 * notices are more legitimate.
+	 *
+	 * FOSSE's own messaging is unaffected: `settings_errors()` is rendered
+	 * by direct calls in our templates, not via the `admin_notices` hook,
+	 * so removing every callback here doesn't drop FOSSE notices.
+	 *
+	 * @param \WP_Screen $screen Current admin screen.
+	 * @return void
+	 */
+	public static function maybe_suppress_admin_notices( \WP_Screen $screen ): void {
+		if ( ! self::is_fosse_setup_or_wizard_screen( $screen ) ) {
+			return;
+		}
+
+		remove_all_actions( 'admin_notices' );
+		remove_all_actions( 'all_admin_notices' );
+		remove_all_actions( 'network_admin_notices' );
+		remove_all_actions( 'user_admin_notices' );
+	}
+
+	/**
+	 * Late-stage notice suppression bound to `in_admin_header`.
+	 *
+	 * Catches notice callbacks that other plugins added between
+	 * `current_screen` and the notice hooks themselves — typically via
+	 * `admin_head`, `admin_print_scripts`, or `admin_enqueue_scripts`
+	 * handlers. Defers to {@see self::maybe_suppress_admin_notices()} once
+	 * the current screen is resolved via `get_current_screen()`, since
+	 * `in_admin_header` doesn't pass the screen object as an argument.
+	 *
+	 * No-op when no screen is set (defensive — `in_admin_header` only
+	 * fires inside the admin header where the screen should be initialized).
+	 *
+	 * @return void
+	 */
+	public static function maybe_suppress_admin_notices_late(): void {
+		$screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
+		if ( ! $screen instanceof \WP_Screen ) {
+			return;
+		}
+
+		self::maybe_suppress_admin_notices( $screen );
+	}
+
+	/**
+	 * Whether the given screen is the FOSSE Setup page or Setup Wizard.
+	 *
+	 * Centralized so the suppression list and any future callers (e.g.
+	 * conditional asset enqueues) stay in sync. Status is excluded by
+	 * design — see {@see self::maybe_suppress_admin_notices()}.
+	 *
+	 * @param \WP_Screen $screen Current admin screen.
+	 * @return bool
+	 */
+	private static function is_fosse_setup_or_wizard_screen( \WP_Screen $screen ): bool {
+		return in_array(
+			$screen->id,
+			array( 'toplevel_page_fosse', 'admin_page_fosse-wizard' ),
+			true
 		);
 	}
 }

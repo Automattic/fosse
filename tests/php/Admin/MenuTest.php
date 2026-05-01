@@ -21,6 +21,18 @@ use WorDBless\BaseTestCase;
 class MenuTest extends BaseTestCase {
 
 	/**
+	 * Notice-canary callbacks registered by the current test.
+	 *
+	 * Tracked by reference so `tear_down_state()` can remove only the
+	 * callbacks this test added, instead of `remove_all_actions()` on
+	 * the four core notice hooks (which would also drop legitimate
+	 * WordPress core callbacks for the rest of the PHPUnit process).
+	 *
+	 * @var array<string, callable>
+	 */
+	private array $canary_callbacks = array();
+
+	/**
 	 * Reset state before each test.
 	 *
 	 * @before
@@ -51,6 +63,13 @@ class MenuTest extends BaseTestCase {
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- test cleanup.
 		$_GET = array();
 		remove_all_filters( 'wp_redirect' );
+
+		// Drop only the canary callbacks this test registered, leaving any
+		// WordPress core hooks intact so later tests aren't order-dependent.
+		foreach ( $this->canary_callbacks as $hook => $callback ) {
+			remove_action( $hook, $callback );
+		}
+		$this->canary_callbacks = array();
 
 		// Restore the AP registration so a test that called
 		// Connection_Provider_Registry::reset() doesn't leave the next
@@ -217,6 +236,175 @@ class MenuTest extends BaseTestCase {
 		$this->assertFalse( $this->redirect_fired() );
 		$this->assertFalse( get_transient( Onboarding_Wizard::REDIRECT_TRANSIENT ) );
 		$this->assertNotFalse( get_option( Onboarding_Wizard::REDIRECT_OPTION ) );
+	}
+
+	// --- notice suppression (#56) ---
+
+	/**
+	 * Foreign admin notice callbacks are stripped on the FOSSE Setup screen.
+	 *
+	 * Covers the four core notice hooks WordPress fires during admin header
+	 * rendering. The wizard / Setup page are focused flows; foreign notices
+	 * (host banners, plugin upsells) break the orientation.
+	 */
+	public function test_suppresses_admin_notices_on_setup_screen(): void {
+		$fired = array();
+		$this->register_notice_canaries( $fired );
+
+		Menu::maybe_suppress_admin_notices( $this->fake_screen( 'toplevel_page_fosse' ) );
+
+		do_action( 'admin_notices' );
+		do_action( 'all_admin_notices' );
+		do_action( 'network_admin_notices' );
+		do_action( 'user_admin_notices' );
+
+		$this->assertSame( array(), $fired, 'Foreign notices should be suppressed on the Setup screen.' );
+	}
+
+	/**
+	 * Same suppression on the Setup Wizard screen — the original incident
+	 * (Jurassic Ninja credentials banner) was on the wizard, not Setup.
+	 */
+	public function test_suppresses_admin_notices_on_wizard_screen(): void {
+		$fired = array();
+		$this->register_notice_canaries( $fired );
+
+		Menu::maybe_suppress_admin_notices( $this->fake_screen( 'admin_page_fosse-wizard' ) );
+
+		do_action( 'admin_notices' );
+		do_action( 'all_admin_notices' );
+		do_action( 'network_admin_notices' );
+		do_action( 'user_admin_notices' );
+
+		$this->assertSame( array(), $fired, 'Foreign notices should be suppressed on the Wizard screen.' );
+	}
+
+	/**
+	 * Suppression is scoped to Setup + Wizard. The Status page is a
+	 * long-lived dashboard; foreign notices are more legitimate there
+	 * and stripping them would risk masking real cross-plugin signal.
+	 */
+	public function test_does_not_suppress_admin_notices_on_status_screen(): void {
+		$fired = array();
+		$this->register_notice_canaries( $fired );
+
+		Menu::maybe_suppress_admin_notices( $this->fake_screen( 'fosse_page_fosse-status' ) );
+
+		do_action( 'admin_notices' );
+		do_action( 'all_admin_notices' );
+		do_action( 'network_admin_notices' );
+		do_action( 'user_admin_notices' );
+
+		$this->assertSame(
+			array( 'admin_notices', 'all_admin_notices', 'network_admin_notices', 'user_admin_notices' ),
+			$fired,
+			'Status screen must preserve foreign notices.'
+		);
+	}
+
+	/**
+	 * Non-FOSSE screens (Dashboard, Plugins, etc.) are untouched. The
+	 * suppression is opt-in: a stray Menu callback must not affect the
+	 * rest of wp-admin.
+	 */
+	public function test_does_not_suppress_admin_notices_on_unrelated_screen(): void {
+		$fired = array();
+		$this->register_notice_canaries( $fired );
+
+		Menu::maybe_suppress_admin_notices( $this->fake_screen( 'dashboard' ) );
+
+		do_action( 'admin_notices' );
+
+		$this->assertContains( 'admin_notices', $fired, 'Unrelated screens must keep their notices.' );
+	}
+
+	/**
+	 * Late-stage suppression strips notices that other plugins added
+	 * between `current_screen` and the actual notice hooks (e.g. via
+	 * `admin_head` or `admin_enqueue_scripts`). Mirrors the
+	 * `current_screen` test but exercises the `in_admin_header`-bound
+	 * `maybe_suppress_admin_notices_late()` wrapper.
+	 */
+	public function test_late_suppression_strips_admin_head_added_notices(): void {
+		set_current_screen( 'toplevel_page_fosse' );
+		$current = get_current_screen();
+		if ( $current instanceof \WP_Screen ) {
+			$current->id = 'toplevel_page_fosse';
+		}
+
+		$fired = array();
+		$this->register_notice_canaries( $fired );
+
+		Menu::maybe_suppress_admin_notices_late();
+
+		do_action( 'admin_notices' );
+		do_action( 'all_admin_notices' );
+		do_action( 'network_admin_notices' );
+		do_action( 'user_admin_notices' );
+
+		$this->assertSame( array(), $fired, 'Late-stage suppression must strip notices added after current_screen.' );
+	}
+
+	/**
+	 * Late-stage suppression no-ops on unrelated screens — same scoping
+	 * guarantees as the `current_screen`-bound stage.
+	 */
+	public function test_late_suppression_skips_unrelated_screen(): void {
+		set_current_screen( 'dashboard' );
+		$current = get_current_screen();
+		if ( $current instanceof \WP_Screen ) {
+			$current->id = 'dashboard';
+		}
+
+		$fired = array();
+		$this->register_notice_canaries( $fired );
+
+		Menu::maybe_suppress_admin_notices_late();
+
+		do_action( 'admin_notices' );
+
+		$this->assertContains( 'admin_notices', $fired, 'Late-stage suppression must not affect unrelated screens.' );
+	}
+
+	/**
+	 * Register one canary callback per notice hook so the suppression
+	 * tests can observe which hooks still fire.
+	 *
+	 * Each closure is captured on the test instance via
+	 * {@see self::$canary_callbacks} so `tear_down_state()` can remove
+	 * exactly these callbacks (and only these) — instead of nuking every
+	 * registered handler on the four notice hooks, which would also drop
+	 * legitimate core callbacks.
+	 *
+	 * @param array<int, string> $fired Bucket to populate, indexed by hook name.
+	 * @return void
+	 */
+	private function register_notice_canaries( array &$fired ): void {
+		foreach ( array( 'admin_notices', 'all_admin_notices', 'network_admin_notices', 'user_admin_notices' ) as $hook ) {
+			$callback                        = static function () use ( $hook, &$fired ): void {
+				$fired[] = $hook;
+			};
+			$this->canary_callbacks[ $hook ] = $callback;
+			add_action( $hook, $callback );
+		}
+	}
+
+	/**
+	 * Build a fresh WP_Screen object with the given id.
+	 *
+	 * `WP_Screen::get()` caches by source hook name, so a unique seed
+	 * yields a brand-new object per call — preventing one test's id
+	 * mutation from leaking into another. The suppression method only
+	 * reads `$screen->id`, so the rest of the fields can stay as the
+	 * factory default.
+	 *
+	 * @param string $id Screen id to assign.
+	 * @return \WP_Screen
+	 */
+	private function fake_screen( string $id ): \WP_Screen {
+		$screen     = \WP_Screen::get( 'fosse-test-' . uniqid( '', true ) );
+		$screen->id = $id;
+		return $screen;
 	}
 
 	// --- helpers ---
