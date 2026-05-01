@@ -26,10 +26,16 @@ class Menu {
 		add_action( 'admin_bar_menu', array( static::class, 'hide_bundled_admin_bar' ), 101 );
 		add_action( 'admin_enqueue_scripts', array( static::class, 'enqueue_styles' ) );
 		add_action( 'admin_init', array( static::class, 'maybe_redirect_to_wizard' ) );
-		// PHP_INT_MAX so any plugin that registers an admin_notices callback
-		// from inside its own current_screen handler (regardless of priority)
-		// is still stripped before WP fires the notice hooks.
+		// Suppress at two stages so plugins can't bypass us by registering
+		// notices in hooks that fire between current_screen and the notice
+		// hooks themselves. current_screen strips the typical case where
+		// notices are registered at admin_init or plugin load. in_admin_header
+		// fires immediately before the four notice hooks, catching anything
+		// re-added by admin_head, admin_enqueue_scripts, admin_print_scripts,
+		// or admin_print_styles handlers. PHP_INT_MAX on both so we run after
+		// every same-hook callback a plugin could register at normal priority.
 		add_action( 'current_screen', array( static::class, 'maybe_suppress_admin_notices' ), PHP_INT_MAX );
+		add_action( 'in_admin_header', array( static::class, 'maybe_suppress_admin_notices_late' ), PHP_INT_MAX );
 
 		Onboarding_Wizard::register();
 	}
@@ -245,6 +251,30 @@ class Menu {
 		remove_all_actions( 'all_admin_notices' );
 		remove_all_actions( 'network_admin_notices' );
 		remove_all_actions( 'user_admin_notices' );
+	}
+
+	/**
+	 * Late-stage notice suppression bound to `in_admin_header`.
+	 *
+	 * Catches notice callbacks that other plugins added between
+	 * `current_screen` and the notice hooks themselves — typically via
+	 * `admin_head`, `admin_print_scripts`, or `admin_enqueue_scripts`
+	 * handlers. Defers to {@see self::maybe_suppress_admin_notices()} once
+	 * the current screen is resolved via `get_current_screen()`, since
+	 * `in_admin_header` doesn't pass the screen object as an argument.
+	 *
+	 * No-op when no screen is set (defensive — `in_admin_header` only
+	 * fires inside the admin header where the screen should be initialized).
+	 *
+	 * @return void
+	 */
+	public static function maybe_suppress_admin_notices_late(): void {
+		$screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
+		if ( ! $screen instanceof \WP_Screen ) {
+			return;
+		}
+
+		self::maybe_suppress_admin_notices( $screen );
 	}
 
 	/**

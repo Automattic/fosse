@@ -309,6 +309,54 @@ class MenuTest extends BaseTestCase {
 	}
 
 	/**
+	 * Late-stage suppression strips notices that other plugins added
+	 * between `current_screen` and the actual notice hooks (e.g. via
+	 * `admin_head` or `admin_enqueue_scripts`). Mirrors the
+	 * `current_screen` test but exercises the `in_admin_header`-bound
+	 * `maybe_suppress_admin_notices_late()` wrapper.
+	 */
+	public function test_late_suppression_strips_admin_head_added_notices(): void {
+		set_current_screen( 'toplevel_page_fosse' );
+		$current = get_current_screen();
+		if ( $current instanceof \WP_Screen ) {
+			$current->id = 'toplevel_page_fosse';
+		}
+
+		$fired = array();
+		$this->register_notice_canaries( $fired );
+
+		Menu::maybe_suppress_admin_notices_late();
+
+		do_action( 'admin_notices' );
+		do_action( 'all_admin_notices' );
+		do_action( 'network_admin_notices' );
+		do_action( 'user_admin_notices' );
+
+		$this->assertSame( array(), $fired, 'Late-stage suppression must strip notices added after current_screen.' );
+	}
+
+	/**
+	 * Late-stage suppression no-ops on unrelated screens — same scoping
+	 * guarantees as the `current_screen`-bound stage.
+	 */
+	public function test_late_suppression_skips_unrelated_screen(): void {
+		set_current_screen( 'dashboard' );
+		$current = get_current_screen();
+		if ( $current instanceof \WP_Screen ) {
+			$current->id = 'dashboard';
+		}
+
+		$fired = array();
+		$this->register_notice_canaries( $fired );
+
+		Menu::maybe_suppress_admin_notices_late();
+
+		do_action( 'admin_notices' );
+
+		$this->assertContains( 'admin_notices', $fired, 'Late-stage suppression must not affect unrelated screens.' );
+	}
+
+	/**
 	 * Register one canary callback per notice hook so the suppression
 	 * tests can observe which hooks still fire.
 	 *
