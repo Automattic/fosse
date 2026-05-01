@@ -873,18 +873,33 @@ class Onboarding_Wizard {
 	 *
 	 * Three states drive the rendered markup:
 	 *  - Unavailable (provider not registered or not is_available): info notice.
-	 *  - Connected: account summary table.
-	 *  - Disconnected: OAuth-start form posting to admin-post.php.
+	 *  - Connected: confirmation summary including the resolved fediverse identity.
+	 *  - Disconnected: OAuth-start form posting to admin-post.php, with a sign-up affordance.
 	 *
 	 * @return void
 	 */
 	private static function render_step_bluesky(): void {
 		self::render_progress( 'bluesky' );
 		$status = self::get_bluesky_status();
+
+		// When the OAuth handoff has already completed, the user is on the
+		// post-connect view. Suppress the "you can connect later" copy so it
+		// doesn't contradict the success state they're looking at.
+		$is_connected = (bool) $status['connected'];
+
+		$title = $is_connected
+			? __( 'Bluesky is connected', 'fosse' )
+			: __( 'Connect to Bluesky', 'fosse' );
+
+		$description = $is_connected
+			? __( 'Your posts will also appear on Bluesky. Review the details below before finishing setup.', 'fosse' )
+			: __( 'Link your Bluesky account so your posts also appear on Bluesky. This step is optional. You can always connect later from the FOSSE Setup page.', 'fosse' );
+
+		$handle_previews = self::get_handle_previews( get_option( 'activitypub_actor_mode', 'actor' ) );
 		?>
-		<h1 class="fosse-wizard__title"><?php esc_html_e( 'Connect to Bluesky', 'fosse' ); ?></h1>
+		<h1 class="fosse-wizard__title"><?php echo esc_html( $title ); ?></h1>
 		<p class="fosse-wizard__description">
-			<?php esc_html_e( 'Link your Bluesky account so your posts also appear on Bluesky. This step is optional. You can always connect later from the FOSSE Setup page.', 'fosse' ); ?>
+			<?php echo esc_html( $description ); ?>
 		</p>
 
 		<?php settings_errors( 'atmosphere' ); ?>
@@ -897,7 +912,7 @@ class Onboarding_Wizard {
 						<?php esc_html_e( 'Skip this step for now and connect from the FOSSE Setup page once Bluesky support is available.', 'fosse' ); ?>
 					</p>
 				</div>
-			<?php elseif ( $status['connected'] ) : ?>
+			<?php elseif ( $is_connected ) : ?>
 				<div class="notice notice-success inline fosse-wizard__notice">
 					<p>
 						<strong><?php esc_html_e( 'Bluesky is connected.', 'fosse' ); ?></strong>
@@ -922,6 +937,18 @@ class Onboarding_Wizard {
 						<td class="fosse-summary__label"><?php esc_html_e( 'Auto Publish', 'fosse' ); ?></td>
 						<td class="fosse-summary__value"><?php echo esc_html( $status['auto_publish'] ? __( 'Enabled', 'fosse' ) : __( 'Disabled', 'fosse' ) ); ?></td>
 					</tr>
+					<?php if ( ! empty( $handle_previews['user'] ) ) : ?>
+						<tr>
+							<td class="fosse-summary__label"><?php esc_html_e( 'Your fediverse address', 'fosse' ); ?></td>
+							<td class="fosse-summary__value"><code><?php echo esc_html( $handle_previews['user'] ); ?></code></td>
+						</tr>
+					<?php endif; ?>
+					<?php if ( ! empty( $handle_previews['blog'] ) ) : ?>
+						<tr>
+							<td class="fosse-summary__label"><?php esc_html_e( 'Site fediverse address', 'fosse' ); ?></td>
+							<td class="fosse-summary__value"><code><?php echo esc_html( $handle_previews['blog'] ); ?></code></td>
+						</tr>
+					<?php endif; ?>
 				</table>
 			<?php else : ?>
 				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
@@ -946,6 +973,21 @@ class Onboarding_Wizard {
 					</div>
 				</form>
 
+				<div class="fosse-wizard__hint fosse-bluesky-signup">
+					<p>
+						<?php
+						echo wp_kses_post(
+							sprintf(
+								/* translators: 1: opening anchor tag, 2: closing anchor tag */
+								__( 'Need a Bluesky account? %1$sCreate one at bsky.app%2$s, then come back to finish connecting.', 'fosse' ),
+								'<a href="' . esc_url( 'https://bsky.app/' ) . '" target="_blank" rel="noopener noreferrer" class="fosse-bluesky-signup__link">',
+								'</a>'
+							)
+						);
+						?>
+					</p>
+				</div>
+
 				<div class="fosse-wizard__hint">
 					<p>
 						<?php
@@ -969,7 +1011,7 @@ class Onboarding_Wizard {
 			</a>
 			<div class="fosse-wizard__actions-primary">
 				<a href="<?php echo esc_url( wp_nonce_url( admin_url( 'admin-post.php?action=fosse_wizard_complete' ), 'fosse_wizard_complete' ) ); ?>" class="button button-primary">
-					<?php echo esc_html( $status['connected'] ? __( 'Finish setup', 'fosse' ) : __( 'Skip for now', 'fosse' ) ); ?>
+					<?php echo esc_html( $is_connected ? __( 'Finish setup', 'fosse' ) : __( 'Skip for now', 'fosse' ) ); ?>
 				</a>
 			</div>
 		</div>
@@ -1060,7 +1102,17 @@ class Onboarding_Wizard {
 		</div>
 
 		<div class="fosse-wizard__actions fosse-wizard__actions--center">
-			<a href="<?php echo esc_url( admin_url( 'admin.php?page=fosse-status' ) ); ?>" class="button button-primary">
+			<a href="<?php echo esc_url( admin_url( 'post-new.php' ) ); ?>" class="button button-primary button-hero fosse-wizard__cta-publish">
+				<?php esc_html_e( 'Publish your first post', 'fosse' ); ?>
+			</a>
+		</div>
+
+		<p class="fosse-wizard__cta-help">
+			<?php esc_html_e( 'Your post will reach followers across the social web — Mastodon, other ActivityPub apps, and Bluesky if connected.', 'fosse' ); ?>
+		</p>
+
+		<div class="fosse-wizard__actions fosse-wizard__actions--center fosse-wizard__actions--secondary">
+			<a href="<?php echo esc_url( admin_url( 'admin.php?page=fosse-status' ) ); ?>" class="button">
 				<?php esc_html_e( 'View Status Dashboard', 'fosse' ); ?>
 			</a>
 			<a href="<?php echo esc_url( admin_url( 'admin.php?page=fosse' ) ); ?>" class="button">

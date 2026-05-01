@@ -237,6 +237,43 @@ class Bluesky_ProviderTest extends BaseTestCase {
 	}
 
 	/**
+	 * Disconnected setup UI links out to bsky.app so users without an
+	 * account aren't dead-ended at the connect form.
+	 */
+	public function test_render_setup_section_disconnected_links_to_bluesky_signup() {
+		ob_start();
+		$this->provider->render_setup_section();
+		$output = ob_get_clean();
+
+		$this->assertStringContainsString( 'fosse-bluesky-signup', $output );
+		$this->assertStringContainsString( 'https://bsky.app/', $output );
+		$this->assertStringContainsString( 'Need a Bluesky account', $output );
+	}
+
+	/**
+	 * Connected setup UI omits the sign-up affordance — the user already
+	 * has an account, so prompting to create one is noise.
+	 */
+	public function test_render_setup_section_connected_omits_signup_link() {
+		update_option(
+			'atmosphere_connection',
+			array(
+				'did'          => 'did:plc:test123',
+				'handle'       => 'alice.bsky.social',
+				'pds_endpoint' => 'https://bsky.social',
+				'access_token' => Encryption::encrypt( 'token' ),
+			)
+		);
+
+		ob_start();
+		$this->provider->render_setup_section();
+		$output = ob_get_clean();
+
+		$this->assertStringNotContainsString( 'fosse-bluesky-signup', $output );
+		$this->assertStringNotContainsString( 'https://bsky.app/', $output );
+	}
+
+	/**
 	 * Status card surfaces the reconnect UI and a details element with the
 	 * raw error when the stored access token can't be decrypted.
 	 */

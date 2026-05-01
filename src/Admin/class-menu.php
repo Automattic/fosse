@@ -26,6 +26,7 @@ class Menu {
 		add_action( 'admin_bar_menu', array( static::class, 'hide_bundled_admin_bar' ), 101 );
 		add_action( 'admin_enqueue_scripts', array( static::class, 'enqueue_styles' ) );
 		add_action( 'admin_init', array( static::class, 'maybe_redirect_to_wizard' ) );
+		add_action( 'current_screen', array( static::class, 'maybe_suppress_admin_notices' ) );
 
 		Onboarding_Wizard::register();
 	}
@@ -212,6 +213,52 @@ class Menu {
 			plugins_url( 'src/Admin/assets/css/admin.css', dirname( __DIR__, 2 ) . '/fosse.php' ),
 			array(),
 			filemtime( __DIR__ . '/assets/css/admin.css' )
+		);
+	}
+
+	/**
+	 * Suppress foreign admin notices on FOSSE Setup and Wizard screens.
+	 *
+	 * The wizard and Setup page are focused flows; third-party notices
+	 * (host banners, plugin upsells, "rate this plugin" prompts) inject
+	 * themselves into the wizard surface and break the orientation.
+	 * Strip the four core notice hooks on those screens only — the Status
+	 * page is exempt because it's a long-lived dashboard where foreign
+	 * notices are more legitimate.
+	 *
+	 * FOSSE's own messaging is unaffected: `settings_errors()` is rendered
+	 * by direct calls in our templates, not via the `admin_notices` hook,
+	 * so removing every callback here doesn't drop FOSSE notices.
+	 *
+	 * @param \WP_Screen $screen Current admin screen.
+	 * @return void
+	 */
+	public static function maybe_suppress_admin_notices( \WP_Screen $screen ): void {
+		if ( ! self::is_fosse_setup_or_wizard_screen( $screen ) ) {
+			return;
+		}
+
+		remove_all_actions( 'admin_notices' );
+		remove_all_actions( 'all_admin_notices' );
+		remove_all_actions( 'network_admin_notices' );
+		remove_all_actions( 'user_admin_notices' );
+	}
+
+	/**
+	 * Whether the given screen is the FOSSE Setup page or Setup Wizard.
+	 *
+	 * Centralized so the suppression list and any future callers (e.g.
+	 * conditional asset enqueues) stay in sync. Status is excluded by
+	 * design — see {@see self::maybe_suppress_admin_notices()}.
+	 *
+	 * @param \WP_Screen $screen Current admin screen.
+	 * @return bool
+	 */
+	private static function is_fosse_setup_or_wizard_screen( \WP_Screen $screen ): bool {
+		return in_array(
+			$screen->id,
+			array( 'toplevel_page_fosse', 'admin_page_fosse-wizard' ),
+			true
 		);
 	}
 }

@@ -219,6 +219,122 @@ class MenuTest extends BaseTestCase {
 		$this->assertNotFalse( get_option( Onboarding_Wizard::REDIRECT_OPTION ) );
 	}
 
+	// --- notice suppression (#56) ---
+
+	/**
+	 * Foreign admin notice callbacks are stripped on the FOSSE Setup screen.
+	 *
+	 * Covers the four core notice hooks WordPress fires during admin header
+	 * rendering. The wizard / Setup page are focused flows; foreign notices
+	 * (host banners, plugin upsells) break the orientation.
+	 */
+	public function test_suppresses_admin_notices_on_setup_screen(): void {
+		$fired = array();
+		$this->register_notice_canaries( $fired );
+
+		Menu::maybe_suppress_admin_notices( $this->fake_screen( 'toplevel_page_fosse' ) );
+
+		do_action( 'admin_notices' );
+		do_action( 'all_admin_notices' );
+		do_action( 'network_admin_notices' );
+		do_action( 'user_admin_notices' );
+
+		$this->assertSame( array(), $fired, 'Foreign notices should be suppressed on the Setup screen.' );
+	}
+
+	/**
+	 * Same suppression on the Setup Wizard screen — the original incident
+	 * (Jurassic Ninja credentials banner) was on the wizard, not Setup.
+	 */
+	public function test_suppresses_admin_notices_on_wizard_screen(): void {
+		$fired = array();
+		$this->register_notice_canaries( $fired );
+
+		Menu::maybe_suppress_admin_notices( $this->fake_screen( 'admin_page_fosse-wizard' ) );
+
+		do_action( 'admin_notices' );
+		do_action( 'all_admin_notices' );
+		do_action( 'network_admin_notices' );
+		do_action( 'user_admin_notices' );
+
+		$this->assertSame( array(), $fired, 'Foreign notices should be suppressed on the Wizard screen.' );
+	}
+
+	/**
+	 * Suppression is scoped to Setup + Wizard. The Status page is a
+	 * long-lived dashboard; foreign notices are more legitimate there
+	 * and stripping them would risk masking real cross-plugin signal.
+	 */
+	public function test_does_not_suppress_admin_notices_on_status_screen(): void {
+		$fired = array();
+		$this->register_notice_canaries( $fired );
+
+		Menu::maybe_suppress_admin_notices( $this->fake_screen( 'fosse_page_fosse-status' ) );
+
+		do_action( 'admin_notices' );
+		do_action( 'all_admin_notices' );
+		do_action( 'network_admin_notices' );
+		do_action( 'user_admin_notices' );
+
+		$this->assertSame(
+			array( 'admin_notices', 'all_admin_notices', 'network_admin_notices', 'user_admin_notices' ),
+			$fired,
+			'Status screen must preserve foreign notices.'
+		);
+	}
+
+	/**
+	 * Non-FOSSE screens (Dashboard, Plugins, etc.) are untouched. The
+	 * suppression is opt-in: a stray Menu callback must not affect the
+	 * rest of wp-admin.
+	 */
+	public function test_does_not_suppress_admin_notices_on_unrelated_screen(): void {
+		$fired = array();
+		$this->register_notice_canaries( $fired );
+
+		Menu::maybe_suppress_admin_notices( $this->fake_screen( 'dashboard' ) );
+
+		do_action( 'admin_notices' );
+
+		$this->assertContains( 'admin_notices', $fired, 'Unrelated screens must keep their notices.' );
+	}
+
+	/**
+	 * Register one canary callback per notice hook so the suppression
+	 * tests can observe which hooks still fire.
+	 *
+	 * @param array<int, string> $fired Bucket to populate, indexed by hook name.
+	 * @return void
+	 */
+	private function register_notice_canaries( array &$fired ): void {
+		foreach ( array( 'admin_notices', 'all_admin_notices', 'network_admin_notices', 'user_admin_notices' ) as $hook ) {
+			add_action(
+				$hook,
+				static function () use ( $hook, &$fired ): void {
+					$fired[] = $hook;
+				}
+			);
+		}
+	}
+
+	/**
+	 * Build a fresh WP_Screen object with the given id.
+	 *
+	 * `WP_Screen::get()` caches by source hook name, so a unique seed
+	 * yields a brand-new object per call — preventing one test's id
+	 * mutation from leaking into another. The suppression method only
+	 * reads `$screen->id`, so the rest of the fields can stay as the
+	 * factory default.
+	 *
+	 * @param string $id Screen id to assign.
+	 * @return \WP_Screen
+	 */
+	private function fake_screen( string $id ): \WP_Screen {
+		$screen     = \WP_Screen::get( 'fosse-test-' . uniqid( '', true ) );
+		$screen->id = $id;
+		return $screen;
+	}
+
 	// --- helpers ---
 
 	/**

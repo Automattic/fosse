@@ -547,6 +547,117 @@ class Onboarding_WizardTest extends BaseTestCase {
 		$this->assertMatchesRegularExpression( '~As your site \(<code>@[^<]+@[^<]+</code>\)~', $output );
 	}
 
+	// --- Bluesky signup help (#58) ---
+
+	/**
+	 * The disconnected Bluesky step links out to bsky.app so users without
+	 * an account can sign up before connecting.
+	 */
+	public function test_render_bluesky_step_disconnected_shows_signup_link(): void {
+		$output = $this->render_wizard_step( 'bluesky' );
+
+		$this->assertStringContainsString( 'fosse-bluesky-signup', $output );
+		$this->assertStringContainsString( 'https://bsky.app/', $output );
+		$this->assertStringContainsString( 'Need a Bluesky account', $output );
+	}
+
+	/**
+	 * The connected Bluesky step does not show a sign-up affordance — the
+	 * user is already authenticated, so prompting to "create one" is noise.
+	 */
+	public function test_render_bluesky_step_connected_omits_signup_link(): void {
+		$this->seed_bluesky_connection( 'alice.bsky.social', 'did:plc:alice123' );
+
+		$output = $this->render_wizard_step( 'bluesky' );
+
+		$this->assertStringNotContainsString( 'fosse-bluesky-signup', $output );
+		$this->assertStringNotContainsString( 'https://bsky.app/', $output );
+		$this->assertStringNotContainsString( 'Need a Bluesky account', $output );
+	}
+
+	// --- Bluesky post-OAuth completion state (#59) ---
+
+	/**
+	 * After a successful Bluesky connection the wizard suppresses the
+	 * "you can always connect later" copy that contradicted the success
+	 * state the user is looking at.
+	 */
+	public function test_render_bluesky_step_connected_suppresses_connect_later_copy(): void {
+		$this->seed_bluesky_connection( 'alice.bsky.social', 'did:plc:alice123' );
+
+		$output = $this->render_wizard_step( 'bluesky' );
+
+		$this->assertStringNotContainsString( 'connect later', $output );
+		$this->assertStringNotContainsString( 'This step is optional', $output );
+		$this->assertStringContainsString( 'Bluesky is connected', $output );
+		$this->assertStringContainsString( 'Review the details below', $output );
+	}
+
+	/**
+	 * The post-OAuth view surfaces the resolved fediverse identity so users
+	 * see the actual handle they just stood up. AP's `user_can_activitypub`
+	 * filter is stubbed because WorDBless doesn't fire AP's activation, so
+	 * the `activitypub` capability isn't granted to admins by default.
+	 */
+	public function test_render_bluesky_step_connected_shows_fediverse_identity(): void {
+		update_option( 'activitypub_actor_mode', 'actor' );
+		$this->seed_bluesky_connection( 'alice.bsky.social', 'did:plc:alice123' );
+
+		add_filter( 'activitypub_user_can_activitypub', '__return_true' );
+		try {
+			$output = $this->render_wizard_step( 'bluesky' );
+		} finally {
+			remove_filter( 'activitypub_user_can_activitypub', '__return_true' );
+		}
+
+		$this->assertStringContainsString( 'Your fediverse address', $output );
+		$this->assertMatchesRegularExpression( '/<code>@[^<]+@[^<]+<\/code>/', $output );
+	}
+
+	/**
+	 * The disconnected Bluesky step does not render a fediverse identity
+	 * row — that detail belongs on the post-OAuth confirmation, not on the
+	 * pre-connect form.
+	 */
+	public function test_render_bluesky_step_disconnected_omits_fediverse_identity(): void {
+		$output = $this->render_wizard_step( 'bluesky' );
+
+		$this->assertStringNotContainsString( 'Your fediverse address', $output );
+		$this->assertStringNotContainsString( 'Site fediverse address', $output );
+	}
+
+	// --- Publish CTA on completion step (#63) ---
+
+	/**
+	 * The completion step renders a primary CTA to publish the user's first
+	 * post — the natural forward push after the wizard finishes.
+	 */
+	public function test_render_complete_step_renders_publish_cta(): void {
+		Onboarding_Wizard::mark_complete();
+
+		$output = $this->render_wizard_step( 'complete' );
+
+		$this->assertStringContainsString( 'Publish your first post', $output );
+		$this->assertStringContainsString( 'fosse-wizard__cta-publish', $output );
+		$this->assertMatchesRegularExpression(
+			'/<a[^>]*href="[^"]*post-new\.php[^"]*"[^>]*class="[^"]*button-primary[^"]*"[^>]*>\s*Publish your first post/i',
+			$output,
+			'The publish CTA must be a button-primary link to post-new.php.'
+		);
+	}
+
+	/**
+	 * The publish CTA's surrounding copy talks about "the social web" — the
+	 * project's settled language for the destination network.
+	 */
+	public function test_render_complete_step_cta_uses_social_web_language(): void {
+		Onboarding_Wizard::mark_complete();
+
+		$output = $this->render_wizard_step( 'complete' );
+
+		$this->assertStringContainsString( 'social web', $output );
+	}
+
 	// --- audit hook: handler cap/nonce failures (parameterized) ---
 
 	/**
