@@ -76,19 +76,28 @@ class AP_Provider implements Connection_Provider {
 	 *
 	 * AP is "connected" whenever the plugin is active — there's no external
 	 * auth step. Status includes actor mode, supported post types, and the
-	 * fediverse address.
+	 * separate user / blog fediverse handles surfaced for the active mode.
+	 *
+	 * Both `user_address` and `blog_address` are populated independently of
+	 * mode where the underlying actor exists; callers decide which to show
+	 * based on `actor_mode`. The legacy `address` key is kept for backwards
+	 * compatibility and prefers the user handle in `actor_blog` mode.
 	 *
 	 * @return array<string, mixed>
 	 */
 	public function get_status(): array {
-		$actor_mode = get_option( 'activitypub_actor_mode', 'actor' );
-		$post_types = get_option( 'activitypub_support_post_types', array( 'post' ) );
+		$actor_mode   = get_option( 'activitypub_actor_mode', 'actor' );
+		$post_types   = get_option( 'activitypub_support_post_types', array( 'post' ) );
+		$user_address = $this->get_user_address();
+		$blog_address = $this->get_blog_address();
 
 		return array(
-			'connected'  => true,
-			'actor_mode' => $actor_mode,
-			'post_types' => $post_types,
-			'address'    => $this->get_fediverse_address(),
+			'connected'    => true,
+			'actor_mode'   => $actor_mode,
+			'post_types'   => $post_types,
+			'user_address' => $user_address,
+			'blog_address' => $blog_address,
+			'address'      => $this->resolve_legacy_address( $actor_mode, $user_address, $blog_address ),
 		);
 	}
 
@@ -98,11 +107,18 @@ class AP_Provider implements Connection_Provider {
 	 * @return void
 	 */
 	public function render_setup_section(): void {
-		$actor_mode     = get_option( 'activitypub_actor_mode', 'actor' );
-		$post_types     = get_option( 'activitypub_support_post_types', array( 'post' ) );
-		$all_post_types = get_post_types( array( 'public' => true ), 'objects' );
-		$address        = $this->get_fediverse_address();
-		$nonce          = wp_create_nonce( 'fosse_save_ap_settings' );
+		$actor_mode      = get_option( 'activitypub_actor_mode', 'actor' );
+		$post_types      = get_option( 'activitypub_support_post_types', array( 'post' ) );
+		$all_post_types  = get_post_types( array( 'public' => true ), 'objects' );
+		$user_address    = $this->get_user_address();
+		$blog_address    = $this->get_blog_address();
+		$shows_blog      = $this->mode_includes_blog( $actor_mode );
+		$shows_user      = $this->mode_includes_user( $actor_mode );
+		$blog_identifier = (string) get_option( 'activitypub_blog_identifier', '' );
+		if ( '' === $blog_identifier && class_exists( '\Activitypub\Model\Blog' ) ) {
+			$blog_identifier = (string) \Activitypub\Model\Blog::get_default_username();
+		}
+		$nonce = wp_create_nonce( 'fosse_save_ap_settings' );
 		?>
 		<div class="fosse-provider-section" id="fosse-provider-activitypub">
 			<h2><?php esc_html_e( 'ActivityPub', 'fosse' ); ?></h2>
@@ -203,10 +219,38 @@ class AP_Provider implements Connection_Provider {
 						</td>
 					</tr>
 
-					<?php if ( $address ) : ?>
+					<?php if ( $shows_blog ) : ?>
 						<tr>
-							<th scope="row"><?php esc_html_e( 'Fediverse Address', 'fosse' ); ?></th>
-							<td><code><?php echo esc_html( '@' . $address ); ?></code></td>
+							<th scope="row">
+								<label for="fosse-activitypub-blog-identifier"><?php esc_html_e( 'Site Handle', 'fosse' ); ?></label>
+							</th>
+							<td>
+								<input
+									type="text"
+									id="fosse-activitypub-blog-identifier"
+									name="activitypub_blog_identifier"
+									class="regular-text"
+									value="<?php echo esc_attr( $blog_identifier ); ?>"
+									aria-describedby="fosse-activitypub-blog-identifier-desc"
+								/>
+								<p id="fosse-activitypub-blog-identifier-desc" class="description">
+									<?php esc_html_e( 'The username people use to follow your site from the fediverse. Cannot match an existing author login or nicename.', 'fosse' ); ?>
+								</p>
+							</td>
+						</tr>
+					<?php endif; ?>
+
+					<?php if ( $shows_user && $user_address ) : ?>
+						<tr>
+							<th scope="row"><?php esc_html_e( 'Your fediverse address', 'fosse' ); ?></th>
+							<td><code><?php echo esc_html( '@' . $user_address ); ?></code></td>
+						</tr>
+					<?php endif; ?>
+
+					<?php if ( $shows_blog && $blog_address ) : ?>
+						<tr>
+							<th scope="row"><?php esc_html_e( 'Site fediverse address', 'fosse' ); ?></th>
+							<td><code><?php echo esc_html( '@' . $blog_address ); ?></code></td>
 						</tr>
 					<?php endif; ?>
 				</table>
@@ -259,10 +303,16 @@ class AP_Provider implements Connection_Provider {
 						<td><?php esc_html_e( 'Post Types', 'fosse' ); ?></td>
 						<td><?php echo esc_html( implode( ', ', $post_types ) ); ?></td>
 					</tr>
-					<?php if ( $status['address'] ) : ?>
+					<?php if ( $this->mode_includes_user( $status['actor_mode'] ) && ! empty( $status['user_address'] ) ) : ?>
 						<tr>
-							<td><?php esc_html_e( 'Fediverse Address', 'fosse' ); ?></td>
-							<td><code><?php echo esc_html( '@' . $status['address'] ); ?></code></td>
+							<td><?php esc_html_e( 'Your fediverse address', 'fosse' ); ?></td>
+							<td><code><?php echo esc_html( '@' . $status['user_address'] ); ?></code></td>
+						</tr>
+					<?php endif; ?>
+					<?php if ( $this->mode_includes_blog( $status['actor_mode'] ) && ! empty( $status['blog_address'] ) ) : ?>
+						<tr>
+							<td><?php esc_html_e( 'Site fediverse address', 'fosse' ); ?></td>
+							<td><code><?php echo esc_html( '@' . $status['blog_address'] ); ?></code></td>
 						</tr>
 					<?php endif; ?>
 					<?php $this->render_follower_count_row(); ?>
@@ -285,6 +335,7 @@ class AP_Provider implements Connection_Provider {
 	 */
 	public function register_hooks(): void {
 		add_action( 'admin_post_fosse_save_ap_settings', array( $this, 'handle_save' ) );
+		add_filter( 'activitypub_default_blog_username', array( static::class, 'filter_default_blog_username' ) );
 	}
 
 	/**
@@ -314,6 +365,23 @@ class AP_Provider implements Connection_Provider {
 		$post_types  = array_values( array_intersect( $submitted, $valid_types ) );
 		update_option( 'activitypub_support_post_types', $post_types );
 
+		// Site Handle: only persist when the field was submitted with a non-
+		// empty value and AP's sanitizer is loadable. Empty submissions
+		// preserve any existing stored value rather than reverting to AP's
+		// default. The sanitizer applies the same collision/canonicalization
+		// rules used by AP's native Settings → ActivityPub page, so a
+		// colliding submission is rejected and falls back to the default
+		// (this keeps FOSSE's surface aligned with AP's).
+		if ( array_key_exists( 'activitypub_blog_identifier', $_POST ) && class_exists( '\Activitypub\Sanitize' ) ) {
+			$raw = trim( sanitize_text_field( wp_unslash( $_POST['activitypub_blog_identifier'] ) ) );
+			if ( '' !== $raw ) {
+				$sanitized = (string) \Activitypub\Sanitize::blog_identifier( $raw );
+				if ( '' !== $sanitized ) {
+					update_option( 'activitypub_blog_identifier', $sanitized );
+				}
+			}
+		}
+
 		// Redirect back with appropriate notice.
 		if ( $mode_valid ) {
 			add_settings_error( 'fosse', 'fosse_saved', __( 'ActivityPub settings saved.', 'fosse' ), 'success' );
@@ -325,42 +393,185 @@ class AP_Provider implements Connection_Provider {
 	}
 
 	/**
-	 * Get the fediverse address for the active actor(s).
+	 * Get the current user's fediverse address.
 	 *
-	 * Returns the blog webfinger in blog mode, the current user's
-	 * webfinger in actor mode, or the user's in actor_blog mode
-	 * (falling back to blog if the user actor is unavailable).
+	 * Always queries AP's user model, regardless of actor mode. Returns
+	 * an empty string when the user model is unavailable or the current
+	 * user can't have an actor (e.g. logged-out callers, subscribers
+	 * filtered out by `user_can_activitypub`).
 	 *
-	 * @return string Empty string if AP models are unavailable.
+	 * @return string `user@host` form, or empty string.
 	 */
-	private function get_fediverse_address(): string {
-		$mode = get_option( 'activitypub_actor_mode', 'actor' );
-
-		// Blog mode: blog webfinger only.
-		if ( 'blog' === $mode ) {
-			if ( class_exists( '\Activitypub\Model\Blog' ) ) {
-				$blog = new \Activitypub\Model\Blog();
-				return $blog->get_webfinger();
-			}
-
+	public function get_user_address(): string {
+		if ( ! class_exists( '\Activitypub\Model\User' ) ) {
 			return '';
 		}
 
-		// Actor or actor_blog mode: try the user webfinger.
-		if ( class_exists( '\Activitypub\Model\User' ) ) {
-			$user = \Activitypub\Model\User::from_wp_user( get_current_user_id() );
-			if ( $user && ! is_wp_error( $user ) ) {
-				return $user->get_webfinger();
-			}
+		$user = \Activitypub\Model\User::from_wp_user( get_current_user_id() );
+		if ( ! $user || is_wp_error( $user ) ) {
+			return '';
 		}
 
-		// In actor_blog mode, fall back to blog if user is unavailable.
-		if ( 'actor_blog' === $mode && class_exists( '\Activitypub\Model\Blog' ) ) {
-			$blog = new \Activitypub\Model\Blog();
-			return $blog->get_webfinger();
+		return (string) $user->get_webfinger();
+	}
+
+	/**
+	 * Get the site (blog) fediverse address.
+	 *
+	 * Always queries AP's blog model, regardless of actor mode. Returns
+	 * an empty string when the blog model is unavailable. Callers that
+	 * only render the blog identity in `blog` / `actor_blog` modes are
+	 * responsible for that mode check — this helper does not gate.
+	 *
+	 * @return string `blog@host` form, or empty string.
+	 */
+	public function get_blog_address(): string {
+		if ( ! class_exists( '\Activitypub\Model\Blog' ) ) {
+			return '';
+		}
+
+		$blog = new \Activitypub\Model\Blog();
+		return (string) $blog->get_webfinger();
+	}
+
+	/**
+	 * Resolve a single legacy address for `get_status()['address']`.
+	 *
+	 * Preserves the pre-split shape: blog mode → blog handle, actor mode
+	 * → user handle, actor_blog → user handle (or blog as a fallback).
+	 *
+	 * @param string $mode         Actor mode value.
+	 * @param string $user_address Pre-resolved user handle.
+	 * @param string $blog_address Pre-resolved blog handle.
+	 * @return string
+	 */
+	private function resolve_legacy_address( string $mode, string $user_address, string $blog_address ): string {
+		if ( 'blog' === $mode ) {
+			return $blog_address;
+		}
+
+		if ( '' !== $user_address ) {
+			return $user_address;
+		}
+
+		if ( 'actor_blog' === $mode ) {
+			return $blog_address;
 		}
 
 		return '';
+	}
+
+	/**
+	 * Filter callback for `activitypub_default_blog_username`.
+	 *
+	 * Replaces AP's built-in default (the full site host with `www.`
+	 * stripped) with the host's first label, so a Jurassic Ninja site
+	 * like `increasing-king-tuna.jurassic.ninja` defaults to
+	 * `increasing-king-tuna` rather than the full hostname. Only the
+	 * default is filtered — once a site owner saves a value to
+	 * `activitypub_blog_identifier`, AP's `Blog::get_preferred_username()`
+	 * uses that and never asks for a default again.
+	 *
+	 * Collisions with existing `user_login` / `user_nicename` values are
+	 * resolved by appending a numeric suffix (`-1`, `-2`, …). AP's own
+	 * sanitizer also rejects collisions, but enforcing it here means the
+	 * proposed default that surfaces in admin forms is already collision-
+	 * free instead of a value that would be rewritten on save.
+	 *
+	 * @param mixed $host Default username supplied by AP (the site host).
+	 * @return string
+	 */
+	public static function filter_default_blog_username( $host ): string {
+		if ( ! is_string( $host ) || '' === $host ) {
+			return is_string( $host ) ? $host : '';
+		}
+
+		$first_label = strtok( $host, '.' );
+		if ( ! is_string( $first_label ) || '' === $first_label ) {
+			$first_label = $host;
+		}
+
+		$candidate = sanitize_title( $first_label );
+		if ( '' === $candidate ) {
+			$candidate = sanitize_title( $host );
+		}
+		if ( '' === $candidate ) {
+			return $host;
+		}
+
+		return self::resolve_blog_username_collision( $candidate );
+	}
+
+	/**
+	 * Append a numeric suffix to the candidate until it stops colliding
+	 * with an existing `user_login` or `user_nicename`.
+	 *
+	 * Bails after 100 attempts with the last candidate so a degenerate
+	 * install with thousands of `foo-N` users can't spin forever.
+	 *
+	 * @param string $candidate Initial sanitized username.
+	 * @return string
+	 */
+	private static function resolve_blog_username_collision( string $candidate ): string {
+		if ( ! self::blog_username_in_use( $candidate ) ) {
+			return $candidate;
+		}
+
+		$base = $candidate;
+		for ( $suffix = 1; $suffix <= 100; $suffix++ ) {
+			$next = $base . '-' . $suffix;
+			if ( ! self::blog_username_in_use( $next ) ) {
+				return $next;
+			}
+		}
+
+		return $base . '-' . 100;
+	}
+
+	/**
+	 * Check whether a candidate string matches an existing user.
+	 *
+	 * Uses exact `get_user_by()` lookups against `login` and `slug`
+	 * (`user_nicename`) — the same fields AP's `Sanitize::blog_identifier`
+	 * checks before accepting a site handle.
+	 *
+	 * @param string $candidate Candidate username.
+	 * @return bool
+	 */
+	private static function blog_username_in_use( string $candidate ): bool {
+		if ( '' === $candidate ) {
+			return false;
+		}
+
+		if ( get_user_by( 'login', $candidate ) ) {
+			return true;
+		}
+
+		if ( get_user_by( 'slug', $candidate ) ) {
+			return true;
+		}
+
+		return false;
+	}
+
+	/**
+	 * Whether the given actor mode publishes from per-author profiles.
+	 *
+	 * @param string $mode Actor mode value.
+	 * @return bool
+	 */
+	public function mode_includes_user( string $mode ): bool {
+		return 'actor' === $mode || 'actor_blog' === $mode;
+	}
+
+	/**
+	 * Whether the given actor mode publishes from a single blog profile.
+	 *
+	 * @param string $mode Actor mode value.
+	 * @return bool
+	 */
+	public function mode_includes_blog( string $mode ): bool {
+		return 'blog' === $mode || 'actor_blog' === $mode;
 	}
 
 	/**
