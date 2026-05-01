@@ -26,6 +26,8 @@ class Menu {
 		add_action( 'admin_bar_menu', array( static::class, 'hide_bundled_admin_bar' ), 101 );
 		add_action( 'admin_enqueue_scripts', array( static::class, 'enqueue_styles' ) );
 		add_action( 'admin_init', array( static::class, 'maybe_redirect_to_wizard' ) );
+
+		Setup_Page::register_hooks();
 		// Suppress at two stages so plugins can't bypass us by registering
 		// notices in hooks that fire between current_screen and the notice
 		// hooks themselves. current_screen strips the typical case where
@@ -58,8 +60,8 @@ class Menu {
 
 		add_submenu_page(
 			'fosse',
-			__( 'Setup', 'fosse' ),
-			__( 'Setup', 'fosse' ),
+			__( 'Settings', 'fosse' ),
+			__( 'Settings', 'fosse' ),
 			'manage_options',
 			'fosse',
 			array( Setup_Page::class, 'render' )
@@ -226,9 +228,9 @@ class Menu {
 	}
 
 	/**
-	 * Suppress foreign admin notices on FOSSE Setup and Wizard screens.
+	 * Suppress foreign admin notices on FOSSE Settings and Wizard screens.
 	 *
-	 * The wizard and Setup page are focused flows; third-party notices
+	 * The wizard and Settings page are focused flows; third-party notices
 	 * (host banners, plugin upsells, "rate this plugin" prompts) inject
 	 * themselves into the wizard surface and break the orientation.
 	 * Strip the four core notice hooks on those screens only — the Status
@@ -278,7 +280,7 @@ class Menu {
 	}
 
 	/**
-	 * Whether the given screen is the FOSSE Setup page or Setup Wizard.
+	 * Whether the given screen is the FOSSE Settings page or Setup Wizard.
 	 *
 	 * Centralized so the suppression list and any future callers (e.g.
 	 * conditional asset enqueues) stay in sync. Status is excluded by

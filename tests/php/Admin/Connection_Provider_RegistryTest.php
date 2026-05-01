@@ -120,8 +120,13 @@ class Connection_Provider_RegistryTest extends BaseTestCase {
 				return array( 'connected' => true );
 			}
 			public function render_setup_section(): void {}
+			public function render_connection_actions(): void {}
 			public function render_status_card(): void {}
 			public function register_hooks(): void {}
+			public function save_settings( array $post_data ): bool {
+				unset( $post_data );
+				return true;
+			}
 		};
 		// phpcs:enable Squiz.Commenting
 	}

@@ -126,16 +126,71 @@ class Bluesky_Provider implements Connection_Provider {
 	}
 
 	/**
-	 * Render the Bluesky setup section on the FOSSE Setup page.
+	 * Render Bluesky-specific settings inside the unified Settings form.
+	 *
+	 * Only renders the auto-publish toggle when Atmosphere is connected —
+	 * there is nothing protocol-specific to save while disconnected. The
+	 * connect/disconnect forms render outside the main Settings form via
+	 * {@see self::render_connection_actions()}.
 	 *
 	 * @return void
 	 */
 	public function render_setup_section(): void {
 		$status = $this->get_status();
 
+		if ( ! $status['connected'] ) {
+			return;
+		}
+
+		?>
+		<div class="fosse-provider-section" id="fosse-provider-bluesky-settings">
+			<h2><?php esc_html_e( 'Bluesky', 'fosse' ); ?></h2>
+
+			<table class="form-table">
+				<tr>
+					<th scope="row">
+						<?php esc_html_e( 'Auto-publish', 'fosse' ); ?>
+					</th>
+					<td>
+						<fieldset>
+							<legend class="screen-reader-text"><?php esc_html_e( 'Auto-publish', 'fosse' ); ?></legend>
+							<label for="fosse-bluesky-auto-publish">
+								<input
+									type="checkbox"
+									id="fosse-bluesky-auto-publish"
+									name="atmosphere_auto_publish"
+									value="1"
+									aria-describedby="fosse-bluesky-auto-publish-desc"
+									<?php checked( $status['auto_publish'] ); ?>
+								/>
+								<?php esc_html_e( 'Automatically publish new posts to Bluesky.', 'fosse' ); ?>
+							</label>
+							<p id="fosse-bluesky-auto-publish-desc" class="description">
+								<?php esc_html_e( 'When enabled, posts in your selected post types are sent to Bluesky as soon as they are published. Disable to keep Bluesky publishing manual.', 'fosse' ); ?>
+							</p>
+						</fieldset>
+					</td>
+				</tr>
+			</table>
+		</div>
+		<?php
+	}
+
+	/**
+	 * Render the Bluesky connection panel outside the unified Settings form.
+	 *
+	 * The connect and disconnect actions post to their own admin-post
+	 * endpoints with their own nonces, so they cannot share the unified
+	 * Settings form. This is also where Atmosphere's settings errors
+	 * surface (OAuth failures, sync warnings).
+	 *
+	 * @return void
+	 */
+	public function render_connection_actions(): void {
+		$status = $this->get_status();
 		?>
 		<div class="fosse-provider-section" id="fosse-provider-bluesky">
-			<h2><?php esc_html_e( 'Bluesky', 'fosse' ); ?></h2>
+			<h2><?php esc_html_e( 'Bluesky connection', 'fosse' ); ?></h2>
 
 			<?php settings_errors( 'atmosphere' ); ?>
 
@@ -193,10 +248,6 @@ class Bluesky_Provider implements Connection_Provider {
 						<td><code><?php echo esc_html( $status['pds_endpoint'] ); ?></code></td>
 					</tr>
 					<tr>
-						<th scope="row"><?php esc_html_e( 'Auto Publish', 'fosse' ); ?></th>
-						<td><?php echo esc_html( $status['auto_publish'] ? __( 'Enabled', 'fosse' ) : __( 'Disabled', 'fosse' ) ); ?></td>
-					</tr>
-					<tr>
 						<th scope="row"><?php esc_html_e( 'Token Health', 'fosse' ); ?></th>
 						<td><?php echo esc_html( $status['token_error'] ? $status['token_error'] : __( 'OK', 'fosse' ) ); ?></td>
 					</tr>
@@ -208,7 +259,6 @@ class Bluesky_Provider implements Connection_Provider {
 					<?php submit_button( __( 'Disconnect Bluesky', 'fosse' ), 'secondary' ); ?>
 				</form>
 			<?php endif; ?>
-
 		</div>
 		<?php
 	}
@@ -283,7 +333,7 @@ class Bluesky_Provider implements Connection_Provider {
 							<?php if ( $status['token_error'] ) : ?>
 								<strong><?php esc_html_e( 'Reconnect required.', 'fosse' ); ?></strong>
 								<a href="<?php echo esc_url( admin_url( 'admin.php?page=fosse#fosse-provider-bluesky' ) ); ?>">
-									<?php esc_html_e( 'Open Bluesky setup', 'fosse' ); ?>
+									<?php esc_html_e( 'Open Bluesky settings', 'fosse' ); ?>
 								</a>
 								<details class="fosse-status-card__error">
 									<summary><?php esc_html_e( 'Error details', 'fosse' ); ?></summary>
@@ -296,12 +346,6 @@ class Bluesky_Provider implements Connection_Provider {
 					</tr>
 				</tbody>
 			</table>
-
-			<p class="fosse-status-card__manage">
-				<a href="<?php echo esc_url( admin_url( 'admin.php?page=fosse#fosse-provider-bluesky' ) ); ?>">
-					<?php esc_html_e( 'Manage Bluesky settings', 'fosse' ); ?>
-				</a>
-			</p>
 		</div>
 		<?php
 	}
@@ -324,6 +368,35 @@ class Bluesky_Provider implements Connection_Provider {
 		// the auth server fetches client metadata in a separate public request
 		// and validates redirect_uri against it.
 		add_filter( 'atmosphere_oauth_redirect_uri', array( $this, 'filter_oauth_redirect_uri' ) );
+	}
+
+	/**
+	 * Persist Bluesky-side settings from the unified save submission.
+	 *
+	 * The auto-publish field is the only Bluesky-side setting that surfaces
+	 * on the FOSSE Settings page; connection state is managed via the
+	 * separate connect/disconnect flows. The toggle is stored as `'1'` /
+	 * `'0'` to match Atmosphere's own setting registration, where an unset
+	 * checkbox simply omits the field and reads as "disabled".
+	 *
+	 * Bails when disconnected so a Settings save can't silently flip
+	 * `atmosphere_auto_publish` to `'0'`: the toggle isn't rendered in that
+	 * state, so the omitted checkbox would otherwise be misread as an
+	 * intentional "uncheck".
+	 *
+	 * @param array<string, mixed> $post_data POST payload to read.
+	 * @return bool Always true — auto-publish input cannot be "rejected"; an
+	 *              omitted checkbox is the legitimate "disabled" submission.
+	 */
+	public function save_settings( array $post_data ): bool {
+		if ( ! $this->get_status()['connected'] ) {
+			return true;
+		}
+
+		$auto_publish = ! empty( $post_data['atmosphere_auto_publish'] ) ? '1' : '0';
+		update_option( 'atmosphere_auto_publish', $auto_publish );
+
+		return true;
 	}
 
 	/**

@@ -11,7 +11,7 @@ namespace Automattic\Fosse\Admin;
  * Integrates the bundled ActivityPub plugin into FOSSE's admin UI.
  *
  * Self-registers on 'fosse_register_providers'. Reads and writes AP's stored
- * options directly so both surfaces (FOSSE's Setup page and the native AP
+ * options directly so both surfaces (FOSSE's Settings page and the native AP
  * settings page) stay in sync.
  */
 class AP_Provider implements Connection_Provider {
@@ -21,7 +21,7 @@ class AP_Provider implements Connection_Provider {
 	 *
 	 * @var string[]
 	 */
-	private const ACTOR_MODES = array( 'actor', 'blog', 'actor_blog' );
+	public const ACTOR_MODES = array( 'actor', 'blog', 'actor_blog' );
 
 	/**
 	 * Hook into fosse_register_providers to self-register.
@@ -107,16 +107,18 @@ class AP_Provider implements Connection_Provider {
 	}
 
 	/**
-	 * Render the AP setup section on the FOSSE Setup page.
+	 * Render the AP-specific fields inside the unified Settings form.
+	 *
+	 * Renders only AP-specific rows (site handle, fediverse address
+	 * displays). Cross-protocol fields (post types, actor mode) live in
+	 * the General section rendered by Setup_Page.
 	 *
 	 * @return void
 	 */
 	public function render_setup_section(): void {
-		$actor_mode     = get_option( 'activitypub_actor_mode', 'actor' );
-		$post_types     = get_option( 'activitypub_support_post_types', array( 'post' ) );
-		$all_post_types = get_post_types( array( 'public' => true ), 'objects' );
-		$shows_blog     = $this->mode_includes_blog( $actor_mode );
-		$shows_user     = $this->mode_includes_user( $actor_mode );
+		$actor_mode = get_option( 'activitypub_actor_mode', 'actor' );
+		$shows_blog = $this->mode_includes_blog( $actor_mode );
+		$shows_user = $this->mode_includes_user( $actor_mode );
 		// Defer handle resolution until after mode checks so we don't
 		// construct the user actor in `blog` mode or the blog actor in
 		// `actor` mode — those constructions dispatch
@@ -134,146 +136,47 @@ class AP_Provider implements Connection_Provider {
 		if ( '' === $blog_identifier && class_exists( '\Activitypub\Model\Blog' ) ) {
 			$blog_identifier_placeholder = (string) \Activitypub\Model\Blog::get_default_username();
 		}
-		$nonce = wp_create_nonce( 'fosse_save_ap_settings' );
 		?>
 		<div class="fosse-provider-section" id="fosse-provider-activitypub">
 			<h2><?php esc_html_e( 'ActivityPub', 'fosse' ); ?></h2>
 
-			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
-				<input type="hidden" name="action" value="fosse_save_ap_settings" />
-				<input type="hidden" name="_wpnonce" value="<?php echo esc_attr( $nonce ); ?>" />
-
-				<table class="form-table">
+			<table class="form-table">
+				<?php if ( $shows_blog ) : ?>
 					<tr>
-						<th scope="row"><?php esc_html_e( 'Actor Mode', 'fosse' ); ?></th>
+						<th scope="row">
+							<label for="fosse-activitypub-blog-identifier"><?php esc_html_e( 'Site Handle', 'fosse' ); ?></label>
+						</th>
 						<td>
-							<fieldset>
-								<legend class="screen-reader-text"><?php esc_html_e( 'Actor Mode', 'fosse' ); ?></legend>
-								<label>
-									<input
-										type="radio"
-										id="fosse-activitypub-actor-mode-actor"
-										name="activitypub_actor_mode"
-										value="actor"
-										aria-describedby="fosse-activitypub-actor-mode-actor-desc fosse-activitypub-actor-mode-note"
-										<?php checked( 'actor', $actor_mode ); ?>
-									/>
-									<?php esc_html_e( 'Author profiles', 'fosse' ); ?>
-								</label>
-								<p id="fosse-activitypub-actor-mode-actor-desc" class="description">
-									<?php esc_html_e( 'Each WordPress author publishes from their own fediverse profile. People follow individual authors, and posts appear under each author\'s name.', 'fosse' ); ?>
-								</p>
-								<label>
-									<input
-										type="radio"
-										id="fosse-activitypub-actor-mode-blog"
-										name="activitypub_actor_mode"
-										value="blog"
-										aria-describedby="fosse-activitypub-actor-mode-blog-desc fosse-activitypub-actor-mode-note"
-										<?php checked( 'blog', $actor_mode ); ?>
-									/>
-									<?php esc_html_e( 'Blog profile', 'fosse' ); ?>
-								</label>
-								<p id="fosse-activitypub-actor-mode-blog-desc" class="description">
-									<?php esc_html_e( 'One site-wide profile publishes every post, regardless of author. Use this when people should follow the site as one account.', 'fosse' ); ?>
-								</p>
-								<label>
-									<input
-										type="radio"
-										id="fosse-activitypub-actor-mode-actor-blog"
-										name="activitypub_actor_mode"
-										value="actor_blog"
-										aria-describedby="fosse-activitypub-actor-mode-actor-blog-desc fosse-activitypub-actor-mode-note"
-										<?php checked( 'actor_blog', $actor_mode ); ?>
-									/>
-									<?php esc_html_e( 'Both', 'fosse' ); ?>
-								</label>
-								<p id="fosse-activitypub-actor-mode-actor-blog-desc" class="description">
-									<?php esc_html_e( 'Authors keep individual profiles, and the site also has its own blog profile. People can follow either.', 'fosse' ); ?>
-								</p>
-								<div class="fosse-activitypub-actor-mode-note">
-									<p id="fosse-activitypub-actor-mode-note" class="description">
-										<?php esc_html_e( 'Changing modes does not move followers between profiles. Future posts publish from the profiles enabled by the selected mode.', 'fosse' ); ?>
-									</p>
-									<p class="description">
-										<?php
-										echo wp_kses(
-											sprintf(
-												/* translators: %s: anchor link reading "Blog profile settings" pointing to the ActivityPub blog profile tab. */
-												__( 'Configure the site-wide blog profile name, image, and description in %s.', 'fosse' ),
-												'<a href="' . esc_url( admin_url( 'options-general.php?page=activitypub&tab=blog-profile' ) ) . '">' . esc_html__( 'Blog profile settings', 'fosse' ) . '</a>'
-											),
-											array(
-												'a' => array(
-													'href' => array(),
-												),
-											)
-										);
-										?>
-									</p>
-								</div>
-							</fieldset>
+							<input
+								type="text"
+								id="fosse-activitypub-blog-identifier"
+								name="activitypub_blog_identifier"
+								class="regular-text"
+								value="<?php echo esc_attr( $blog_identifier ); ?>"
+								placeholder="<?php echo esc_attr( $blog_identifier_placeholder ); ?>"
+								aria-describedby="fosse-activitypub-blog-identifier-desc"
+							/>
+							<p id="fosse-activitypub-blog-identifier-desc" class="description">
+								<?php esc_html_e( 'The username people use to follow your site from the fediverse. Cannot match an existing author login or nicename.', 'fosse' ); ?>
+							</p>
 						</td>
 					</tr>
+				<?php endif; ?>
 
+				<?php if ( $shows_user && $user_address ) : ?>
 					<tr>
-						<th scope="row"><?php esc_html_e( 'Post Types', 'fosse' ); ?></th>
-						<td>
-							<fieldset>
-								<?php foreach ( $all_post_types as $pt ) : ?>
-									<label>
-										<input
-											type="checkbox"
-											name="activitypub_support_post_types[]"
-											value="<?php echo esc_attr( $pt->name ); ?>"
-											<?php checked( in_array( $pt->name, $post_types, true ) ); ?>
-										/>
-										<?php echo esc_html( $pt->label ); ?>
-									</label><br />
-								<?php endforeach; ?>
-							</fieldset>
-						</td>
+						<th scope="row"><?php esc_html_e( 'Your fediverse address', 'fosse' ); ?></th>
+						<td><code><?php echo esc_html( '@' . $user_address ); ?></code></td>
 					</tr>
+				<?php endif; ?>
 
-					<?php if ( $shows_blog ) : ?>
-						<tr>
-							<th scope="row">
-								<label for="fosse-activitypub-blog-identifier"><?php esc_html_e( 'Site Handle', 'fosse' ); ?></label>
-							</th>
-							<td>
-								<input
-									type="text"
-									id="fosse-activitypub-blog-identifier"
-									name="activitypub_blog_identifier"
-									class="regular-text"
-									value="<?php echo esc_attr( $blog_identifier ); ?>"
-									placeholder="<?php echo esc_attr( $blog_identifier_placeholder ); ?>"
-									aria-describedby="fosse-activitypub-blog-identifier-desc"
-								/>
-								<p id="fosse-activitypub-blog-identifier-desc" class="description">
-									<?php esc_html_e( 'The username people use to follow your site from the fediverse. Cannot match an existing author login or nicename.', 'fosse' ); ?>
-								</p>
-							</td>
-						</tr>
-					<?php endif; ?>
-
-					<?php if ( $shows_user && $user_address ) : ?>
-						<tr>
-							<th scope="row"><?php esc_html_e( 'Your fediverse address', 'fosse' ); ?></th>
-							<td><code><?php echo esc_html( '@' . $user_address ); ?></code></td>
-						</tr>
-					<?php endif; ?>
-
-					<?php if ( $shows_blog && $blog_address ) : ?>
-						<tr>
-							<th scope="row"><?php esc_html_e( 'Site fediverse address', 'fosse' ); ?></th>
-							<td><code><?php echo esc_html( '@' . $blog_address ); ?></code></td>
-						</tr>
-					<?php endif; ?>
-				</table>
-
-				<?php submit_button( __( 'Save ActivityPub Settings', 'fosse' ) ); ?>
-			</form>
+				<?php if ( $shows_blog && $blog_address ) : ?>
+					<tr>
+						<th scope="row"><?php esc_html_e( 'Site fediverse address', 'fosse' ); ?></th>
+						<td><code><?php echo esc_html( '@' . $blog_address ); ?></code></td>
+					</tr>
+				<?php endif; ?>
+			</table>
 
 			<p>
 				<a href="<?php echo esc_url( admin_url( 'options-general.php?page=activitypub' ) ); ?>">
@@ -282,6 +185,19 @@ class AP_Provider implements Connection_Provider {
 			</p>
 		</div>
 		<?php
+	}
+
+	/**
+	 * ActivityPub has no connect/disconnect flow.
+	 *
+	 * AP is always "connected" while the plugin is loaded, so there are
+	 * no out-of-band actions to render. Implemented as a no-op to satisfy
+	 * the {@see Connection_Provider} contract.
+	 *
+	 * @return void
+	 */
+	public function render_connection_actions(): void {
+		// Intentionally empty — AP has no out-of-band connect/disconnect step.
 	}
 
 	/**
@@ -347,12 +263,6 @@ class AP_Provider implements Connection_Provider {
 					<?php $this->render_follower_count_row(); ?>
 				</tbody>
 			</table>
-
-			<p class="fosse-status-card__manage">
-				<a href="<?php echo esc_url( admin_url( 'admin.php?page=fosse#fosse-provider-activitypub' ) ); ?>">
-					<?php esc_html_e( 'Manage ActivityPub settings', 'fosse' ); ?>
-				</a>
-			</p>
 		</div>
 		<?php
 	}
@@ -360,39 +270,37 @@ class AP_Provider implements Connection_Provider {
 	/**
 	 * Register hooks for this provider.
 	 *
+	 * Settings save is centralized in {@see Setup_Page::handle_save()};
+	 * AP only registers protocol-specific hooks here.
+	 *
 	 * @return void
 	 */
 	public function register_hooks(): void {
-		add_action( 'admin_post_fosse_save_ap_settings', array( $this, 'handle_save' ) );
 		add_filter( 'activitypub_default_blog_username', array( static::class, 'filter_default_blog_username' ) );
 	}
 
 	/**
-	 * Handle the AP settings form submission.
+	 * Persist AP-side settings from the unified save submission.
 	 *
-	 * @return void
+	 * Validates actor mode and the optional site handle. The post-types
+	 * option is owned by {@see Setup_Page::handle_save()} since FOSSE
+	 * treats it as a cross-protocol General setting; this method only
+	 * touches AP-specific options.
+	 *
+	 * @param array<string, mixed> $post_data Raw, slashed POST payload.
+	 * @return bool False when the site handle was rejected, otherwise true.
 	 */
-	public function handle_save(): void {
-		if ( ! current_user_can( 'manage_options' ) ) {
-			wp_die( esc_html__( 'You do not have permission to do this.', 'fosse' ) );
-		}
-
-		check_admin_referer( 'fosse_save_ap_settings' );
+	public function save_settings( array $post_data ): bool {
+		$ok = true;
 
 		// Sanitize actor mode against allowlist.
-		$mode       = sanitize_text_field( wp_unslash( $_POST['activitypub_actor_mode'] ?? '' ) );
-		$mode_valid = in_array( $mode, self::ACTOR_MODES, true );
-		if ( $mode_valid ) {
+		$mode = isset( $post_data['activitypub_actor_mode'] ) ? sanitize_text_field( wp_unslash( $post_data['activitypub_actor_mode'] ) ) : '';
+		if ( in_array( $mode, self::ACTOR_MODES, true ) ) {
 			update_option( 'activitypub_actor_mode', $mode );
 		} else {
 			add_settings_error( 'fosse', 'fosse_invalid_mode', __( 'Invalid actor mode. Setting was not changed.', 'fosse' ), 'error' );
+			$ok = false;
 		}
-
-		// Sanitize post types against registered public types.
-		$submitted   = array_map( 'sanitize_text_field', wp_unslash( (array) ( $_POST['activitypub_support_post_types'] ?? array() ) ) );
-		$valid_types = get_post_types( array( 'public' => true ) );
-		$post_types  = array_values( array_intersect( $submitted, $valid_types ) );
-		update_option( 'activitypub_support_post_types', $post_types );
 
 		// Site Handle: only persist when the field was submitted with a non-
 		// empty value. Empty submissions preserve any existing stored value
@@ -401,15 +309,14 @@ class AP_Provider implements Connection_Provider {
 		// `update_option` via AP's `sanitize_option_activitypub_blog_identifier`
 		// filter — calling `\Activitypub\Sanitize::blog_identifier` directly
 		// here would double-fire it and double-emit any collision notice.
-		$blog_identifier_rejected = false;
-		if ( array_key_exists( 'activitypub_blog_identifier', $_POST ) ) {
+		if ( array_key_exists( 'activitypub_blog_identifier', $post_data ) ) {
 			// Coerce to string defensively: a malformed POST that submits the
 			// field as an array would otherwise warn under sanitize_text_field
 			// (and trip phpunit's failOnWarning). is_string() guards the raw
 			// value before unslash and sanitize, satisfying both the PHPCS
 			// sanitization sniff and the runtime warning path.
-			$raw_input = is_string( $_POST['activitypub_blog_identifier'] )
-				? sanitize_text_field( wp_unslash( $_POST['activitypub_blog_identifier'] ) )
+			$raw_input = is_string( $post_data['activitypub_blog_identifier'] )
+				? sanitize_text_field( wp_unslash( $post_data['activitypub_blog_identifier'] ) )
 				: '';
 			$raw       = trim( $raw_input );
 			if ( '' !== $raw ) {
@@ -426,14 +333,14 @@ class AP_Provider implements Connection_Provider {
 
 				// AP's sanitizer raises settings errors under its own group
 				// when the input collides with an existing user_login /
-				// user_nicename. The FOSSE Setup page renders
+				// user_nicename. The FOSSE Settings page renders
 				// `settings_errors( 'fosse' )` only, so without this re-tag
 				// the user would see a generic "saved" success notice while
 				// their requested handle silently fell back to the default.
 				$ap_errors_after = get_settings_errors( 'activitypub_blog_identifier' );
 				$new_ap_errors   = array_slice( $ap_errors_after, $ap_error_count_before );
 				foreach ( $new_ap_errors as $ap_error ) {
-					$blog_identifier_rejected = true;
+					$ok = false;
 					add_settings_error(
 						'fosse',
 						$ap_error['code'],
@@ -444,18 +351,7 @@ class AP_Provider implements Connection_Provider {
 			}
 		}
 
-		// Redirect back with appropriate notice. Suppress the blanket
-		// "settings saved" success when the Site Handle update was rejected
-		// — pairing it with an error notice in the same response confuses
-		// the user about what actually saved. The mode + post type updates
-		// still landed; the surfaced AP error explains what didn't.
-		if ( $mode_valid && ! $blog_identifier_rejected ) {
-			add_settings_error( 'fosse', 'fosse_saved', __( 'ActivityPub settings saved.', 'fosse' ), 'success' );
-		}
-		set_transient( 'settings_errors', get_settings_errors(), 30 );
-
-		wp_safe_redirect( admin_url( 'admin.php?page=fosse&settings-updated=true' ) );
-		exit;
+		return $ok;
 	}
 
 	/**

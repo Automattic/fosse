@@ -11,8 +11,9 @@ namespace Automattic\Fosse\Admin;
  * Contract for federation protocol providers.
  *
  * Each provider represents one federated protocol (ActivityPub, Bluesky, etc.)
- * and is responsible for rendering its own setup section and status card.
- * Providers self-register via the 'fosse_register_providers' action.
+ * and is responsible for rendering its own settings fields, connection actions,
+ * and status card. Providers self-register via the 'fosse_register_providers'
+ * action.
  */
 interface Connection_Provider {
 
@@ -48,11 +49,27 @@ interface Connection_Provider {
 	public function get_status(): array;
 
 	/**
-	 * Render the setup section for this provider on the FOSSE Setup page.
+	 * Render this provider's settings fields inside the unified Settings form.
+	 *
+	 * Implementations render protocol-specific form rows only — no opening
+	 * `<form>` tag, no submit button. The Settings page wraps every
+	 * provider's fields in a single form posting to `fosse_save_settings`.
 	 *
 	 * @return void
 	 */
 	public function render_setup_section(): void;
+
+	/**
+	 * Render this provider's connection actions outside the Settings form.
+	 *
+	 * Connect/disconnect flows post to their own admin-post endpoints with
+	 * their own nonces, so they cannot share the unified Settings form.
+	 * Providers without connection actions (e.g. ActivityPub, which is
+	 * always "connected" when the plugin is loaded) render nothing.
+	 *
+	 * @return void
+	 */
+	public function render_connection_actions(): void;
 
 	/**
 	 * Render the status card for this provider on the FOSSE Status page.
@@ -62,9 +79,29 @@ interface Connection_Provider {
 	public function render_status_card(): void;
 
 	/**
+	 * Persist this provider's settings from a unified save submission.
+	 *
+	 * Called by the Settings page's unified save handler after capability
+	 * and nonce checks have passed. Implementations validate and update
+	 * their own options. Returning `false` signals a hard rejection
+	 * (e.g. an input failed sanitization) so the caller can suppress the
+	 * blanket "settings saved" success notice; the implementation is
+	 * responsible for adding any explanatory `add_settings_error` entries.
+	 *
+	 * @param array<string, mixed> $post_data Raw POST payload — still slashed.
+	 *                                        Implementations are responsible for
+	 *                                        `wp_unslash` and per-field sanitization.
+	 * @return bool
+	 */
+	public function save_settings( array $post_data ): bool;
+
+	/**
 	 * Register any hooks this provider needs (admin_post handlers, filters, etc.).
 	 *
-	 * Called by Menu::register() after the provider is registered and available.
+	 * Called by Provider_Loader::boot() after the provider is registered and
+	 * available. Settings save is centralized in Setup_Page; providers only
+	 * register their own protocol-specific hooks here (OAuth callbacks,
+	 * connect/disconnect handlers, projection filters).
 	 *
 	 * @return void
 	 */

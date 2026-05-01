@@ -457,6 +457,13 @@ class Onboarding_WizardTest extends BaseTestCase {
 				public function render_setup_section(): void {}
 
 				/**
+				 * Render connection actions.
+				 *
+				 * @return void
+				 */
+				public function render_connection_actions(): void {}
+
+				/**
 				 * Render status UI.
 				 *
 				 * @return void
@@ -469,6 +476,17 @@ class Onboarding_WizardTest extends BaseTestCase {
 				 * @return void
 				 */
 				public function register_hooks(): void {}
+
+				/**
+				 * Persist provider settings.
+				 *
+				 * @param array<string, mixed> $post_data POST payload.
+				 * @return bool
+				 */
+				public function save_settings( array $post_data ): bool {
+					unset( $post_data );
+					return true;
+				}
 			}
 		);
 

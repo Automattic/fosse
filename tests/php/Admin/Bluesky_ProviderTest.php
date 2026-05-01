@@ -190,21 +190,26 @@ class Bluesky_ProviderTest extends BaseTestCase {
 	}
 
 	/**
-	 * Disconnected setup UI renders the connect action.
+	 * The settings section is empty while disconnected — no auto-publish
+	 * toggle, no connect form. Connect/disconnect actions render via
+	 * `render_connection_actions()` outside the unified Settings form.
 	 */
-	public function test_render_setup_section_disconnected_contains_connect_form() {
+	public function test_render_setup_section_disconnected_is_empty() {
 		ob_start();
 		$this->provider->render_setup_section();
 		$output = ob_get_clean();
 
-		$this->assertStringContainsString( 'fosse_connect_bluesky', $output );
-		$this->assertStringContainsString( 'bluesky_handle', $output );
+		$this->assertSame( '', trim( $output ) );
+		$this->assertStringNotContainsString( 'fosse_connect_bluesky', $output );
+		$this->assertStringNotContainsString( 'fosse_disconnect_bluesky', $output );
 	}
 
 	/**
-	 * Connected setup UI renders the disconnect action.
+	 * Connected settings section exposes the auto-publish toggle as a
+	 * fields-only fragment (no opening `<form>` tag) so it can sit inside
+	 * the unified Settings form alongside General + AP fields.
 	 */
-	public function test_render_setup_section_connected_contains_disconnect_form() {
+	public function test_render_setup_section_connected_renders_auto_publish_toggle() {
 		update_option(
 			'atmosphere_connection',
 			array(
@@ -219,30 +224,123 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		$this->provider->render_setup_section();
 		$output = ob_get_clean();
 
-		$this->assertStringContainsString( 'fosse_disconnect_bluesky', $output );
-		$this->assertStringContainsString( 'alice.bsky.social', $output );
+		$this->assertStringContainsString( 'name="atmosphere_auto_publish"', $output );
+		$this->assertStringContainsString( 'Auto-publish', $output );
+		$this->assertStringNotContainsString( '<form', $output );
+		$this->assertStringNotContainsString( 'fosse_connect_bluesky', $output );
+		$this->assertStringNotContainsString( 'fosse_disconnect_bluesky', $output );
 	}
 
 	/**
-	 * Setup section carries the fragment target id used by the Status-page
-	 * "Manage Bluesky settings" deep link. Renaming the id without updating
-	 * the link would silently break navigation.
+	 * Auto-publish checkbox reflects the stored option. With Atmosphere's
+	 * default ('1' = enabled), an unset option still renders the box checked.
 	 */
-	public function test_render_setup_section_has_anchor_id() {
+	public function test_render_setup_section_auto_publish_checked_by_default() {
+		update_option(
+			'atmosphere_connection',
+			array(
+				'did'          => 'did:plc:test123',
+				'handle'       => 'alice.bsky.social',
+				'pds_endpoint' => 'https://bsky.social',
+				'access_token' => Encryption::encrypt( 'token' ),
+			)
+		);
+		delete_option( 'atmosphere_auto_publish' );
+
 		ob_start();
 		$this->provider->render_setup_section();
+		$output = ob_get_clean();
+
+		// WordPress's `checked()` may emit `checked='checked'` or a bare
+		// `checked` attribute depending on core version; match either form
+		// so the assertion stays stable across the supported floor.
+		$this->assertMatchesRegularExpression(
+			'~<input[^>]+name="atmosphere_auto_publish"[^>]+(checked(?:=\'checked\'|="checked")?)~',
+			$output
+		);
+	}
+
+	/**
+	 * When auto-publish is explicitly disabled ('0'), the checkbox renders
+	 * unchecked.
+	 */
+	public function test_render_setup_section_auto_publish_unchecked_when_disabled() {
+		update_option(
+			'atmosphere_connection',
+			array(
+				'did'          => 'did:plc:test123',
+				'handle'       => 'alice.bsky.social',
+				'pds_endpoint' => 'https://bsky.social',
+				'access_token' => Encryption::encrypt( 'token' ),
+			)
+		);
+		update_option( 'atmosphere_auto_publish', '0' );
+
+		ob_start();
+		$this->provider->render_setup_section();
+		$output = ob_get_clean();
+
+		$this->assertDoesNotMatchRegularExpression(
+			'~<input[^>]+name="atmosphere_auto_publish"[^>]+(checked(?:=\'checked\'|="checked")?)~',
+			$output
+		);
+	}
+
+	/**
+	 * Connection panel carries the fragment target id (`fosse-provider-bluesky`)
+	 * referenced from the Status page reconnect link. Renaming the id without
+	 * updating that link would silently break navigation.
+	 */
+	public function test_render_connection_actions_has_anchor_id() {
+		ob_start();
+		$this->provider->render_connection_actions();
 		$output = ob_get_clean();
 
 		$this->assertStringContainsString( 'id="fosse-provider-bluesky"', $output );
 	}
 
 	/**
-	 * Disconnected setup UI links out to bsky.app so users without an
-	 * account aren't dead-ended at the connect form.
+	 * Disconnected connection panel renders the connect action.
 	 */
-	public function test_render_setup_section_disconnected_links_to_bluesky_signup() {
+	public function test_render_connection_actions_disconnected_contains_connect_form() {
 		ob_start();
-		$this->provider->render_setup_section();
+		$this->provider->render_connection_actions();
+		$output = ob_get_clean();
+
+		$this->assertStringContainsString( 'fosse_connect_bluesky', $output );
+		$this->assertStringContainsString( 'bluesky_handle', $output );
+	}
+
+	/**
+	 * Connected connection panel renders the disconnect action and exposes
+	 * the connection details (handle, DID, PDS, token health).
+	 */
+	public function test_render_connection_actions_connected_contains_disconnect_form() {
+		update_option(
+			'atmosphere_connection',
+			array(
+				'did'          => 'did:plc:test123',
+				'handle'       => 'alice.bsky.social',
+				'pds_endpoint' => 'https://bsky.social',
+				'access_token' => Encryption::encrypt( 'token' ),
+			)
+		);
+
+		ob_start();
+		$this->provider->render_connection_actions();
+		$output = ob_get_clean();
+
+		$this->assertStringContainsString( 'fosse_disconnect_bluesky', $output );
+		$this->assertStringContainsString( 'alice.bsky.social', $output );
+	}
+
+	/**
+	 * Disconnected connection panel links out to bsky.app so users without
+	 * an account aren't dead-ended at the connect form.
+	 */
+	public function test_render_connection_actions_disconnected_links_to_bluesky_signup() {
+		ob_start();
+		$this->provider->render_connection_actions();
 		$output = ob_get_clean();
 
 		$this->assertStringContainsString( 'fosse-bluesky-signup', $output );
@@ -251,10 +349,10 @@ class Bluesky_ProviderTest extends BaseTestCase {
 	}
 
 	/**
-	 * Connected setup UI omits the sign-up affordance — the user already
-	 * has an account, so prompting to create one is noise.
+	 * Connected connection panel omits the sign-up affordance — the user
+	 * already has an account, so prompting to create one is noise.
 	 */
-	public function test_render_setup_section_connected_omits_signup_link() {
+	public function test_render_connection_actions_connected_omits_signup_link() {
 		update_option(
 			'atmosphere_connection',
 			array(
@@ -266,7 +364,7 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		);
 
 		ob_start();
-		$this->provider->render_setup_section();
+		$this->provider->render_connection_actions();
 		$output = ob_get_clean();
 
 		$this->assertStringNotContainsString( 'fosse-bluesky-signup', $output );
@@ -322,16 +420,17 @@ class Bluesky_ProviderTest extends BaseTestCase {
 	}
 
 	/**
-	 * Status card deep-links back to the Bluesky setup section. The fragment
-	 * must match the id rendered by render_setup_section().
+	 * Status card no longer carries a "Manage Bluesky settings" deep link
+	 * (issue #74) — the sidebar Settings menu entry replaces those per-card
+	 * navigation affordances.
 	 */
-	public function test_render_status_card_has_manage_settings_link() {
+	public function test_render_status_card_omits_manage_settings_link() {
 		ob_start();
 		$this->provider->render_status_card();
 		$output = ob_get_clean();
 
-		$this->assertStringContainsString( 'Manage Bluesky settings', $output );
-		$this->assertStringContainsString( '#fosse-provider-bluesky', $output );
+		$this->assertStringNotContainsString( 'Manage Bluesky settings', $output );
+		$this->assertStringNotContainsString( 'fosse-status-card__manage', $output );
 	}
 
 	/**
@@ -1375,7 +1474,9 @@ class Bluesky_ProviderTest extends BaseTestCase {
 	}
 
 	/**
-	 * Provider registers the expected hooks.
+	 * Provider registers the expected hooks. Settings save is centralized
+	 * in {@see Setup_Page::handle_save()} so the provider's own
+	 * `register_hooks()` does NOT register an admin-post handler for it.
 	 */
 	public function test_register_hooks_adds_actions() {
 		$this->provider->register_hooks();
@@ -1386,6 +1487,67 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		$this->assertSame( 1, has_action( 'init', array( $this->provider, 'serve_atproto_did_well_known' ) ) );
 		$this->assertSame( 1, has_action( 'template_redirect', array( $this->provider, 'maybe_suppress_atmosphere_well_known' ) ) );
 		$this->assertNotFalse( has_filter( 'atmosphere_oauth_redirect_uri', array( $this->provider, 'filter_oauth_redirect_uri' ) ) );
+	}
+
+	// --- save_settings ----------------------------------------------------
+
+	/**
+	 * A submitted, checked auto-publish input persists `'1'` so Atmosphere's
+	 * publish flow remains enabled after save.
+	 */
+	public function test_save_settings_stores_auto_publish_when_checked() {
+		$this->seed_connected_atmosphere_connection();
+
+		$ok = $this->provider->save_settings( array( 'atmosphere_auto_publish' => '1' ) );
+
+		$this->assertTrue( $ok );
+		$this->assertSame( '1', get_option( 'atmosphere_auto_publish' ) );
+	}
+
+	/**
+	 * An omitted checkbox while connected is the legitimate "disabled"
+	 * submission — HTML forms drop unchecked checkboxes from the POST body,
+	 * so absence must persist `'0'` instead of preserving the previous value.
+	 */
+	public function test_save_settings_disables_auto_publish_when_unchecked() {
+		$this->seed_connected_atmosphere_connection();
+		update_option( 'atmosphere_auto_publish', '1' );
+
+		$ok = $this->provider->save_settings( array() );
+
+		$this->assertTrue( $ok );
+		$this->assertSame( '0', get_option( 'atmosphere_auto_publish' ) );
+	}
+
+	/**
+	 * An empty-string value (defensive) reads as "unchecked" and disables
+	 * auto-publish — guards against malformed POST bodies that submit the
+	 * field name without a value.
+	 */
+	public function test_save_settings_disables_auto_publish_for_empty_value() {
+		$this->seed_connected_atmosphere_connection();
+		update_option( 'atmosphere_auto_publish', '1' );
+
+		$this->provider->save_settings( array( 'atmosphere_auto_publish' => '' ) );
+
+		$this->assertSame( '0', get_option( 'atmosphere_auto_publish' ) );
+	}
+
+	/**
+	 * A Settings save while disconnected must NOT touch
+	 * `atmosphere_auto_publish` — the toggle isn't rendered in that state,
+	 * so an omitted checkbox is the absence of a setting, not an
+	 * intentional "uncheck". Without this guard a routine General-section
+	 * save would silently flip the option to `'0'`.
+	 */
+	public function test_save_settings_disconnected_preserves_auto_publish() {
+		// Provider is disconnected by set_up_provider() (no connection seed).
+		update_option( 'atmosphere_auto_publish', '1' );
+
+		$ok = $this->provider->save_settings( array() );
+
+		$this->assertTrue( $ok );
+		$this->assertSame( '1', get_option( 'atmosphere_auto_publish' ) );
 	}
 
 	/**
