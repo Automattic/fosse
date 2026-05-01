@@ -647,15 +647,22 @@ class Onboarding_WizardTest extends BaseTestCase {
 	}
 
 	/**
-	 * The publish CTA's surrounding copy talks about "the social web" — the
-	 * project's settled language for the destination network.
+	 * The publish CTA's helper paragraph talks about "the social web" — the
+	 * project's settled language for the destination network. Asserts against
+	 * the dedicated `fosse-wizard__cta-help` block so the test fails if the
+	 * helper copy is removed (the welcome-step body uses "social web" too,
+	 * which would otherwise mask a regression).
 	 */
 	public function test_render_complete_step_cta_uses_social_web_language(): void {
 		Onboarding_Wizard::mark_complete();
 
 		$output = $this->render_wizard_step( 'complete' );
 
-		$this->assertStringContainsString( 'social web', $output );
+		$this->assertMatchesRegularExpression(
+			'~<p[^>]*class="[^"]*fosse-wizard__cta-help[^"]*"[^>]*>[^<]*social web~i',
+			$output,
+			'The publish CTA helper copy must reference "the social web".'
+		);
 	}
 
 	// --- audit hook: handler cap/nonce failures (parameterized) ---

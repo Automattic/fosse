@@ -52,6 +52,15 @@ class MenuTest extends BaseTestCase {
 		$_GET = array();
 		remove_all_filters( 'wp_redirect' );
 
+		// Drop notice canaries from the suppression tests. The
+		// "does_not_suppress" cases register callbacks and never call
+		// remove_all_actions() on those hooks, so they would leak into
+		// later tests if we didn't clear them here.
+		remove_all_actions( 'admin_notices' );
+		remove_all_actions( 'all_admin_notices' );
+		remove_all_actions( 'network_admin_notices' );
+		remove_all_actions( 'user_admin_notices' );
+
 		// Restore the AP registration so a test that called
 		// Connection_Provider_Registry::reset() doesn't leave the next
 		// test class without a provider.

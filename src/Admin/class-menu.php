@@ -26,7 +26,10 @@ class Menu {
 		add_action( 'admin_bar_menu', array( static::class, 'hide_bundled_admin_bar' ), 101 );
 		add_action( 'admin_enqueue_scripts', array( static::class, 'enqueue_styles' ) );
 		add_action( 'admin_init', array( static::class, 'maybe_redirect_to_wizard' ) );
-		add_action( 'current_screen', array( static::class, 'maybe_suppress_admin_notices' ) );
+		// PHP_INT_MAX so any plugin that registers an admin_notices callback
+		// from inside its own current_screen handler (regardless of priority)
+		// is still stripped before WP fires the notice hooks.
+		add_action( 'current_screen', array( static::class, 'maybe_suppress_admin_notices' ), PHP_INT_MAX );
 
 		Onboarding_Wizard::register();
 	}

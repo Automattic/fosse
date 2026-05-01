@@ -894,8 +894,6 @@ class Onboarding_Wizard {
 		$description = $is_connected
 			? __( 'Your posts will also appear on Bluesky. Review the details below before finishing setup.', 'fosse' )
 			: __( 'Link your Bluesky account so your posts also appear on Bluesky. This step is optional. You can always connect later from the FOSSE Setup page.', 'fosse' );
-
-		$handle_previews = self::get_handle_previews( get_option( 'activitypub_actor_mode', 'actor' ) );
 		?>
 		<h1 class="fosse-wizard__title"><?php echo esc_html( $title ); ?></h1>
 		<p class="fosse-wizard__description">
@@ -913,6 +911,7 @@ class Onboarding_Wizard {
 					</p>
 				</div>
 			<?php elseif ( $is_connected ) : ?>
+				<?php $handle_previews = self::get_handle_previews( get_option( 'activitypub_actor_mode', 'actor' ) ); ?>
 				<div class="notice notice-success inline fosse-wizard__notice">
 					<p>
 						<strong><?php esc_html_e( 'Bluesky is connected.', 'fosse' ); ?></strong>
