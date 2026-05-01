@@ -527,9 +527,11 @@ class Onboarding_WizardTest extends BaseTestCase {
 		$this->assertStringContainsString( 'Both (site + authors)', $output );
 		$this->assertStringContainsString( 'As you:', $output );
 		$this->assertStringContainsString( 'As your site:', $output );
-		// Fediverse handle markup should be wrapped in <code>, not bare text.
-		$this->assertMatchesRegularExpression( '~As you:\s*<code>@[^<]+@[^<]+</code>~', $output );
-		$this->assertMatchesRegularExpression( '~As your site:\s*<code>@[^<]+@[^<]+</code>~', $output );
+		// Fediverse handle markup should be wrapped in <code>, with a
+		// `<br />` between the label and the handle so long handles don't
+		// wrap mid-token (#72).
+		$this->assertMatchesRegularExpression( '~As you:<br\s*/?>\s*<code>@[^<]+@[^<]+</code>~', $output );
+		$this->assertMatchesRegularExpression( '~As your site:<br\s*/?>\s*<code>@[^<]+@[^<]+</code>~', $output );
 	}
 
 	/**
@@ -544,7 +546,32 @@ class Onboarding_WizardTest extends BaseTestCase {
 		$output = $this->render_wizard_step( 'complete' );
 
 		$this->assertStringContainsString( 'As your site', $output );
-		$this->assertMatchesRegularExpression( '~As your site \(<code>@[^<]+@[^<]+</code>\)~', $output );
+		// Long handles previously wrapped awkwardly mid-token; the label and
+		// handle now sit on separate lines with a `<br />` between them (#72).
+		$this->assertMatchesRegularExpression( '~As your site<br\s*/?>\s*<code>@[^<]+@[^<]+</code>~', $output );
+	}
+
+	/**
+	 * In `actor` mode the user handle drops to its own line (#72), so a long
+	 * `@user@host` token in a narrow summary cell can't push the row's
+	 * intrinsic width past the wizard column.
+	 */
+	public function test_complete_summary_breaks_handle_to_new_line_in_actor_mode(): void {
+		Onboarding_Wizard::mark_complete();
+		update_option( 'activitypub_actor_mode', 'actor' );
+
+		add_filter( 'activitypub_user_can_activitypub', '__return_true' );
+		try {
+			$output = $this->render_wizard_step( 'complete' );
+		} finally {
+			remove_filter( 'activitypub_user_can_activitypub', '__return_true' );
+		}
+
+		$this->assertStringContainsString( 'As you', $output );
+		$this->assertMatchesRegularExpression( '~As you<br\s*/?>\s*<code>@[^<]+@[^<]+</code>~', $output );
+		// The pre-fix wrapper used parens around the handle on the same line;
+		// guard against the parenthesized shape regressing here.
+		$this->assertDoesNotMatchRegularExpression( '~As you \(<code>~', $output );
 	}
 
 	// --- Bluesky signup help (#58) ---
@@ -575,7 +602,64 @@ class Onboarding_WizardTest extends BaseTestCase {
 		$this->assertStringNotContainsString( 'Need a Bluesky account', $output );
 	}
 
-	// --- Bluesky post-OAuth completion state (#59) ---
+	// --- Bluesky post-OAuth completion state (#59, #70) ---
+
+	/**
+	 * Atmosphere's OAuth callback adds a "Successfully connected" settings_error
+	 * that previously rendered as a top notice on the wizard's Bluesky step,
+	 * doubling up with the in-card "Bluesky is connected" copy. After #70 the
+	 * top success notice is suppressed; only the persistent in-card state
+	 * remains for the connected confirmation.
+	 */
+	public function test_render_bluesky_step_suppresses_top_success_notice(): void {
+		$this->seed_bluesky_connection( 'alice.bsky.social', 'did:plc:alice123' );
+
+		// Reset any cross-test residue and seed an atmosphere settings_error
+		// of the same shape Atmosphere emits on a successful OAuth callback.
+		global $wp_settings_errors;
+		$wp_settings_errors = array(); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- isolating settings-error state for this test.
+		add_settings_error(
+			'atmosphere',
+			'connected',
+			'TOP_NOTICE_SUCCESS_FIXTURE',
+			'success'
+		);
+
+		try {
+			$output = $this->render_wizard_step( 'bluesky' );
+		} finally {
+			$wp_settings_errors = array(); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- restoring state for the next test.
+		}
+
+		// The duplicate top success notice must not render on the wizard step.
+		$this->assertStringNotContainsString( 'TOP_NOTICE_SUCCESS_FIXTURE', $output );
+		// The in-card persistent state still speaks for the connected case.
+		$this->assertStringContainsString( 'Bluesky is connected', $output );
+	}
+
+	/**
+	 * Error-typed atmosphere notices still surface on the wizard's Bluesky step
+	 * — only success/info confirmations are dropped (#70). Without this, a
+	 * failed OAuth callback would re-render the connect form with no feedback.
+	 */
+	public function test_render_bluesky_step_preserves_top_error_notice(): void {
+		global $wp_settings_errors;
+		$wp_settings_errors = array(); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- isolating settings-error state for this test.
+		add_settings_error(
+			'atmosphere',
+			'callback_failed',
+			'TOP_NOTICE_ERROR_FIXTURE',
+			'error'
+		);
+
+		try {
+			$output = $this->render_wizard_step( 'bluesky' );
+		} finally {
+			$wp_settings_errors = array(); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- restoring state for the next test.
+		}
+
+		$this->assertStringContainsString( 'TOP_NOTICE_ERROR_FIXTURE', $output );
+	}
 
 	/**
 	 * After a successful Bluesky connection the wizard suppresses the
