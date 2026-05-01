@@ -66,6 +66,20 @@ class Status_FormatterTest extends BaseTestCase {
 	}
 
 	/**
+	 * Query strings with multiple parameters break before each `&`. Locks in
+	 * the post-`esc_html` regex behavior — a literal `&` in the source URL
+	 * becomes `&amp;` after escaping, and the formatter must place the
+	 * `<wbr>` immediately before the entity so the rendered ampersand still
+	 * has a break opportunity.
+	 */
+	public function test_url_with_ampersand_query_separator(): void {
+		$this->assertSame(
+			'https://<wbr>example.com<wbr>/path<wbr>?q=1<wbr>&amp;r=2',
+			Status_Formatter::url( 'https://example.com/path?q=1&r=2' )
+		);
+	}
+
+	/**
 	 * AP fediverse addresses break before the second `@` and after each
 	 * dot in the host. The leading `@` is preserved verbatim.
 	 */

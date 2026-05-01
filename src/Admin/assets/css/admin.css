@@ -58,8 +58,12 @@
 	width: 40%;
 }
 
+/* Defense in depth: token wrappers carry their own wrap rules, but if a
+   future cell holds raw user input (e.g. a long error message, a long
+   site title) without going through Status_Formatter, this keeps the
+   value column from inflating the table beyond its container. */
 .fosse-status-card__value {
-	min-width: 0;
+	overflow-wrap: break-word;
 }
 
 /* Token-specific wrap behavior.

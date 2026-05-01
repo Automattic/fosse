@@ -35,15 +35,19 @@ class Status_Formatter {
 	}
 
 	/**
-	 * Format a URL for display.
+	 * Format a URL for display as inline text.
 	 *
 	 * Allows the browser to break after the scheme (`https://`), and before
 	 * each `/`, `?`, `#`, or `&` in the rest of the URL. The path separators
 	 * read more naturally as the start of the next segment, so the `<wbr>`
 	 * is placed before them.
 	 *
+	 * Returns escaped HTML suitable for **text contexts** (`<code>`, `<span>`,
+	 * `<td>`). Does NOT validate URL syntax — never feed the result into
+	 * `href=`, `src=`, or innerHTML. Use `esc_url()` for those.
+	 *
 	 * @param string $url Raw URL.
-	 * @return string Escaped HTML safe to echo, with `<wbr>` at sensible boundaries.
+	 * @return string Escaped HTML safe to echo into text content, with `<wbr>` at sensible boundaries.
 	 */
 	public static function url( string $url ): string {
 		$escaped = esc_html( $url );
@@ -55,7 +59,10 @@ class Status_Formatter {
 
 		// Allow breaks before path/query/fragment/parameter separators in
 		// the remainder, after the scheme marker we just inserted (so the
-		// `://` itself isn't re-broken).
+		// `://` itself isn't re-broken). The `&` match here intentionally
+		// targets the leading `&` of `&amp;` entities — a literal `&` in
+		// the source URL is `esc_html`'d to `&amp;` above, and matching `&`
+		// places the `<wbr>` right before the rendered ampersand.
 		$marker = '://<wbr>';
 		$pos    = strpos( $escaped, $marker );
 		if ( false !== $pos ) {
