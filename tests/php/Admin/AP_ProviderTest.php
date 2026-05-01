@@ -42,6 +42,17 @@ class AP_ProviderTest extends BaseTestCase {
 
 		// Clear stale AP filter state so register_hooks() doesn't double-register.
 		remove_all_filters( 'activitypub_default_blog_username' );
+		remove_all_filters( 'sanitize_option_activitypub_blog_identifier' );
+
+		// AP registers its sanitize callback during `admin_init`, which the
+		// test bootstrap never fires. Wire the filter manually so tests
+		// exercise the same path production hits when `update_option` runs.
+		if ( class_exists( '\Activitypub\Sanitize' ) ) {
+			add_filter(
+				'sanitize_option_activitypub_blog_identifier',
+				array( '\Activitypub\Sanitize', 'blog_identifier' )
+			);
+		}
 
 		$this->provider->register_hooks();
 	}
@@ -56,6 +67,7 @@ class AP_ProviderTest extends BaseTestCase {
 	#[\PHPUnit\Framework\Attributes\After]
 	public function tear_down_provider(): void {
 		remove_all_filters( 'activitypub_default_blog_username' );
+		remove_all_filters( 'sanitize_option_activitypub_blog_identifier' );
 	}
 
 	/**
@@ -648,6 +660,49 @@ class AP_ProviderTest extends BaseTestCase {
 		}
 
 		$this->assertSame( 'has-spaces-caps', get_option( 'activitypub_blog_identifier' ) );
+	}
+
+	/**
+	 * AP's sanitizer adds settings errors under `activitypub_blog_identifier`
+	 * when the input collides with an existing user. The FOSSE Setup page
+	 * only renders `settings_errors('fosse')`, so we re-tag fresh AP errors
+	 * into our group so users actually see why their handle was rejected.
+	 *
+	 * The test forces the colliding-input branch directly via AP's filter
+	 * (WorDBless's dbless engine doesn't satisfy `WP_User_Query`'s LIKE
+	 * search, so seeding a real colliding user wouldn't trigger AP's
+	 * collision path).
+	 */
+	public function test_handle_save_rewires_ap_settings_errors_to_fosse_group() {
+		add_filter(
+			'sanitize_option_activitypub_blog_identifier',
+			static function ( $value ) {
+				add_settings_error(
+					'activitypub_blog_identifier',
+					'collision_test',
+					'Collision test error.',
+					'error'
+				);
+				return $value;
+			},
+			11 // After AP's own callback.
+		);
+
+		$this->simulate_save_request(
+			array(
+				'activitypub_actor_mode'      => 'blog',
+				'activitypub_blog_identifier' => 'whatever',
+			)
+		);
+
+		try {
+			$this->provider->handle_save();
+		} catch ( \Exception $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$fosse_codes = array_column( get_settings_errors( 'fosse' ), 'code' );
+		$this->assertContains( 'collision_test', $fosse_codes );
 	}
 
 	/**

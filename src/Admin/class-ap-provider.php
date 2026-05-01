@@ -366,27 +366,45 @@ class AP_Provider implements Connection_Provider {
 		update_option( 'activitypub_support_post_types', $post_types );
 
 		// Site Handle: only persist when the field was submitted with a non-
-		// empty value and AP's sanitizer is loadable. Empty submissions
-		// preserve any existing stored value rather than reverting to AP's
-		// default. The sanitizer applies the same collision/canonicalization
-		// rules used by AP's native Settings → ActivityPub page, so a
-		// colliding submission is rejected and falls back to the default
-		// (this keeps FOSSE's surface aligned with AP's).
-		if ( array_key_exists( 'activitypub_blog_identifier', $_POST ) && class_exists( '\Activitypub\Sanitize' ) ) {
+		// empty value. Empty submissions preserve any existing stored value
+		// rather than reverting to AP's default. The actual sanitization
+		// (collision rejection, slug canonicalization) runs inside
+		// `update_option` via AP's `sanitize_option_activitypub_blog_identifier`
+		// filter — calling `\Activitypub\Sanitize::blog_identifier` directly
+		// here would double-fire it and double-emit any collision notice.
+		if ( array_key_exists( 'activitypub_blog_identifier', $_POST ) ) {
 			// Coerce to string defensively: a malformed POST that submits the
 			// field as an array would otherwise warn under sanitize_text_field
-			// (and trip phpunit's failOnWarning) before we ever reach AP's
-			// sanitizer. is_string() guards the raw value before unslash and
-			// sanitize, satisfying both the PHPCS sanitization sniff and the
-			// runtime warning path.
+			// (and trip phpunit's failOnWarning). is_string() guards the raw
+			// value before unslash and sanitize, satisfying both the PHPCS
+			// sanitization sniff and the runtime warning path.
 			$raw_input = is_string( $_POST['activitypub_blog_identifier'] )
 				? sanitize_text_field( wp_unslash( $_POST['activitypub_blog_identifier'] ) )
 				: '';
 			$raw       = trim( $raw_input );
 			if ( '' !== $raw ) {
-				$sanitized = (string) \Activitypub\Sanitize::blog_identifier( $raw );
-				if ( '' !== $sanitized ) {
-					update_option( 'activitypub_blog_identifier', $sanitized );
+				// Snapshot AP error codes already on the queue so we only
+				// re-tag freshly-raised ones below.
+				$ap_errors_before = wp_list_pluck( get_settings_errors( 'activitypub_blog_identifier' ), 'code' );
+
+				update_option( 'activitypub_blog_identifier', $raw );
+
+				// AP's sanitizer raises settings errors under its own group
+				// when the input collides with an existing user_login /
+				// user_nicename. The FOSSE Setup page renders
+				// `settings_errors( 'fosse' )` only, so without this re-tag
+				// the user would see a generic "saved" success notice while
+				// their requested handle silently fell back to the default.
+				foreach ( get_settings_errors( 'activitypub_blog_identifier' ) as $ap_error ) {
+					if ( in_array( $ap_error['code'], $ap_errors_before, true ) ) {
+						continue;
+					}
+					add_settings_error(
+						'fosse',
+						$ap_error['code'],
+						$ap_error['message'],
+						$ap_error['type']
+					);
 				}
 			}
 		}
