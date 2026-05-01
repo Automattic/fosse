@@ -614,22 +614,20 @@ class Onboarding_WizardTest extends BaseTestCase {
 	public function test_render_bluesky_step_suppresses_top_success_notice(): void {
 		$this->seed_bluesky_connection( 'alice.bsky.social', 'did:plc:alice123' );
 
-		// Reset any cross-test residue and seed an atmosphere settings_error
+		// Snapshot prior settings_errors state so seeding the success-type
+		// fixture below can't leak into adjacent tests, then seed a notice
 		// of the same shape Atmosphere emits on a successful OAuth callback.
-		global $wp_settings_errors;
-		$wp_settings_errors = array(); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- isolating settings-error state for this test.
-		add_settings_error(
-			'atmosphere',
-			'connected',
-			'TOP_NOTICE_SUCCESS_FIXTURE',
-			'success'
+		$output = $this->with_isolated_settings_errors(
+			function (): string {
+				add_settings_error(
+					'atmosphere',
+					'connected',
+					'TOP_NOTICE_SUCCESS_FIXTURE',
+					'success'
+				);
+				return $this->render_wizard_step( 'bluesky' );
+			}
 		);
-
-		try {
-			$output = $this->render_wizard_step( 'bluesky' );
-		} finally {
-			$wp_settings_errors = array(); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- restoring state for the next test.
-		}
 
 		// The duplicate top success notice must not render on the wizard step.
 		$this->assertStringNotContainsString( 'TOP_NOTICE_SUCCESS_FIXTURE', $output );
@@ -643,20 +641,17 @@ class Onboarding_WizardTest extends BaseTestCase {
 	 * failed OAuth callback would re-render the connect form with no feedback.
 	 */
 	public function test_render_bluesky_step_preserves_top_error_notice(): void {
-		global $wp_settings_errors;
-		$wp_settings_errors = array(); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- isolating settings-error state for this test.
-		add_settings_error(
-			'atmosphere',
-			'callback_failed',
-			'TOP_NOTICE_ERROR_FIXTURE',
-			'error'
+		$output = $this->with_isolated_settings_errors(
+			function (): string {
+				add_settings_error(
+					'atmosphere',
+					'callback_failed',
+					'TOP_NOTICE_ERROR_FIXTURE',
+					'error'
+				);
+				return $this->render_wizard_step( 'bluesky' );
+			}
 		);
-
-		try {
-			$output = $this->render_wizard_step( 'bluesky' );
-		} finally {
-			$wp_settings_errors = array(); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- restoring state for the next test.
-		}
 
 		$this->assertStringContainsString( 'TOP_NOTICE_ERROR_FIXTURE', $output );
 	}
@@ -981,6 +976,39 @@ class Onboarding_WizardTest extends BaseTestCase {
 	}
 
 	// --- helpers ---
+
+	/**
+	 * Run a callback with an isolated `$wp_settings_errors` global.
+	 *
+	 * Snapshots the prior value (or unset state) before the callback runs and
+	 * restores it afterwards, so tests that seed a settings_error fixture
+	 * don't leak it into adjacent tests — the suite's `tear_down_state()`
+	 * doesn't reset this global, and `add_settings_error()` does not require
+	 * `register_setting()` so it would otherwise persist across tests.
+	 *
+	 * @param callable $callback Callback returning the rendered output.
+	 * @return string Whatever the callback returns.
+	 */
+	private function with_isolated_settings_errors( callable $callback ): string {
+		global $wp_settings_errors;
+
+		$had_prior = isset( $wp_settings_errors );
+		$prior     = $had_prior ? $wp_settings_errors : null;
+
+		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- isolating settings-error state for the callback.
+		$wp_settings_errors = array();
+
+		try {
+			return (string) $callback();
+		} finally {
+			if ( $had_prior ) {
+				// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- restoring snapshot taken above.
+				$wp_settings_errors = $prior;
+			} else {
+				unset( $wp_settings_errors );
+			}
+		}
+	}
 
 	/**
 	 * Authenticate as a non-administrator (subscriber).
