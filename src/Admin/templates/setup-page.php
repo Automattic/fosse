@@ -69,7 +69,7 @@ defined( 'ABSPATH' ) || exit;
 									</label><br />
 								<?php endforeach; ?>
 								<p class="description">
-									<?php esc_html_e( 'Post types that federate to ActivityPub and to Bluesky via Atmosphere.', 'fosse' ); ?>
+									<?php esc_html_e( 'Post types that FOSSE federates to your configured providers.', 'fosse' ); ?>
 								</p>
 							</fieldset>
 						</td>

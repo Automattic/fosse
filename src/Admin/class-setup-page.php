@@ -117,12 +117,16 @@ class Setup_Page {
 	/**
 	 * Persist the General (cross-protocol) options.
 	 *
-	 * Currently just `activitypub_support_post_types`, which AP reads
-	 * directly and Atmosphere consumes via FOSSE's post-type projector
-	 * (see {@see \Automattic\Fosse\Post_Types}). Owned by Setup_Page
-	 * rather than a provider so the write happens regardless of which
-	 * federation backends are loaded — keeping the Settings UI honest
-	 * even on installs where one or both providers are unavailable.
+	 * Currently just `activitypub_support_post_types`. ActivityPub reads
+	 * the option directly. When AP is loaded, FOSSE's post-type projector
+	 * ({@see \Automattic\Fosse\Post_Types}) mirrors the same value into
+	 * Atmosphere's `atmosphere_syncable_post_types` filter, so a single
+	 * write covers both networks. The projector is gated on AP being
+	 * loaded — on a (hypothetical, since AP is bundled) Bluesky-only
+	 * install Atmosphere falls back to its own
+	 * `atmosphere_support_post_types` option and this write is dead
+	 * weight. Owned by Setup_Page rather than a provider so the call
+	 * happens regardless of which federation backends are registered.
 	 *
 	 * @param array<string, mixed> $post_data Raw, slashed POST payload.
 	 * @return void
