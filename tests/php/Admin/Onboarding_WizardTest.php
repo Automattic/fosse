@@ -630,17 +630,19 @@ class Onboarding_WizardTest extends BaseTestCase {
 
 	/**
 	 * The completion step renders a primary CTA to publish the user's first
-	 * post — the natural forward push after the wizard finishes.
+	 * post — the natural forward push after the wizard finishes. The label
+	 * embeds the post type's `singular_name` as-is (no forced lowercasing)
+	 * so locale-specific capitalization rules — e.g. German nouns — survive.
 	 */
 	public function test_render_complete_step_renders_publish_cta(): void {
 		Onboarding_Wizard::mark_complete();
 
 		$output = $this->render_wizard_step( 'complete' );
 
-		$this->assertStringContainsString( 'Publish your first post', $output );
+		$this->assertStringContainsString( 'Publish your first Post', $output );
 		$this->assertStringContainsString( 'fosse-wizard__cta-publish', $output );
 		$this->assertMatchesRegularExpression(
-			'/<a[^>]*href="[^"]*post-new\.php[^"]*"[^>]*class="[^"]*button-primary[^"]*"[^>]*>\s*Publish your first post/i',
+			'/<a[^>]*href="[^"]*post-new\.php[^"]*"[^>]*class="[^"]*button-primary[^"]*"[^>]*>\s*Publish your first Post/i',
 			$output,
 			'The publish CTA must be a button-primary link to post-new.php.'
 		);
@@ -682,8 +684,8 @@ class Onboarding_WizardTest extends BaseTestCase {
 			$output,
 			'Publish CTA must deep-link to post-new.php?post_type=page when only page is federated.'
 		);
-		$this->assertStringContainsString( 'Publish your first page', $output );
-		$this->assertStringNotContainsString( 'Publish your first post', $output );
+		$this->assertStringContainsString( 'Publish your first Page', $output );
+		$this->assertStringNotContainsString( 'Publish your first Post', $output );
 	}
 
 	/**
@@ -702,7 +704,28 @@ class Onboarding_WizardTest extends BaseTestCase {
 			$output,
 			'Publish CTA URL must not include post_type=post when post is among the selected types.'
 		);
-		$this->assertStringContainsString( 'Publish your first post', $output );
+		$this->assertStringContainsString( 'Publish your first Post', $output );
+	}
+
+	/**
+	 * Empty / fully-invalid `activitypub_support_post_types` is technically
+	 * possible after wizard completion (AP's own settings page can clear
+	 * the list). The completion CTA must not pretend to deep-link a
+	 * federated editor in that state — it routes to FOSSE Setup instead.
+	 */
+	public function test_render_complete_step_cta_routes_to_setup_when_no_federated_types(): void {
+		Onboarding_Wizard::mark_complete();
+		update_option( 'activitypub_support_post_types', array() );
+
+		$output = $this->render_wizard_step( 'complete' );
+
+		$this->assertStringContainsString( 'Set up sharing', $output );
+		$this->assertStringNotContainsString( 'Publish your first', $output );
+		$this->assertMatchesRegularExpression(
+			'/<a[^>]*href="[^"]*page=fosse[^"]*"[^>]*class="[^"]*fosse-wizard__cta-publish[^"]*"/i',
+			$output,
+			'Empty post-type list must route the CTA to the FOSSE Setup page.'
+		);
 	}
 
 	// --- audit hook: handler cap/nonce failures (parameterized) ---

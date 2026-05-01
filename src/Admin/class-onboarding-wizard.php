@@ -533,27 +533,38 @@ class Onboarding_Wizard {
 	 * it's in the selection — most users think of `post` as the default
 	 * — and falls back to the first valid public type otherwise.
 	 *
-	 * The label uses the post type's `singular_name` lowercased so the
-	 * sentence reads naturally ("Publish your first page", "Publish your
-	 * first movie"). `mb_strtolower` is preferred for multi-byte locales
-	 * but falls back to `strtolower` when the extension is missing.
+	 * Empty / fully-invalid input degrades to a "Set up sharing" CTA
+	 * that routes back to the Setup page, instead of pretending to
+	 * deep-link a federated editor that won't actually federate (the
+	 * wizard's content step blocks empty submissions, but the option
+	 * can be cleared later via AP's settings page).
+	 *
+	 * The label embeds the post type's `singular_name` as-is so the
+	 * locale's preferred casing wins. Forcing lowercase would break
+	 * locales like German where nouns are always capitalized.
 	 *
 	 * @param array<int, string> $post_types Federated post types from
 	 *                                       `activitypub_support_post_types`.
 	 * @return array{url: string, label: string}
 	 */
 	private static function resolve_publish_cta( array $post_types ): array {
-		$selected = 'post';
-		$has_post = in_array( 'post', $post_types, true ) && post_type_exists( 'post' );
-
-		if ( ! $has_post ) {
-			foreach ( $post_types as $candidate ) {
-				if ( is_string( $candidate ) && post_type_exists( $candidate ) ) {
-					$selected = $candidate;
-					break;
+		$valid_types = array_values(
+			array_filter(
+				$post_types,
+				static function ( $type ) {
+					return is_string( $type ) && post_type_exists( $type );
 				}
-			}
+			)
+		);
+
+		if ( empty( $valid_types ) ) {
+			return array(
+				'url'   => admin_url( 'admin.php?page=fosse' ),
+				'label' => __( 'Set up sharing', 'fosse' ),
+			);
 		}
+
+		$selected = in_array( 'post', $valid_types, true ) ? 'post' : $valid_types[0];
 
 		$url = 'post' === $selected
 			? admin_url( 'post-new.php' )
@@ -563,14 +574,11 @@ class Onboarding_Wizard {
 		$singular  = $pt_object && isset( $pt_object->labels->singular_name )
 			? (string) $pt_object->labels->singular_name
 			: __( 'post', 'fosse' );
-		$noun      = function_exists( 'mb_strtolower' )
-			? mb_strtolower( $singular )
-			: strtolower( $singular );
 
 		$label = sprintf(
-			/* translators: %s: post type singular name (e.g. "post", "page"). */
+			/* translators: %s: post type singular name (e.g. "Post", "Page"). */
 			__( 'Publish your first %s', 'fosse' ),
-			$noun
+			$singular
 		);
 
 		return array(

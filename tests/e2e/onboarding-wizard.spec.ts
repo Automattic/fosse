@@ -1,27 +1,5 @@
-import { test, expect, type Page } from '@playwright/test';
-
-const setBlueskyState = async (
-	page: Page,
-	body: Record< string, unknown >
-) => {
-	const result = await page.evaluate( async ( payload ) => {
-		const res = await fetch( '/wp-json/fosse-e2e/v1/bluesky-state', {
-			method: 'POST',
-			headers: {
-				'Content-Type': 'application/json',
-				'X-WP-Nonce': ( window as any ).wpApiSettings.nonce,
-			},
-			body: JSON.stringify( payload ),
-		} );
-
-		return { status: res.status, text: await res.text() };
-	}, body );
-
-	expect(
-		result.status,
-		`fosse-e2e/v1/bluesky-state returned: ${ result.text.slice( 0, 300 ) }`
-	).toBe( 200 );
-};
+import { test, expect } from '@playwright/test';
+import { setBlueskyState } from './test-helpers';
 
 test( 'Wizard page loads without errors', async ( { page } ) => {
 	const response = await page.goto( '/wp-admin/admin.php?page=fosse-wizard' );
