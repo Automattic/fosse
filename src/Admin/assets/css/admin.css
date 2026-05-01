@@ -441,6 +441,38 @@
 	border: 1px solid #e0e0e0;
 }
 
+/* Wizard Appearance step swaps which fediverse-address preview is visible
+   based on the selected actor mode; inactive containers and the site
+   handle row (which only applies in blog/actor_blog modes) carry
+   `is-hidden`. The class is also used as a no-JS fallback so the server
+   render of the active mode stays visible without the script. */
+.fosse-address-preview.is-hidden,
+.fosse-wizard__blog-handle.is-hidden {
+	display: none;
+}
+
+/* Inline site handle field on the Appearance step. Mirrors the Setup
+   page treatment but slimmer — sits inside the wizard card next to the
+   address preview. */
+.fosse-wizard__blog-handle {
+	margin-top: 16px;
+}
+
+.fosse-wizard__blog-handle-label {
+	display: block;
+	font-size: 11px;
+	font-weight: 500;
+	text-transform: uppercase;
+	color: #757575;
+	margin-bottom: 8px;
+}
+
+.fosse-wizard__blog-handle .description {
+	margin-top: 6px;
+	font-size: 12px;
+	color: #757575;
+}
+
 /* Post type selection */
 .fosse-post-types {
 	display: flex;

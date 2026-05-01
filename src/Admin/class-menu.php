@@ -24,7 +24,7 @@ class Menu {
 		add_action( 'admin_menu', array( static::class, 'add_menu' ), 9 );
 		add_action( 'admin_menu', array( static::class, 'hide_bundled_menus' ), 99 );
 		add_action( 'admin_bar_menu', array( static::class, 'hide_bundled_admin_bar' ), 101 );
-		add_action( 'admin_enqueue_scripts', array( static::class, 'enqueue_styles' ) );
+		add_action( 'admin_enqueue_scripts', array( static::class, 'enqueue_assets' ) );
 		add_action( 'admin_init', array( static::class, 'maybe_redirect_to_wizard' ) );
 
 		Setup_Page::register_hooks();
@@ -209,12 +209,12 @@ class Menu {
 	}
 
 	/**
-	 * Enqueue admin styles on FOSSE pages.
+	 * Enqueue admin styles and scripts on FOSSE pages.
 	 *
 	 * @param string $hook_suffix The current admin page hook suffix.
 	 * @return void
 	 */
-	public static function enqueue_styles( string $hook_suffix ): void {
+	public static function enqueue_assets( string $hook_suffix ): void {
 		if ( ! str_starts_with( $hook_suffix, 'toplevel_page_fosse' ) && ! str_starts_with( $hook_suffix, 'fosse_page_' ) && 'admin_page_fosse-wizard' !== $hook_suffix ) {
 			return;
 		}
@@ -225,6 +225,20 @@ class Menu {
 			array(),
 			filemtime( __DIR__ . '/assets/css/admin.css' )
 		);
+
+		// The wizard's Appearance step swaps the visible address preview
+		// when the actor-mode radio changes. Loaded only on the wizard
+		// hook to avoid shipping the script on the Setup/Status pages
+		// where the markup it targets isn't rendered.
+		if ( 'admin_page_fosse-wizard' === $hook_suffix ) {
+			wp_enqueue_script(
+				'fosse-wizard-appearance',
+				plugins_url( 'src/Admin/assets/js/wizard-appearance.js', dirname( __DIR__, 2 ) . '/fosse.php' ),
+				array(),
+				filemtime( __DIR__ . '/assets/js/wizard-appearance.js' ),
+				array( 'in_footer' => true )
+			);
+		}
 	}
 
 	/**
