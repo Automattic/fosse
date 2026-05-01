@@ -50,31 +50,40 @@ class Status_Formatter {
 	 * @return string Escaped HTML safe to echo into text content, with `<wbr>` at sensible boundaries.
 	 */
 	public static function url( string $url ): string {
-		$escaped = esc_html( $url );
+		// Place `<wbr>` markers BEFORE escaping so the regex operates on the
+		// raw URL where `/`, `?`, `#`, and `&` mean what they look like.
+		// Earlier versions ran the regex on the post-`esc_html` string, which
+		// broke numeric character references (`'` -> `&#039;`): the regex
+		// matched the `&` and the `#` independently and inserted `<wbr>`
+		// markers inside the entity, leaving a literal `&#039;` on screen
+		// instead of `'`. Marker-then-escape keeps the entity intact.
+		//
+		// `~~~FOSSE_WBR~~~` is a placeholder built from characters `esc_html`
+		// leaves alone (no `<>&"'`). Any literal occurrence in the input
+		// would render as an extra `<wbr>` (harmless — `<wbr>` is empty).
+		$placeholder = '~~~FOSSE_WBR~~~';
 
-		// Allow break right after the scheme (e.g. `https://`). Done first so
-		// the `<wbr>` we insert here doesn't get re-broken by the path-level
-		// pass below.
-		$escaped = (string) preg_replace( '~(://)~', '$1<wbr>', $escaped, 1 );
+		// Allow break right after the scheme (e.g. `https://`).
+		$marked = (string) preg_replace( '~(://)~', '$1' . $placeholder, $url, 1 );
 
 		// Allow breaks before path/query/fragment/parameter separators in
-		// the remainder, after the scheme marker we just inserted (so the
-		// `://` itself isn't re-broken). The `&` match here intentionally
-		// targets the leading `&` of `&amp;` entities — a literal `&` in
-		// the source URL is `esc_html`'d to `&amp;` above, and matching `&`
-		// places the `<wbr>` right before the rendered ampersand.
-		$marker = '://<wbr>';
-		$pos    = strpos( $escaped, $marker );
+		// the remainder, after the first `://` (so the scheme's slashes
+		// aren't re-broken). A second `://` further down (e.g. an OAuth-
+		// shaped `?next=https://...`) will pick up extra `<wbr>` markers
+		// between its trailing `/`s — harmless because `<wbr>` renders empty.
+		$boundary = '://' . $placeholder;
+		$pos      = strpos( $marked, $boundary );
 		if ( false !== $pos ) {
-			$prefix  = substr( $escaped, 0, $pos + strlen( $marker ) );
-			$rest    = substr( $escaped, $pos + strlen( $marker ) );
-			$rest    = (string) preg_replace( '~([/?\#&])~', '<wbr>$1', $rest );
-			$escaped = $prefix . $rest;
+			$skip   = $pos + strlen( $boundary );
+			$prefix = substr( $marked, 0, $skip );
+			$rest   = substr( $marked, $skip );
+			$rest   = (string) preg_replace( '~([/?#&])~', $placeholder . '$1', $rest );
+			$marked = $prefix . $rest;
 		} else {
-			$escaped = (string) preg_replace( '~([/?\#&])~', '<wbr>$1', $escaped );
+			$marked = (string) preg_replace( '~([/?#&])~', $placeholder . '$1', $marked );
 		}
 
-		return $escaped;
+		return str_replace( $placeholder, '<wbr>', esc_html( $marked ) );
 	}
 
 	/**
@@ -93,8 +102,19 @@ class Status_Formatter {
 	/**
 	 * Format an ActivityPub fediverse address for display (`@user@host.example`).
 	 *
-	 * The leading `@` is preserved verbatim. The local part stays intact, and
-	 * the host part is broken on its dots so a long host label can wrap.
+	 * The leading `@` is preserved verbatim if present, otherwise the address
+	 * renders without one. The local part stays intact, and the host part is
+	 * broken on its dots so a long host label can wrap.
+	 *
+	 * Contract: an address is "local@host" with one separating `@`. The first
+	 * `@` AFTER the optional leading `@` is treated as the local/host
+	 * separator; any subsequent `@` characters stay in the host part as
+	 * literal text. Inputs without an `@` after the optional leading one
+	 * (e.g. `@nodomain`, `@user@`) render with no host break — safe but
+	 * cosmetically wrong, since they aren't well-formed addresses anyway.
+	 *
+	 * Webfinger-shaped inputs from the AP plugin do NOT carry a leading `@`;
+	 * the call site at `AP_Provider::render_status_card()` prepends it.
 	 *
 	 * @param string $address Raw address with or without a leading `@`.
 	 * @return string Escaped HTML safe to echo, with `<wbr>` between the local part and host, and after each `.` in the host.

@@ -67,15 +67,80 @@ class Status_FormatterTest extends BaseTestCase {
 
 	/**
 	 * Query strings with multiple parameters break before each `&`. Locks in
-	 * the post-`esc_html` regex behavior — a literal `&` in the source URL
-	 * becomes `&amp;` after escaping, and the formatter must place the
-	 * `<wbr>` immediately before the entity so the rendered ampersand still
-	 * has a break opportunity.
+	 * the entity-aware behavior: a literal `&` in the source URL becomes
+	 * `&amp;` after escaping, and the rendered ampersand still has a break
+	 * opportunity in front of it.
 	 */
 	public function test_url_with_ampersand_query_separator(): void {
 		$this->assertSame(
 			'https://<wbr>example.com<wbr>/path<wbr>?q=1<wbr>&amp;r=2',
 			Status_Formatter::url( 'https://example.com/path?q=1&r=2' )
+		);
+	}
+
+	/**
+	 * URLs containing `'` must not corrupt the resulting numeric character
+	 * reference (`&#039;`). An earlier post-escape regex split the entity
+	 * by inserting `<wbr>` between `&` and `#`, leaving a literal
+	 * `&#039;` on screen instead of `'`. The mark-then-escape strategy
+	 * keeps the entity intact.
+	 */
+	public function test_url_preserves_numeric_character_references(): void {
+		$this->assertSame(
+			'https://<wbr>example.com<wbr>/path<wbr>?q=&#039;1&#039;',
+			Status_Formatter::url( "https://example.com/path?q='1'" )
+		);
+	}
+
+	/**
+	 * An input that already contains an encoded `&amp;` is not
+	 * double-escaped to `&amp;amp;`. WordPress's `esc_html` is idempotent
+	 * for known entities, and the formatter places the `<wbr>` right
+	 * before the entity so it still visually breaks like a real
+	 * ampersand would.
+	 */
+	public function test_url_does_not_double_escape_existing_entities(): void {
+		$this->assertSame(
+			'https://<wbr>example.com<wbr>/<wbr>?a=1<wbr>&amp;b=2',
+			Status_Formatter::url( 'https://example.com/?a=1&amp;b=2' )
+		);
+	}
+
+	/**
+	 * Multibyte input (non-ASCII identifier bytes) must pass through
+	 * `esc_html` unchanged — neither stripped nor mojibaked. Pins
+	 * compatibility with internationalized handles and the (technically
+	 * non-conformant but storable) DID bodies that contain Unicode.
+	 */
+	public function test_multibyte_input_survives_unchanged(): void {
+		$this->assertSame(
+			'did:<wbr>plc:<wbr>αβγ',
+			Status_Formatter::did( 'did:plc:αβγ' )
+		);
+		$this->assertSame(
+			'alice.<wbr>bsky.<wbr>café',
+			Status_Formatter::handle( 'alice.bsky.café' )
+		);
+	}
+
+	/**
+	 * Control characters (NUL, tab, newline) survive `esc_html` and reach
+	 * the output verbatim — the formatter does not silently strip them.
+	 * Pins this so a future `sanitize_text_field` retrofit doesn't quietly
+	 * change the data shape.
+	 */
+	public function test_control_characters_pass_through_unchanged(): void {
+		$this->assertSame(
+			"did:<wbr>plc:<wbr>\x00abc",
+			Status_Formatter::did( "did:plc:\x00abc" )
+		);
+		$this->assertSame(
+			"did:<wbr>plc:<wbr>\tabc",
+			Status_Formatter::did( "did:plc:\tabc" )
+		);
+		$this->assertSame(
+			"did:<wbr>plc:<wbr>\nabc",
+			Status_Formatter::did( "did:plc:\nabc" )
 		);
 	}
 
