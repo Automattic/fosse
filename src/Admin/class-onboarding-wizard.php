@@ -200,6 +200,22 @@ class Onboarding_Wizard {
 			if ( in_array( $mode, self::ACTOR_MODES, true ) ) {
 				update_option( 'activitypub_actor_mode', $mode );
 			}
+
+			// Persist the inline Site Handle when submitted. Only write when
+			// the field arrived non-empty so the no-touch path preserves any
+			// existing stored value (matches AP_Provider::handle_save). AP's
+			// `sanitize_option_activitypub_blog_identifier` filter handles
+			// collision rejection at update_option time.
+			if ( array_key_exists( 'activitypub_blog_identifier', $_POST ) ) {
+				$raw_input = is_string( $_POST['activitypub_blog_identifier'] )
+					? sanitize_text_field( wp_unslash( $_POST['activitypub_blog_identifier'] ) )
+					: '';
+				$raw       = trim( $raw_input );
+				if ( '' !== $raw ) {
+					update_option( 'activitypub_blog_identifier', $raw );
+				}
+			}
+
 			self::redirect_to_step( 'content' );
 		}
 
@@ -791,10 +807,23 @@ class Onboarding_Wizard {
 			),
 		);
 
-		$preview_handles = self::get_handle_previews( $current_mode );
-		$preview_user    = $preview_handles['user'] ?? '';
-		$preview_blog    = $preview_handles['blog'] ?? '';
-		$preview_both    = 'actor_blog' === $current_mode && '' !== $preview_user && '' !== $preview_blog;
+		// Resolve handles for every mode up front so all three preview
+		// containers can be rendered server-side. JS then toggles which is
+		// visible on radio change; the no-JS fallback keeps only the saved
+		// mode's container visible (matches the pre-#68 behavior).
+		$ap_provider = Connection_Provider_Registry::get_provider( 'activitypub' );
+		$user_handle = $ap_provider instanceof AP_Provider
+			? self::normalize_handle_preview( $ap_provider->get_user_address() )
+			: '';
+		$blog_handle = $ap_provider instanceof AP_Provider
+			? self::normalize_handle_preview( $ap_provider->get_blog_address() )
+			: '';
+
+		$blog_identifier             = (string) get_option( 'activitypub_blog_identifier', '' );
+		$blog_identifier_placeholder = '';
+		if ( '' === $blog_identifier && class_exists( '\Activitypub\Model\Blog' ) ) {
+			$blog_identifier_placeholder = (string) \Activitypub\Model\Blog::get_default_username();
+		}
 
 		?>
 		<h1 class="fosse-wizard__title"><?php esc_html_e( 'How should your site appear?', 'fosse' ); ?></h1>
@@ -832,28 +861,65 @@ class Onboarding_Wizard {
 					<?php endforeach; ?>
 				</div>
 
-				<?php if ( $preview_both ) : ?>
-					<div class="fosse-address-preview">
-						<div class="fosse-address-preview__row">
-							<span class="fosse-address-preview__label"><?php esc_html_e( 'As you:', 'fosse' ); ?></span>
-							<code class="fosse-address-preview__address"><?php echo esc_html( $preview_user ); ?></code>
-						</div>
-						<div class="fosse-address-preview__row">
-							<span class="fosse-address-preview__label"><?php esc_html_e( 'As your site:', 'fosse' ); ?></span>
-							<code class="fosse-address-preview__address"><?php echo esc_html( $preview_blog ); ?></code>
-						</div>
+				<?php
+				// Render all three preview containers regardless of saved
+				// mode. Inactive containers carry `is-hidden`; a small JS
+				// helper swaps that class on radio change. With JS off the
+				// page still surfaces the active mode's preview.
+				$preview_modes = array( 'actor', 'blog', 'actor_blog' );
+				foreach ( $preview_modes as $preview_mode ) :
+					$preview_classes = 'fosse-address-preview';
+					if ( $preview_mode !== $current_mode ) {
+						$preview_classes .= ' is-hidden';
+					}
+					?>
+					<div class="<?php echo esc_attr( $preview_classes ); ?>" data-fosse-mode="<?php echo esc_attr( $preview_mode ); ?>">
+						<?php if ( 'actor_blog' === $preview_mode ) : ?>
+							<?php if ( '' !== $user_handle ) : ?>
+								<div class="fosse-address-preview__row">
+									<span class="fosse-address-preview__label"><?php esc_html_e( 'As you:', 'fosse' ); ?></span>
+									<code class="fosse-address-preview__address"><?php echo esc_html( $user_handle ); ?></code>
+								</div>
+							<?php endif; ?>
+							<?php if ( '' !== $blog_handle ) : ?>
+								<div class="fosse-address-preview__row">
+									<span class="fosse-address-preview__label"><?php esc_html_e( 'As your site:', 'fosse' ); ?></span>
+									<code class="fosse-address-preview__address"><?php echo esc_html( $blog_handle ); ?></code>
+								</div>
+							<?php endif; ?>
+						<?php elseif ( 'actor' === $preview_mode && '' !== $user_handle ) : ?>
+							<span class="fosse-address-preview__label"><?php esc_html_e( 'Your fediverse address:', 'fosse' ); ?></span>
+							<code class="fosse-address-preview__address"><?php echo esc_html( $user_handle ); ?></code>
+						<?php elseif ( 'blog' === $preview_mode && '' !== $blog_handle ) : ?>
+							<span class="fosse-address-preview__label"><?php esc_html_e( 'Site fediverse address:', 'fosse' ); ?></span>
+							<code class="fosse-address-preview__address"><?php echo esc_html( $blog_handle ); ?></code>
+						<?php endif; ?>
 					</div>
-				<?php elseif ( '' !== $preview_user ) : ?>
-					<div class="fosse-address-preview">
-						<span class="fosse-address-preview__label"><?php esc_html_e( 'Your fediverse address:', 'fosse' ); ?></span>
-						<code class="fosse-address-preview__address"><?php echo esc_html( $preview_user ); ?></code>
-					</div>
-				<?php elseif ( '' !== $preview_blog ) : ?>
-					<div class="fosse-address-preview">
-						<span class="fosse-address-preview__label"><?php esc_html_e( 'Site fediverse address:', 'fosse' ); ?></span>
-						<code class="fosse-address-preview__address"><?php echo esc_html( $preview_blog ); ?></code>
-					</div>
-				<?php endif; ?>
+					<?php
+				endforeach;
+
+				$blog_handle_classes = 'fosse-wizard__blog-handle';
+				if ( 'blog' !== $current_mode && 'actor_blog' !== $current_mode ) {
+					$blog_handle_classes .= ' is-hidden';
+				}
+				?>
+				<div class="<?php echo esc_attr( $blog_handle_classes ); ?>" data-fosse-when="includes-blog">
+					<label for="fosse-wizard-blog-identifier" class="fosse-wizard__blog-handle-label">
+						<?php esc_html_e( 'Site Handle', 'fosse' ); ?>
+					</label>
+					<input
+						type="text"
+						id="fosse-wizard-blog-identifier"
+						name="activitypub_blog_identifier"
+						class="regular-text"
+						value="<?php echo esc_attr( $blog_identifier ); ?>"
+						placeholder="<?php echo esc_attr( $blog_identifier_placeholder ); ?>"
+						aria-describedby="fosse-wizard-blog-identifier-desc"
+					/>
+					<p id="fosse-wizard-blog-identifier-desc" class="description">
+						<?php esc_html_e( 'The username people use to follow your site from the fediverse. Cannot match an existing author login or nicename.', 'fosse' ); ?>
+					</p>
+				</div>
 			</div>
 
 			<div class="fosse-wizard__actions">

@@ -44,6 +44,84 @@ test( 'Appearance step has three actor mode cards', async ( { page } ) => {
 	await expect( page.locator( '.fosse-mode-card' ) ).toHaveCount( 3 );
 } );
 
+test( 'Appearance step swaps the visible address preview when the actor mode changes', async ( {
+	page,
+} ) => {
+	await page.goto( '/wp-admin/admin.php?page=fosse-wizard&step=appearance' );
+
+	// Three preview containers render server-side, one per mode. JS toggles
+	// `is-hidden` on radio change; only the matching container should be
+	// visible at any given time.
+	await expect(
+		page.locator( '.fosse-address-preview[data-fosse-mode]' )
+	).toHaveCount( 3 );
+
+	// Selecting "As your site" exposes the blog preview and the inline
+	// Site Handle row, and hides the personal address preview.
+	await page
+		.locator( '.fosse-mode-card', {
+			has: page.locator( '.fosse-mode-card__title', {
+				hasText: /^As your site$/,
+			} ),
+		} )
+		.click();
+
+	await expect(
+		page.locator( '.fosse-address-preview[data-fosse-mode="blog"]' )
+	).toBeVisible();
+	await expect(
+		page.locator( '.fosse-address-preview[data-fosse-mode="actor"]' )
+	).toBeHidden();
+	await expect(
+		page.locator( '.fosse-address-preview[data-fosse-mode="actor_blog"]' )
+	).toBeHidden();
+	await expect(
+		page.locator( '[data-fosse-when="includes-blog"]' )
+	).toBeVisible();
+	await expect(
+		page.locator( '#fosse-wizard-blog-identifier' )
+	).toBeVisible();
+
+	// "Both" reveals the actor_blog container instead.
+	await page
+		.locator( '.fosse-mode-card', {
+			has: page.locator( '.fosse-mode-card__title', {
+				hasText: /^Both$/,
+			} ),
+		} )
+		.click();
+
+	await expect(
+		page.locator( '.fosse-address-preview[data-fosse-mode="actor_blog"]' )
+	).toBeVisible();
+	await expect(
+		page.locator( '.fosse-address-preview[data-fosse-mode="blog"]' )
+	).toBeHidden();
+	await expect(
+		page.locator( '[data-fosse-when="includes-blog"]' )
+	).toBeVisible();
+
+	// Returning to "As you" hides the inline site handle row again — it
+	// only applies when the mode publishes from a blog actor.
+	await page
+		.locator( '.fosse-mode-card', {
+			has: page.locator( '.fosse-mode-card__title', {
+				hasText: /^As you$/,
+			} ),
+		} )
+		.click();
+
+	await expect(
+		page.locator( '.fosse-address-preview[data-fosse-mode="actor"]' )
+	).toBeVisible();
+	await expect(
+		page.locator( '.fosse-address-preview[data-fosse-mode="blog"]' )
+	).toBeHidden();
+	await expect(
+		page.locator( '[data-fosse-when="includes-blog"]' )
+	).toBeHidden();
+} );
+
 test( 'Selecting a mode and continuing saves the option', async ( {
 	page,
 } ) => {

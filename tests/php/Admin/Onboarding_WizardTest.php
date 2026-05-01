@@ -41,6 +41,7 @@ class Onboarding_WizardTest extends BaseTestCase {
 
 		delete_option( Onboarding_Wizard::COMPLETED_OPTION );
 		delete_option( 'activitypub_actor_mode' );
+		delete_option( 'activitypub_blog_identifier' );
 		delete_option( 'activitypub_support_post_types' );
 		delete_option( 'atmosphere_connection' );
 		delete_option( 'atmosphere_auto_publish' );
@@ -341,6 +342,158 @@ class Onboarding_WizardTest extends BaseTestCase {
 
 		$this->assertStringContainsString( 'Setup is unavailable', $output );
 		$this->assertStringContainsString( 'ActivityPub', $output );
+	}
+
+	// --- Appearance step render ---
+
+	/**
+	 * The appearance step renders all three actor-mode preview containers
+	 * up front so a small JS toggle can swap visibility without a page
+	 * reload. Each container is tagged with `data-fosse-mode` so the JS
+	 * can target it. Saved mode is `actor` here, so only that one stays
+	 * visible — the others render with the `is-hidden` class for
+	 * progressive enhancement.
+	 */
+	public function test_render_appearance_renders_all_three_preview_containers(): void {
+		update_option( 'activitypub_actor_mode', 'actor' );
+
+		$output = $this->render_wizard_step( 'appearance' );
+
+		$this->assertMatchesRegularExpression(
+			'/<div[^>]*\bclass="[^"]*\bfosse-address-preview\b[^"]*"[^>]*\bdata-fosse-mode="actor"/i',
+			$output,
+			'Expected an actor-mode preview container.'
+		);
+		$this->assertMatchesRegularExpression(
+			'/<div[^>]*\bclass="[^"]*\bfosse-address-preview\b[^"]*"[^>]*\bdata-fosse-mode="blog"/i',
+			$output,
+			'Expected a blog-mode preview container.'
+		);
+		$this->assertMatchesRegularExpression(
+			'/<div[^>]*\bclass="[^"]*\bfosse-address-preview\b[^"]*"[^>]*\bdata-fosse-mode="actor_blog"/i',
+			$output,
+			'Expected an actor_blog-mode preview container.'
+		);
+	}
+
+	/**
+	 * Only the container matching the saved mode renders without
+	 * `is-hidden`; the inactive ones are rendered hidden so JS can swap
+	 * them in without a reload, and so a no-JS fallback still matches the
+	 * pre-#68 behavior of showing only the active mode's preview.
+	 */
+	public function test_render_appearance_marks_inactive_previews_hidden(): void {
+		update_option( 'activitypub_actor_mode', 'blog' );
+
+		$output = $this->render_wizard_step( 'appearance' );
+
+		$this->assertMatchesRegularExpression(
+			'/<div[^>]*\bclass="[^"]*\bfosse-address-preview\b(?:(?!is-hidden)[^"])*"[^>]*\bdata-fosse-mode="blog"/i',
+			$output,
+			'The active mode container must not be marked is-hidden.'
+		);
+		$this->assertMatchesRegularExpression(
+			'/<div[^>]*\bclass="[^"]*\bfosse-address-preview\b[^"]*\bis-hidden\b[^"]*"[^>]*\bdata-fosse-mode="actor"/i',
+			$output,
+			'Inactive containers must be marked is-hidden.'
+		);
+		$this->assertMatchesRegularExpression(
+			'/<div[^>]*\bclass="[^"]*\bfosse-address-preview\b[^"]*\bis-hidden\b[^"]*"[^>]*\bdata-fosse-mode="actor_blog"/i',
+			$output,
+			'Inactive containers must be marked is-hidden.'
+		);
+	}
+
+	/**
+	 * The appearance step exposes an inline Site Handle input keyed to the
+	 * AP option, so users can edit the site username from the wizard rather
+	 * than bouncing to the Setup page.
+	 */
+	public function test_render_appearance_renders_inline_site_handle_input(): void {
+		update_option( 'activitypub_actor_mode', 'blog' );
+		update_option( 'activitypub_blog_identifier', 'mysite' );
+
+		$output = $this->render_wizard_step( 'appearance' );
+
+		$this->assertMatchesRegularExpression(
+			'/<input[^>]*\bname="activitypub_blog_identifier"[^>]*\bvalue="mysite"/i',
+			$output,
+			'Expected the site handle input to render with the saved value.'
+		);
+		// The input should be inside the form so it submits with the rest
+		// of the appearance step.
+		$this->assertMatchesRegularExpression(
+			'~<form\b[^>]*>.*name="activitypub_blog_identifier".*</form>~is',
+			$output,
+			'Site handle input must be inside the appearance form.'
+		);
+	}
+
+	/**
+	 * The site handle row is hidden when the saved mode does not include
+	 * the blog actor, so the no-JS fallback matches the old behavior of
+	 * not surfacing the field. JS reveals it when the user picks `blog`
+	 * or `actor_blog`.
+	 */
+	public function test_render_appearance_marks_site_handle_hidden_when_actor_mode(): void {
+		update_option( 'activitypub_actor_mode', 'actor' );
+
+		$output = $this->render_wizard_step( 'appearance' );
+
+		$this->assertMatchesRegularExpression(
+			'/<div[^>]*\bclass="[^"]*\bfosse-wizard__blog-handle\b[^"]*\bis-hidden\b[^"]*"[^>]*\bdata-fosse-when="includes-blog"/i',
+			$output,
+			'Site handle row must be marked is-hidden when actor mode is selected.'
+		);
+	}
+
+	/**
+	 * Saving the appearance step persists a non-empty site handle into the
+	 * shared `activitypub_blog_identifier` option, mirroring the Setup
+	 * page behavior. AP's own option sanitizer enforces collisions.
+	 */
+	public function test_handle_save_appearance_stores_blog_identifier(): void {
+		$this->simulate_save_request(
+			'appearance',
+			array(
+				'activitypub_actor_mode'      => 'blog',
+				'activitypub_blog_identifier' => 'newsroom',
+			)
+		);
+
+		try {
+			Onboarding_Wizard::handle_save();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$this->assertSame( 'newsroom', get_option( 'activitypub_blog_identifier' ) );
+	}
+
+	/**
+	 * Empty handle submissions preserve any existing stored value rather
+	 * than reverting to AP's default — matches AP_Provider::handle_save()
+	 * so users who haven't touched the field don't accidentally freeze
+	 * the dynamic default into the option.
+	 */
+	public function test_handle_save_appearance_preserves_existing_handle_when_empty(): void {
+		update_option( 'activitypub_blog_identifier', 'sticky' );
+
+		$this->simulate_save_request(
+			'appearance',
+			array(
+				'activitypub_actor_mode'      => 'blog',
+				'activitypub_blog_identifier' => '   ',
+			)
+		);
+
+		try {
+			Onboarding_Wizard::handle_save();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$this->assertSame( 'sticky', get_option( 'activitypub_blog_identifier' ) );
 	}
 
 	// --- Bluesky step render ---
