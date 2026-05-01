@@ -443,7 +443,7 @@ class Onboarding_Wizard {
 			case 'actor':
 				if ( '' !== $user_handle ) {
 					return sprintf(
-						/* translators: %s: fediverse handle in @user@host form. */
+						/* translators: %s: HTML <code> element wrapping a fediverse handle in @user@host form. */
 						esc_html__( 'As you (%s)', 'fosse' ),
 						'<code>' . esc_html( $user_handle ) . '</code>'
 					);
@@ -453,7 +453,7 @@ class Onboarding_Wizard {
 			case 'blog':
 				if ( '' !== $blog_handle ) {
 					return sprintf(
-						/* translators: %s: fediverse handle in @user@host form. */
+						/* translators: %s: HTML <code> element wrapping a fediverse handle in @user@host form. */
 						esc_html__( 'As your site (%s)', 'fosse' ),
 						'<code>' . esc_html( $blog_handle ) . '</code>'
 					);
@@ -469,14 +469,14 @@ class Onboarding_Wizard {
 				$lines = array( esc_html__( 'Both (site + authors)', 'fosse' ) );
 				if ( '' !== $user_handle ) {
 					$lines[] = sprintf(
-						/* translators: %s: fediverse handle in @user@host form. */
+						/* translators: %s: HTML <code> element wrapping a fediverse handle in @user@host form. */
 						esc_html__( 'As you: %s', 'fosse' ),
 						'<code>' . esc_html( $user_handle ) . '</code>'
 					);
 				}
 				if ( '' !== $blog_handle ) {
 					$lines[] = sprintf(
-						/* translators: %s: fediverse handle in @user@host form. */
+						/* translators: %s: HTML <code> element wrapping a fediverse handle in @user@host form. */
 						esc_html__( 'As your site: %s', 'fosse' ),
 						'<code>' . esc_html( $blog_handle ) . '</code>'
 					);
@@ -778,7 +778,7 @@ class Onboarding_Wizard {
 					</div>
 				<?php elseif ( '' !== $preview_blog ) : ?>
 					<div class="fosse-address-preview">
-						<span class="fosse-address-preview__label"><?php esc_html_e( 'Your fediverse address:', 'fosse' ); ?></span>
+						<span class="fosse-address-preview__label"><?php esc_html_e( 'Site fediverse address:', 'fosse' ); ?></span>
 						<code class="fosse-address-preview__address"><?php echo esc_html( $preview_blog ); ?></code>
 					</div>
 				<?php endif; ?>
