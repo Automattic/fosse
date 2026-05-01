@@ -132,9 +132,16 @@ class Setup_Page {
 	 * @return void
 	 */
 	private static function save_general_settings( array $post_data ): void {
-		$submitted   = isset( $post_data['activitypub_support_post_types'] )
-			? array_map( 'sanitize_text_field', wp_unslash( (array) $post_data['activitypub_support_post_types'] ) )
+		// Filter to strings before `sanitize_text_field` so a crafted POST
+		// submitting nested arrays for an element can't trip the function's
+		// array-to-string warning (which `phpunit.xml.dist` promotes to a
+		// hard failure via `failOnWarning`, and which would otherwise emit
+		// a notice in production). Mirrors the defensive guard in
+		// {@see AP_Provider::save_settings()} for `activitypub_blog_identifier`.
+		$raw         = isset( $post_data['activitypub_support_post_types'] )
+			? wp_unslash( (array) $post_data['activitypub_support_post_types'] )
 			: array();
+		$submitted   = array_map( 'sanitize_text_field', array_filter( $raw, 'is_string' ) );
 		$valid_types = get_post_types( array( 'public' => true ) );
 		$post_types  = array_values( array_intersect( $submitted, $valid_types ) );
 		update_option( 'activitypub_support_post_types', $post_types );

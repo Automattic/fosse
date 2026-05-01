@@ -223,6 +223,39 @@ class Setup_PageTest extends BaseTestCase {
 	}
 
 	/**
+	 * A nested-array element inside the post-types list is dropped before
+	 * sanitization rather than tripping `sanitize_text_field`'s array-to-
+	 * string warning (`failOnWarning` would turn that into a test failure
+	 * here, and it would surface as a PHP notice in production). Real
+	 * string elements alongside the nested junk still survive.
+	 */
+	public function test_handle_save_drops_nested_array_post_types(): void {
+		$this->become_admin();
+
+		$this->simulate_post(
+			array(
+				'activitypub_actor_mode'         => 'blog',
+				'activitypub_support_post_types' => array(
+					'post',
+					array( 'malicious', 'nested' ),
+					'page',
+				),
+			)
+		);
+
+		$this->arm_redirect_trap();
+
+		try {
+			Setup_Page::handle_save();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$saved = get_option( 'activitypub_support_post_types' );
+		$this->assertSame( array( 'post', 'page' ), $saved );
+	}
+
+	/**
 	 * A non-array POST value for post types collapses cleanly to an empty
 	 * list rather than tripping a type warning (`failOnWarning` would turn
 	 * one into a test failure).
