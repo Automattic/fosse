@@ -71,7 +71,12 @@ class Onboarding_WizardTest extends BaseTestCase {
 
 		remove_all_filters( 'wp_redirect' );
 		remove_all_filters( 'wp_die_handler' );
+		remove_all_filters( 'sanitize_option_activitypub_blog_identifier' );
 		remove_all_actions( 'fosse_wizard_unauthorized' );
+
+		global $wp_settings_errors;
+		$wp_settings_errors = array(); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited,WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedVariableFound -- WP core global reset for testing.
+		delete_transient( 'settings_errors' );
 
 		Connection_Provider_Registry::reset();
 		AP_Provider::register_provider();
@@ -494,6 +499,116 @@ class Onboarding_WizardTest extends BaseTestCase {
 		}
 
 		$this->assertSame( 'sticky', get_option( 'activitypub_blog_identifier' ) );
+	}
+
+	/**
+	 * AP's sanitizer adds settings errors under `activitypub_blog_identifier`
+	 * when the input collides with an existing user. The wizard re-tags them
+	 * under the `fosse` group so `settings_errors( 'fosse' )` on the
+	 * appearance step renders the message — without re-tagging the user
+	 * would land back on the wizard with no feedback.
+	 *
+	 * Forces the rejection branch directly via AP's filter; WorDBless's
+	 * dbless engine doesn't satisfy `WP_User_Query`'s LIKE search so seeding
+	 * a colliding user wouldn't trip AP's collision path.
+	 */
+	public function test_handle_save_appearance_rewires_ap_settings_errors_to_fosse_group(): void {
+		add_filter(
+			'sanitize_option_activitypub_blog_identifier',
+			static function ( $value ) {
+				add_settings_error(
+					'activitypub_blog_identifier',
+					'collision_test',
+					'Collision test error.',
+					'error'
+				);
+				return $value;
+			},
+			11 // After AP's own callback.
+		);
+
+		$this->simulate_save_request(
+			'appearance',
+			array(
+				'activitypub_actor_mode'      => 'blog',
+				'activitypub_blog_identifier' => 'whatever',
+			)
+		);
+
+		try {
+			Onboarding_Wizard::handle_save();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$fosse_codes = array_column( get_settings_errors( 'fosse' ), 'code' );
+		$this->assertContains( 'collision_test', $fosse_codes );
+	}
+
+	/**
+	 * On collision rejection the wizard redirects back to the appearance
+	 * step instead of advancing to content, so the user can read the
+	 * surfaced error and correct the input.
+	 */
+	public function test_handle_save_appearance_redirects_back_on_blog_identifier_rejection(): void {
+		add_filter(
+			'sanitize_option_activitypub_blog_identifier',
+			static function ( $value ) {
+				add_settings_error(
+					'activitypub_blog_identifier',
+					'collision_test',
+					'Collision test error.',
+					'error'
+				);
+				return $value;
+			},
+			11
+		);
+
+		$captured = null;
+		$this->simulate_save_request(
+			'appearance',
+			array(
+				'activitypub_actor_mode'      => 'blog',
+				'activitypub_blog_identifier' => 'whatever',
+			)
+		);
+		add_filter(
+			'wp_redirect',
+			static function ( $location ) use ( &$captured ) {
+				$captured = (string) $location;
+				throw new RedirectFired( 'redirect' );
+			},
+			9
+		);
+
+		try {
+			Onboarding_Wizard::handle_save();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$this->assertNotNull( $captured );
+		$this->assertStringContainsString( 'step=appearance', $captured );
+		$this->assertStringNotContainsString( 'step=content', $captured );
+	}
+
+	/**
+	 * The appearance step renders `settings_errors( 'fosse' )` so a fresh
+	 * collision message persisted via the `settings_errors` transient on
+	 * redirect surfaces above the form on page load.
+	 */
+	public function test_render_appearance_renders_fosse_settings_errors(): void {
+		add_settings_error(
+			'fosse',
+			'collision_test',
+			'Pretend collision message.',
+			'error'
+		);
+
+		$output = $this->render_wizard_step( 'appearance' );
+
+		$this->assertStringContainsString( 'Pretend collision message.', $output );
 	}
 
 	// --- Bluesky step render ---

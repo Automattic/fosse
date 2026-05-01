@@ -206,14 +206,48 @@ class Onboarding_Wizard {
 			// existing stored value (matches AP_Provider::handle_save). AP's
 			// `sanitize_option_activitypub_blog_identifier` filter handles
 			// collision rejection at update_option time.
+			$blog_identifier_rejected = false;
 			if ( array_key_exists( 'activitypub_blog_identifier', $_POST ) ) {
 				$raw_input = is_string( $_POST['activitypub_blog_identifier'] )
 					? sanitize_text_field( wp_unslash( $_POST['activitypub_blog_identifier'] ) )
 					: '';
 				$raw       = trim( $raw_input );
 				if ( '' !== $raw ) {
+					// Snapshot the queue length, not the codes — AP's sanitizer
+					// reuses a constant code (`activitypub_blog_identifier`) for
+					// every collision rejection, so a code-only check would mask
+					// a fresh rejection if any error with that code already sat
+					// on the queue. Mirrors AP_Provider::handle_save().
+					$ap_error_count_before = count( get_settings_errors( 'activitypub_blog_identifier' ) );
+
 					update_option( 'activitypub_blog_identifier', $raw );
+
+					// Re-tag any fresh AP errors under our own group so the
+					// appearance step's `settings_errors( 'fosse' )` render
+					// surfaces them — without re-tagging the user would land
+					// back on the wizard with no feedback at all.
+					$ap_errors_after = get_settings_errors( 'activitypub_blog_identifier' );
+					$new_ap_errors   = array_slice( $ap_errors_after, $ap_error_count_before );
+					foreach ( $new_ap_errors as $ap_error ) {
+						$blog_identifier_rejected = true;
+						add_settings_error(
+							'fosse',
+							$ap_error['code'],
+							$ap_error['message'],
+							$ap_error['type']
+						);
+					}
 				}
+			}
+
+			// On rejection, persist the surfaced errors via the
+			// `settings_errors` transient and bounce back to the appearance
+			// step so the user can correct the input. Without this the wizard
+			// would silently advance to Content with no feedback and no way
+			// to fix the colliding handle.
+			if ( $blog_identifier_rejected ) {
+				set_transient( 'settings_errors', get_settings_errors(), 30 );
+				self::redirect_to_step( 'appearance', array( 'settings-updated' => 'true' ) );
 			}
 
 			self::redirect_to_step( 'content' );
@@ -830,6 +864,8 @@ class Onboarding_Wizard {
 		<p class="fosse-wizard__description">
 			<?php esc_html_e( 'Choose how people on the social web will see your site. This affects who they follow and how your posts appear in their feeds.', 'fosse' ); ?>
 		</p>
+
+		<?php settings_errors( 'fosse' ); ?>
 
 		<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
 			<input type="hidden" name="action" value="fosse_wizard_save" />
