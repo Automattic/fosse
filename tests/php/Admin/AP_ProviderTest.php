@@ -973,4 +973,19 @@ class AP_ProviderTest extends BaseTestCase {
 		$this->assertStringContainsString( 'Site fediverse address', $output );
 		$this->assertStringContainsString( 'name="activitypub_blog_identifier"', $output );
 	}
+
+	/**
+	 * Status card label/value cells carry the BEM classes the polish CSS
+	 * targets. A renamed class would silently break the column-width and
+	 * wrap rules without surfacing a test failure otherwise.
+	 */
+	public function test_render_status_card_uses_bem_label_value_classes() {
+		ob_start();
+		$this->provider->render_status_card();
+		$output = ob_get_clean();
+
+		$this->assertStringContainsString( 'fosse-status-card__table', $output );
+		$this->assertStringContainsString( 'fosse-status-card__label', $output );
+		$this->assertStringContainsString( 'fosse-status-card__value', $output );
+	}
 }

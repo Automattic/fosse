@@ -310,26 +310,38 @@ class AP_Provider implements Connection_Provider {
 				<?php esc_html_e( 'ActivityPub', 'fosse' ); ?>
 			</h2>
 
-			<table class="widefat striped">
+			<table class="widefat striped fosse-status-card__table">
 				<tbody>
 					<tr>
-						<td><?php esc_html_e( 'Actor Mode', 'fosse' ); ?></td>
-						<td><?php echo esc_html( $mode_label ); ?></td>
+						<td class="fosse-status-card__label"><?php esc_html_e( 'Actor Mode', 'fosse' ); ?></td>
+						<td class="fosse-status-card__value"><?php echo esc_html( $mode_label ); ?></td>
 					</tr>
 					<tr>
-						<td><?php esc_html_e( 'Post Types', 'fosse' ); ?></td>
-						<td><?php echo esc_html( implode( ', ', $post_types ) ); ?></td>
+						<td class="fosse-status-card__label"><?php esc_html_e( 'Post Types', 'fosse' ); ?></td>
+						<td class="fosse-status-card__value"><?php echo esc_html( implode( ', ', $post_types ) ); ?></td>
 					</tr>
 					<?php if ( $this->mode_includes_user( $status['actor_mode'] ) && ! empty( $status['user_address'] ) ) : ?>
 						<tr>
-							<td><?php esc_html_e( 'Your fediverse address', 'fosse' ); ?></td>
-							<td><code><?php echo esc_html( '@' . $status['user_address'] ); ?></code></td>
+							<td class="fosse-status-card__label"><?php esc_html_e( 'Your fediverse address', 'fosse' ); ?></td>
+							<td class="fosse-status-card__value">
+								<code class="fosse-status-card__token fosse-status-card__token--ap-address">
+									<?php
+									echo Status_Formatter::ap_address( '@' . $status['user_address'] ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Status_Formatter::ap_address() escapes input and returns safe HTML with <wbr>.
+									?>
+								</code>
+							</td>
 						</tr>
 					<?php endif; ?>
 					<?php if ( $this->mode_includes_blog( $status['actor_mode'] ) && ! empty( $status['blog_address'] ) ) : ?>
 						<tr>
-							<td><?php esc_html_e( 'Site fediverse address', 'fosse' ); ?></td>
-							<td><code><?php echo esc_html( '@' . $status['blog_address'] ); ?></code></td>
+							<td class="fosse-status-card__label"><?php esc_html_e( 'Site fediverse address', 'fosse' ); ?></td>
+							<td class="fosse-status-card__value">
+								<code class="fosse-status-card__token fosse-status-card__token--ap-address">
+									<?php
+									echo Status_Formatter::ap_address( '@' . $status['blog_address'] ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Status_Formatter::ap_address() escapes input and returns safe HTML with <wbr>.
+									?>
+								</code>
+							</td>
 						</tr>
 					<?php endif; ?>
 					<?php $this->render_follower_count_row(); ?>
@@ -667,8 +679,8 @@ class AP_Provider implements Connection_Provider {
 			$count = \Activitypub\Collection\Followers::count( \Activitypub\Collection\Actors::BLOG_USER_ID );
 			?>
 			<tr>
-				<td><?php esc_html_e( 'Followers', 'fosse' ); ?></td>
-				<td><?php echo esc_html( number_format_i18n( $count ) ); ?></td>
+				<td class="fosse-status-card__label"><?php esc_html_e( 'Followers', 'fosse' ); ?></td>
+				<td class="fosse-status-card__value"><?php echo esc_html( number_format_i18n( $count ) ); ?></td>
 			</tr>
 			<?php
 		} elseif ( 'actor_blog' === $mode && $has_blog_id ) {
@@ -676,8 +688,8 @@ class AP_Provider implements Connection_Provider {
 			$blog_count = \Activitypub\Collection\Followers::count( \Activitypub\Collection\Actors::BLOG_USER_ID );
 			?>
 			<tr>
-				<td><?php esc_html_e( 'Followers', 'fosse' ); ?></td>
-				<td>
+				<td class="fosse-status-card__label"><?php esc_html_e( 'Followers', 'fosse' ); ?></td>
+				<td class="fosse-status-card__value">
 					<?php
 					printf(
 						/* translators: 1: author follower count, 2: blog follower count */
@@ -693,8 +705,8 @@ class AP_Provider implements Connection_Provider {
 			$count = \Activitypub\Collection\Followers::count( get_current_user_id() );
 			?>
 			<tr>
-				<td><?php esc_html_e( 'Your Followers', 'fosse' ); ?></td>
-				<td><?php echo esc_html( number_format_i18n( $count ) ); ?></td>
+				<td class="fosse-status-card__label"><?php esc_html_e( 'Your Followers', 'fosse' ); ?></td>
+				<td class="fosse-status-card__value"><?php echo esc_html( number_format_i18n( $count ) ); ?></td>
 			</tr>
 			<?php
 		}
