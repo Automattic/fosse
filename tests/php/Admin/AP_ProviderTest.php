@@ -651,6 +651,30 @@ class AP_ProviderTest extends BaseTestCase {
 	}
 
 	/**
+	 * Array-shaped POST input for the blog identifier is rejected silently
+	 * rather than tripping `sanitize_text_field`'s array-to-string warning
+	 * (which `phpunit.xml.dist` promotes to a failure via `failOnWarning`).
+	 */
+	public function test_handle_save_array_blog_identifier_is_rejected_safely() {
+		update_option( 'activitypub_blog_identifier', 'preserved-handle' );
+
+		$this->simulate_save_request(
+			array(
+				'activitypub_actor_mode'      => 'blog',
+				'activitypub_blog_identifier' => array( 'malicious', 'array' ),
+			)
+		);
+
+		try {
+			$this->provider->handle_save();
+		} catch ( \Exception $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$this->assertSame( 'preserved-handle', get_option( 'activitypub_blog_identifier' ) );
+	}
+
+	/**
 	 * An empty submitted handle leaves any prior value intact rather than
 	 * stomping the option with an empty string.
 	 */

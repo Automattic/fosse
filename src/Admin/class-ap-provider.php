@@ -373,7 +373,16 @@ class AP_Provider implements Connection_Provider {
 		// colliding submission is rejected and falls back to the default
 		// (this keeps FOSSE's surface aligned with AP's).
 		if ( array_key_exists( 'activitypub_blog_identifier', $_POST ) && class_exists( '\Activitypub\Sanitize' ) ) {
-			$raw = trim( sanitize_text_field( wp_unslash( $_POST['activitypub_blog_identifier'] ) ) );
+			// Coerce to string defensively: a malformed POST that submits the
+			// field as an array would otherwise warn under sanitize_text_field
+			// (and trip phpunit's failOnWarning) before we ever reach AP's
+			// sanitizer. is_string() guards the raw value before unslash and
+			// sanitize, satisfying both the PHPCS sanitization sniff and the
+			// runtime warning path.
+			$raw_input = is_string( $_POST['activitypub_blog_identifier'] )
+				? sanitize_text_field( wp_unslash( $_POST['activitypub_blog_identifier'] ) )
+				: '';
+			$raw       = trim( $raw_input );
 			if ( '' !== $raw ) {
 				$sanitized = (string) \Activitypub\Sanitize::blog_identifier( $raw );
 				if ( '' !== $sanitized ) {

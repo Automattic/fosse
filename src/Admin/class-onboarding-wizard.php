@@ -1033,16 +1033,16 @@ class Onboarding_Wizard {
 				<tr>
 					<td class="fosse-summary__label"><?php esc_html_e( 'Site appears as', 'fosse' ); ?></td>
 					<td class="fosse-summary__value">
-					<?php
-					echo wp_kses(
-						$mode_label,
-						array(
-							'code' => array(),
-							'br'   => array(),
-						)
-					);
-					?>
-														</td>
+						<?php
+						echo wp_kses(
+							$mode_label,
+							array(
+								'code' => array(),
+								'br'   => array(),
+							)
+						);
+						?>
+					</td>
 				</tr>
 				<tr>
 					<td class="fosse-summary__label"><?php esc_html_e( 'Sharing', 'fosse' ); ?></td>
