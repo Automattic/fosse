@@ -965,7 +965,7 @@ class Onboarding_Wizard {
 
 		$description = $is_connected
 			? __( 'Your posts will also appear on Bluesky. Review the details below before finishing setup.', 'fosse' )
-			: __( 'Link your Bluesky account so your posts also appear on Bluesky. This step is optional. You can always connect later from the FOSSE Setup page.', 'fosse' );
+			: __( 'Link your Bluesky account so your posts also appear on Bluesky. This step is optional. You can always connect later from the FOSSE Settings page.', 'fosse' );
 		?>
 		<h1 class="fosse-wizard__title"><?php echo esc_html( $title ); ?></h1>
 		<p class="fosse-wizard__description">
@@ -979,7 +979,7 @@ class Onboarding_Wizard {
 				<div class="notice notice-info inline fosse-wizard__notice">
 					<p>
 						<strong><?php esc_html_e( 'Bluesky setup is unavailable.', 'fosse' ); ?></strong>
-						<?php esc_html_e( 'Skip this step for now and connect from the FOSSE Setup page once Bluesky support is available.', 'fosse' ); ?>
+						<?php esc_html_e( 'Skip this step for now and connect from the FOSSE Settings page once Bluesky support is available.', 'fosse' ); ?>
 					</p>
 				</div>
 			<?php elseif ( $is_connected ) : ?>
@@ -1168,7 +1168,7 @@ class Onboarding_Wizard {
 			</table>
 
 			<div class="fosse-wizard__hint">
-				<p><?php esc_html_e( 'You can change any of these settings from the FOSSE Setup page at any time.', 'fosse' ); ?></p>
+				<p><?php esc_html_e( 'You can change any of these settings from the FOSSE Settings page at any time.', 'fosse' ); ?></p>
 			</div>
 		</div>
 
@@ -1190,7 +1190,7 @@ class Onboarding_Wizard {
 				<?php esc_html_e( 'View Status Dashboard', 'fosse' ); ?>
 			</a>
 			<a href="<?php echo esc_url( admin_url( 'admin.php?page=fosse' ) ); ?>" class="button">
-				<?php esc_html_e( 'Go to Setup', 'fosse' ); ?>
+				<?php esc_html_e( 'Go to Settings', 'fosse' ); ?>
 			</a>
 		</div>
 

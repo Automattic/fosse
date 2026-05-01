@@ -136,9 +136,9 @@ class AP_ProviderTest extends BaseTestCase {
 	}
 
 	/**
-	 * Setup section carries the fragment target id used by the Status-page
-	 * "Manage ActivityPub settings" deep link. Renaming the id without
-	 * updating the link would silently break navigation.
+	 * Setup section carries the fragment target id used by the wizard CTA
+	 * and any in-page anchor link. Renaming the id without updating those
+	 * call sites would silently break navigation.
 	 */
 	public function test_render_setup_section_has_anchor_id() {
 		ob_start();
@@ -149,146 +149,93 @@ class AP_ProviderTest extends BaseTestCase {
 	}
 
 	/**
-	 * Status card deep-links back to the ActivityPub setup section. The
-	 * fragment must match the id rendered by render_setup_section().
+	 * AP-specific render_setup_section produces only AP-specific rows —
+	 * no opening `<form>` tag and no submit button. The unified Settings
+	 * form wraps every provider's fields together.
 	 */
-	public function test_render_status_card_has_manage_settings_link() {
-		ob_start();
-		$this->provider->render_status_card();
-		$output = ob_get_clean();
+	public function test_render_setup_section_is_fields_only() {
+		update_option( 'activitypub_actor_mode', 'blog' );
 
-		$this->assertStringContainsString( 'Manage ActivityPub settings', $output );
-		$this->assertStringContainsString( '#fosse-provider-activitypub', $output );
-	}
-
-	/**
-	 * Setup UI explains the available actor modes and links to blog profile settings.
-	 */
-	public function test_render_setup_section_explains_actor_modes() {
 		ob_start();
 		$this->provider->render_setup_section();
 		$output = ob_get_clean();
 
-		$this->assertStringContainsString( 'Each WordPress author publishes from their own fediverse profile.', $output );
-		$this->assertStringContainsString( 'One site-wide profile publishes every post, regardless of author.', $output );
-		$this->assertStringContainsString( 'Authors keep individual profiles, and the site also has its own blog profile.', $output );
-		$this->assertStringContainsString( 'Changing modes does not move followers between profiles.', $output );
-		$this->assertStringContainsString( 'Configure the site-wide blog profile name, image, and description', $output );
-		$this->assertStringNotContainsString( '<fieldset aria-describedby="fosse-activitypub-actor-mode-note">', $output );
-		$this->assertStringContainsString( '<legend class="screen-reader-text">Actor Mode</legend>', $output );
-		$this->assertMatchesRegularExpression(
-			'~<input[^>]+id="fosse-activitypub-actor-mode-actor"[^>]+aria-describedby="fosse-activitypub-actor-mode-actor-desc fosse-activitypub-actor-mode-note"[^>]+/>~',
-			$output
-		);
-		$this->assertMatchesRegularExpression(
-			'~<input[^>]+id="fosse-activitypub-actor-mode-blog"[^>]+aria-describedby="fosse-activitypub-actor-mode-blog-desc fosse-activitypub-actor-mode-note"[^>]+/>~',
-			$output
-		);
-		$this->assertMatchesRegularExpression(
-			'~<input[^>]+id="fosse-activitypub-actor-mode-actor-blog"[^>]+aria-describedby="fosse-activitypub-actor-mode-actor-blog-desc fosse-activitypub-actor-mode-note"[^>]+/>~',
-			$output
-		);
-		$this->assertStringContainsString( '<p id="fosse-activitypub-actor-mode-note" class="description">', $output );
-		$this->assertMatchesRegularExpression(
-			'~<a href="[^"]*options-general\.php\?page=activitypub(?:&#038;|&amp;)tab=blog-profile">Blog profile settings</a>~',
-			$output
-		);
+		$this->assertStringNotContainsString( '<form', $output );
+		$this->assertStringNotContainsString( 'name="action"', $output );
+		$this->assertStringNotContainsString( 'Save ActivityPub Settings', $output );
+		$this->assertStringNotContainsString( 'name="activitypub_actor_mode"', $output );
+		$this->assertStringNotContainsString( 'name="activitypub_support_post_types', $output );
 	}
 
 	/**
-	 * Setup UI selects the stored actor mode.
+	 * AP has no out-of-band connect/disconnect step, so its connection
+	 * actions output is empty.
 	 */
-	public function test_render_setup_section_checks_selected_actor_mode() {
-		$modes = array( 'actor', 'blog', 'actor_blog' );
+	public function test_render_connection_actions_is_empty() {
+		ob_start();
+		$this->provider->render_connection_actions();
+		$output = ob_get_clean();
 
-		foreach ( $modes as $selected_mode ) {
-			update_option( 'activitypub_actor_mode', $selected_mode );
-
-			ob_start();
-			$this->provider->render_setup_section();
-			$output = ob_get_clean();
-
-			foreach ( $modes as $mode ) {
-				$input = $this->get_actor_mode_input_markup( $output, $mode );
-
-				if ( $selected_mode === $mode ) {
-					$this->assertStringContainsString( "checked='checked'", $input );
-				} else {
-					$this->assertStringNotContainsString( "checked='checked'", $input );
-				}
-			}
-		}
+		$this->assertSame( '', trim( $output ) );
 	}
 
 	/**
-	 * Get the rendered radio input for an ActivityPub actor mode.
+	 * AP's render_setup_section preserves the Site Handle field in
+	 * `blog` mode and the "Show advanced ActivityPub settings" link.
+	 */
+	public function test_render_setup_section_renders_blog_mode_fields() {
+		update_option( 'activitypub_actor_mode', 'blog' );
+		update_option( 'activitypub_blog_identifier', 'my-site' );
+
+		ob_start();
+		$this->provider->render_setup_section();
+		$output = ob_get_clean();
+
+		$this->assertStringContainsString( 'name="activitypub_blog_identifier"', $output );
+		$this->assertStringContainsString( 'value="my-site"', $output );
+		$this->assertStringContainsString( 'Show advanced ActivityPub settings', $output );
+	}
+
+	/**
+	 * Status card exposes the BEM table classes and no longer renders a
+	 * "Manage ActivityPub settings" deep link (issue #74) — the sidebar
+	 * Settings menu entry replaces those per-card links.
+	 */
+	public function test_render_status_card_omits_manage_settings_link() {
+		ob_start();
+		$this->provider->render_status_card();
+		$output = ob_get_clean();
+
+		$this->assertStringContainsString( 'fosse-status-card__table', $output );
+		$this->assertStringContainsString( 'fosse-status-card__label', $output );
+		$this->assertStringContainsString( 'fosse-status-card__value', $output );
+		$this->assertStringNotContainsString( 'Manage ActivityPub settings', $output );
+		$this->assertStringNotContainsString( 'fosse-status-card__manage', $output );
+	}
+
+	// --- save_settings tests ---------------------------------------------------
+
+	/**
+	 * Stable POST defaults that mirror a clean unified-save submission.
 	 *
-	 * @param string $output Rendered setup section markup.
-	 * @param string $mode   Actor mode value.
-	 * @return string
+	 * @param array<string, mixed> $overrides POST overrides.
+	 * @return array<string, mixed>
 	 */
-	private function get_actor_mode_input_markup( string $output, string $mode ): string {
-		preg_match(
-			'~<input\b(?=[^>]*\bname="activitypub_actor_mode")(?=[^>]*\bvalue="' . preg_quote( $mode, '~' ) . '")[^>]*>~s',
-			$output,
-			$matches
-		);
-
-		$this->assertNotEmpty( $matches, 'Expected actor mode input to be present.' );
-
-		return $matches[0];
-	}
-
-	// --- handle_save tests ---------------------------------------------------
-
-	/**
-	 * Create an admin user and set up a simulated save request.
-	 *
-	 * @param array<string, mixed> $post_data POST data to merge in.
-	 * @return void
-	 */
-	private function simulate_save_request( array $post_data = array() ): void {
-		$user_id = wp_insert_user(
+	private function build_post( array $overrides = array() ): array {
+		return array_merge(
 			array(
-				'user_login' => 'fosse_admin_' . uniqid( '', true ),
-				'user_pass'  => 'test',
-				'role'       => 'administrator',
-			)
-		);
-		wp_set_current_user( $user_id );
-
-		$defaults = array(
-			'action'                         => 'fosse_save_ap_settings',
-			'_wpnonce'                       => wp_create_nonce( 'fosse_save_ap_settings' ),
-			'activitypub_actor_mode'         => 'blog',
-			'activitypub_support_post_types' => array( 'post' ),
-		);
-
-		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup, nonce is in the data.
-		$_POST    = array_merge( $defaults, $post_data );
-		$_REQUEST = $_POST;
-		// phpcs:enable WordPress.Security.NonceVerification.Missing
-
-		// Catch the redirect so exit doesn't kill the test.
-		add_filter(
-			'wp_redirect',
-			static function () {
-				throw new \Exception( 'redirect' );
-			}
+				'activitypub_actor_mode'         => 'blog',
+				'activitypub_support_post_types' => array( 'post' ),
+			),
+			$overrides
 		);
 	}
 
 	/**
 	 * Valid save stores the actor mode option.
 	 */
-	public function test_handle_save_stores_actor_mode() {
-		$this->simulate_save_request( array( 'activitypub_actor_mode' => 'actor_blog' ) );
-
-		try {
-			$this->provider->handle_save();
-		} catch ( \Exception $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
-			unset( $e );
-		}
+	public function test_save_settings_stores_actor_mode() {
+		$this->assertTrue( $this->provider->save_settings( $this->build_post( array( 'activitypub_actor_mode' => 'actor_blog' ) ) ) );
 
 		$this->assertSame( 'actor_blog', get_option( 'activitypub_actor_mode' ) );
 	}
@@ -296,14 +243,8 @@ class AP_ProviderTest extends BaseTestCase {
 	/**
 	 * Valid save stores the post types option.
 	 */
-	public function test_handle_save_stores_post_types() {
-		$this->simulate_save_request( array( 'activitypub_support_post_types' => array( 'post', 'page' ) ) );
-
-		try {
-			$this->provider->handle_save();
-		} catch ( \Exception $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
-			unset( $e );
-		}
+	public function test_save_settings_stores_post_types() {
+		$this->provider->save_settings( $this->build_post( array( 'activitypub_support_post_types' => array( 'post', 'page' ) ) ) );
 
 		$this->assertSame( array( 'post', 'page' ), get_option( 'activitypub_support_post_types' ) );
 	}
@@ -311,35 +252,23 @@ class AP_ProviderTest extends BaseTestCase {
 	/**
 	 * Invalid actor mode is rejected — option is not updated.
 	 */
-	public function test_handle_save_rejects_invalid_actor_mode() {
+	public function test_save_settings_rejects_invalid_actor_mode() {
 		update_option( 'activitypub_actor_mode', 'actor' );
-		$this->simulate_save_request( array( 'activitypub_actor_mode' => 'evil_mode' ) );
 
-		try {
-			$this->provider->handle_save();
-		} catch ( \Exception $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
-			unset( $e );
-		}
+		$ok = $this->provider->save_settings( $this->build_post( array( 'activitypub_actor_mode' => 'evil_mode' ) ) );
 
+		$this->assertFalse( $ok );
 		$this->assertSame( 'actor', get_option( 'activitypub_actor_mode' ) );
 	}
 
 	/**
-	 * Invalid actor mode produces an error notice, not a success notice.
+	 * Invalid actor mode produces an error notice on the FOSSE group.
 	 */
-	public function test_handle_save_error_notice_on_invalid_mode() {
-		$this->simulate_save_request( array( 'activitypub_actor_mode' => 'evil_mode' ) );
+	public function test_save_settings_error_notice_on_invalid_mode() {
+		$this->provider->save_settings( $this->build_post( array( 'activitypub_actor_mode' => 'evil_mode' ) ) );
 
-		try {
-			$this->provider->handle_save();
-		} catch ( \Exception $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
-			unset( $e );
-		}
-
-		$errors = get_settings_errors( 'fosse' );
-		$codes  = array_column( $errors, 'code' );
+		$codes = array_column( get_settings_errors( 'fosse' ), 'code' );
 		$this->assertContains( 'fosse_invalid_mode', $codes );
-		$this->assertNotContains( 'fosse_saved', $codes );
 	}
 
 	/**
@@ -347,7 +276,7 @@ class AP_ProviderTest extends BaseTestCase {
 	 * change. WordPress fires add_option_<name> on first save and
 	 * update_option_<name> on subsequent value changes; AP hooks both.
 	 */
-	public function test_handle_save_notifies_ap_actor_mode_scheduler() {
+	public function test_save_settings_notifies_ap_actor_mode_scheduler() {
 		$fired = false;
 		$mark  = static function () use ( &$fired ) {
 			$fired = true;
@@ -356,38 +285,22 @@ class AP_ProviderTest extends BaseTestCase {
 		add_action( 'update_option_activitypub_actor_mode', $mark );
 
 		// First save (option does not yet exist) fires add_option_*.
-		$this->simulate_save_request( array( 'activitypub_actor_mode' => 'blog' ) );
-		try {
-			$this->provider->handle_save();
-		} catch ( \Exception $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
-			unset( $e );
-		}
+		$this->provider->save_settings( $this->build_post( array( 'activitypub_actor_mode' => 'blog' ) ) );
 		$this->assertTrue( $fired, 'add_option_activitypub_actor_mode should fire on first save.' );
 
 		// Second save (value change) fires update_option_*.
 		$fired = false;
-		$this->simulate_save_request( array( 'activitypub_actor_mode' => 'actor_blog' ) );
-		try {
-			$this->provider->handle_save();
-		} catch ( \Exception $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
-			unset( $e );
-		}
+		$this->provider->save_settings( $this->build_post( array( 'activitypub_actor_mode' => 'actor_blog' ) ) );
 		$this->assertTrue( $fired, 'update_option_activitypub_actor_mode should fire on value change.' );
 	}
 
 	/**
 	 * Invalid post types are filtered out.
 	 */
-	public function test_handle_save_filters_invalid_post_types() {
-		$this->simulate_save_request(
-			array( 'activitypub_support_post_types' => array( 'post', 'nonexistent_type', 'page' ) )
+	public function test_save_settings_filters_invalid_post_types() {
+		$this->provider->save_settings(
+			$this->build_post( array( 'activitypub_support_post_types' => array( 'post', 'nonexistent_type', 'page' ) ) )
 		);
-
-		try {
-			$this->provider->handle_save();
-		} catch ( \Exception $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
-			unset( $e );
-		}
 
 		$saved = get_option( 'activitypub_support_post_types' );
 		$this->assertContains( 'post', $saved );
@@ -398,14 +311,8 @@ class AP_ProviderTest extends BaseTestCase {
 	/**
 	 * Non-array post types input is safely handled.
 	 */
-	public function test_handle_save_handles_non_array_post_types() {
-		$this->simulate_save_request( array( 'activitypub_support_post_types' => 'not_an_array' ) );
-
-		try {
-			$this->provider->handle_save();
-		} catch ( \Exception $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
-			unset( $e );
-		}
+	public function test_save_settings_handles_non_array_post_types() {
+		$this->provider->save_settings( $this->build_post( array( 'activitypub_support_post_types' => 'not_an_array' ) ) );
 
 		$this->assertIsArray( get_option( 'activitypub_support_post_types' ) );
 	}
@@ -667,19 +574,15 @@ class AP_ProviderTest extends BaseTestCase {
 	 * Saving a site handle persists it through AP's sanitizer so the same
 	 * value is stored regardless of which surface accepted the input.
 	 */
-	public function test_handle_save_persists_blog_identifier() {
-		$this->simulate_save_request(
-			array(
-				'activitypub_actor_mode'      => 'blog',
-				'activitypub_blog_identifier' => 'my-fosse-site',
+	public function test_save_settings_persists_blog_identifier() {
+		$this->provider->save_settings(
+			$this->build_post(
+				array(
+					'activitypub_actor_mode'      => 'blog',
+					'activitypub_blog_identifier' => 'my-fosse-site',
+				)
 			)
 		);
-
-		try {
-			$this->provider->handle_save();
-		} catch ( \Exception $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
-			unset( $e );
-		}
 
 		$this->assertSame( 'my-fosse-site', get_option( 'activitypub_blog_identifier' ) );
 	}
@@ -696,26 +599,22 @@ class AP_ProviderTest extends BaseTestCase {
 	 * itself is asserted via the unit-tested
 	 * `filter_default_blog_username` collision tests above.
 	 */
-	public function test_handle_save_blog_identifier_runs_through_ap_sanitizer() {
-		$this->simulate_save_request(
-			array(
-				'activitypub_actor_mode'      => 'blog',
-				'activitypub_blog_identifier' => 'Has Spaces & Caps',
+	public function test_save_settings_blog_identifier_runs_through_ap_sanitizer() {
+		$this->provider->save_settings(
+			$this->build_post(
+				array(
+					'activitypub_actor_mode'      => 'blog',
+					'activitypub_blog_identifier' => 'Has Spaces & Caps',
+				)
 			)
 		);
-
-		try {
-			$this->provider->handle_save();
-		} catch ( \Exception $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
-			unset( $e );
-		}
 
 		$this->assertSame( 'has-spaces-caps', get_option( 'activitypub_blog_identifier' ) );
 	}
 
 	/**
 	 * AP's sanitizer adds settings errors under `activitypub_blog_identifier`
-	 * when the input collides with an existing user. The FOSSE Setup page
+	 * when the input collides with an existing user. The FOSSE Settings page
 	 * only renders `settings_errors('fosse')`, so we re-tag fresh AP errors
 	 * into our group so users actually see why their handle was rejected.
 	 *
@@ -724,7 +623,7 @@ class AP_ProviderTest extends BaseTestCase {
 	 * search, so seeding a real colliding user wouldn't trigger AP's
 	 * collision path).
 	 */
-	public function test_handle_save_rewires_ap_settings_errors_to_fosse_group() {
+	public function test_save_settings_rewires_ap_settings_errors_to_fosse_group() {
 		add_filter(
 			'sanitize_option_activitypub_blog_identifier',
 			static function ( $value ) {
@@ -739,18 +638,14 @@ class AP_ProviderTest extends BaseTestCase {
 			11 // After AP's own callback.
 		);
 
-		$this->simulate_save_request(
-			array(
-				'activitypub_actor_mode'      => 'blog',
-				'activitypub_blog_identifier' => 'whatever',
+		$this->provider->save_settings(
+			$this->build_post(
+				array(
+					'activitypub_actor_mode'      => 'blog',
+					'activitypub_blog_identifier' => 'whatever',
+				)
 			)
 		);
-
-		try {
-			$this->provider->handle_save();
-		} catch ( \Exception $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
-			unset( $e );
-		}
 
 		$fosse_codes = array_column( get_settings_errors( 'fosse' ), 'code' );
 		$this->assertContains( 'collision_test', $fosse_codes );
@@ -763,7 +658,7 @@ class AP_ProviderTest extends BaseTestCase {
 	 * code for every rejection, so a code-only snapshot would mask the
 	 * fresh entry.
 	 */
-	public function test_handle_save_captures_fresh_collision_when_code_already_queued() {
+	public function test_save_settings_captures_fresh_collision_when_code_already_queued() {
 		// Pre-seed an unrelated error using AP's constant code.
 		add_settings_error(
 			'activitypub_blog_identifier',
@@ -786,18 +681,14 @@ class AP_ProviderTest extends BaseTestCase {
 			11
 		);
 
-		$this->simulate_save_request(
-			array(
-				'activitypub_actor_mode'      => 'blog',
-				'activitypub_blog_identifier' => 'whatever',
+		$this->provider->save_settings(
+			$this->build_post(
+				array(
+					'activitypub_actor_mode'      => 'blog',
+					'activitypub_blog_identifier' => 'whatever',
+				)
 			)
 		);
-
-		try {
-			$this->provider->handle_save();
-		} catch ( \Exception $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
-			unset( $e );
-		}
 
 		$fosse_messages = array_column( get_settings_errors( 'fosse' ), 'message' );
 		$this->assertContains( 'Fresh collision rejection.', $fosse_messages );
@@ -805,13 +696,12 @@ class AP_ProviderTest extends BaseTestCase {
 	}
 
 	/**
-	 * The success notice is suppressed when AP's sanitizer rejected the
-	 * Site Handle. Pairing a green "settings saved" with a red collision
-	 * error in the same response confuses users about what actually saved.
-	 * Mode and post-type writes still landed; the AP error explains what
-	 * didn't.
+	 * `save_settings()` returns false when AP's sanitizer rejected the
+	 * Site Handle, so the unified Settings handler can suppress the
+	 * blanket "settings saved" success notice. Mode and post-type writes
+	 * still landed; the AP error explains what didn't.
 	 */
-	public function test_handle_save_suppresses_success_notice_on_blog_identifier_rejection() {
+	public function test_save_settings_returns_false_on_blog_identifier_rejection() {
 		add_filter(
 			'sanitize_option_activitypub_blog_identifier',
 			static function ( $value ) {
@@ -826,22 +716,20 @@ class AP_ProviderTest extends BaseTestCase {
 			11
 		);
 
-		$this->simulate_save_request(
-			array(
-				'activitypub_actor_mode'      => 'blog',
-				'activitypub_blog_identifier' => 'whatever',
+		$ok = $this->provider->save_settings(
+			$this->build_post(
+				array(
+					'activitypub_actor_mode'      => 'blog',
+					'activitypub_blog_identifier' => 'whatever',
+				)
 			)
 		);
 
-		try {
-			$this->provider->handle_save();
-		} catch ( \Exception $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
-			unset( $e );
-		}
-
-		$fosse_codes = array_column( get_settings_errors( 'fosse' ), 'code' );
-		$this->assertNotContains( 'fosse_saved', $fosse_codes );
-		$this->assertContains( 'rejection_test', $fosse_codes );
+		$this->assertFalse( $ok );
+		$this->assertContains(
+			'rejection_test',
+			array_column( get_settings_errors( 'fosse' ), 'code' )
+		);
 	}
 
 	/**
@@ -849,21 +737,17 @@ class AP_ProviderTest extends BaseTestCase {
 	 * rather than tripping `sanitize_text_field`'s array-to-string warning
 	 * (which `phpunit.xml.dist` promotes to a failure via `failOnWarning`).
 	 */
-	public function test_handle_save_array_blog_identifier_is_rejected_safely() {
+	public function test_save_settings_array_blog_identifier_is_rejected_safely() {
 		update_option( 'activitypub_blog_identifier', 'preserved-handle' );
 
-		$this->simulate_save_request(
-			array(
-				'activitypub_actor_mode'      => 'blog',
-				'activitypub_blog_identifier' => array( 'malicious', 'array' ),
+		$this->provider->save_settings(
+			$this->build_post(
+				array(
+					'activitypub_actor_mode'      => 'blog',
+					'activitypub_blog_identifier' => array( 'malicious', 'array' ),
+				)
 			)
 		);
-
-		try {
-			$this->provider->handle_save();
-		} catch ( \Exception $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
-			unset( $e );
-		}
 
 		$this->assertSame( 'preserved-handle', get_option( 'activitypub_blog_identifier' ) );
 	}
@@ -872,21 +756,17 @@ class AP_ProviderTest extends BaseTestCase {
 	 * An empty submitted handle leaves any prior value intact rather than
 	 * stomping the option with an empty string.
 	 */
-	public function test_handle_save_empty_blog_identifier_does_not_clobber_existing_value() {
+	public function test_save_settings_empty_blog_identifier_does_not_clobber_existing_value() {
 		update_option( 'activitypub_blog_identifier', 'preserved-handle' );
 
-		$this->simulate_save_request(
-			array(
-				'activitypub_actor_mode'      => 'blog',
-				'activitypub_blog_identifier' => '',
+		$this->provider->save_settings(
+			$this->build_post(
+				array(
+					'activitypub_actor_mode'      => 'blog',
+					'activitypub_blog_identifier' => '',
+				)
 			)
 		);
-
-		try {
-			$this->provider->handle_save();
-		} catch ( \Exception $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
-			unset( $e );
-		}
 
 		$this->assertSame( 'preserved-handle', get_option( 'activitypub_blog_identifier' ) );
 	}
