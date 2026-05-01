@@ -86,10 +86,15 @@ class AP_Provider implements Connection_Provider {
 	 * @return array<string, mixed>
 	 */
 	public function get_status(): array {
-		$actor_mode   = get_option( 'activitypub_actor_mode', 'actor' );
-		$post_types   = get_option( 'activitypub_support_post_types', array( 'post' ) );
-		$user_address = $this->get_user_address();
-		$blog_address = $this->get_blog_address();
+		$actor_mode = get_option( 'activitypub_actor_mode', 'actor' );
+		$post_types = get_option( 'activitypub_support_post_types', array( 'post' ) );
+		// Gate handle resolution by mode. Constructing AP's actor models is
+		// not free — it dispatches the `activitypub_construct_model_actor`
+		// filter and runs whatever third-party code is hooked there. There's
+		// no point paying that cost for a handle the caller can't render in
+		// the current mode (e.g. the blog actor in `actor` mode).
+		$user_address = $this->mode_includes_user( $actor_mode ) ? $this->get_user_address() : '';
+		$blog_address = $this->mode_includes_blog( $actor_mode ) ? $this->get_blog_address() : '';
 
 		return array(
 			'connected'    => true,
@@ -107,13 +112,17 @@ class AP_Provider implements Connection_Provider {
 	 * @return void
 	 */
 	public function render_setup_section(): void {
-		$actor_mode      = get_option( 'activitypub_actor_mode', 'actor' );
-		$post_types      = get_option( 'activitypub_support_post_types', array( 'post' ) );
-		$all_post_types  = get_post_types( array( 'public' => true ), 'objects' );
-		$user_address    = $this->get_user_address();
-		$blog_address    = $this->get_blog_address();
-		$shows_blog      = $this->mode_includes_blog( $actor_mode );
-		$shows_user      = $this->mode_includes_user( $actor_mode );
+		$actor_mode     = get_option( 'activitypub_actor_mode', 'actor' );
+		$post_types     = get_option( 'activitypub_support_post_types', array( 'post' ) );
+		$all_post_types = get_post_types( array( 'public' => true ), 'objects' );
+		$shows_blog     = $this->mode_includes_blog( $actor_mode );
+		$shows_user     = $this->mode_includes_user( $actor_mode );
+		// Defer handle resolution until after mode checks so we don't
+		// construct the user actor in `blog` mode or the blog actor in
+		// `actor` mode — those constructions dispatch
+		// `activitypub_construct_model_actor` and aren't free.
+		$user_address    = $shows_user ? $this->get_user_address() : '';
+		$blog_address    = $shows_blog ? $this->get_blog_address() : '';
 		$blog_identifier = (string) get_option( 'activitypub_blog_identifier', '' );
 		// Show the dynamic default as a placeholder rather than pre-filling
 		// the input with `value="..."`. Saving the form when the user never
@@ -392,9 +401,14 @@ class AP_Provider implements Connection_Provider {
 				: '';
 			$raw       = trim( $raw_input );
 			if ( '' !== $raw ) {
-				// Snapshot AP error codes already on the queue so we only
-				// re-tag freshly-raised ones below.
-				$ap_errors_before = wp_list_pluck( get_settings_errors( 'activitypub_blog_identifier' ), 'code' );
+				// Snapshot the queue length, not the codes. AP's sanitizer
+				// reuses a constant code (`activitypub_blog_identifier`) for
+				// every collision rejection — comparing by code would mask a
+				// fresh rejection if any error with that code happened to be
+				// on the queue already. Settings errors are append-only, so
+				// `array_slice` from the pre-update count reliably captures
+				// only the entries this `update_option` call appended.
+				$ap_error_count_before = count( get_settings_errors( 'activitypub_blog_identifier' ) );
 
 				update_option( 'activitypub_blog_identifier', $raw );
 
@@ -404,10 +418,9 @@ class AP_Provider implements Connection_Provider {
 				// `settings_errors( 'fosse' )` only, so without this re-tag
 				// the user would see a generic "saved" success notice while
 				// their requested handle silently fell back to the default.
-				foreach ( get_settings_errors( 'activitypub_blog_identifier' ) as $ap_error ) {
-					if ( in_array( $ap_error['code'], $ap_errors_before, true ) ) {
-						continue;
-					}
+				$ap_errors_after = get_settings_errors( 'activitypub_blog_identifier' );
+				$new_ap_errors   = array_slice( $ap_errors_after, $ap_error_count_before );
+				foreach ( $new_ap_errors as $ap_error ) {
 					$blog_identifier_rejected = true;
 					add_settings_error(
 						'fosse',

@@ -582,6 +582,57 @@ class AP_ProviderTest extends BaseTestCase {
 	}
 
 	/**
+	 * `get_status()` only resolves the handle for the active mode. Building
+	 * AP's actor models dispatches `activitypub_construct_model_actor` and
+	 * runs whatever third-party code is hooked there — paying that cost for
+	 * a handle the caller can't render in the current mode is wasteful.
+	 */
+	public function test_status_does_not_resolve_blog_address_in_actor_mode() {
+		update_option( 'activitypub_actor_mode', 'actor' );
+
+		$blog_constructed = false;
+		add_action(
+			'activitypub_construct_model_actor',
+			static function ( $actor ) use ( &$blog_constructed ) {
+				if ( $actor instanceof \Activitypub\Model\Blog ) {
+					$blog_constructed = true;
+				}
+			}
+		);
+
+		$status = $this->provider->get_status();
+
+		remove_all_actions( 'activitypub_construct_model_actor' );
+
+		$this->assertSame( '', $status['blog_address'] );
+		$this->assertFalse( $blog_constructed, 'Blog actor should not be constructed in actor mode.' );
+	}
+
+	/**
+	 * Mirror of the above for the user actor in `blog` mode.
+	 */
+	public function test_status_does_not_resolve_user_address_in_blog_mode() {
+		update_option( 'activitypub_actor_mode', 'blog' );
+
+		$user_constructed = false;
+		add_action(
+			'activitypub_construct_model_actor',
+			static function ( $actor ) use ( &$user_constructed ) {
+				if ( $actor instanceof \Activitypub\Model\User ) {
+					$user_constructed = true;
+				}
+			}
+		);
+
+		$status = $this->provider->get_status();
+
+		remove_all_actions( 'activitypub_construct_model_actor' );
+
+		$this->assertSame( '', $status['user_address'] );
+		$this->assertFalse( $user_constructed, 'User actor should not be constructed in blog mode.' );
+	}
+
+	/**
 	 * In `blog` mode, the legacy `address` key prefers the blog handle so
 	 * existing callers keep their current behavior.
 	 */
@@ -703,6 +754,54 @@ class AP_ProviderTest extends BaseTestCase {
 
 		$fosse_codes = array_column( get_settings_errors( 'fosse' ), 'code' );
 		$this->assertContains( 'collision_test', $fosse_codes );
+	}
+
+	/**
+	 * Fresh rejections are captured by queue-position even when an error
+	 * with the same `activitypub_blog_identifier` code already sits on the
+	 * queue from earlier in the request. AP's sanitizer reuses a constant
+	 * code for every rejection, so a code-only snapshot would mask the
+	 * fresh entry.
+	 */
+	public function test_handle_save_captures_fresh_collision_when_code_already_queued() {
+		// Pre-seed an unrelated error using AP's constant code.
+		add_settings_error(
+			'activitypub_blog_identifier',
+			'activitypub_blog_identifier',
+			'Pre-existing unrelated error.',
+			'error'
+		);
+
+		add_filter(
+			'sanitize_option_activitypub_blog_identifier',
+			static function ( $value ) {
+				add_settings_error(
+					'activitypub_blog_identifier',
+					'activitypub_blog_identifier',
+					'Fresh collision rejection.',
+					'error'
+				);
+				return $value;
+			},
+			11
+		);
+
+		$this->simulate_save_request(
+			array(
+				'activitypub_actor_mode'      => 'blog',
+				'activitypub_blog_identifier' => 'whatever',
+			)
+		);
+
+		try {
+			$this->provider->handle_save();
+		} catch ( \Exception $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$fosse_messages = array_column( get_settings_errors( 'fosse' ), 'message' );
+		$this->assertContains( 'Fresh collision rejection.', $fosse_messages );
+		$this->assertNotContains( 'Pre-existing unrelated error.', $fosse_messages );
 	}
 
 	/**
