@@ -206,8 +206,7 @@ class Status_FormatterTest extends BaseTestCase {
 	}
 
 	/**
-	 * Empty inputs are safe and return empty strings (or just the leading
-	 * separator for AP addresses).
+	 * Empty inputs are safe and return empty strings for every formatter.
 	 */
 	public function test_empty_inputs_are_safe(): void {
 		$this->assertSame( '', Status_Formatter::did( '' ) );

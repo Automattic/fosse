@@ -335,10 +335,13 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		// Handle renders with <wbr> after each `.`.
 		$this->assertStringContainsString( 'someone.<wbr>with.<wbr>a.<wbr>very.<wbr>long.<wbr>subdomain.<wbr>example.<wbr>org', $output );
 
-		// Sanity: no leftover bare value without the token wrapper for any of
-		// the three identifiers (would mean the formatter wasn't wired in).
-		$this->assertStringNotContainsString( '<code>did:plc:longidentifier', $output );
-		$this->assertStringNotContainsString( '<code>https://very-long-pds-host', $output );
+		// Sanity: the raw un-tokenized value must NOT appear anywhere in the
+		// output. The `<wbr>` markers above prove the formatter ran; this
+		// extra pair guards against a future refactor that emits both the
+		// tokenized form AND the bare value (e.g. as a `title=` attribute or
+		// a sibling fallback).
+		$this->assertStringNotContainsString( 'did:plc:longidentifierthatwouldotherwiseoverflow', $output );
+		$this->assertStringNotContainsString( 'https://very-long-pds-host.example.com/some/deep/path', $output );
 	}
 
 	/**
