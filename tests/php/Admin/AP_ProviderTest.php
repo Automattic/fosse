@@ -706,6 +706,46 @@ class AP_ProviderTest extends BaseTestCase {
 	}
 
 	/**
+	 * The success notice is suppressed when AP's sanitizer rejected the
+	 * Site Handle. Pairing a green "settings saved" with a red collision
+	 * error in the same response confuses users about what actually saved.
+	 * Mode and post-type writes still landed; the AP error explains what
+	 * didn't.
+	 */
+	public function test_handle_save_suppresses_success_notice_on_blog_identifier_rejection() {
+		add_filter(
+			'sanitize_option_activitypub_blog_identifier',
+			static function ( $value ) {
+				add_settings_error(
+					'activitypub_blog_identifier',
+					'rejection_test',
+					'Rejected.',
+					'error'
+				);
+				return $value;
+			},
+			11
+		);
+
+		$this->simulate_save_request(
+			array(
+				'activitypub_actor_mode'      => 'blog',
+				'activitypub_blog_identifier' => 'whatever',
+			)
+		);
+
+		try {
+			$this->provider->handle_save();
+		} catch ( \Exception $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$fosse_codes = array_column( get_settings_errors( 'fosse' ), 'code' );
+		$this->assertNotContains( 'fosse_saved', $fosse_codes );
+		$this->assertContains( 'rejection_test', $fosse_codes );
+	}
+
+	/**
 	 * Array-shaped POST input for the blog identifier is rejected silently
 	 * rather than tripping `sanitize_text_field`'s array-to-string warning
 	 * (which `phpunit.xml.dist` promotes to a failure via `failOnWarning`).
@@ -767,6 +807,30 @@ class AP_ProviderTest extends BaseTestCase {
 		$this->assertStringContainsString( 'name="activitypub_blog_identifier"', $output );
 		$this->assertStringContainsString( 'value="my-site"', $output );
 		$this->assertStringContainsString( 'Site Handle', $output );
+	}
+
+	/**
+	 * When the option is empty, the dynamic default appears as a
+	 * `placeholder` rather than a `value`. Pre-filling `value` would
+	 * freeze the proposed default into the option as soon as the user
+	 * saved any other field — breaking AP's "unset → recompute on read"
+	 * contract.
+	 */
+	public function test_render_setup_section_uses_placeholder_for_unset_blog_identifier() {
+		update_option( 'activitypub_actor_mode', 'blog' );
+		delete_option( 'activitypub_blog_identifier' );
+
+		ob_start();
+		$this->provider->render_setup_section();
+		$output = ob_get_clean();
+
+		$this->assertStringContainsString( 'name="activitypub_blog_identifier"', $output );
+		$this->assertStringContainsString( 'value=""', $output );
+		$this->assertMatchesRegularExpression(
+			'~placeholder="[^"]+"~',
+			$output,
+			'Setup field should expose the dynamic default as a placeholder when no value is stored.'
+		);
 	}
 
 	/**

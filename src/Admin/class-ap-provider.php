@@ -115,8 +115,15 @@ class AP_Provider implements Connection_Provider {
 		$shows_blog      = $this->mode_includes_blog( $actor_mode );
 		$shows_user      = $this->mode_includes_user( $actor_mode );
 		$blog_identifier = (string) get_option( 'activitypub_blog_identifier', '' );
+		// Show the dynamic default as a placeholder rather than pre-filling
+		// the input with `value="..."`. Saving the form when the user never
+		// touched the field would otherwise freeze a literal copy of the
+		// then-current default into the option, breaking AP's normal flow
+		// (where an unset option resolves to `Blog::get_default_username()`
+		// at read time and follows host changes / collision shifts).
+		$blog_identifier_placeholder = '';
 		if ( '' === $blog_identifier && class_exists( '\Activitypub\Model\Blog' ) ) {
-			$blog_identifier = (string) \Activitypub\Model\Blog::get_default_username();
+			$blog_identifier_placeholder = (string) \Activitypub\Model\Blog::get_default_username();
 		}
 		$nonce = wp_create_nonce( 'fosse_save_ap_settings' );
 		?>
@@ -231,6 +238,7 @@ class AP_Provider implements Connection_Provider {
 									name="activitypub_blog_identifier"
 									class="regular-text"
 									value="<?php echo esc_attr( $blog_identifier ); ?>"
+									placeholder="<?php echo esc_attr( $blog_identifier_placeholder ); ?>"
 									aria-describedby="fosse-activitypub-blog-identifier-desc"
 								/>
 								<p id="fosse-activitypub-blog-identifier-desc" class="description">
@@ -372,6 +380,7 @@ class AP_Provider implements Connection_Provider {
 		// `update_option` via AP's `sanitize_option_activitypub_blog_identifier`
 		// filter — calling `\Activitypub\Sanitize::blog_identifier` directly
 		// here would double-fire it and double-emit any collision notice.
+		$blog_identifier_rejected = false;
 		if ( array_key_exists( 'activitypub_blog_identifier', $_POST ) ) {
 			// Coerce to string defensively: a malformed POST that submits the
 			// field as an array would otherwise warn under sanitize_text_field
@@ -399,6 +408,7 @@ class AP_Provider implements Connection_Provider {
 					if ( in_array( $ap_error['code'], $ap_errors_before, true ) ) {
 						continue;
 					}
+					$blog_identifier_rejected = true;
 					add_settings_error(
 						'fosse',
 						$ap_error['code'],
@@ -409,8 +419,12 @@ class AP_Provider implements Connection_Provider {
 			}
 		}
 
-		// Redirect back with appropriate notice.
-		if ( $mode_valid ) {
+		// Redirect back with appropriate notice. Suppress the blanket
+		// "settings saved" success when the Site Handle update was rejected
+		// — pairing it with an error notice in the same response confuses
+		// the user about what actually saved. The mode + post type updates
+		// still landed; the surfaced AP error explains what didn't.
+		if ( $mode_valid && ! $blog_identifier_rejected ) {
 			add_settings_error( 'fosse', 'fosse_saved', __( 'ActivityPub settings saved.', 'fosse' ), 'success' );
 		}
 		set_transient( 'settings_errors', get_settings_errors(), 30 );
