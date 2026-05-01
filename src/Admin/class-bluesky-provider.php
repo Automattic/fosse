@@ -219,37 +219,55 @@ class Bluesky_Provider implements Connection_Provider {
 				<?php esc_html_e( 'Bluesky', 'fosse' ); ?>
 			</h2>
 
-			<table class="widefat striped">
+			<table class="widefat striped fosse-status-card__table">
 				<tbody>
 					<tr>
-						<td><?php esc_html_e( 'Connection', 'fosse' ); ?></td>
-						<td><?php echo esc_html( $status['connected'] ? __( 'Connected', 'fosse' ) : __( 'Disconnected', 'fosse' ) ); ?></td>
+						<td class="fosse-status-card__label"><?php esc_html_e( 'Connection', 'fosse' ); ?></td>
+						<td class="fosse-status-card__value"><?php echo esc_html( $status['connected'] ? __( 'Connected', 'fosse' ) : __( 'Disconnected', 'fosse' ) ); ?></td>
 					</tr>
 					<?php if ( $status['handle'] ) : ?>
 						<tr>
-							<td><?php esc_html_e( 'Handle', 'fosse' ); ?></td>
-							<td><strong><?php echo esc_html( $status['handle'] ); ?></strong></td>
+							<td class="fosse-status-card__label"><?php esc_html_e( 'Handle', 'fosse' ); ?></td>
+							<td class="fosse-status-card__value">
+								<strong class="fosse-status-card__token fosse-status-card__token--handle">
+									<?php
+									echo Status_Formatter::handle( $status['handle'] ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Status_Formatter::handle() escapes input and returns safe HTML with <wbr>.
+									?>
+								</strong>
+							</td>
 						</tr>
 					<?php endif; ?>
 					<?php if ( $status['did'] ) : ?>
 						<tr>
-							<td><?php esc_html_e( 'DID', 'fosse' ); ?></td>
-							<td><code><?php echo esc_html( $status['did'] ); ?></code></td>
+							<td class="fosse-status-card__label"><?php esc_html_e( 'DID', 'fosse' ); ?></td>
+							<td class="fosse-status-card__value">
+								<code class="fosse-status-card__token fosse-status-card__token--did">
+									<?php
+									echo Status_Formatter::did( $status['did'] ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Status_Formatter::did() escapes input and returns safe HTML with <wbr>.
+									?>
+								</code>
+							</td>
 						</tr>
 					<?php endif; ?>
 					<?php if ( $status['pds_endpoint'] ) : ?>
 						<tr>
-							<td><?php esc_html_e( 'PDS', 'fosse' ); ?></td>
-							<td><code><?php echo esc_html( $status['pds_endpoint'] ); ?></code></td>
+							<td class="fosse-status-card__label"><?php esc_html_e( 'PDS', 'fosse' ); ?></td>
+							<td class="fosse-status-card__value">
+								<code class="fosse-status-card__token fosse-status-card__token--url">
+									<?php
+									echo Status_Formatter::url( $status['pds_endpoint'] ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Status_Formatter::url() escapes input and returns safe HTML with <wbr>.
+									?>
+								</code>
+							</td>
 						</tr>
 					<?php endif; ?>
 					<tr>
-						<td><?php esc_html_e( 'Auto Publish', 'fosse' ); ?></td>
-						<td><?php echo esc_html( $status['auto_publish'] ? __( 'Enabled', 'fosse' ) : __( 'Disabled', 'fosse' ) ); ?></td>
+						<td class="fosse-status-card__label"><?php esc_html_e( 'Auto Publish', 'fosse' ); ?></td>
+						<td class="fosse-status-card__value"><?php echo esc_html( $status['auto_publish'] ? __( 'Enabled', 'fosse' ) : __( 'Disabled', 'fosse' ) ); ?></td>
 					</tr>
 					<tr>
-						<td><?php esc_html_e( 'Token Health', 'fosse' ); ?></td>
-						<td>
+						<td class="fosse-status-card__label"><?php esc_html_e( 'Token Health', 'fosse' ); ?></td>
+						<td class="fosse-status-card__value">
 							<?php if ( $status['token_error'] ) : ?>
 								<strong><?php esc_html_e( 'Reconnect required.', 'fosse' ); ?></strong>
 								<a href="<?php echo esc_url( admin_url( 'admin.php?page=fosse#fosse-provider-bluesky' ) ); ?>">

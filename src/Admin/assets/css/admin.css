@@ -20,10 +20,15 @@
 	border-left-color: #dba617;
 }
 
-/* Status card grid */
+/* Status card grid.
+   `min(100%, 360px)` lets each card shrink below the 360px target on
+   narrow screens (single-column layouts in the wp-admin sidebar), while
+   `min-width: 0` on the cards themselves stops a long token from inflating
+   the implicit min-content width and pushing the grid wider than its
+   container. */
 .fosse-status-cards {
 	display: grid;
-	grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+	grid-template-columns: repeat(auto-fill, minmax(min(100%, 360px), 1fr));
 	gap: 16px;
 	margin-top: 16px;
 }
@@ -33,16 +38,49 @@
 	border: 1px solid #c3c4c7;
 	border-radius: 4px;
 	padding: 16px;
+	min-width: 0;
 }
 
 .fosse-status-card h2 {
 	margin-top: 0;
 }
 
-/* Allow long opaque values (Bluesky DIDs, PDS URLs, fediverse handles) to
-   wrap inside the card. Without this, the cell's min-content width is the
-   full identifier and the table pushes past its container. */
-.fosse-status-card td {
+/* The status-card table is given `table-layout: fixed` so a long token in
+   the value cell can't widen the column past its share. The label column
+   is allocated a stable minimum so it stays readable while the value
+   column absorbs the wrap. */
+.fosse-status-card__table {
+	table-layout: fixed;
+	width: 100%;
+}
+
+.fosse-status-card__label {
+	width: 40%;
+}
+
+/* Defense in depth: token wrappers carry their own wrap rules, but if a
+   future cell holds raw user input (e.g. a long error message, a long
+   site title) without going through Status_Formatter, this keeps the
+   value column from inflating the table beyond its container. */
+.fosse-status-card__value {
+	overflow-wrap: break-word;
+}
+
+/* Token-specific wrap behavior.
+   Tokens get `<wbr>` hints inserted at separator boundaries (see
+   Status_Formatter), so the browser will prefer those break points.
+   DID and URL identifiers can still contain a long unbroken run with
+   no separator (a `did:plc:` body, a slug-like path), so for those two
+   token shapes we additionally allow `overflow-wrap: anywhere` as a
+   last-resort break. Handles and AP addresses are domain-shaped and
+   always have a `.` to wrap on, so they don't need the fallback. */
+.fosse-status-card__token {
+	word-break: normal;
+	overflow-wrap: break-word;
+}
+
+.fosse-status-card__token--did,
+.fosse-status-card__token--url {
 	overflow-wrap: anywhere;
 }
 

@@ -279,7 +279,7 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		$this->provider->render_status_card();
 		$output = ob_get_clean();
 
-		$this->assertMatchesRegularExpression( '/<td>\s*OK\s*<\/td>/', $output );
+		$this->assertMatchesRegularExpression( '/<td[^>]*>\s*OK\s*<\/td>/', $output );
 		$this->assertStringNotContainsString( 'Reconnect required', $output );
 		$this->assertStringNotContainsString( '<details', $output );
 	}
@@ -295,6 +295,53 @@ class Bluesky_ProviderTest extends BaseTestCase {
 
 		$this->assertStringContainsString( 'Manage Bluesky settings', $output );
 		$this->assertStringContainsString( '#fosse-provider-bluesky', $output );
+	}
+
+	/**
+	 * Status card renders DID, handle, and PDS as token elements with
+	 * `<wbr>` break opportunities so a long identifier doesn't overflow
+	 * the card. Each token type carries its own BEM modifier so the CSS
+	 * can scope `overflow-wrap` to just DIDs and URLs.
+	 */
+	public function test_render_status_card_token_markup_for_long_identifiers() {
+		update_option(
+			'atmosphere_connection',
+			array(
+				'did'          => 'did:plc:longidentifierthatwouldotherwiseoverflow',
+				'handle'       => 'someone.with.a.very.long.subdomain.example.org',
+				'pds_endpoint' => 'https://very-long-pds-host.example.com/some/deep/path',
+				'access_token' => Encryption::encrypt( 'token' ),
+			)
+		);
+
+		ob_start();
+		$this->provider->render_status_card();
+		$output = ob_get_clean();
+
+		$this->assertStringContainsString( 'fosse-status-card__table', $output );
+		$this->assertStringContainsString( 'fosse-status-card__label', $output );
+		$this->assertStringContainsString( 'fosse-status-card__value', $output );
+
+		$this->assertStringContainsString( 'fosse-status-card__token--did', $output );
+		$this->assertStringContainsString( 'fosse-status-card__token--handle', $output );
+		$this->assertStringContainsString( 'fosse-status-card__token--url', $output );
+
+		// DID renders with <wbr> after each `:` separator.
+		$this->assertStringContainsString( 'did:<wbr>plc:<wbr>longidentifier', $output );
+
+		// PDS URL renders with <wbr> after the scheme and before each `/`.
+		$this->assertStringContainsString( 'https://<wbr>very-long-pds-host.example.com<wbr>/some', $output );
+
+		// Handle renders with <wbr> after each `.`.
+		$this->assertStringContainsString( 'someone.<wbr>with.<wbr>a.<wbr>very.<wbr>long.<wbr>subdomain.<wbr>example.<wbr>org', $output );
+
+		// Sanity: the raw un-tokenized value must NOT appear anywhere in the
+		// output. The `<wbr>` markers above prove the formatter ran; this
+		// extra pair guards against a future refactor that emits both the
+		// tokenized form AND the bare value (e.g. as a `title=` attribute or
+		// a sibling fallback).
+		$this->assertStringNotContainsString( 'did:plc:longidentifierthatwouldotherwiseoverflow', $output );
+		$this->assertStringNotContainsString( 'https://very-long-pds-host.example.com/some/deep/path', $output );
 	}
 
 	/**
