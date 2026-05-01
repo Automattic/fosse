@@ -728,6 +728,22 @@ class Onboarding_WizardTest extends BaseTestCase {
 		);
 	}
 
+	/**
+	 * Non-public post types (revisions, nav menu items) are filtered out
+	 * even if some external code wrote them to the option. They wouldn't
+	 * federate anyway and the editor isn't user-reachable, so the CTA
+	 * degrades to the same "Set up sharing" branch as the empty case.
+	 */
+	public function test_render_complete_step_cta_filters_out_non_public_types(): void {
+		Onboarding_Wizard::mark_complete();
+		update_option( 'activitypub_support_post_types', array( 'revision', 'nav_menu_item' ) );
+
+		$output = $this->render_wizard_step( 'complete' );
+
+		$this->assertStringContainsString( 'Set up sharing', $output );
+		$this->assertStringNotContainsString( 'Publish your first', $output );
+	}
+
 	// --- audit hook: handler cap/nonce failures (parameterized) ---
 
 	/**

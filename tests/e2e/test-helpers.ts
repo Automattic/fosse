@@ -1,4 +1,4 @@
-import { expect, type Page } from '@playwright/test';
+import { type Browser, expect, type Page } from '@playwright/test';
 
 /**
  * Seed the Atmosphere connection state via the e2e REST helper.
@@ -38,4 +38,37 @@ export const setBlueskyState = async (
 		result.status,
 		`fosse-e2e/v1/bluesky-state returned: ${ result.text.slice( 0, 300 ) }`
 	).toBe( 200 );
+};
+
+/**
+ * Reset the Atmosphere connection back to disconnected from a hook scope
+ * (`afterAll`, `afterEach`) where only the `browser` fixture is available.
+ *
+ * `browser.newPage()` does NOT inherit the project's `baseURL` from
+ * `playwright.config.ts`, so this helper passes it explicitly. Without it,
+ * `page.goto( '/wp-admin/...' )` would fail because there's no base to
+ * resolve the relative URL against. The page is closed in a `finally` so
+ * a seed failure can't leak browser contexts.
+ *
+ * @param {Browser} browser Playwright browser fixture.
+ * @param {string}  baseURL Project base URL (read via `testInfo.project.use.baseURL`).
+ * @return {Promise<void>} Resolves once the disconnect seed completes.
+ */
+export const resetBlueskyState = async (
+	browser: Browser,
+	baseURL: string
+): Promise< void > => {
+	const page = await browser.newPage( { baseURL } );
+	try {
+		await page.goto( '/wp-admin/post-new.php' );
+		await page.waitForFunction(
+			() => !! ( window as any ).wpApiSettings?.nonce
+		);
+		await setBlueskyState( page, {
+			connected: false,
+			auto_publish: true,
+		} );
+	} finally {
+		await page.close();
+	}
 };

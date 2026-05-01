@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { setBlueskyState } from './test-helpers';
+import { resetBlueskyState, setBlueskyState } from './test-helpers';
 
 test.describe( 'Bluesky provider UI', () => {
 	// The connected-state test below leaves atmosphere_connection set,
@@ -7,17 +7,14 @@ test.describe( 'Bluesky provider UI', () => {
 	// later specs) to its connected-summary branch and hides the
 	// connect form. Reset to disconnected so spec ordering can't bleed
 	// state into onboarding-wizard.spec.ts.
-	test.afterAll( async ( { browser } ) => {
-		const page = await browser.newPage();
-		await page.goto( '/wp-admin/post-new.php' );
-		await page.waitForFunction(
-			() => !! ( window as any ).wpApiSettings?.nonce
-		);
-		await setBlueskyState( page, {
-			connected: false,
-			auto_publish: true,
-		} );
-		await page.close();
+	test.afterAll( async ( { browser }, testInfo ) => {
+		const baseURL = testInfo.project.use.baseURL;
+		if ( ! baseURL ) {
+			throw new Error(
+				'baseURL must be configured in playwright.config.ts'
+			);
+		}
+		await resetBlueskyState( browser, baseURL );
 	} );
 
 	test.beforeEach( async ( { page } ) => {

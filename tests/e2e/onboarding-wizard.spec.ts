@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { setBlueskyState } from './test-helpers';
+import { resetBlueskyState, setBlueskyState } from './test-helpers';
 
 test( 'Wizard page loads without errors', async ( { page } ) => {
 	const response = await page.goto( '/wp-admin/admin.php?page=fosse-wizard' );
@@ -113,17 +113,14 @@ test( 'Bluesky step (disconnected) shows sign-up help linking to bsky.app', asyn
 test.describe( 'Bluesky step — connected (post-OAuth completion)', () => {
 	// Reset to disconnected so this group's seeded connection cannot bleed
 	// into the sibling specs that assume the disconnected default.
-	test.afterAll( async ( { browser } ) => {
-		const page = await browser.newPage();
-		await page.goto( '/wp-admin/post-new.php' );
-		await page.waitForFunction(
-			() => !! ( window as any ).wpApiSettings?.nonce
-		);
-		await setBlueskyState( page, {
-			connected: false,
-			auto_publish: true,
-		} );
-		await page.close();
+	test.afterAll( async ( { browser }, testInfo ) => {
+		const baseURL = testInfo.project.use.baseURL;
+		if ( ! baseURL ) {
+			throw new Error(
+				'baseURL must be configured in playwright.config.ts'
+			);
+		}
+		await resetBlueskyState( browser, baseURL );
 	} );
 
 	test.beforeEach( async ( { page } ) => {
@@ -188,14 +185,17 @@ test( 'Completion step shows summary', async ( { page } ) => {
 	).toBeVisible();
 } );
 
-test( 'Completion step exposes "Publish your first post" CTA to post-new.php', async ( {
+test( 'Completion step exposes "Publish your first Post" CTA to post-new.php', async ( {
 	page,
 } ) => {
 	await page.goto( '/wp-admin/admin.php?page=fosse-wizard&step=complete' );
 
 	const publishCta = page.locator( '.fosse-wizard__cta-publish' );
 	await expect( publishCta ).toBeVisible();
-	await expect( publishCta ).toContainText( 'Publish your first post' );
+	// Capitalization mirrors the post type's `singular_name` ("Post") so
+	// the assertion matches the PHP-side behavior — see PHPUnit
+	// `test_render_complete_step_renders_publish_cta`.
+	await expect( publishCta ).toContainText( 'Publish your first Post' );
 	await expect( publishCta ).toHaveAttribute( 'href', /post-new\.php$/ );
 } );
 

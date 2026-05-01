@@ -548,11 +548,19 @@ class Onboarding_Wizard {
 	 * @return array{url: string, label: string}
 	 */
 	private static function resolve_publish_cta( array $post_types ): array {
+		// Require `public` so the CTA can't deep-link an internal type
+		// (revisions, nav menu items, etc.) — federation is meaningless
+		// there and the editor wouldn't be reachable anyway. Matches the
+		// constraint the wizard's content step applies when saving.
 		$valid_types = array_values(
 			array_filter(
 				$post_types,
 				static function ( $type ) {
-					return is_string( $type ) && post_type_exists( $type );
+					if ( ! is_string( $type ) ) {
+						return false;
+					}
+					$obj = get_post_type_object( $type );
+					return $obj && ! empty( $obj->public );
 				}
 			)
 		);
