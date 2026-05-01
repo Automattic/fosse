@@ -8,6 +8,8 @@
 # reports the attribute — matters for any tool that queries attrs per
 # file rather than walking the tree like git-archive does).
 
+/.claude               export-ignore
+/.claude/**            export-ignore
 /.github               export-ignore
 /.github/**            export-ignore
 /.gitattributes        export-ignore
