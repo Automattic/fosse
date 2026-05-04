@@ -312,7 +312,12 @@ class Onboarding_Wizard {
 			}
 
 			update_option( 'activitypub_support_post_types', $post_types );
-			self::redirect_to_step( 'bluesky' );
+			if ( self::destination_includes_bluesky() ) {
+				self::redirect_to_step( 'bluesky' );
+			}
+
+			self::mark_complete();
+			self::redirect_to_step( 'complete' );
 		}
 		// phpcs:enable WordPress.Security.NonceVerification.Missing
 
@@ -1359,12 +1364,17 @@ class Onboarding_Wizard {
 		// otherwise render the success screen without ever marking the wizard
 		// complete via handle_complete(), leaving the Setup notice nagging.
 		if ( ! self::is_complete() ) {
-			self::redirect_to_step( 'welcome' );
+			self::redirect_to_step( 'destinations' );
 		}
 
-		$actor_mode = get_option( 'activitypub_actor_mode', 'actor' );
-		$post_types = get_option( 'activitypub_support_post_types', array( 'post' ) );
-		$bluesky    = self::get_bluesky_status();
+		self::render_progress( 'complete' );
+
+		$actor_mode        = get_option( 'activitypub_actor_mode', 'actor' );
+		$post_types        = get_option( 'activitypub_support_post_types', array( 'post' ) );
+		$bluesky           = self::get_bluesky_status();
+		$destination       = self::get_destination();
+		$includes_bluesky  = self::DESTINATION_FEDIVERSE_BLUESKY === $destination;
+		$destination_label = self::get_destination_label( $destination );
 
 		$handles     = self::get_handle_previews( $actor_mode );
 		$user_handle = $handles['user'] ?? '';
@@ -1379,8 +1389,11 @@ class Onboarding_Wizard {
 			$post_types
 		);
 
-		$bluesky_summary = $bluesky['available'] ? __( 'Not connected', 'fosse' ) : __( 'Unavailable', 'fosse' );
-		if ( $bluesky['connected'] ) {
+		$bluesky_summary = $includes_bluesky ? __( 'Not connected', 'fosse' ) : __( 'Skipped', 'fosse' );
+		if ( ! $bluesky['available'] && $includes_bluesky ) {
+			$bluesky_summary = __( 'Unavailable', 'fosse' );
+		}
+		if ( $includes_bluesky && $bluesky['connected'] ) {
 			$bluesky_summary = $bluesky['handle']
 				? sprintf(
 					/* translators: %s: Bluesky handle. */
@@ -1397,12 +1410,16 @@ class Onboarding_Wizard {
 			</div>
 			<h1 class="fosse-wizard__title"><?php esc_html_e( 'You\'re all set!', 'fosse' ); ?></h1>
 			<p class="fosse-wizard__description">
-				<?php esc_html_e( 'Your site is now part of the social web. People can find and follow you from Mastodon and other compatible apps.', 'fosse' ); ?>
+				<?php esc_html_e( 'Review your setup, then publish from WordPress when you are ready.', 'fosse' ); ?>
 			</p>
 		</div>
 
 		<div class="fosse-wizard__card">
 			<table class="fosse-summary">
+				<tr>
+					<td class="fosse-summary__label"><?php esc_html_e( 'Destinations', 'fosse' ); ?></td>
+					<td class="fosse-summary__value"><?php echo esc_html( $destination_label ); ?></td>
+				</tr>
 				<tr>
 					<td class="fosse-summary__label"><?php esc_html_e( 'Site appears as', 'fosse' ); ?></td>
 					<td class="fosse-summary__value">
@@ -1423,7 +1440,7 @@ class Onboarding_Wizard {
 				</tr>
 				<tr>
 					<td class="fosse-summary__label"><?php esc_html_e( 'Bluesky', 'fosse' ); ?></td>
-					<td class="fosse-summary__value<?php echo $bluesky['connected'] ? '' : ' fosse-summary__value--muted'; ?>"><?php echo esc_html( $bluesky_summary ); ?></td>
+					<td class="fosse-summary__value<?php echo $includes_bluesky && $bluesky['connected'] ? '' : ' fosse-summary__value--muted'; ?>"><?php echo esc_html( $bluesky_summary ); ?></td>
 				</tr>
 			</table>
 
@@ -1442,7 +1459,13 @@ class Onboarding_Wizard {
 		</div>
 
 		<p class="fosse-wizard__cta-help">
-			<?php esc_html_e( 'Your post will reach followers across the social web — Mastodon, other ActivityPub apps, and Bluesky if connected.', 'fosse' ); ?>
+			<?php
+			echo esc_html(
+				$includes_bluesky
+					? __( 'Your post will reach followers across Mastodon-compatible apps and Bluesky if connected.', 'fosse' )
+					: __( 'Your post will reach followers across Mastodon-compatible apps.', 'fosse' )
+			);
+			?>
 		</p>
 
 		<div class="fosse-wizard__actions fosse-wizard__actions--center fosse-wizard__actions--secondary">

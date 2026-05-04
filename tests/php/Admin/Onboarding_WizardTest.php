@@ -295,6 +295,34 @@ class Onboarding_WizardTest extends BaseTestCase {
 		$this->assertTrue( Onboarding_Wizard::is_complete() );
 	}
 
+	/**
+	 * Saving content on the fediverse-only path completes the wizard and skips Bluesky.
+	 */
+	public function test_handle_save_content_fediverse_only_redirects_to_complete(): void {
+		update_option( Onboarding_Wizard::DESTINATION_OPTION, 'fediverse_only' );
+
+		$captured = null;
+		$this->simulate_save_request( 'content', array( 'activitypub_support_post_types' => array( 'post' ) ) );
+		add_filter(
+			'wp_redirect',
+			static function ( $location ) use ( &$captured ) {
+				$captured = (string) $location;
+				throw new RedirectFired( 'redirect' );
+			},
+			9
+		);
+
+		try {
+			Onboarding_Wizard::handle_save();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$this->assertTrue( Onboarding_Wizard::is_complete() );
+		$this->assertStringContainsString( 'step=complete', (string) $captured );
+		$this->assertStringNotContainsString( 'step=bluesky', (string) $captured );
+	}
+
 	// --- handle_reset ---
 
 	/**
@@ -311,6 +339,23 @@ class Onboarding_WizardTest extends BaseTestCase {
 		}
 
 		$this->assertFalse( Onboarding_Wizard::is_complete() );
+	}
+
+	/**
+	 * Reset clears destination intent along with completion state.
+	 */
+	public function test_handle_reset_clears_destination_intent(): void {
+		Onboarding_Wizard::mark_complete();
+		update_option( Onboarding_Wizard::DESTINATION_OPTION, 'fediverse_only' );
+		$this->simulate_reset_request();
+
+		try {
+			Onboarding_Wizard::handle_reset();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$this->assertFalse( get_option( Onboarding_Wizard::DESTINATION_OPTION ) );
 	}
 
 	// --- empty post types redirect ---
@@ -961,6 +1006,20 @@ class Onboarding_WizardTest extends BaseTestCase {
 	}
 
 	/**
+	 * The Review summary includes the selected destination and skipped Bluesky state.
+	 */
+	public function test_complete_summary_shows_fediverse_only_destination_and_skipped_bluesky(): void {
+		Onboarding_Wizard::mark_complete();
+		update_option( Onboarding_Wizard::DESTINATION_OPTION, 'fediverse_only' );
+
+		$output = $this->render_wizard_step( 'complete' );
+
+		$this->assertStringContainsString( 'Destinations', $output );
+		$this->assertStringContainsString( 'Fediverse only', $output );
+		$this->assertStringContainsString( 'Skipped', $output );
+	}
+
+	/**
 	 * In `actor_blog` mode, the completion screen shows both the user and
 	 * site fediverse handles instead of dropping them in favor of a bare
 	 * mode label. Stub `activitypub_user_can_activitypub` because WorDBless
@@ -1179,21 +1238,17 @@ class Onboarding_WizardTest extends BaseTestCase {
 	}
 
 	/**
-	 * The publish CTA's helper paragraph talks about "the social web" — the
-	 * project's settled language for the destination network. Asserts against
-	 * the dedicated `fosse-wizard__cta-help` block so the test fails if the
-	 * helper copy is removed (the welcome-step body uses "social web" too,
-	 * which would otherwise mask a regression).
+	 * The publish CTA's helper paragraph reflects the selected destinations.
 	 */
-	public function test_render_complete_step_cta_uses_social_web_language(): void {
+	public function test_render_complete_step_cta_uses_destination_specific_language(): void {
 		Onboarding_Wizard::mark_complete();
 
 		$output = $this->render_wizard_step( 'complete' );
 
 		$this->assertMatchesRegularExpression(
-			'~<p[^>]*class="[^"]*fosse-wizard__cta-help[^"]*"[^>]*>[^<]*social web~i',
+			'~<p[^>]*class="[^"]*fosse-wizard__cta-help[^"]*"[^>]*>[^<]*Mastodon-compatible apps and Bluesky~i',
 			$output,
-			'The publish CTA helper copy must reference "the social web".'
+			'The publish CTA helper copy must describe the selected destinations.'
 		);
 	}
 
