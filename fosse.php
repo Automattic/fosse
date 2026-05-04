@@ -23,6 +23,21 @@ if ( file_exists( __DIR__ . '/vendor/autoload_packages.php' ) ) {
 }
 
 /*
+ * wp.com Simple load contract.
+ *
+ * On wp.com Simple, FOSSE is included by `wp-content/mu-plugins/fosse-loader.php`
+ * at `plugins_loaded` priority 8 — one tick before the platform's
+ * `wpcom-activitypub-load.php` (priority 9). Bundled ActivityPub defines
+ * `ACTIVITYPUB_PLUGIN_DIR` during its own boot, which trips the
+ * `wpcom_activitypub_is_loaded()` early-bail and suppresses the platform AP load.
+ *
+ * The skip-when-standalone checks below (`ACTIVITYPUB_PLUGIN_VERSION` /
+ * `ATMOSPHERE_VERSION`) MUST stay intact: if the wp.com loader ever defined
+ * those constants itself, FOSSE would silently skip its own bundle and the
+ * rollout would no-op. See DOTCOM-16981.
+ */
+
+/*
  * Bundled federation backends.
  *
  * FOSSE ships release-build copies of wordpress-activitypub and
