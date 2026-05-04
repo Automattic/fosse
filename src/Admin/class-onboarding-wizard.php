@@ -832,15 +832,15 @@ class Onboarding_Wizard {
 				'desc'  => __( 'Let people follow your site from Mastodon-compatible apps and publish eligible posts to Bluesky.', 'fosse' ),
 			),
 			self::DESTINATION_FEDIVERSE_ONLY    => array(
-				'badge' => __( 'Later', 'fosse' ),
+				'badge' => __( 'Simple setup', 'fosse' ),
 				'title' => __( 'Fediverse only', 'fosse' ),
-				'desc'  => __( 'Set up social web following now. Connect Bluesky later from FOSSE Settings.', 'fosse' ),
+				'desc'  => __( 'Let people follow your site from Mastodon-compatible apps without setting up Bluesky in this wizard.', 'fosse' ),
 			),
 		);
 		?>
 		<h1 class="fosse-wizard__title"><?php esc_html_e( 'Where should your WordPress posts appear?', 'fosse' ); ?></h1>
 		<p class="fosse-wizard__description">
-			<?php esc_html_e( 'Choose the destinations FOSSE should help you set up. You can change this later from FOSSE Settings.', 'fosse' ); ?>
+			<?php esc_html_e( 'Choose where FOSSE should share your posts. You can change this later in FOSSE Settings.', 'fosse' ); ?>
 		</p>
 
 		<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
@@ -1285,7 +1285,7 @@ class Onboarding_Wizard {
 
 					<div class="fosse-bluesky-form">
 						<label for="fosse-bsky-handle" class="fosse-bluesky-form__label">
-							<?php esc_html_e( 'Bluesky Handle', 'fosse' ); ?>
+							<?php esc_html_e( 'Bluesky or AT Protocol handle', 'fosse' ); ?>
 						</label>
 						<div class="fosse-bluesky-form__controls">
 							<input
@@ -1294,8 +1294,12 @@ class Onboarding_Wizard {
 								name="bluesky_handle"
 								class="regular-text"
 								placeholder="<?php esc_attr_e( 'yourname.bsky.social', 'fosse' ); ?>"
+								aria-describedby="fosse-bsky-handle-description"
 							/>
 						</div>
+						<p id="fosse-bsky-handle-description" class="description">
+							<?php esc_html_e( 'Use your Bluesky handle, or a custom domain handle if you have one.', 'fosse' ); ?>
+						</p>
 					</div>
 				</form>
 
@@ -1304,23 +1308,10 @@ class Onboarding_Wizard {
 						<?php
 						echo wp_kses_post(
 							sprintf(
-								/* translators: 1: opening anchor tag, 2: closing anchor tag */
-								__( 'Need a Bluesky account? %1$sCreate one at bsky.app%2$s, then come back to finish connecting.', 'fosse' ),
+								/* translators: 1: opening Bluesky signup anchor tag, 2: closing anchor tag, 3: opening domain-handle help anchor tag, 4: closing anchor tag. */
+								__( 'Need help getting started? %1$sCreate a Bluesky account%2$s, or %3$slearn how to use your domain as your handle%4$s.', 'fosse' ),
 								'<a href="' . esc_url( 'https://bsky.app/' ) . '" target="_blank" rel="noopener noreferrer" class="fosse-bluesky-signup__link">',
-								'</a>'
-							)
-						);
-						?>
-					</p>
-				</div>
-
-				<div class="fosse-wizard__hint">
-					<p>
-						<?php
-						echo wp_kses_post(
-							sprintf(
-								/* translators: 1: opening anchor tag, 2: closing anchor tag */
-								__( 'Want your domain as your handle? %1$sLearn how%2$s.', 'fosse' ),
+								'</a>',
 								'<a href="' . esc_url( 'https://bsky.social/about/blog/4-28-2023-domain-handle-tutorial' ) . '" target="_blank" rel="noopener noreferrer">',
 								'</a>'
 							)

@@ -441,10 +441,14 @@ class Onboarding_WizardTest extends BaseTestCase {
 		$output = $this->render_wizard_step( '' );
 
 		$this->assertStringContainsString( 'Where should your WordPress posts appear?', $output );
+		$this->assertStringContainsString( 'Choose where FOSSE should share your posts. You can change this later in FOSSE Settings.', $output );
 		$this->assertStringContainsString( 'Fediverse + Bluesky', $output );
 		$this->assertStringContainsString( 'Fediverse only', $output );
+		$this->assertStringContainsString( 'Simple setup', $output );
+		$this->assertStringContainsString( 'Let people follow your site from Mastodon-compatible apps without setting up Bluesky in this wizard.', $output );
 		$this->assertStringContainsString( 'name="fosse_onboarding_destination"', $output );
 		$this->assertStringNotContainsString( 'Welcome to FOSSE', $output );
+		$this->assertStringNotContainsString( '>Later<', $output );
 	}
 
 	/**
@@ -794,8 +798,11 @@ class Onboarding_WizardTest extends BaseTestCase {
 		$this->assertStringContainsString( 'Connect Bluesky', $output );
 		$this->assertStringContainsString( 'Skip Bluesky for now', $output );
 		$this->assertStringContainsString( 'fosse-bluesky-form', $output );
+		$this->assertStringContainsString( 'Bluesky or AT Protocol handle', $output );
+		$this->assertStringContainsString( 'Use your Bluesky handle, or a custom domain handle if you have one.', $output );
 		$this->assertStringNotContainsString( 'fosse-bluesky-placeholder', $output );
 		$this->assertStringNotContainsString( 'Coming Soon', $output );
+		$this->assertStringNotContainsString( 'Bluesky Handle', $output );
 		$this->assertMatchesRegularExpression( '/<input\b(?=[^>]*\bid="fosse-bsky-handle")(?=[^>]*\bname="bluesky_handle")[^>]*>/i', $output );
 		$this->assertDoesNotMatchRegularExpression( '/<input\b(?=[^>]*\bid="fosse-bsky-handle")[^>]*\bdisabled\b/i', $output );
 	}
@@ -1087,15 +1094,19 @@ class Onboarding_WizardTest extends BaseTestCase {
 	// --- Bluesky signup help (#58) ---
 
 	/**
-	 * The disconnected Bluesky step links out to bsky.app so users without
-	 * an account can sign up before connecting.
+	 * The disconnected Bluesky step combines secondary Bluesky help into one callout.
 	 */
 	public function test_render_bluesky_step_disconnected_shows_signup_link(): void {
 		$output = $this->render_wizard_step( 'bluesky' );
 
 		$this->assertStringContainsString( 'fosse-bluesky-signup', $output );
+		$this->assertSame( 1, substr_count( $output, 'fosse-wizard__hint fosse-bluesky-signup' ) );
 		$this->assertStringContainsString( 'https://bsky.app/', $output );
-		$this->assertStringContainsString( 'Need a Bluesky account', $output );
+		$this->assertStringContainsString( 'https://bsky.social/about/blog/4-28-2023-domain-handle-tutorial', $output );
+		$this->assertStringContainsString( 'Need help getting started?', $output );
+		$this->assertStringContainsString( 'Create a Bluesky account', $output );
+		$this->assertStringContainsString( 'learn how to use your domain as your handle', $output );
+		$this->assertStringNotContainsString( 'Want your domain as your handle?', $output );
 	}
 
 	/**
