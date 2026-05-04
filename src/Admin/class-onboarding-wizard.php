@@ -763,7 +763,7 @@ class Onboarding_Wizard {
 	 * @return void
 	 */
 	private static function render_progress( string $current_step ): void {
-		$labels = array(
+		$labels    = array(
 			'destinations' => __( 'Destinations', 'fosse' ),
 			'appearance'   => __( 'Identity', 'fosse' ),
 			'content'      => __( 'Content', 'fosse' ),
@@ -831,7 +831,7 @@ class Onboarding_Wizard {
 				'title' => __( 'Fediverse + Bluesky', 'fosse' ),
 				'desc'  => __( 'Let people follow your site from Mastodon-compatible apps and publish eligible posts to Bluesky.', 'fosse' ),
 			),
-			self::DESTINATION_FEDIVERSE_ONLY => array(
+			self::DESTINATION_FEDIVERSE_ONLY    => array(
 				'badge' => __( 'Later', 'fosse' ),
 				'title' => __( 'Fediverse only', 'fosse' ),
 				'desc'  => __( 'Set up social web following now. Connect Bluesky later from FOSSE Settings.', 'fosse' ),
