@@ -858,29 +858,45 @@ class Onboarding_Wizard {
 			<input type="hidden" name="_wpnonce" value="<?php echo esc_attr( $nonce ); ?>" />
 
 			<div class="fosse-wizard__card">
-				<div class="fosse-mode-cards">
-					<?php foreach ( $modes as $value => $mode ) : ?>
-						<label class="fosse-mode-card">
-							<input
-								type="radio"
-								name="activitypub_actor_mode"
-								value="<?php echo esc_attr( $value ); ?>"
-								class="fosse-mode-card__input"
-								<?php checked( $value, $current_mode ); ?>
-							/>
-							<div class="fosse-mode-card__icon">
-								<span class="dashicons <?php echo esc_attr( $mode['icon'] ); ?>"></span>
-							</div>
-							<div class="fosse-mode-card__content">
-								<div class="fosse-mode-card__title"><?php echo esc_html( $mode['title'] ); ?></div>
-								<div class="fosse-mode-card__desc"><?php echo wp_kses( $mode['desc'], array( 'strong' => array() ) ); ?></div>
-							</div>
-							<div class="fosse-mode-card__check">
-								<span class="dashicons dashicons-yes-alt"></span>
-							</div>
-						</label>
-					<?php endforeach; ?>
-				</div>
+				<?php if ( Actor_Mode_Lock::is_locked() ) : ?>
+					<?php $forced_mode = Actor_Mode_Lock::forced_mode(); ?>
+					<div class="fosse-wizard__locked-mode">
+						<p>
+							<strong><?php echo esc_html( $modes[ $forced_mode ]['title'] ); ?></strong>
+						</p>
+						<p class="description">
+							<?php echo wp_kses( $modes[ $forced_mode ]['desc'], array( 'strong' => array() ) ); ?>
+						</p>
+						<p class="description">
+							<?php echo esc_html( Actor_Mode_Lock::locked_notice() ); ?>
+						</p>
+					</div>
+					<input type="hidden" name="activitypub_actor_mode" value="<?php echo esc_attr( $forced_mode ); ?>" />
+				<?php else : ?>
+					<div class="fosse-mode-cards">
+						<?php foreach ( $modes as $value => $mode ) : ?>
+							<label class="fosse-mode-card">
+								<input
+									type="radio"
+									name="activitypub_actor_mode"
+									value="<?php echo esc_attr( $value ); ?>"
+									class="fosse-mode-card__input"
+									<?php checked( $value, $current_mode ); ?>
+								/>
+								<div class="fosse-mode-card__icon">
+									<span class="dashicons <?php echo esc_attr( $mode['icon'] ); ?>"></span>
+								</div>
+								<div class="fosse-mode-card__content">
+									<div class="fosse-mode-card__title"><?php echo esc_html( $mode['title'] ); ?></div>
+									<div class="fosse-mode-card__desc"><?php echo wp_kses( $mode['desc'], array( 'strong' => array() ) ); ?></div>
+								</div>
+								<div class="fosse-mode-card__check">
+									<span class="dashicons dashicons-yes-alt"></span>
+								</div>
+							</label>
+						<?php endforeach; ?>
+					</div>
+				<?php endif; ?>
 
 				<?php
 				// Render preview containers for every mode that has content

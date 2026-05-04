@@ -79,72 +79,88 @@ defined( 'ABSPATH' ) || exit;
 						<tr>
 							<th scope="row"><?php esc_html_e( 'Actor Mode', 'fosse' ); ?></th>
 							<td>
-								<fieldset>
-									<legend class="screen-reader-text"><?php esc_html_e( 'Actor Mode', 'fosse' ); ?></legend>
-									<label>
-										<input
-											type="radio"
-											id="fosse-activitypub-actor-mode-actor"
-											name="activitypub_actor_mode"
-											value="actor"
-											aria-describedby="fosse-activitypub-actor-mode-actor-desc fosse-activitypub-actor-mode-note"
-											<?php checked( 'actor', $actor_mode ); ?>
-										/>
-										<?php esc_html_e( 'Author profiles', 'fosse' ); ?>
-									</label>
-									<p id="fosse-activitypub-actor-mode-actor-desc" class="description">
-										<?php esc_html_e( 'Each WordPress author publishes from their own fediverse profile. People follow individual authors, and posts appear under each author\'s name.', 'fosse' ); ?>
+								<?php if ( \Automattic\Fosse\Admin\Actor_Mode_Lock::is_locked() ) : ?>
+									<?php
+									$forced_mode  = \Automattic\Fosse\Admin\Actor_Mode_Lock::forced_mode();
+									$forced_label = 'blog' === $forced_mode
+										? __( 'Blog profile', 'fosse' )
+										: __( 'Author profiles', 'fosse' );
+									?>
+									<p>
+										<strong><?php echo esc_html( $forced_label ); ?></strong>
 									</p>
-									<label>
-										<input
-											type="radio"
-											id="fosse-activitypub-actor-mode-blog"
-											name="activitypub_actor_mode"
-											value="blog"
-											aria-describedby="fosse-activitypub-actor-mode-blog-desc fosse-activitypub-actor-mode-note"
-											<?php checked( 'blog', $actor_mode ); ?>
-										/>
-										<?php esc_html_e( 'Blog profile', 'fosse' ); ?>
-									</label>
-									<p id="fosse-activitypub-actor-mode-blog-desc" class="description">
-										<?php esc_html_e( 'One site-wide profile publishes every post, regardless of author. Use this when people should follow the site as one account.', 'fosse' ); ?>
+									<p class="description">
+										<?php echo esc_html( \Automattic\Fosse\Admin\Actor_Mode_Lock::locked_notice() ); ?>
 									</p>
-									<label>
-										<input
-											type="radio"
-											id="fosse-activitypub-actor-mode-actor-blog"
-											name="activitypub_actor_mode"
-											value="actor_blog"
-											aria-describedby="fosse-activitypub-actor-mode-actor-blog-desc fosse-activitypub-actor-mode-note"
-											<?php checked( 'actor_blog', $actor_mode ); ?>
-										/>
-										<?php esc_html_e( 'Both', 'fosse' ); ?>
-									</label>
-									<p id="fosse-activitypub-actor-mode-actor-blog-desc" class="description">
-										<?php esc_html_e( 'Authors keep individual profiles, and the site also has its own blog profile. People can follow either.', 'fosse' ); ?>
-									</p>
-									<div class="fosse-activitypub-actor-mode-note">
-										<p id="fosse-activitypub-actor-mode-note" class="description">
-											<?php esc_html_e( 'Changing modes does not move followers between profiles. Future posts publish from the profiles enabled by the selected mode.', 'fosse' ); ?>
+									<input type="hidden" name="activitypub_actor_mode" value="<?php echo esc_attr( $forced_mode ); ?>" />
+								<?php else : ?>
+									<fieldset>
+										<legend class="screen-reader-text"><?php esc_html_e( 'Actor Mode', 'fosse' ); ?></legend>
+										<label>
+											<input
+												type="radio"
+												id="fosse-activitypub-actor-mode-actor"
+												name="activitypub_actor_mode"
+												value="actor"
+												aria-describedby="fosse-activitypub-actor-mode-actor-desc fosse-activitypub-actor-mode-note"
+												<?php checked( 'actor', $actor_mode ); ?>
+											/>
+											<?php esc_html_e( 'Author profiles', 'fosse' ); ?>
+										</label>
+										<p id="fosse-activitypub-actor-mode-actor-desc" class="description">
+											<?php esc_html_e( 'Each WordPress author publishes from their own fediverse profile. People follow individual authors, and posts appear under each author\'s name.', 'fosse' ); ?>
 										</p>
-										<p class="description">
-											<?php
-											echo wp_kses(
-												sprintf(
-													/* translators: %s: anchor link reading "Blog profile settings" pointing to the ActivityPub blog profile tab. */
-													__( 'Configure the site-wide blog profile name, image, and description in %s.', 'fosse' ),
-													'<a href="' . esc_url( admin_url( 'options-general.php?page=activitypub&tab=blog-profile' ) ) . '">' . esc_html__( 'Blog profile settings', 'fosse' ) . '</a>'
-												),
-												array(
-													'a' => array(
-														'href' => array(),
+										<label>
+											<input
+												type="radio"
+												id="fosse-activitypub-actor-mode-blog"
+												name="activitypub_actor_mode"
+												value="blog"
+												aria-describedby="fosse-activitypub-actor-mode-blog-desc fosse-activitypub-actor-mode-note"
+												<?php checked( 'blog', $actor_mode ); ?>
+											/>
+											<?php esc_html_e( 'Blog profile', 'fosse' ); ?>
+										</label>
+										<p id="fosse-activitypub-actor-mode-blog-desc" class="description">
+											<?php esc_html_e( 'One site-wide profile publishes every post, regardless of author. Use this when people should follow the site as one account.', 'fosse' ); ?>
+										</p>
+										<label>
+											<input
+												type="radio"
+												id="fosse-activitypub-actor-mode-actor-blog"
+												name="activitypub_actor_mode"
+												value="actor_blog"
+												aria-describedby="fosse-activitypub-actor-mode-actor-blog-desc fosse-activitypub-actor-mode-note"
+												<?php checked( 'actor_blog', $actor_mode ); ?>
+											/>
+											<?php esc_html_e( 'Both', 'fosse' ); ?>
+										</label>
+										<p id="fosse-activitypub-actor-mode-actor-blog-desc" class="description">
+											<?php esc_html_e( 'Authors keep individual profiles, and the site also has its own blog profile. People can follow either.', 'fosse' ); ?>
+										</p>
+										<div class="fosse-activitypub-actor-mode-note">
+											<p id="fosse-activitypub-actor-mode-note" class="description">
+												<?php esc_html_e( 'Changing modes does not move followers between profiles. Future posts publish from the profiles enabled by the selected mode.', 'fosse' ); ?>
+											</p>
+											<p class="description">
+												<?php
+												echo wp_kses(
+													sprintf(
+														/* translators: %s: anchor link reading "Blog profile settings" pointing to the ActivityPub blog profile tab. */
+														__( 'Configure the site-wide blog profile name, image, and description in %s.', 'fosse' ),
+														'<a href="' . esc_url( admin_url( 'options-general.php?page=activitypub&tab=blog-profile' ) ) . '">' . esc_html__( 'Blog profile settings', 'fosse' ) . '</a>'
 													),
-												)
-											);
-											?>
-										</p>
-									</div>
-								</fieldset>
+													array(
+														'a' => array(
+															'href' => array(),
+														),
+													)
+												);
+												?>
+											</p>
+										</div>
+									</fieldset>
+								<?php endif; ?>
 							</td>
 						</tr>
 					<?php endif; ?>
