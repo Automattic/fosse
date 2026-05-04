@@ -116,6 +116,21 @@ add_action(
 );
 
 /*
+ * ActivityPub actor-mode lock enforcement.
+ *
+ * When the host defines `ACTIVITYPUB_SINGLE_USER_MODE`,
+ * `ACTIVITYPUB_DISABLE_USER`, or `ACTIVITYPUB_DISABLE_BLOG_USER`, any
+ * write to `activitypub_actor_mode` (admin form, REST `/wp/v2/settings`,
+ * or direct options.php POST) is coerced to the forced mode. Mirrors
+ * what bundled AP serves on read so the stored value can't drift out
+ * of sync with the runtime contract — and so removing the lock later
+ * never surfaces a stale value as the new active mode.
+ */
+if ( class_exists( \Automattic\Fosse\Admin\Actor_Mode_Lock::class ) ) {
+	\Automattic\Fosse\Admin\Actor_Mode_Lock::register_hooks();
+}
+
+/*
  * Cross-network object-type projector.
  *
  * Translates the single `fosse_object_type` option into per-network

@@ -85,7 +85,7 @@ defined( 'ABSPATH' ) || exit;
 									<?php if ( \Automattic\Fosse\Admin\Actor_Mode_Lock::is_locked() ) : ?>
 										<?php
 										$forced_mode  = \Automattic\Fosse\Admin\Actor_Mode_Lock::forced_mode();
-										$forced_label = 'blog' === $forced_mode
+										$forced_label = \Automattic\Fosse\Admin\Actor_Mode_Lock::MODE_BLOG === $forced_mode
 											? __( 'Blog profile', 'fosse' )
 											: __( 'Author profiles', 'fosse' );
 										?>

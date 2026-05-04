@@ -787,8 +787,15 @@ class Onboarding_Wizard {
 		self::render_progress( 'appearance' );
 
 		$current_mode = get_option( 'activitypub_actor_mode', 'actor' );
-		$site_host    = wp_parse_url( home_url(), PHP_URL_HOST );
-		$nonce        = wp_create_nonce( 'fosse_wizard' );
+		// When constants force a mode, drive every downstream rendering
+		// decision (preview visibility, blog handle visibility) off the
+		// forced mode so the locked label can't disagree with the rest
+		// of the step if the stored option ever drifts.
+		if ( Actor_Mode_Lock::is_locked() ) {
+			$current_mode = Actor_Mode_Lock::forced_mode();
+		}
+		$site_host = wp_parse_url( home_url(), PHP_URL_HOST );
+		$nonce     = wp_create_nonce( 'fosse_wizard' );
 
 		$modes = array(
 			'blog'       => array(
