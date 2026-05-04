@@ -758,13 +758,25 @@ class Onboarding_Wizard {
 	 * @return void
 	 */
 	private static function render_progress( string $current_step ): void {
-		$labels    = array(
-			'welcome'    => __( 'Welcome', 'fosse' ),
-			'appearance' => __( 'Appearance', 'fosse' ),
-			'content'    => __( 'Content', 'fosse' ),
-			'bluesky'    => __( 'Bluesky', 'fosse' ),
+		$labels = array(
+			'destinations' => __( 'Destinations', 'fosse' ),
+			'appearance'   => __( 'Identity', 'fosse' ),
+			'content'      => __( 'Content', 'fosse' ),
+			'bluesky'      => __( 'Bluesky', 'fosse' ),
+			'complete'     => __( 'Review', 'fosse' ),
 		);
 		$step_keys = array_keys( $labels );
+		if ( ! self::destination_includes_bluesky() ) {
+			$step_keys = array_values(
+				array_filter(
+					$step_keys,
+					static function ( string $step ): bool {
+						return 'bluesky' !== $step;
+					}
+				)
+			);
+		}
+
 		$current_i = array_search( $current_step, $step_keys, true );
 
 		if ( false === $current_i ) {
@@ -772,7 +784,7 @@ class Onboarding_Wizard {
 		}
 
 		?>
-		<div class="fosse-wizard__progress">
+		<ol class="fosse-wizard__progress" aria-label="<?php esc_attr_e( 'Setup progress', 'fosse' ); ?>">
 			<?php foreach ( $step_keys as $i => $key ) : ?>
 				<?php
 				$is_complete = $i < $current_i;
@@ -786,14 +798,14 @@ class Onboarding_Wizard {
 				}
 				?>
 				<?php if ( $i > 0 ) : ?>
-					<div class="fosse-wizard__progress-line<?php echo $is_complete ? ' is-complete' : ''; ?>"></div>
+					<li class="fosse-wizard__progress-line<?php echo $is_complete ? ' is-complete' : ''; ?>" aria-hidden="true"></li>
 				<?php endif; ?>
-				<div class="<?php echo esc_attr( $classes ); ?>">
-					<span class="fosse-wizard__progress-dot"></span>
+				<li class="<?php echo esc_attr( $classes ); ?>"<?php echo $is_active ? ' aria-current="step"' : ''; ?>>
+					<span class="fosse-wizard__progress-dot" aria-hidden="true"></span>
 					<?php echo esc_html( $labels[ $key ] ); ?>
-				</div>
+				</li>
 			<?php endforeach; ?>
-		</div>
+		</ol>
 		<?php
 	}
 
@@ -878,6 +890,16 @@ class Onboarding_Wizard {
 		$nonce        = wp_create_nonce( 'fosse_wizard' );
 
 		$modes = array(
+			'actor'      => array(
+				'icon'  => 'dashicons-admin-users',
+				'title' => __( 'As you', 'fosse' ),
+				'desc'  => sprintf(
+					/* translators: 1: opening <strong> tag, 2: closing </strong> tag */
+					__( 'People follow %1$syou%2$s personally. Posts appear under your author name. Best for personal sites.', 'fosse' ),
+					'<strong>',
+					'</strong>'
+				),
+			),
 			'blog'       => array(
 				'icon'  => 'dashicons-admin-site',
 				'title' => __( 'As your site', 'fosse' ),
@@ -890,16 +912,6 @@ class Onboarding_Wizard {
 						esc_html( $site_host )
 					)
 					: __( 'People follow your site. All posts appear from your site\'s name. Best for blogs and publications.', 'fosse' ),
-			),
-			'actor'      => array(
-				'icon'  => 'dashicons-admin-users',
-				'title' => __( 'As you', 'fosse' ),
-				'desc'  => sprintf(
-					/* translators: 1: opening <strong> tag, 2: closing </strong> tag */
-					__( 'People follow %1$syou%2$s personally. Posts appear under your author name. Best for personal sites.', 'fosse' ),
-					'<strong>',
-					'</strong>'
-				),
 			),
 			'actor_blog' => array(
 				'icon'  => 'dashicons-groups',
@@ -932,9 +944,9 @@ class Onboarding_Wizard {
 		}
 
 		?>
-		<h1 class="fosse-wizard__title"><?php esc_html_e( 'How should your site appear?', 'fosse' ); ?></h1>
+		<h1 class="fosse-wizard__title"><?php esc_html_e( 'Who should people follow?', 'fosse' ); ?></h1>
 		<p class="fosse-wizard__description">
-			<?php esc_html_e( 'Choose how people on the social web will see your site. This affects who they follow and how your posts appear in their feeds.', 'fosse' ); ?>
+			<?php esc_html_e( 'Choose the identity people follow from social apps. This affects who appears as the publisher when your selected content is shared.', 'fosse' ); ?>
 		</p>
 
 		<?php settings_errors( 'fosse' ); ?>
@@ -1043,7 +1055,7 @@ class Onboarding_Wizard {
 			</div>
 
 			<div class="fosse-wizard__actions">
-				<a href="<?php echo esc_url( admin_url( 'admin.php?page=fosse-wizard&step=welcome' ) ); ?>" class="button">
+				<a href="<?php echo esc_url( admin_url( 'admin.php?page=fosse-wizard&step=destinations' ) ); ?>" class="button">
 					&larr; <?php esc_html_e( 'Back', 'fosse' ); ?>
 				</a>
 				<div class="fosse-wizard__actions-primary">
@@ -1091,18 +1103,48 @@ class Onboarding_Wizard {
 
 			<div class="fosse-wizard__card">
 				<div class="fosse-post-types">
-					<?php foreach ( $all_post_types as $pt ) : ?>
-						<label class="fosse-post-type-item">
-							<input
-								type="checkbox"
-								name="activitypub_support_post_types[]"
-								value="<?php echo esc_attr( $pt->name ); ?>"
-								<?php checked( in_array( $pt->name, $post_types, true ) ); ?>
-							/>
-							<span class="fosse-post-type-item__label">
-								<?php echo esc_html( $pt->label ); ?>
-							</span>
-						</label>
+					<?php
+					$primary_order = array( 'post', 'page' );
+					$primary_types = array();
+					$other_types   = $all_post_types;
+					foreach ( $primary_order as $type_name ) {
+						if ( isset( $all_post_types[ $type_name ] ) ) {
+							$primary_types[ $type_name ] = $all_post_types[ $type_name ];
+							unset( $other_types[ $type_name ] );
+						}
+					}
+
+					$groups = array(
+						'primary' => array(
+							'label' => __( 'Common content types', 'fosse' ),
+							'types' => $primary_types,
+						),
+						'other'   => array(
+							'label' => __( 'Other content types', 'fosse' ),
+							'types' => $other_types,
+						),
+					);
+					foreach ( $groups as $group ) :
+						if ( empty( $group['types'] ) ) {
+							continue;
+						}
+						?>
+						<div class="fosse-post-types__group">
+							<div class="fosse-post-types__group-label"><?php echo esc_html( $group['label'] ); ?></div>
+							<?php foreach ( $group['types'] as $pt ) : ?>
+								<label class="fosse-post-type-item">
+									<input
+										type="checkbox"
+										name="activitypub_support_post_types[]"
+										value="<?php echo esc_attr( $pt->name ); ?>"
+										<?php checked( in_array( $pt->name, $post_types, true ) ); ?>
+									/>
+									<span class="fosse-post-type-item__label">
+										<?php echo esc_html( $pt->label ); ?>
+									</span>
+								</label>
+							<?php endforeach; ?>
+						</div>
 					<?php endforeach; ?>
 				</div>
 

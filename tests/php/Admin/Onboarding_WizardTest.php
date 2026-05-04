@@ -412,6 +412,34 @@ class Onboarding_WizardTest extends BaseTestCase {
 		$this->assertStringContainsString( 'Fediverse + Bluesky', $output );
 	}
 
+	/**
+	 * Progress reflects the destination-first flow and labels the final step Review.
+	 */
+	public function test_progress_uses_destination_first_labels(): void {
+		$output = $this->render_wizard_step( 'destinations' );
+
+		$this->assertStringContainsString( 'Destinations', $output );
+		$this->assertStringContainsString( 'Identity', $output );
+		$this->assertStringContainsString( 'Content', $output );
+		$this->assertStringContainsString( 'Bluesky', $output );
+		$this->assertStringContainsString( 'Review', $output );
+		$this->assertStringNotContainsString( '>Welcome<', $output );
+	}
+
+	/**
+	 * The identity step leads with the follow decision and default card first.
+	 */
+	public function test_identity_step_uses_follow_question_and_actor_first(): void {
+		$output = $this->render_wizard_step( 'appearance' );
+
+		$this->assertStringContainsString( 'Who should people follow?', $output );
+		$this->assertMatchesRegularExpression(
+			'/fosse-mode-card__title">As you<.*fosse-mode-card__title">As your site</s',
+			$output,
+			'The default author-profile option should render before the site-profile option.'
+		);
+	}
+
 	// --- Appearance step render ---
 
 	/**
