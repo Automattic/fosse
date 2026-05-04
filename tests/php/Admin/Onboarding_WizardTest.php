@@ -387,6 +387,31 @@ class Onboarding_WizardTest extends BaseTestCase {
 		$this->assertStringContainsString( 'ActivityPub', $output );
 	}
 
+	// --- Destinations step render ---
+
+	/**
+	 * The default wizard screen is the destination-selection step.
+	 */
+	public function test_render_default_step_shows_destination_cards(): void {
+		$output = $this->render_wizard_step( '' );
+
+		$this->assertStringContainsString( 'Where should your WordPress posts appear?', $output );
+		$this->assertStringContainsString( 'Fediverse + Bluesky', $output );
+		$this->assertStringContainsString( 'Fediverse only', $output );
+		$this->assertStringContainsString( 'name="fosse_onboarding_destination"', $output );
+		$this->assertStringNotContainsString( 'Welcome to FOSSE', $output );
+	}
+
+	/**
+	 * The legacy welcome slug resolves to the destination-selection step.
+	 */
+	public function test_render_legacy_welcome_step_shows_destination_cards(): void {
+		$output = $this->render_wizard_step( 'welcome' );
+
+		$this->assertStringContainsString( 'Where should your WordPress posts appear?', $output );
+		$this->assertStringContainsString( 'Fediverse + Bluesky', $output );
+	}
+
 	// --- Appearance step render ---
 
 	/**
@@ -1450,10 +1475,10 @@ class Onboarding_WizardTest extends BaseTestCase {
 		$this->become_admin();
 
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- test setup.
-		$_GET = array(
-			'page' => 'fosse-wizard',
-			'step' => $step,
-		);
+		$_GET = array( 'page' => 'fosse-wizard' );
+		if ( '' !== $step ) {
+			$_GET['step'] = $step;
+		}
 
 		ob_start();
 		try {

@@ -167,6 +167,9 @@ class Onboarding_Wizard {
 		$step = self::get_current_step();
 
 		switch ( $step ) {
+			case 'destinations':
+				self::render_step_destinations();
+				break;
 			case 'appearance':
 				self::render_step_appearance();
 				break;
@@ -180,7 +183,7 @@ class Onboarding_Wizard {
 				self::render_step_complete();
 				break;
 			default:
-				self::render_step_welcome();
+				self::render_step_destinations();
 				break;
 		}
 
@@ -795,69 +798,70 @@ class Onboarding_Wizard {
 	}
 
 	/**
-	 * Render Step 1: Welcome.
+	 * Render Step 1: Destinations.
 	 *
 	 * @return void
 	 */
-	private static function render_step_welcome(): void {
-		self::render_progress( 'welcome' );
+	private static function render_step_destinations(): void {
+		self::render_progress( 'destinations' );
+
+		$current_destination = self::get_destination();
+		$nonce               = wp_create_nonce( 'fosse_wizard' );
+
+		$destinations = array(
+			self::DESTINATION_FEDIVERSE_BLUESKY => array(
+				'badge' => __( 'Recommended', 'fosse' ),
+				'title' => __( 'Fediverse + Bluesky', 'fosse' ),
+				'desc'  => __( 'Let people follow your site from Mastodon-compatible apps and publish eligible posts to Bluesky.', 'fosse' ),
+			),
+			self::DESTINATION_FEDIVERSE_ONLY => array(
+				'badge' => __( 'Later', 'fosse' ),
+				'title' => __( 'Fediverse only', 'fosse' ),
+				'desc'  => __( 'Set up social web following now. Connect Bluesky later from FOSSE Settings.', 'fosse' ),
+			),
+		);
 		?>
-		<h1 class="fosse-wizard__title"><?php esc_html_e( 'Welcome to FOSSE 🦎', 'fosse' ); ?></h1>
+		<h1 class="fosse-wizard__title"><?php esc_html_e( 'Where should your WordPress posts appear?', 'fosse' ); ?></h1>
 		<p class="fosse-wizard__description">
-			<?php esc_html_e( 'FOSSE helps people follow your WordPress site from social apps that speak the open social web. Publish here, keep ownership here, and let followers read from their feeds.', 'fosse' ); ?>
+			<?php esc_html_e( 'Choose the destinations FOSSE should help you set up. You can change this later from FOSSE Settings.', 'fosse' ); ?>
 		</p>
 
-		<div class="fosse-wizard__card">
-			<div class="fosse-welcome-features">
-				<div class="fosse-welcome-feature">
-					<div class="fosse-welcome-feature__icon">
-						<span class="dashicons dashicons-admin-site-alt3"></span>
-					</div>
-					<div class="fosse-welcome-feature__text">
-						<strong><?php esc_html_e( 'Reach new audiences', 'fosse' ); ?></strong><br>
-						<?php esc_html_e( 'Followers can see your new posts from compatible social apps, while WordPress stays the source of truth.', 'fosse' ); ?>
-					</div>
-				</div>
-				<div class="fosse-welcome-feature">
-					<div class="fosse-welcome-feature__icon">
-						<span class="dashicons dashicons-admin-home"></span>
-					</div>
-					<div class="fosse-welcome-feature__text">
-						<strong><?php esc_html_e( 'Your site, your home', 'fosse' ); ?></strong><br>
-						<?php esc_html_e( 'Everything lives on your WordPress site. You own your content.', 'fosse' ); ?>
-					</div>
-				</div>
-				<div class="fosse-welcome-feature">
-					<div class="fosse-welcome-feature__icon">
-						<span class="dashicons dashicons-groups"></span>
-					</div>
-					<div class="fosse-welcome-feature__text">
-						<strong><?php esc_html_e( 'Get followers', 'fosse' ); ?></strong><br>
-						<?php esc_html_e( 'People follow you from their favorite app. No account needed on your site.', 'fosse' ); ?>
-					</div>
-				</div>
-				<div class="fosse-welcome-feature">
-					<div class="fosse-welcome-feature__icon">
-						<span class="dashicons dashicons-share"></span>
-					</div>
-					<div class="fosse-welcome-feature__text">
-						<strong><?php esc_html_e( 'Publish once', 'fosse' ); ?></strong><br>
-						<?php esc_html_e( 'Write in WordPress, reach everywhere. No copy-pasting between platforms.', 'fosse' ); ?>
-					</div>
-				</div>
-			</div>
-		</div>
+		<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+			<input type="hidden" name="action" value="fosse_wizard_save" />
+			<input type="hidden" name="fosse_wizard_step" value="destinations" />
+			<input type="hidden" name="_wpnonce" value="<?php echo esc_attr( $nonce ); ?>" />
 
-		<div class="fosse-wizard__actions fosse-wizard__actions--center">
-			<div class="fosse-wizard__actions-column">
-				<a href="<?php echo esc_url( admin_url( 'admin.php?page=fosse-wizard&step=appearance' ) ); ?>" class="button button-primary button-hero">
-					<?php esc_html_e( 'Get Started', 'fosse' ); ?>
-				</a>
-				<a href="<?php echo esc_url( self::get_skip_url() ); ?>" class="fosse-wizard__skip">
-					<?php esc_html_e( 'Skip setup', 'fosse' ); ?>
-				</a>
+			<div class="fosse-wizard__card">
+				<div class="fosse-destination-cards">
+					<?php foreach ( $destinations as $value => $destination ) : ?>
+						<label class="fosse-destination-card">
+							<input
+								type="radio"
+								name="fosse_onboarding_destination"
+								value="<?php echo esc_attr( $value ); ?>"
+								class="fosse-destination-card__input"
+								<?php checked( $value, $current_destination ); ?>
+							/>
+							<span class="fosse-destination-card__badge"><?php echo esc_html( $destination['badge'] ); ?></span>
+							<span class="fosse-destination-card__title"><?php echo esc_html( $destination['title'] ); ?></span>
+							<span class="fosse-destination-card__desc"><?php echo esc_html( $destination['desc'] ); ?></span>
+							<span class="fosse-destination-card__check">
+								<span class="dashicons dashicons-yes-alt"></span>
+							</span>
+						</label>
+					<?php endforeach; ?>
+				</div>
 			</div>
-		</div>
+
+			<div class="fosse-wizard__actions fosse-wizard__actions--center">
+				<div class="fosse-wizard__actions-column">
+					<?php submit_button( __( 'Continue', 'fosse' ), 'primary large', 'submit', false ); ?>
+					<a href="<?php echo esc_url( self::get_skip_url() ); ?>" class="fosse-wizard__skip">
+						<?php esc_html_e( 'Skip setup', 'fosse' ); ?>
+					</a>
+				</div>
+			</div>
+		</form>
 		<?php
 	}
 
