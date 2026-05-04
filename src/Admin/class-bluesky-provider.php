@@ -143,8 +143,8 @@ class Bluesky_Provider implements Connection_Provider {
 		}
 
 		?>
-		<div class="fosse-provider-section" id="fosse-provider-bluesky-settings">
-			<h2><?php esc_html_e( 'Bluesky', 'fosse' ); ?></h2>
+		<div class="fosse-settings-section" id="fosse-provider-bluesky-settings">
+			<h3><?php esc_html_e( 'Bluesky publishing', 'fosse' ); ?></h3>
 
 			<table class="form-table">
 				<tr>
@@ -189,8 +189,8 @@ class Bluesky_Provider implements Connection_Provider {
 	public function render_connection_actions(): void {
 		$status = $this->get_status();
 		?>
-		<div class="fosse-provider-section" id="fosse-provider-bluesky">
-			<h2><?php esc_html_e( 'Bluesky connection', 'fosse' ); ?></h2>
+		<div class="fosse-connection-section" id="fosse-provider-bluesky">
+			<h3><?php esc_html_e( 'Bluesky', 'fosse' ); ?></h3>
 
 			<?php settings_errors( 'atmosphere' ); ?>
 

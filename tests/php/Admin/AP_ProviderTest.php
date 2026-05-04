@@ -168,15 +168,18 @@ class AP_ProviderTest extends BaseTestCase {
 	}
 
 	/**
-	 * AP has no out-of-band connect/disconnect step, so its connection
-	 * actions output is empty.
+	 * ActivityPub has no OAuth flow, but the Settings page still shows why it
+	 * appears connected in the separate Connections group.
 	 */
-	public function test_render_connection_actions_is_empty() {
+	public function test_render_connection_actions_explains_automatic_connection(): void {
 		ob_start();
 		$this->provider->render_connection_actions();
 		$output = ob_get_clean();
 
-		$this->assertSame( '', trim( $output ) );
+		$this->assertStringContainsString( 'id="fosse-provider-activitypub-connection"', $output );
+		$this->assertStringContainsString( 'ActivityPub', $output );
+		$this->assertStringContainsString( 'Connected automatically', $output );
+		$this->assertStringNotContainsString( '<form', $output );
 	}
 
 	/**

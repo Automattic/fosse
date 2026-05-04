@@ -224,6 +224,8 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		$this->provider->render_setup_section();
 		$output = ob_get_clean();
 
+		$this->assertStringContainsString( 'class="fosse-settings-section"', $output );
+		$this->assertStringContainsString( '<h3>Bluesky publishing</h3>', $output );
 		$this->assertStringContainsString( 'name="atmosphere_auto_publish"', $output );
 		$this->assertStringContainsString( 'Auto-publish', $output );
 		$this->assertStringNotContainsString( '<form', $output );
@@ -297,6 +299,8 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		$output = ob_get_clean();
 
 		$this->assertStringContainsString( 'id="fosse-provider-bluesky"', $output );
+		$this->assertStringContainsString( 'class="fosse-connection-section"', $output );
+		$this->assertStringContainsString( '<h3>Bluesky</h3>', $output );
 	}
 
 	/**
