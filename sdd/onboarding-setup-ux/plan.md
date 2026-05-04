@@ -10,7 +10,7 @@ Based on: sdd/onboarding-setup-ux/spec.md
 - [x] Task 4: Open upstream Atmosphere PRs
 - [x] Task 5: Create Bluesky_Provider
 - [x] Task 5.5: Create first-run onboarding wizard
-- [ ] Task 5.6: Replace Bluesky wizard placeholder with live connect form
+- [x] Task 5.6: Replace Bluesky wizard placeholder with live connect form
 - [x] Task 6: Create Status_Page with provider status cards
 - [x] Task 7: Add admin CSS
 - [x] Task 8: Write tests
@@ -116,7 +116,7 @@ Based on: sdd/onboarding-setup-ux/spec.md
 - **Depends on**: Task 3
 
 ### Task 5.6: Replace Bluesky wizard placeholder with live connect form
-- **Status**: In progress
+- **Status**: ✅ Done (#47)
 - **Files**: `src/Admin/class-onboarding-wizard.php`, `src/Admin/class-bluesky-provider.php`, `src/Admin/assets/css/admin.css`, `tests/php/Admin/Onboarding_WizardTest.php`, `tests/php/Admin/Bluesky_ProviderTest.php`, `tests/e2e/onboarding-wizard.spec.ts`, `sdd/onboarding-setup-ux/spec.md`, `sdd/onboarding-setup-ux/planned-decisions.md`
 - **Do**:
   1. Have the wizard Bluesky step read Bluesky provider status through the provider registry, with a direct provider fallback for tests and early admin boot.

@@ -25,17 +25,17 @@ Decision context:
 
 ## Progress
 
-- [ ] Task 1 [UPSTREAM-AT]: Composition helpers + `atmosphere_long_form_composition` filter + Publisher thread redesign (one upstream PR, opens draft first)
-- [ ] Task 2 [FOSSE]: Refresh `bundled/atmosphere/` after Task 1 merges
-- [ ] Task 3 [FOSSE]: `Long_Form_Strategy` projector + `fosse_long_form_strategy` option
+- [x] Task 1 [UPSTREAM-AT]: Composition helpers + `atmosphere_long_form_composition` filter + Publisher thread redesign (one upstream PR, opens draft first)
+- [x] Task 2 [FOSSE]: Refresh `bundled/atmosphere/` after Task 1 merges
+- [x] Task 3 [FOSSE]: `Long_Form_Strategy` projector + `fosse_long_form_strategy` option
 - [ ] Task 4 [FOSSE]: Rewrite e2e capture helper as `pre_http_request` interceptor + teaser-thread Playwright spec
-- [ ] Task 5 [FOSSE]: Changelog + AGENTS.md note
+- [x] Task 5 [FOSSE]: Changelog + AGENTS.md note
 
 ## Tasks
 
 ### Task 1 [UPSTREAM-AT]: Composition helpers + `atmosphere_long_form_composition` filter + Publisher thread redesign
 
-- **Status**: Not started
+- **Status**: ✅ Done (Automattic/wordpress-atmosphere#34)
 - **Repo**: `Automattic/wordpress-atmosphere`
 - **Linear**: [DOTCOM-16810](https://linear.app/a8c/issue/DOTCOM-16810)
 - **Files**:
@@ -156,7 +156,7 @@ Decision context:
 
 ### Task 2 [FOSSE]: Refresh `bundled/atmosphere/` after Task 1 merges
 
-- **Status**: Not started
+- **Status**: ✅ Done (#76, #82)
 - **Repo**: `Automattic/fosse`
 - **Files**: [`bundled/atmosphere/**`](https://github.com/Automattic/fosse/tree/trunk/bundled/atmosphere)
 - **Do**:
@@ -182,7 +182,7 @@ Decision context:
 
 ### Task 3 [FOSSE]: `Long_Form_Strategy` projector + `fosse_long_form_strategy` option
 
-- **Status**: Not started
+- **Status**: ✅ Done (#29)
 - **Repo**: `Automattic/fosse`
 - **Linear**: [DOTCOM-16810](https://linear.app/a8c/issue/DOTCOM-16810)
 - **Files**:
@@ -276,7 +276,7 @@ Decision context:
 
 ### Task 5 [FOSSE]: Changelog + AGENTS.md note
 
-- **Status**: Not started
+- **Status**: ✅ Done (#28; FOSSE `readme.txt` step skipped because the repo has no `readme.txt`)
 - **Repo**: `Automattic/fosse`
 - **Files**:
   - `readme.txt` (upstream convention; FOSSE does not have a `CHANGELOG.md`).
