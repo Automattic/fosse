@@ -12,13 +12,13 @@
 
 ## Progress
 
-- [ ] Task 1: Add destination state and save routing
-- [ ] Task 2: Render the destination-card first step
-- [ ] Task 3: Update progress, identity copy, and content grouping
-- [ ] Task 4: Make the Bluesky step first-class in action hierarchy
-- [ ] Task 5: Update review summary and completion behavior
-- [ ] Task 6: Update Playwright coverage
-- [ ] Task 7: Final verification and SDD status cleanup
+- [x] Task 1: Add destination state and save routing
+- [x] Task 2: Render the destination-card first step
+- [x] Task 3: Update progress, identity copy, and content grouping
+- [x] Task 4: Make the Bluesky step first-class in action hierarchy
+- [x] Task 5: Update review summary and completion behavior
+- [x] Task 6: Update Playwright coverage
+- [x] Task 7: Final verification and SDD status cleanup
 
 ## File Structure
 
@@ -46,7 +46,7 @@
 
 ### Task 1: Add Destination State And Save Routing
 
-- **Status**: Not started
+- **Status**: ✅ Done (34bb461)
 
 **Files:**
 - Modify: `src/Admin/class-onboarding-wizard.php`
@@ -268,7 +268,7 @@ git commit -m "Wizard: add destination intent state"
 
 ### Task 2: Render The Destination-Card First Step
 
-- **Status**: Not started
+- **Status**: ✅ Done (a2a0957)
 
 **Files:**
 - Modify: `src/Admin/class-onboarding-wizard.php`
@@ -529,7 +529,7 @@ git commit -m "Wizard: add destination-card first step"
 
 ### Task 3: Update Progress, Identity Copy, And Content Grouping
 
-- **Status**: Not started
+- **Status**: ✅ Done (25b22f4)
 
 **Files:**
 - Modify: `src/Admin/class-onboarding-wizard.php`
@@ -803,7 +803,7 @@ git commit -m "Wizard: clarify progress identity and content steps"
 
 ### Task 4: Make The Bluesky Step First-Class In Action Hierarchy
 
-- **Status**: Not started
+- **Status**: ✅ Done (f52a7e3)
 
 **Files:**
 - Modify: `src/Admin/class-onboarding-wizard.php`
@@ -939,7 +939,7 @@ git commit -m "Wizard: make Bluesky connect the primary action"
 
 ### Task 5: Update Review Summary And Completion Behavior
 
-- **Status**: Not started
+- **Status**: ✅ Done (6af0508)
 
 **Files:**
 - Modify: `src/Admin/class-onboarding-wizard.php`
@@ -1132,7 +1132,7 @@ git commit -m "Wizard: summarize destination-first setup"
 
 ### Task 6: Update Playwright Coverage
 
-- **Status**: Not started
+- **Status**: ✅ Done (415bb17)
 
 **Files:**
 - Modify: `tests/e2e/onboarding-wizard.spec.ts`
@@ -1256,7 +1256,7 @@ git commit -m "Tests: update onboarding wizard e2e flow"
 
 ### Task 7: Final Verification And SDD Status Cleanup
 
-- **Status**: Not started
+- **Status**: ✅ Done (41e8e8e)
 
 **Files:**
 - Modify: `sdd/destination-first-onboarding-wizard/plan.md`
