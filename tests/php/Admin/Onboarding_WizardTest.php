@@ -8,6 +8,7 @@
 namespace Automattic\Fosse\Tests\Admin;
 
 use Atmosphere\OAuth\Encryption;
+use Automattic\Fosse\Admin\Actor_Mode_Lock;
 use Automattic\Fosse\Admin\AP_Provider;
 use Automattic\Fosse\Admin\Bluesky_Provider;
 use Automattic\Fosse\Admin\Connection_Provider;
@@ -16,6 +17,8 @@ use Automattic\Fosse\Admin\Onboarding_Wizard;
 use PHPUnit\Framework\Attributes\After;
 use PHPUnit\Framework\Attributes\Before;
 use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\Attributes\PreserveGlobalState;
+use PHPUnit\Framework\Attributes\RunInSeparateProcess;
 use ReflectionMethod;
 use WorDBless\BaseTestCase;
 
@@ -640,6 +643,32 @@ class Onboarding_WizardTest extends BaseTestCase {
 		$output = $this->render_wizard_step( 'appearance' );
 
 		$this->assertStringContainsString( 'Pretend collision message.', $output );
+	}
+
+	/**
+	 * When the actor mode is constant-locked, the appearance step
+	 * replaces the mode-picker cards with a hidden input + locked
+	 * notice. Regression guard against the locked branch ever being
+	 * deleted by accident or the hidden input being dropped.
+	 *
+	 * @runInSeparateProcess
+	 * @preserveGlobalState disabled
+	 */
+	#[RunInSeparateProcess]
+	#[PreserveGlobalState( false )]
+	public function test_render_appearance_locked_replaces_mode_cards_with_hidden_input(): void {
+		define( 'ACTIVITYPUB_SINGLE_USER_MODE', true );
+
+		$output = $this->render_wizard_step( 'appearance' );
+
+		$this->assertStringContainsString(
+			'<input type="hidden" name="activitypub_actor_mode" value="' . Actor_Mode_Lock::MODE_BLOG . '"',
+			$output
+		);
+		$this->assertStringNotContainsString( 'class="fosse-mode-cards"', $output );
+		$this->assertStringNotContainsString( 'class="fosse-mode-card__input"', $output );
+		$this->assertStringContainsString( 'defined through server configuration', $output );
+		$this->assertStringContainsString( 'fosse-wizard__locked-mode', $output );
 	}
 
 	// --- Bluesky step render ---

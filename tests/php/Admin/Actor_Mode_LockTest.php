@@ -156,59 +156,163 @@ class Actor_Mode_LockTest extends BaseTestCase {
 	}
 
 	/**
-	 * Wires the pre_update filter at default priority via register_hooks().
+	 * Wires both the pre_update filter and the admin_init repair action
+	 * via register_hooks().
 	 *
 	 * @runInSeparateProcess
 	 * @preserveGlobalState disabled
 	 */
 	#[RunInSeparateProcess]
 	#[PreserveGlobalState( false )]
-	public function test_register_hooks_wires_pre_update_filter(): void {
+	public function test_register_hooks_wires_filter_and_admin_init_action(): void {
 		Actor_Mode_Lock::register_hooks();
 
 		$this->assertNotFalse(
 			has_filter(
 				'pre_update_option_activitypub_actor_mode',
 				array( Actor_Mode_Lock::class, 'coerce_to_forced_mode' )
-			)
+			),
+			'pre_update filter should be wired'
+		);
+		$this->assertNotFalse(
+			has_action(
+				'admin_init',
+				array( Actor_Mode_Lock::class, 'repair_stored_value' )
+			),
+			'admin_init repair action should be wired'
 		);
 	}
 
 	/**
-	 * End-to-end: with the hook wired and a constant set, an
-	 * `update_option()` write of an arbitrary value is silently
-	 * coerced to the forced mode in the database. Closes the bypass
-	 * the UI hidden inputs alone could not.
+	 * Register-hooks is idempotent — repeated calls don't double-register.
 	 *
 	 * @runInSeparateProcess
 	 * @preserveGlobalState disabled
 	 */
 	#[RunInSeparateProcess]
 	#[PreserveGlobalState( false )]
-	public function test_register_hooks_blocks_tampered_update_when_locked(): void {
-		define( 'ACTIVITYPUB_SINGLE_USER_MODE', true );
+	public function test_register_hooks_is_idempotent(): void {
+		Actor_Mode_Lock::register_hooks();
+		Actor_Mode_Lock::register_hooks();
 		Actor_Mode_Lock::register_hooks();
 
-		update_option( 'activitypub_actor_mode', 'actor_blog' );
+		$this->assertSame( 10, has_filter( 'pre_update_option_activitypub_actor_mode', array( Actor_Mode_Lock::class, 'coerce_to_forced_mode' ) ) );
+		$this->assertSame( 10, has_action( 'admin_init', array( Actor_Mode_Lock::class, 'repair_stored_value' ) ) );
+	}
+
+	/**
+	 * Repair writes the forced mode when no value exists yet.
+	 *
+	 * @runInSeparateProcess
+	 * @preserveGlobalState disabled
+	 */
+	#[RunInSeparateProcess]
+	#[PreserveGlobalState( false )]
+	public function test_repair_writes_when_no_value_exists(): void {
+		define( 'ACTIVITYPUB_SINGLE_USER_MODE', true );
+
+		delete_option( 'activitypub_actor_mode' );
+
+		Actor_Mode_Lock::repair_stored_value();
 
 		$this->assertSame( Actor_Mode_Lock::MODE_BLOG, get_option( 'activitypub_actor_mode' ) );
 	}
 
 	/**
-	 * Pass-through end-to-end: with the hook wired but no lock, a
-	 * write proceeds untouched. Guards against a regression where
-	 * the filter accidentally coerces every install.
+	 * Repair rewrites a stored value that disagrees with the lock —
+	 * models the "value written before the lock activated" path.
 	 *
 	 * @runInSeparateProcess
 	 * @preserveGlobalState disabled
 	 */
 	#[RunInSeparateProcess]
 	#[PreserveGlobalState( false )]
-	public function test_register_hooks_passes_through_when_unlocked(): void {
-		Actor_Mode_Lock::register_hooks();
-
+	public function test_repair_updates_when_value_disagrees_with_lock(): void {
+		// Seed a value as if it was written before the lock shipped.
 		update_option( 'activitypub_actor_mode', 'actor_blog' );
 
+		define( 'ACTIVITYPUB_SINGLE_USER_MODE', true );
+
+		Actor_Mode_Lock::repair_stored_value();
+
+		$this->assertSame( Actor_Mode_Lock::MODE_BLOG, get_option( 'activitypub_actor_mode' ) );
+	}
+
+	/**
+	 * Repair leaves a correctly-aligned value untouched.
+	 *
+	 * @runInSeparateProcess
+	 * @preserveGlobalState disabled
+	 */
+	#[RunInSeparateProcess]
+	#[PreserveGlobalState( false )]
+	public function test_repair_no_ops_when_value_already_matches_lock(): void {
+		update_option( 'activitypub_actor_mode', 'blog' );
+
+		define( 'ACTIVITYPUB_SINGLE_USER_MODE', true );
+
+		Actor_Mode_Lock::repair_stored_value();
+
+		$this->assertSame( 'blog', get_option( 'activitypub_actor_mode' ) );
+	}
+
+	/**
+	 * Repair is a no-op on unlocked installs — a stored value disagreeing
+	 * with the default is left alone.
+	 *
+	 * @runInSeparateProcess
+	 * @preserveGlobalState disabled
+	 */
+	#[RunInSeparateProcess]
+	#[PreserveGlobalState( false )]
+	public function test_repair_no_ops_when_unlocked(): void {
+		update_option( 'activitypub_actor_mode', 'actor_blog' );
+
+		Actor_Mode_Lock::repair_stored_value();
+
 		$this->assertSame( 'actor_blog', get_option( 'activitypub_actor_mode' ) );
+	}
+
+	/**
+	 * Production-faithful regression: with bundled AP's actual
+	 * `Activitypub\Options::pre_option_activitypub_actor_mode` mask
+	 * registered, the masked `get_option` call inside `update_option`
+	 * makes old-value-via-mask equal to new-value-via-coerce, so the
+	 * naive write path short-circuits. The repair pass unhooks AP's
+	 * mask, sees the actual stored value, writes the forced value
+	 * through, and restores the mask. After repair, removing the mask
+	 * exposes the corrected raw value. Reproduces (and fixes) the
+	 * failure mode codex called out on round-2 review.
+	 *
+	 * @runInSeparateProcess
+	 * @preserveGlobalState disabled
+	 */
+	#[RunInSeparateProcess]
+	#[PreserveGlobalState( false )]
+	public function test_repair_fixes_value_under_active_pre_option_mask(): void {
+		// Seed a tampered value as if it landed before the lock shipped.
+		update_option( 'activitypub_actor_mode', 'actor_blog' );
+
+		define( 'ACTIVITYPUB_SINGLE_USER_MODE', true );
+
+		// Register bundled AP's actual pre_option mask so the test
+		// exercises the production code path (not an inline closure
+		// that the repair couldn't unhook).
+		$ap_mask = array( 'Activitypub\Options', 'pre_option_activitypub_actor_mode' );
+		add_filter( 'pre_option_activitypub_actor_mode', $ap_mask );
+
+		// With the mask active, get_option reports the forced mode
+		// regardless of what's stored — confirming the mask is in play.
+		$this->assertSame( 'blog', get_option( 'activitypub_actor_mode' ), 'mask should make get_option report blog' );
+
+		Actor_Mode_Lock::register_hooks();
+		Actor_Mode_Lock::repair_stored_value();
+
+		// Mask restored after repair — get_option still reports masked.
+		$this->assertSame( 'blog', get_option( 'activitypub_actor_mode' ) );
+
+		// Remove the mask to inspect the raw stored value.
+		remove_filter( 'pre_option_activitypub_actor_mode', $ap_mask );
+		$this->assertSame( Actor_Mode_Lock::MODE_BLOG, get_option( 'activitypub_actor_mode' ), 'repair should have rewritten the stored value to the forced mode' );
 	}
 }

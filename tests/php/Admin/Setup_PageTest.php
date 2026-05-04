@@ -8,12 +8,15 @@
 namespace Automattic\Fosse\Tests\Admin;
 
 use Atmosphere\OAuth\Encryption;
+use Automattic\Fosse\Admin\Actor_Mode_Lock;
 use Automattic\Fosse\Admin\AP_Provider;
 use Automattic\Fosse\Admin\Bluesky_Provider;
 use Automattic\Fosse\Admin\Connection_Provider_Registry;
 use Automattic\Fosse\Admin\Setup_Page;
 use PHPUnit\Framework\Attributes\After;
 use PHPUnit\Framework\Attributes\Before;
+use PHPUnit\Framework\Attributes\PreserveGlobalState;
+use PHPUnit\Framework\Attributes\RunInSeparateProcess;
 use WorDBless\BaseTestCase;
 
 /**
@@ -482,6 +485,40 @@ class Setup_PageTest extends BaseTestCase {
 		$this->assertStringContainsString( 'id="fosse-section-general"', $output );
 		$this->assertStringContainsString( 'name="activitypub_support_post_types[]"', $output );
 		$this->assertStringContainsString( 'name="activitypub_actor_mode"', $output );
+	}
+
+	/**
+	 * When the actor mode is constant-locked, the radios are replaced
+	 * by a hidden input + locked notice. Regression guard against the
+	 * locked branch ever being deleted by accident.
+	 *
+	 * @runInSeparateProcess
+	 * @preserveGlobalState disabled
+	 */
+	#[RunInSeparateProcess]
+	#[PreserveGlobalState( false )]
+	public function test_render_actor_mode_locked_replaces_radios_with_hidden_input(): void {
+		define( 'ACTIVITYPUB_SINGLE_USER_MODE', true );
+
+		$this->become_admin();
+
+		$output = $this->capture_render();
+
+		// Hidden input still posts the forced mode so saves stay aligned.
+		$this->assertStringContainsString(
+			'<input type="hidden" name="activitypub_actor_mode" value="' . Actor_Mode_Lock::MODE_BLOG . '"',
+			$output
+		);
+		// No interactive radio for actor mode in the locked branch.
+		$this->assertStringNotContainsString(
+			'id="fosse-activitypub-actor-mode-actor"',
+			$output
+		);
+		// The locked-state notice is surfaced to the user.
+		$this->assertStringContainsString(
+			'defined through server configuration',
+			$output
+		);
 	}
 
 	// --- helpers ----------------------------------------------------------
