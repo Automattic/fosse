@@ -34,19 +34,31 @@ test.describe( 'Bluesky provider UI', () => {
 
 		await page.goto( '/wp-admin/admin.php?page=fosse' );
 
-		// The Bluesky connection panel renders below the unified Settings
-		// form; the in-form `#fosse-provider-bluesky-settings` block is
-		// suppressed while disconnected (no auto-publish toggle to save).
-		const blueskyConnection = page.locator( '#fosse-provider-bluesky' );
+		const federationSettings = page.locator( '#fosse-federation-settings' );
+		const connections = page.locator( '#fosse-connections' );
+		const blueskyConnection = connections.locator(
+			'#fosse-provider-bluesky'
+		);
 
 		await expect(
-			page.getByRole( 'heading', { name: 'Bluesky connection' } )
+			federationSettings.getByRole( 'heading', {
+				name: 'Federation settings',
+			} )
 		).toBeVisible();
+		await expect(
+			federationSettings.getByRole( 'button', { name: 'Save settings' } )
+		).toBeVisible();
+		await expect(
+			connections.getByRole( 'heading', { name: 'Connections' } )
+		).toBeVisible();
+		await expect(
+			connections.locator( '#fosse-provider-activitypub-connection' )
+		).toContainText( 'Connected automatically' );
 		await expect(
 			blueskyConnection.locator( '#fosse_bluesky_handle' )
 		).toBeVisible();
 		await expect(
-			page.getByRole( 'button', { name: 'Connect Bluesky' } )
+			blueskyConnection.getByRole( 'button', { name: 'Connect Bluesky' } )
 		).toBeVisible();
 		await expect(
 			page.locator( '#fosse-provider-bluesky-settings' )
@@ -74,16 +86,19 @@ test.describe( 'Bluesky provider UI', () => {
 
 		await page.goto( '/wp-admin/admin.php?page=fosse' );
 
-		// The connection details (handle, DID, PDS, token health) live in
-		// the connection panel; the auto-publish checkbox lives in the
-		// in-form settings block — separate sections, separate IDs.
-		const blueskyConnection = page.locator( '#fosse-provider-bluesky' );
-		const blueskySettings = page.locator(
+		const federationSettings = page.locator( '#fosse-federation-settings' );
+		const connections = page.locator( '#fosse-connections' );
+		const blueskyConnection = connections.locator(
+			'#fosse-provider-bluesky'
+		);
+		const blueskySettings = federationSettings.locator(
 			'#fosse-provider-bluesky-settings'
 		);
 
 		await expect(
-			page.getByRole( 'button', { name: 'Disconnect Bluesky' } )
+			blueskyConnection.getByRole( 'button', {
+				name: 'Disconnect Bluesky',
+			} )
 		).toBeVisible();
 		await expect( blueskyConnection ).toContainText( 'alice.bsky.social' );
 		await expect( blueskyConnection ).toContainText( 'did:plc:alice123' );

@@ -102,7 +102,8 @@
 	background: #d63638;
 }
 
-/* Provider setup sections */
+/* Settings page panels */
+.fosse-settings-panel,
 .fosse-provider-section {
 	background: #fff;
 	border: 1px solid #c3c4c7;
@@ -111,8 +112,39 @@
 	margin: 16px 0;
 }
 
+.fosse-settings-panel h2,
 .fosse-provider-section h2 {
 	margin-top: 0;
+}
+
+.fosse-settings-section,
+.fosse-connection-section {
+	border-top: 1px solid #dcdcde;
+	margin-top: 16px;
+	padding-top: 16px;
+}
+
+.fosse-settings-section:first-of-type,
+.fosse-connection-section:first-of-type {
+	border-top: 0;
+	margin-top: 0;
+	padding-top: 0;
+}
+
+.fosse-settings-section h3,
+.fosse-connection-section h3 {
+	font-size: 1.1em;
+	margin: 0 0 12px;
+}
+
+.fosse-settings-actions {
+	border-top: 1px solid #dcdcde;
+	margin-top: 16px;
+	padding-top: 16px;
+}
+
+.fosse-settings-actions .button {
+	margin: 0;
 }
 
 /* =============================================

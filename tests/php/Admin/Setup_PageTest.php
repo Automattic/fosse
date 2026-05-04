@@ -442,6 +442,34 @@ class Setup_PageTest extends BaseTestCase {
 	}
 
 	/**
+	 * The page groups shared settings separately from provider connection
+	 * actions so the Save button does not look like an ActivityPub-only action.
+	 */
+	public function test_render_groups_settings_form_before_connections(): void {
+		$this->become_admin();
+
+		$output = $this->capture_render();
+
+		$this->assertStringContainsString( 'id="fosse-federation-settings"', $output );
+		$this->assertStringContainsString( 'id="fosse-settings-actions"', $output );
+		$this->assertStringContainsString( 'id="fosse-connections"', $output );
+		$this->assertStringContainsString( 'id="fosse-provider-activitypub-connection"', $output );
+
+		$form_position        = strpos( $output, 'id="fosse-settings"' );
+		$save_position        = strpos( $output, 'id="fosse-settings-actions"' );
+		$form_end_position    = strpos( $output, '</form>', (int) $save_position );
+		$connections_position = strpos( $output, 'id="fosse-connections"' );
+
+		$this->assertIsInt( $form_position );
+		$this->assertIsInt( $save_position );
+		$this->assertIsInt( $form_end_position );
+		$this->assertIsInt( $connections_position );
+		$this->assertGreaterThan( $form_position, $save_position );
+		$this->assertGreaterThan( $save_position, $form_end_position );
+		$this->assertGreaterThan( $form_end_position, $connections_position );
+	}
+
+	/**
 	 * The General section renders post-types checkboxes and (when AP is
 	 * available) the actor-mode radios. These cross-protocol controls
 	 * moved up from the per-provider sections in issue #36.

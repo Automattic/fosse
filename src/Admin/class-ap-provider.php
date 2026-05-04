@@ -137,8 +137,8 @@ class AP_Provider implements Connection_Provider {
 			$blog_identifier_placeholder = (string) \Activitypub\Model\Blog::get_default_username();
 		}
 		?>
-		<div class="fosse-provider-section" id="fosse-provider-activitypub">
-			<h2><?php esc_html_e( 'ActivityPub', 'fosse' ); ?></h2>
+		<div class="fosse-settings-section" id="fosse-provider-activitypub">
+			<h3><?php esc_html_e( 'ActivityPub', 'fosse' ); ?></h3>
 
 			<table class="form-table">
 				<?php if ( $shows_blog ) : ?>
@@ -188,16 +188,26 @@ class AP_Provider implements Connection_Provider {
 	}
 
 	/**
-	 * ActivityPub has no connect/disconnect flow.
+	 * Render ActivityPub's read-only connection state.
 	 *
-	 * AP is always "connected" while the plugin is loaded, so there are
-	 * no out-of-band actions to render. Implemented as a no-op to satisfy
-	 * the {@see Connection_Provider} contract.
+	 * ActivityPub has no OAuth connect/disconnect action in FOSSE. Showing a
+	 * read-only row in the Connections group keeps the page structure parallel
+	 * with Bluesky and explains why there is no ActivityPub button.
 	 *
 	 * @return void
 	 */
 	public function render_connection_actions(): void {
-		// Intentionally empty — AP has no out-of-band connect/disconnect step.
+		?>
+		<div class="fosse-connection-section" id="fosse-provider-activitypub-connection">
+			<h3><?php esc_html_e( 'ActivityPub', 'fosse' ); ?></h3>
+			<p>
+				<strong><?php esc_html_e( 'Connected automatically', 'fosse' ); ?></strong>
+			</p>
+			<p class="description">
+				<?php esc_html_e( 'ActivityPub is available because FOSSE loaded the ActivityPub backend for this site.', 'fosse' ); ?>
+			</p>
+		</div>
+		<?php
 	}
 
 	/**
