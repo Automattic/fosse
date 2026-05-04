@@ -747,12 +747,54 @@ class Onboarding_WizardTest extends BaseTestCase {
 		$this->assertStringContainsString( 'fosse_bluesky_return', $output );
 		$this->assertStringContainsString( 'value="wizard"', $output );
 		$this->assertStringContainsString( 'Connect Bluesky', $output );
-		$this->assertStringContainsString( 'Skip for now', $output );
+		$this->assertStringContainsString( 'Skip Bluesky for now', $output );
 		$this->assertStringContainsString( 'fosse-bluesky-form', $output );
 		$this->assertStringNotContainsString( 'fosse-bluesky-placeholder', $output );
 		$this->assertStringNotContainsString( 'Coming Soon', $output );
 		$this->assertMatchesRegularExpression( '/<input\b(?=[^>]*\bid="fosse-bsky-handle")(?=[^>]*\bname="bluesky_handle")[^>]*>/i', $output );
 		$this->assertDoesNotMatchRegularExpression( '/<input\b(?=[^>]*\bid="fosse-bsky-handle")[^>]*\bdisabled\b/i', $output );
+	}
+
+	/**
+	 * The disconnected Bluesky step makes Connect the primary footer action.
+	 */
+	public function test_render_bluesky_step_disconnected_connect_is_primary_footer_action(): void {
+		update_option( Onboarding_Wizard::DESTINATION_OPTION, 'fediverse_bluesky' );
+
+		$output = $this->render_wizard_step( 'bluesky' );
+
+		$this->assertMatchesRegularExpression(
+			'/<button[^>]*form="fosse-wizard-bluesky-connect-form"[^>]*class="[^"]*button-primary[^"]*"[^>]*>\s*Connect Bluesky\s*<\/button>/i',
+			$output,
+			'Connect Bluesky should be the primary footer action.'
+		);
+		$this->assertStringContainsString( 'Skip Bluesky for now', $output );
+	}
+
+	/**
+	 * A fediverse-only destination does not render the Bluesky connect form.
+	 */
+	public function test_render_bluesky_step_fediverse_only_redirects_away(): void {
+		update_option( Onboarding_Wizard::DESTINATION_OPTION, 'fediverse_only' );
+
+		$captured = null;
+		add_filter(
+			'wp_redirect',
+			static function ( $location ) use ( &$captured ) {
+				$captured = (string) $location;
+				throw new RedirectFired( 'redirect' );
+			},
+			9
+		);
+
+		try {
+			$this->render_wizard_step( 'bluesky' );
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$this->assertNotNull( $captured );
+		$this->assertStringContainsString( 'step=content', $captured );
 	}
 
 	/**

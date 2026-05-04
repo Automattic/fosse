@@ -1179,6 +1179,10 @@ class Onboarding_Wizard {
 	 * @return void
 	 */
 	private static function render_step_bluesky(): void {
+		if ( ! self::destination_includes_bluesky() ) {
+			self::redirect_to_step( 'content' );
+		}
+
 		self::render_progress( 'bluesky' );
 		$status = self::get_bluesky_status();
 
@@ -1269,7 +1273,7 @@ class Onboarding_Wizard {
 					<?php endif; ?>
 				</table>
 			<?php else : ?>
-				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+				<form id="fosse-wizard-bluesky-connect-form" method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
 					<input type="hidden" name="action" value="fosse_connect_bluesky" />
 					<input type="hidden" name="_wpnonce" value="<?php echo esc_attr( wp_create_nonce( 'fosse_connect_bluesky' ) ); ?>" />
 					<input type="hidden" name="<?php echo esc_attr( Bluesky_Provider::RETURN_CONTEXT_FIELD ); ?>" value="<?php echo esc_attr( Bluesky_Provider::RETURN_CONTEXT_WIZARD ); ?>" />
@@ -1286,7 +1290,6 @@ class Onboarding_Wizard {
 								class="regular-text"
 								placeholder="<?php esc_attr_e( 'yourname.bsky.social', 'fosse' ); ?>"
 							/>
-							<?php submit_button( __( 'Connect Bluesky', 'fosse' ), 'primary', 'submit', false ); ?>
 						</div>
 					</div>
 				</form>
@@ -1323,14 +1326,24 @@ class Onboarding_Wizard {
 			<?php endif; ?>
 		</div>
 
+		<?php $complete_url = wp_nonce_url( admin_url( 'admin-post.php?action=fosse_wizard_complete' ), 'fosse_wizard_complete' ); ?>
 		<div class="fosse-wizard__actions">
 			<a href="<?php echo esc_url( admin_url( 'admin.php?page=fosse-wizard&step=content' ) ); ?>" class="button">
 				&larr; <?php esc_html_e( 'Back', 'fosse' ); ?>
 			</a>
 			<div class="fosse-wizard__actions-primary">
-				<a href="<?php echo esc_url( wp_nonce_url( admin_url( 'admin-post.php?action=fosse_wizard_complete' ), 'fosse_wizard_complete' ) ); ?>" class="button button-primary">
-					<?php echo esc_html( $is_connected ? __( 'Finish setup', 'fosse' ) : __( 'Skip for now', 'fosse' ) ); ?>
-				</a>
+				<?php if ( $status['available'] && ! $is_connected ) : ?>
+					<a href="<?php echo esc_url( $complete_url ); ?>" class="button">
+						<?php esc_html_e( 'Skip Bluesky for now', 'fosse' ); ?>
+					</a>
+					<button type="submit" form="fosse-wizard-bluesky-connect-form" class="button button-primary">
+						<?php esc_html_e( 'Connect Bluesky', 'fosse' ); ?>
+					</button>
+				<?php else : ?>
+					<a href="<?php echo esc_url( $complete_url ); ?>" class="button button-primary">
+						<?php echo esc_html( $is_connected ? __( 'Finish setup', 'fosse' ) : __( 'Skip for now', 'fosse' ) ); ?>
+					</a>
+				<?php endif; ?>
 			</div>
 		</div>
 		<?php
