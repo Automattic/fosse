@@ -15,7 +15,7 @@ namespace Automattic\Fosse\Admin;
  *  2. Appearance - actor mode selection (blog / actor / actor_blog)
  *  3. Content - post type selection
  *  4. Bluesky - optional OAuth connection
- *  5. Complete - summary and handoff to Setup/Status pages
+ *  5. Review - summary and handoff to Setup/Status pages
  */
 class Onboarding_Wizard {
 
@@ -1186,6 +1186,7 @@ class Onboarding_Wizard {
 	private static function render_step_bluesky(): void {
 		if ( ! self::destination_includes_bluesky() ) {
 			self::redirect_to_step( 'content' );
+			return;
 		}
 
 		self::render_progress( 'bluesky' );
@@ -1346,7 +1347,7 @@ class Onboarding_Wizard {
 	}
 
 	/**
-	 * Render Step 5: Complete.
+	 * Render Step 5: Review.
 	 *
 	 * @return void
 	 */
@@ -1356,6 +1357,7 @@ class Onboarding_Wizard {
 		// complete via handle_complete(), leaving the Setup notice nagging.
 		if ( ! self::is_complete() ) {
 			self::redirect_to_step( 'destinations' );
+			return;
 		}
 
 		self::render_progress( 'complete' );
