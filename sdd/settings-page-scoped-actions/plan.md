@@ -23,7 +23,7 @@
 
 ### Task 1: Add failing PHPUnit coverage for settings/actions grouping
 
-- **Status**: ✅ Done (this commit)
+- **Status**: ✅ Done (5e76ef0)
 - **Files**:
   - Modify: `tests/php/Admin/Setup_PageTest.php`
   - Modify: `tests/php/Admin/AP_ProviderTest.php`
@@ -92,7 +92,7 @@ Expected: failures for missing `fosse-federation-settings`, `fosse-settings-acti
 
 ### Task 2: Restructure settings template and ActivityPub connection markup
 
-- **Status**: ✅ Done (this commit)
+- **Status**: ✅ Done (5e76ef0)
 - **Files**:
   - Modify: `src/Admin/templates/setup-page.php`
   - Modify: `src/Admin/class-ap-provider.php`
@@ -193,7 +193,7 @@ Expected: the tests added in Task 1 pass.
 
 ### Task 3: Update Bluesky connection markup and provider tests
 
-- **Status**: ✅ Done (this commit)
+- **Status**: ✅ Done (5e76ef0)
 - **Files**:
   - Modify: `src/Admin/class-bluesky-provider.php`
   - Modify: `tests/php/Admin/Bluesky_ProviderTest.php`
@@ -234,7 +234,7 @@ Expected: Bluesky provider tests pass, and `id="fosse-provider-bluesky"` remains
 
 ### Task 4: Add CSS for grouped settings/actions layout
 
-- **Status**: ✅ Done (this commit)
+- **Status**: ✅ Done (5e76ef0)
 - **Files**:
   - Modify: `src/Admin/assets/css/admin.css`
 - **Do**:
@@ -309,7 +309,7 @@ Expected: both commands pass.
 
 ### Task 5: Update Playwright coverage for visual grouping
 
-- **Status**: ✅ Done (this commit)
+- **Status**: ✅ Done (5e76ef0)
 - **Files**:
   - Modify: `tests/e2e/bluesky-provider.spec.ts`
 - **Do**:
@@ -376,7 +376,7 @@ Expected: the Bluesky provider e2e spec passes and confirms save/connect actions
 
 ### Task 6: Run verification and record implementation notes
 
-- **Status**: ✅ Done (this commit)
+- **Status**: ✅ Done (5e76ef0)
 - **Files**:
   - Create: `sdd/settings-page-scoped-actions/implementation-notes.md`
   - Modify: `sdd/settings-page-scoped-actions/plan.md`
