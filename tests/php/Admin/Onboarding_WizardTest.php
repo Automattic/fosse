@@ -40,6 +40,7 @@ class Onboarding_WizardTest extends BaseTestCase {
 		}
 
 		delete_option( Onboarding_Wizard::COMPLETED_OPTION );
+		delete_option( Onboarding_Wizard::DESTINATION_OPTION );
 		delete_option( 'activitypub_actor_mode' );
 		delete_option( 'activitypub_blog_identifier' );
 		delete_option( 'activitypub_support_post_types' );
@@ -156,6 +157,44 @@ class Onboarding_WizardTest extends BaseTestCase {
 		}
 
 		$this->assertSame( 'actor', get_option( 'activitypub_actor_mode' ) );
+	}
+
+	// --- handle_save: destinations step ---
+
+	/**
+	 * Saving the destinations step stores the wizard destination intent.
+	 */
+	public function test_handle_save_destinations_stores_destination(): void {
+		$this->simulate_save_request(
+			'destinations',
+			array( 'fosse_onboarding_destination' => 'fediverse_only' )
+		);
+
+		try {
+			Onboarding_Wizard::handle_save();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$this->assertSame( 'fediverse_only', get_option( 'fosse_onboarding_destination' ) );
+	}
+
+	/**
+	 * Invalid destination submissions fall back to the recommended path.
+	 */
+	public function test_handle_save_destinations_invalid_falls_back_to_default(): void {
+		$this->simulate_save_request(
+			'destinations',
+			array( 'fosse_onboarding_destination' => 'not-a-destination' )
+		);
+
+		try {
+			Onboarding_Wizard::handle_save();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$this->assertSame( 'fediverse_bluesky', get_option( 'fosse_onboarding_destination' ) );
 	}
 
 	/**

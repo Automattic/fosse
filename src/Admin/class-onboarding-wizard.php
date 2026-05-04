@@ -11,7 +11,7 @@ namespace Automattic\Fosse\Admin;
  * Renders and handles the multi-step onboarding wizard shown on first activation.
  *
  * Steps:
- *  1. Welcome - value prop overview
+ *  1. Destinations - destination intent selection
  *  2. Appearance - actor mode selection (blog / actor / actor_blog)
  *  3. Content - post type selection
  *  4. Bluesky - optional OAuth connection
@@ -25,6 +25,16 @@ class Onboarding_Wizard {
 	 * @var string
 	 */
 	public const COMPLETED_OPTION = 'fosse_onboarding_completed';
+
+	/**
+	 * Option key storing the wizard's destination intent.
+	 *
+	 * This controls onboarding flow and Review-summary wording only. It does
+	 * not enable or disable publishing destinations.
+	 *
+	 * @var string
+	 */
+	public const DESTINATION_OPTION = 'fosse_onboarding_destination';
 
 	/**
 	 * Option key for the one-shot activation redirect signal.
@@ -54,7 +64,31 @@ class Onboarding_Wizard {
 	 *
 	 * @var string[]
 	 */
-	private const STEPS = array( 'welcome', 'appearance', 'content', 'bluesky', 'complete' );
+	private const STEPS = array( 'destinations', 'appearance', 'content', 'bluesky', 'complete' );
+
+	/**
+	 * Destination intent that includes the Bluesky connection step.
+	 *
+	 * @var string
+	 */
+	private const DESTINATION_FEDIVERSE_BLUESKY = 'fediverse_bluesky';
+
+	/**
+	 * Destination intent that skips the Bluesky connection step.
+	 *
+	 * @var string
+	 */
+	private const DESTINATION_FEDIVERSE_ONLY = 'fediverse_only';
+
+	/**
+	 * Valid destination values.
+	 *
+	 * @var string[]
+	 */
+	private const DESTINATIONS = array(
+		self::DESTINATION_FEDIVERSE_BLUESKY,
+		self::DESTINATION_FEDIVERSE_ONLY,
+	);
 
 	/**
 	 * Allowed actor mode values.
@@ -195,6 +229,16 @@ class Onboarding_Wizard {
 		// phpcs:disable WordPress.Security.NonceVerification.Missing -- nonce verified by self::require_nonce() above.
 		$step = sanitize_text_field( wp_unslash( $_POST['fosse_wizard_step'] ?? '' ) );
 
+		if ( 'destinations' === $step ) {
+			$destination = sanitize_text_field( wp_unslash( $_POST['fosse_onboarding_destination'] ?? '' ) );
+			if ( ! in_array( $destination, self::DESTINATIONS, true ) ) {
+				$destination = self::DESTINATION_FEDIVERSE_BLUESKY;
+			}
+
+			update_option( self::DESTINATION_OPTION, $destination, false );
+			self::redirect_to_step( 'appearance' );
+		}
+
 		if ( 'appearance' === $step ) {
 			$mode = sanitize_text_field( wp_unslash( $_POST['activitypub_actor_mode'] ?? '' ) );
 			if ( in_array( $mode, self::ACTOR_MODES, true ) ) {
@@ -270,7 +314,7 @@ class Onboarding_Wizard {
 		// phpcs:enable WordPress.Security.NonceVerification.Missing
 
 		// Fallback: redirect to next logical step.
-		self::redirect_to_step( 'welcome' );
+		self::redirect_to_step( 'destinations' );
 	}
 
 	/**
@@ -327,6 +371,7 @@ class Onboarding_Wizard {
 		self::require_nonce( 'fosse_wizard_reset', 'fosse_wizard_reset' );
 
 		delete_option( self::COMPLETED_OPTION );
+		delete_option( self::DESTINATION_OPTION );
 
 		wp_safe_redirect( admin_url( 'admin.php?page=fosse-wizard' ) );
 		exit;
@@ -398,13 +443,51 @@ class Onboarding_Wizard {
 	 */
 	private static function get_current_step(): string {
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only navigation, no state change.
-		$step = sanitize_text_field( wp_unslash( $_GET['step'] ?? 'welcome' ) );
+		$step = sanitize_text_field( wp_unslash( $_GET['step'] ?? 'destinations' ) );
+
+		if ( 'welcome' === $step ) {
+			return 'destinations';
+		}
 
 		if ( in_array( $step, self::STEPS, true ) ) {
 			return $step;
 		}
 
-		return 'welcome';
+		return 'destinations';
+	}
+
+	/**
+	 * Get the saved destination intent, falling back to the recommended path.
+	 *
+	 * @return string
+	 */
+	private static function get_destination(): string {
+		$destination = (string) get_option( self::DESTINATION_OPTION, self::DESTINATION_FEDIVERSE_BLUESKY );
+
+		return in_array( $destination, self::DESTINATIONS, true )
+			? $destination
+			: self::DESTINATION_FEDIVERSE_BLUESKY;
+	}
+
+	/**
+	 * Whether the saved destination intent includes Bluesky setup.
+	 *
+	 * @return bool
+	 */
+	private static function destination_includes_bluesky(): bool {
+		return self::DESTINATION_FEDIVERSE_BLUESKY === self::get_destination();
+	}
+
+	/**
+	 * Human label for the saved destination intent.
+	 *
+	 * @param string $destination Destination value.
+	 * @return string
+	 */
+	private static function get_destination_label( string $destination ): string {
+		return self::DESTINATION_FEDIVERSE_ONLY === $destination
+			? __( 'Fediverse only', 'fosse' )
+			: __( 'Fediverse + Bluesky', 'fosse' );
 	}
 
 	/**
