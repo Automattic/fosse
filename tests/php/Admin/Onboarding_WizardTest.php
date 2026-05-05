@@ -43,6 +43,7 @@ class Onboarding_WizardTest extends BaseTestCase {
 		}
 
 		delete_option( Onboarding_Wizard::COMPLETED_OPTION );
+		delete_option( Onboarding_Wizard::DESTINATION_OPTION );
 		delete_option( 'activitypub_actor_mode' );
 		delete_option( 'activitypub_blog_identifier' );
 		delete_option( 'activitypub_support_post_types' );
@@ -161,6 +162,44 @@ class Onboarding_WizardTest extends BaseTestCase {
 		$this->assertSame( 'actor', get_option( 'activitypub_actor_mode' ) );
 	}
 
+	// --- handle_save: destinations step ---
+
+	/**
+	 * Saving the destinations step stores the wizard destination intent.
+	 */
+	public function test_handle_save_destinations_stores_destination(): void {
+		$this->simulate_save_request(
+			'destinations',
+			array( 'fosse_onboarding_destination' => 'fediverse_only' )
+		);
+
+		try {
+			Onboarding_Wizard::handle_save();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$this->assertSame( 'fediverse_only', get_option( 'fosse_onboarding_destination' ) );
+	}
+
+	/**
+	 * Invalid destination submissions fall back to the recommended path.
+	 */
+	public function test_handle_save_destinations_invalid_falls_back_to_default(): void {
+		$this->simulate_save_request(
+			'destinations',
+			array( 'fosse_onboarding_destination' => 'not-a-destination' )
+		);
+
+		try {
+			Onboarding_Wizard::handle_save();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$this->assertSame( 'fediverse_bluesky', get_option( 'fosse_onboarding_destination' ) );
+	}
+
 	/**
 	 * Saving appearance fires AP's native update_option_* hook so
 	 * downstream subscribers (the federation scheduler) propagate the
@@ -259,6 +298,34 @@ class Onboarding_WizardTest extends BaseTestCase {
 		$this->assertTrue( Onboarding_Wizard::is_complete() );
 	}
 
+	/**
+	 * Saving content on the fediverse-only path completes the wizard and skips Bluesky.
+	 */
+	public function test_handle_save_content_fediverse_only_redirects_to_complete(): void {
+		update_option( Onboarding_Wizard::DESTINATION_OPTION, 'fediverse_only' );
+
+		$captured = null;
+		$this->simulate_save_request( 'content', array( 'activitypub_support_post_types' => array( 'post' ) ) );
+		add_filter(
+			'wp_redirect',
+			static function ( $location ) use ( &$captured ) {
+				$captured = (string) $location;
+				throw new RedirectFired( 'redirect' );
+			},
+			9
+		);
+
+		try {
+			Onboarding_Wizard::handle_save();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$this->assertTrue( Onboarding_Wizard::is_complete() );
+		$this->assertStringContainsString( 'step=complete', (string) $captured );
+		$this->assertStringNotContainsString( 'step=bluesky', (string) $captured );
+	}
+
 	// --- handle_reset ---
 
 	/**
@@ -275,6 +342,23 @@ class Onboarding_WizardTest extends BaseTestCase {
 		}
 
 		$this->assertFalse( Onboarding_Wizard::is_complete() );
+	}
+
+	/**
+	 * Reset clears destination intent along with completion state.
+	 */
+	public function test_handle_reset_clears_destination_intent(): void {
+		Onboarding_Wizard::mark_complete();
+		update_option( Onboarding_Wizard::DESTINATION_OPTION, 'fediverse_only' );
+		$this->simulate_reset_request();
+
+		try {
+			Onboarding_Wizard::handle_reset();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$this->assertFalse( get_option( Onboarding_Wizard::DESTINATION_OPTION ) );
 	}
 
 	// --- empty post types redirect ---
@@ -349,6 +433,63 @@ class Onboarding_WizardTest extends BaseTestCase {
 
 		$this->assertStringContainsString( 'Setup is unavailable', $output );
 		$this->assertStringContainsString( 'ActivityPub', $output );
+	}
+
+	// --- Destinations step render ---
+
+	/**
+	 * The default wizard screen is the destination-selection step.
+	 */
+	public function test_render_default_step_shows_destination_cards(): void {
+		$output = $this->render_wizard_step( '' );
+
+		$this->assertStringContainsString( 'Where should your WordPress posts appear?', $output );
+		$this->assertStringContainsString( 'Choose where FOSSE should share your posts. You can connect Bluesky or change these settings later in FOSSE Settings.', $output );
+		$this->assertStringContainsString( 'Fediverse + Bluesky', $output );
+		$this->assertStringContainsString( 'Fediverse only', $output );
+		$this->assertStringContainsString( 'Simple setup', $output );
+		$this->assertStringContainsString( 'Let people follow your site from Mastodon-compatible apps without setting up Bluesky in this wizard.', $output );
+		$this->assertStringContainsString( 'name="fosse_onboarding_destination"', $output );
+		$this->assertStringNotContainsString( 'Welcome to FOSSE', $output );
+		$this->assertStringNotContainsString( '>Later<', $output );
+	}
+
+	/**
+	 * The legacy welcome slug resolves to the destination-selection step.
+	 */
+	public function test_render_legacy_welcome_step_shows_destination_cards(): void {
+		$output = $this->render_wizard_step( 'welcome' );
+
+		$this->assertStringContainsString( 'Where should your WordPress posts appear?', $output );
+		$this->assertStringContainsString( 'Fediverse + Bluesky', $output );
+	}
+
+	/**
+	 * Progress reflects the destination-first flow and labels the final step Review.
+	 */
+	public function test_progress_uses_destination_first_labels(): void {
+		$output = $this->render_wizard_step( 'destinations' );
+
+		$this->assertStringContainsString( 'Destinations', $output );
+		$this->assertStringContainsString( 'Identity', $output );
+		$this->assertStringContainsString( 'Content', $output );
+		$this->assertStringContainsString( 'Bluesky', $output );
+		$this->assertStringContainsString( 'Review', $output );
+		$this->assertStringNotContainsString( '>Welcome<', $output );
+	}
+
+	/**
+	 * The identity step leads with the follow decision and default card first.
+	 */
+	public function test_identity_step_uses_follow_question_and_actor_first(): void {
+		$output = $this->render_wizard_step( 'appearance' );
+
+		$this->assertStringContainsString( 'Who should people follow?', $output );
+		$this->assertMatchesRegularExpression(
+			'/fosse-mode-card__title">As you<.*fosse-mode-card__title">As your site</s',
+			$output,
+			'The default author-profile option should render before the site-profile option.'
+		);
 	}
 
 	// --- Appearance step render ---
@@ -684,12 +825,57 @@ class Onboarding_WizardTest extends BaseTestCase {
 		$this->assertStringContainsString( 'fosse_bluesky_return', $output );
 		$this->assertStringContainsString( 'value="wizard"', $output );
 		$this->assertStringContainsString( 'Connect Bluesky', $output );
-		$this->assertStringContainsString( 'Skip for now', $output );
+		$this->assertStringContainsString( 'Skip Bluesky for now', $output );
 		$this->assertStringContainsString( 'fosse-bluesky-form', $output );
+		$this->assertStringContainsString( 'Bluesky or AT Protocol handle', $output );
+		$this->assertStringContainsString( 'Use your Bluesky handle, or a custom domain handle if you have one.', $output );
 		$this->assertStringNotContainsString( 'fosse-bluesky-placeholder', $output );
 		$this->assertStringNotContainsString( 'Coming Soon', $output );
+		$this->assertStringNotContainsString( 'Bluesky Handle', $output );
 		$this->assertMatchesRegularExpression( '/<input\b(?=[^>]*\bid="fosse-bsky-handle")(?=[^>]*\bname="bluesky_handle")[^>]*>/i', $output );
 		$this->assertDoesNotMatchRegularExpression( '/<input\b(?=[^>]*\bid="fosse-bsky-handle")[^>]*\bdisabled\b/i', $output );
+	}
+
+	/**
+	 * The disconnected Bluesky step makes Connect the primary footer action.
+	 */
+	public function test_render_bluesky_step_disconnected_connect_is_primary_footer_action(): void {
+		update_option( Onboarding_Wizard::DESTINATION_OPTION, 'fediverse_bluesky' );
+
+		$output = $this->render_wizard_step( 'bluesky' );
+
+		$this->assertMatchesRegularExpression(
+			'/<button[^>]*form="fosse-wizard-bluesky-connect-form"[^>]*class="[^"]*button-primary[^"]*"[^>]*>\s*Connect Bluesky\s*<\/button>/i',
+			$output,
+			'Connect Bluesky should be the primary footer action.'
+		);
+		$this->assertStringContainsString( 'Skip Bluesky for now', $output );
+	}
+
+	/**
+	 * A fediverse-only destination does not render the Bluesky connect form.
+	 */
+	public function test_render_bluesky_step_fediverse_only_redirects_away(): void {
+		update_option( Onboarding_Wizard::DESTINATION_OPTION, 'fediverse_only' );
+
+		$captured = null;
+		add_filter(
+			'wp_redirect',
+			static function ( $location ) use ( &$captured ) {
+				$captured = (string) $location;
+				throw new RedirectFired( 'redirect' );
+			},
+			9
+		);
+
+		try {
+			$this->render_wizard_step( 'bluesky' );
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$this->assertNotNull( $captured );
+		$this->assertStringContainsString( 'step=content', $captured );
 	}
 
 	/**
@@ -856,6 +1042,40 @@ class Onboarding_WizardTest extends BaseTestCase {
 	}
 
 	/**
+	 * The Review summary includes the selected destination and skipped Bluesky state.
+	 */
+	public function test_complete_summary_shows_fediverse_only_destination_and_skipped_bluesky(): void {
+		Onboarding_Wizard::mark_complete();
+		update_option( Onboarding_Wizard::DESTINATION_OPTION, 'fediverse_only' );
+
+		$output = $this->render_wizard_step( 'complete' );
+
+		$this->assertStringContainsString( 'Destinations', $output );
+		$this->assertStringContainsString( 'Fediverse only', $output );
+		$this->assertStringContainsString( 'Skipped', $output );
+	}
+
+	/**
+	 * The Review summary reports an existing Bluesky connection even when the
+	 * latest wizard run selected Fediverse-only onboarding.
+	 */
+	public function test_complete_summary_prioritizes_connected_bluesky_for_fediverse_only_destination(): void {
+		Onboarding_Wizard::mark_complete();
+		update_option( Onboarding_Wizard::DESTINATION_OPTION, 'fediverse_only' );
+		$this->seed_bluesky_connection( 'alice.bsky.social', 'did:plc:alice123' );
+
+		$output = $this->render_wizard_step( 'complete' );
+
+		$this->assertStringContainsString( 'Fediverse only', $output );
+		$this->assertMatchesRegularExpression(
+			'~<td class="fosse-summary__label">Bluesky</td>\s*<td class="fosse-summary__value">Connected as alice\.bsky\.social</td>~',
+			$output,
+			'Connected Bluesky accounts must not be visually muted even when the saved destination is Fediverse-only.'
+		);
+		$this->assertStringNotContainsString( 'Skipped', $output );
+	}
+
+	/**
 	 * In `actor_blog` mode, the completion screen shows both the user and
 	 * site fediverse handles instead of dropping them in favor of a bare
 	 * mode label. Stub `activitypub_user_can_activitypub` because WorDBless
@@ -923,15 +1143,19 @@ class Onboarding_WizardTest extends BaseTestCase {
 	// --- Bluesky signup help (#58) ---
 
 	/**
-	 * The disconnected Bluesky step links out to bsky.app so users without
-	 * an account can sign up before connecting.
+	 * The disconnected Bluesky step combines secondary Bluesky help into one callout.
 	 */
 	public function test_render_bluesky_step_disconnected_shows_signup_link(): void {
 		$output = $this->render_wizard_step( 'bluesky' );
 
 		$this->assertStringContainsString( 'fosse-bluesky-signup', $output );
+		$this->assertSame( 1, substr_count( $output, 'fosse-wizard__hint fosse-bluesky-signup' ) );
 		$this->assertStringContainsString( 'https://bsky.app/', $output );
-		$this->assertStringContainsString( 'Need a Bluesky account', $output );
+		$this->assertStringContainsString( 'https://bsky.social/about/blog/4-28-2023-domain-handle-tutorial', $output );
+		$this->assertStringContainsString( 'Need help getting started?', $output );
+		$this->assertStringContainsString( 'Create a Bluesky account', $output );
+		$this->assertStringContainsString( 'learn how to use your domain as your handle', $output );
+		$this->assertStringNotContainsString( 'Want your domain as your handle?', $output );
 	}
 
 	/**
@@ -1074,22 +1298,57 @@ class Onboarding_WizardTest extends BaseTestCase {
 	}
 
 	/**
-	 * The publish CTA's helper paragraph talks about "the social web" — the
-	 * project's settled language for the destination network. Asserts against
-	 * the dedicated `fosse-wizard__cta-help` block so the test fails if the
-	 * helper copy is removed (the welcome-step body uses "social web" too,
-	 * which would otherwise mask a regression).
+	 * The publish CTA's helper paragraph reflects the selected destinations
+	 * when Bluesky has not been connected yet.
 	 */
-	public function test_render_complete_step_cta_uses_social_web_language(): void {
+	public function test_render_complete_step_cta_uses_destination_specific_language(): void {
 		Onboarding_Wizard::mark_complete();
 
 		$output = $this->render_wizard_step( 'complete' );
 
 		$this->assertMatchesRegularExpression(
-			'~<p[^>]*class="[^"]*fosse-wizard__cta-help[^"]*"[^>]*>[^<]*social web~i',
+			'~<p[^>]*class="[^"]*fosse-wizard__cta-help[^"]*"[^>]*>[^<]*Mastodon-compatible apps and Bluesky~i',
 			$output,
-			'The publish CTA helper copy must reference "the social web".'
+			'The publish CTA helper copy must describe the selected destinations.'
 		);
+	}
+
+	/**
+	 * The publish CTA helper reflects active Bluesky publishing even when the
+	 * latest wizard run selected Fediverse-only onboarding.
+	 */
+	public function test_render_complete_step_cta_mentions_connected_bluesky_for_fediverse_only_destination(): void {
+		Onboarding_Wizard::mark_complete();
+		update_option( Onboarding_Wizard::DESTINATION_OPTION, 'fediverse_only' );
+		$this->seed_bluesky_connection( 'alice.bsky.social', 'did:plc:alice123' );
+
+		$output = $this->render_wizard_step( 'complete' );
+
+		$this->assertMatchesRegularExpression(
+			'~<p[^>]*class="[^"]*fosse-wizard__cta-help[^"]*"[^>]*>[^<]*Mastodon-compatible apps and Bluesky\.~i',
+			$output,
+			'The publish CTA helper copy must mention Bluesky when existing settings will publish there.'
+		);
+	}
+
+	/**
+	 * A connected Bluesky account with auto-publishing disabled should not make
+	 * the publish CTA helper promise that the next post will reach Bluesky.
+	 */
+	public function test_render_complete_step_cta_explains_disabled_bluesky_auto_publish(): void {
+		Onboarding_Wizard::mark_complete();
+		update_option( Onboarding_Wizard::DESTINATION_OPTION, 'fediverse_only' );
+		update_option( 'atmosphere_auto_publish', '0' );
+		$this->seed_bluesky_connection( 'alice.bsky.social', 'did:plc:alice123' );
+
+		$output = $this->render_wizard_step( 'complete' );
+
+		$this->assertMatchesRegularExpression(
+			'~<p[^>]*class="[^"]*fosse-wizard__cta-help[^"]*"[^>]*>[^<]*automatic publishing is off\.~i',
+			$output,
+			'The publish CTA helper copy must explain why a connected account will not receive the next post.'
+		);
+		$this->assertStringNotContainsString( 'Mastodon-compatible apps and Bluesky.', $output );
 	}
 
 	/**
@@ -1440,10 +1699,10 @@ class Onboarding_WizardTest extends BaseTestCase {
 		$this->become_admin();
 
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- test setup.
-		$_GET = array(
-			'page' => 'fosse-wizard',
-			'step' => $step,
-		);
+		$_GET = array( 'page' => 'fosse-wizard' );
+		if ( '' !== $step ) {
+			$_GET['step'] = $step;
+		}
 
 		ob_start();
 		try {
