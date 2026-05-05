@@ -240,13 +240,13 @@ class Onboarding_Wizard {
 				}
 			}
 
-			// On rejection, persist the surfaced errors via the
-			// `settings_errors` transient and bounce back to the appearance
-			// step so the user can correct the input. Without this the wizard
-			// would silently advance to Content with no feedback and no way
-			// to fix the colliding handle.
+			// On rejection, persist the surfaced errors via the per-user
+			// notice transient and bounce back to the appearance step so the
+			// user can correct the input. Without this the wizard would
+			// silently advance to Content with no feedback and no way to fix
+			// the colliding handle.
 			if ( $blog_identifier_rejected ) {
-				set_transient( 'settings_errors', get_settings_errors(), 30 );
+				User_Notices::persist();
 				self::redirect_to_step( 'appearance', array( 'settings-updated' => 'true' ) );
 			}
 

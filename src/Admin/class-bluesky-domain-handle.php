@@ -129,18 +129,127 @@ class Bluesky_Domain_Handle {
 	}
 
 	/**
+	 * Whether the site's `home_url()` advertises a host Bluesky's PDS
+	 * can actually verify via the well-known DID endpoint.
+	 *
+	 * Bluesky resolves a domain handle by fetching
+	 * `https://<host>/.well-known/atproto-did`. That fetch:
+	 *
+	 *  - Targets the canonical HTTPS port — a `home_url` with an
+	 *    explicit port (`https://example.com:8080/`) cannot be reached.
+	 *  - Requires a publicly-resolvable DNS name — IP literals (`192.0.2.1`,
+	 *    `[2001:db8::1]`), `localhost`, single-label hosts (`mybox`), and
+	 *    `*.local` mDNS names will not resolve from Bluesky's perspective.
+	 *
+	 * Refusing the offer at this layer keeps the wizard / Settings panel
+	 * from rendering a button that would only ever produce a confusing
+	 * upstream error after the user clicks it.
+	 *
+	 * @return bool
+	 */
+	public static function is_resolvable_host(): bool {
+		$parts = wp_parse_url( home_url() );
+		if ( ! is_array( $parts ) ) {
+			return false;
+		}
+
+		$host = isset( $parts['host'] ) ? (string) $parts['host'] : '';
+		$port = isset( $parts['port'] ) ? (int) $parts['port'] : 0;
+
+		if ( '' === $host ) {
+			return false;
+		}
+
+		// An explicit port — even 80 or 443 — implies the user has
+		// configured a non-canonical setup. The PDS won't follow it.
+		if ( $port > 0 ) {
+			return false;
+		}
+
+		// IP literals (IPv4 + IPv6) cannot serve as AT Protocol handles.
+		// `home_url()` strips the brackets around an IPv6 host, so the
+		// raw `filter_var` check covers both families.
+		if ( false !== filter_var( $host, FILTER_VALIDATE_IP ) ) {
+			return false;
+		}
+
+		// Single-label hosts (no dot) — `localhost`, `mybox`, etc. — are
+		// not publicly resolvable. AT Protocol handles must contain at
+		// least one dot per the lexicon spec.
+		if ( false === strpos( $host, '.' ) ) {
+			return false;
+		}
+
+		// `*.local` mDNS / Bonjour and the literal `localhost.localdomain`
+		// are local-only by definition. Bluesky's PDS will not reach them.
+		$lower = strtolower( $host );
+		if ( 'localhost' === $lower || 'localhost.localdomain' === $lower ) {
+			return false;
+		}
+		if ( str_ends_with( $lower, '.local' ) || str_ends_with( $lower, '.localhost' ) ) {
+			return false;
+		}
+
+		return true;
+	}
+
+	/**
 	 * Compute the handle that the site would advertise.
 	 *
-	 * Reads the host portion of `home_url()`. Returns an empty string if
-	 * the host can't be resolved (extremely degraded `home` option) so
-	 * callers can refuse the call rather than send an empty payload.
+	 * Reads the host portion of `home_url()`, lowercases it, and (when
+	 * the `intl` extension is available) converts non-ASCII labels to
+	 * their punycode form so the value matches the AT Protocol handle
+	 * lexicon (LDH ASCII labels). Returns an empty string for any input
+	 * that can't be normalized — a degraded `home` option, or an IDN
+	 * host on a server without `intl` — so callers refuse the call
+	 * rather than send a malformed payload to the PDS.
 	 *
 	 * @return string
 	 */
 	public static function get_target_handle(): string {
 		$host = wp_parse_url( home_url(), PHP_URL_HOST );
+		if ( ! is_string( $host ) || '' === $host ) {
+			return '';
+		}
 
-		return is_string( $host ) ? strtolower( $host ) : '';
+		// Punycode-encode any non-ASCII labels. AT Protocol handles must
+		// be ASCII-only; sending raw UTF-8 (`münchen.example`) would either
+		// be rejected by the PDS or — worse — silently accepted as a
+		// non-canonical value the resolver later can't match. UTS-46
+		// transitional processing is the WhatWG-aligned default.
+		$has_non_ascii = (bool) preg_match( '/[\x80-\xff]/', $host );
+		if ( $has_non_ascii ) {
+			if ( ! function_exists( 'idn_to_ascii' ) ) {
+				// `intl` is unavailable and the host has non-ASCII bytes
+				// we can't safely encode. Refuse rather than ship a
+				// guaranteed-broken payload.
+				return '';
+			}
+			$ascii = idn_to_ascii( $host, IDNA_DEFAULT, INTL_IDNA_VARIANT_UTS46 );
+			if ( false === $ascii || '' === $ascii ) {
+				return '';
+			}
+			$host = $ascii;
+		}
+
+		return strtolower( $host );
+	}
+
+	/**
+	 * The previously-snapshotted handle for the currently-connected DID,
+	 * or `''` when there's nothing to revert to (no snapshot, or one that
+	 * belongs to a different account).
+	 *
+	 * Public-API wrapper around the same DID-bound lookup
+	 * `maybe_revert_on_disconnect()` uses — kept public so the Settings
+	 * page disconnect UI can render an informational note ("Disconnecting
+	 * will restore your handle to ...") that mirrors the action the
+	 * disconnect handler is about to take.
+	 *
+	 * @return string
+	 */
+	public static function get_pending_revert_handle(): string {
+		return self::read_snapshot_for_current_did();
 	}
 
 	/**
@@ -158,6 +267,10 @@ class Bluesky_Domain_Handle {
 		}
 
 		if ( ! self::is_root_install() ) {
+			return false;
+		}
+
+		if ( ! self::is_resolvable_host() ) {
 			return false;
 		}
 
@@ -216,6 +329,14 @@ class Bluesky_Domain_Handle {
 		if ( ! self::is_root_install() ) {
 			self::add_settings_notice(
 				__( 'This site is in a subdirectory, so it cannot serve the verification endpoint Bluesky needs to confirm a domain handle.', 'fosse' ),
+				'error'
+			);
+			return null;
+		}
+
+		if ( ! self::is_resolvable_host() ) {
+			self::add_settings_notice(
+				__( 'This site\'s URL isn\'t a publicly-resolvable domain — Bluesky can\'t verify a handle pointed at localhost, an IP address, or a non-default port.', 'fosse' ),
 				'error'
 			);
 			return null;
@@ -499,9 +620,13 @@ class Bluesky_Domain_Handle {
 	 * Persist a settings notice under the Atmosphere group so it surfaces
 	 * on the FOSSE Setup page and the wizard's Bluesky step.
 	 *
-	 * Stores via the `settings_errors` transient so the message survives
-	 * the `wp_safe_redirect` that admin-post handlers issue. Does not
-	 * redirect — Bluesky_Provider owns redirect flow.
+	 * Stores via {@see User_Notices::persist()} (a per-user transient)
+	 * so the message survives the `wp_safe_redirect` that admin-post
+	 * handlers issue without leaking across users — the WP-default
+	 * site-global `settings_errors` transient would let Admin B see
+	 * Admin A's "Your Bluesky handle is now ..." message inside the
+	 * 30-second TTL. Does not redirect — Bluesky_Provider owns redirect
+	 * flow.
 	 *
 	 * Tags every notice with `NOTICE_CODE` so the wizard's Bluesky step
 	 * can let our notices through its top-of-step success/info suppression
@@ -513,6 +638,6 @@ class Bluesky_Domain_Handle {
 	 */
 	private static function add_settings_notice( string $message, string $type ): void {
 		add_settings_error( self::NOTICE_SETTING, self::NOTICE_CODE, $message, $type );
-		set_transient( 'settings_errors', get_settings_errors(), 30 );
+		User_Notices::persist();
 	}
 }

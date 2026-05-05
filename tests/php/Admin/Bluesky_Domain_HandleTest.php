@@ -190,6 +190,66 @@ class Bluesky_Domain_HandleTest extends BaseTestCase {
 		$this->assertSame( 'blog.example.com', Bluesky_Domain_Handle::get_target_handle() );
 	}
 
+	/**
+	 * IDN hosts are punycode-encoded so the value matches the AT Protocol
+	 * handle lexicon (LDH ASCII labels). Sending raw UTF-8 would either be
+	 * rejected by the PDS or — worse — silently accepted as a non-canonical
+	 * value the resolver later can't match against /.well-known/atproto-did.
+	 */
+	public function test_get_target_handle_punycodes_idn_hosts(): void {
+		if ( ! function_exists( 'idn_to_ascii' ) ) {
+			$this->markTestSkipped( 'intl extension not available; IDN normalization is environment-gated.' );
+		}
+
+		// `münchen.example` (uses ü) → UTS-46 punycode form.
+		$this->force_home_url( 'https://münchen.example' );
+
+		$this->assertSame( 'xn--mnchen-3ya.example', Bluesky_Domain_Handle::get_target_handle() );
+	}
+
+	// ---- is_resolvable_host ----
+
+	/**
+	 * Resolvable-host gate accepts plain DNS names and rejects every
+	 * shape that Bluesky's PDS cannot reach over standard https/443.
+	 *
+	 * @return array<string, array{0:string,1:bool}>
+	 */
+	public static function resolvable_host_provider(): array {
+		return array(
+			'plain dns'          => array( 'https://example.com', true ),
+			'subdomain'          => array( 'https://blog.example.com', true ),
+			'idn dns'            => array( 'https://xn--mnchen-3ya.example', true ),
+			'localhost'          => array( 'https://localhost', false ),
+			'localhost.localdom' => array( 'https://localhost.localdomain', false ),
+			'mdns local'         => array( 'https://my-mac.local', false ),
+			'localhost tld'      => array( 'https://app.localhost', false ),
+			'single label'       => array( 'https://intranetbox', false ),
+			'ipv4 literal'       => array( 'https://192.0.2.1', false ),
+			'ipv4 documented'    => array( 'http://10.0.0.5', false ),
+			'ipv6 literal'       => array( 'https://[2001:db8::1]', false ),
+			'explicit port 80'   => array( 'http://example.com:80', false ),
+			'explicit port 443'  => array( 'https://example.com:443', false ),
+			'explicit port 8080' => array( 'https://example.com:8080', false ),
+			'empty host'         => array( 'https:///just-a-path', false ),
+		);
+	}
+
+	/**
+	 * Resolvable-host gate rejects IP literals, localhost, single-label
+	 * hosts, *.local mDNS names, and any host with an explicit port.
+	 *
+	 * @param string $url      home_url() value.
+	 * @param bool   $expected Expected is_resolvable_host() result.
+	 * @dataProvider resolvable_host_provider
+	 */
+	#[DataProvider( 'resolvable_host_provider' )]
+	public function test_is_resolvable_host_rejects_unverifiable_hosts( string $url, bool $expected ): void {
+		$this->force_home_url( $url );
+
+		$this->assertSame( $expected, Bluesky_Domain_Handle::is_resolvable_host() );
+	}
+
 	// ---- should_offer ----
 
 	/**
@@ -230,6 +290,25 @@ class Bluesky_Domain_HandleTest extends BaseTestCase {
 	 */
 	public function test_should_offer_subdirectory_blocked(): void {
 		$this->force_home_url( 'https://example.com/blog' );
+
+		$this->assertFalse(
+			Bluesky_Domain_Handle::should_offer(
+				array(
+					'connected' => true,
+					'handle'    => 'alice.bsky.social',
+				)
+			)
+		);
+	}
+
+	/**
+	 * Local / IP-only / non-default-port hosts cannot offer the confirm UI.
+	 *
+	 * Single representative case from the wider `resolvable_host_provider`
+	 * matrix — that data provider already locks the per-shape behavior.
+	 */
+	public function test_should_offer_unresolvable_host_blocked(): void {
+		$this->force_home_url( 'https://localhost' );
 
 		$this->assertFalse(
 			Bluesky_Domain_Handle::should_offer(
@@ -321,6 +400,11 @@ class Bluesky_Domain_HandleTest extends BaseTestCase {
 	/**
 	 * Empty hostname (degraded `home` option) refuses the call AND posts
 	 * an error notice — otherwise we'd send `handle: ''` to the PDS.
+	 *
+	 * The empty-host case is caught by the `is_resolvable_host()` guard
+	 * (no host fails the gate before the get_target_handle() empty-check
+	 * runs), so the surfaced message describes the upstream concern: the
+	 * URL isn't publicly resolvable.
 	 */
 	public function test_set_handle_empty_host_returns_null_with_error_notice(): void {
 		$this->force_home_url( 'https:///just-a-path' );
@@ -330,6 +414,36 @@ class Bluesky_Domain_HandleTest extends BaseTestCase {
 
 		$types = wp_list_pluck( get_settings_errors( 'atmosphere' ), 'type' );
 		$this->assertContains( 'error', $types );
+	}
+
+	/**
+	 * IP / localhost / port-bearing URLs refuse the call AND post an error
+	 * notice mentioning the structural reason ("publicly-resolvable").
+	 * The user clicked an explicit confirm button — they need feedback.
+	 */
+	public function test_set_handle_unresolvable_host_returns_null_with_explanatory_notice(): void {
+		$this->force_home_url( 'http://localhost:8080' );
+		$this->seed_connection();
+
+		$captured = false;
+		add_filter(
+			Bluesky_Domain_Handle::FILTER_PRE_UPDATE,
+			static function () use ( &$captured ) {
+				$captured = true;
+				return true;
+			}
+		);
+
+		$this->assertNull( Bluesky_Domain_Handle::set_handle() );
+		$this->assertFalse( $captured );
+
+		$messages = wp_list_pluck( get_settings_errors( 'atmosphere' ), 'message' );
+		$this->assertNotEmpty(
+			array_filter(
+				$messages,
+				static fn( $m ) => false !== stripos( $m, 'publicly-resolvable' )
+			)
+		);
 	}
 
 	/**
@@ -653,6 +767,42 @@ class Bluesky_Domain_HandleTest extends BaseTestCase {
 			$reflection->hasConstant( 'FORM_FIELD' ),
 			'The pre-OAuth checkbox was deliberately removed; the confirm flow runs after connect.'
 		);
+	}
+
+	// ---- get_pending_revert_handle ----
+
+	/**
+	 * Public revert-getter returns the snapshotted handle when the
+	 * snapshot DID matches the current connection — used by the
+	 * Settings-page disconnect UI to surface "Disconnecting will also
+	 * restore your handle to ..." inline.
+	 */
+	public function test_get_pending_revert_handle_returns_snapshot_for_matching_did(): void {
+		$this->seed_connection( 'example.com', 'did:plc:test123' );
+		$this->seed_snapshot( 'did:plc:test123', 'alice.bsky.social' );
+
+		$this->assertSame( 'alice.bsky.social', Bluesky_Domain_Handle::get_pending_revert_handle() );
+	}
+
+	/**
+	 * Mismatched DID (reconnect to a different account) returns ''
+	 * because revert would refuse anyway — the disconnect UI must not
+	 * promise a revert that will silently no-op.
+	 */
+	public function test_get_pending_revert_handle_returns_empty_when_did_mismatches(): void {
+		$this->seed_connection( 'bob.bsky.social', 'did:plc:bob456' );
+		$this->seed_snapshot( 'did:plc:alice123', 'alice.bsky.social' );
+
+		$this->assertSame( '', Bluesky_Domain_Handle::get_pending_revert_handle() );
+	}
+
+	/**
+	 * No snapshot at all returns '' — disconnect UI suppresses the note.
+	 */
+	public function test_get_pending_revert_handle_returns_empty_when_no_snapshot(): void {
+		$this->seed_connection( 'alice.bsky.social', 'did:plc:test123' );
+
+		$this->assertSame( '', Bluesky_Domain_Handle::get_pending_revert_handle() );
 	}
 
 	/**

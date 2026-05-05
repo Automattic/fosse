@@ -2133,6 +2133,70 @@ class Bluesky_ProviderTest extends BaseTestCase {
 	}
 
 	/**
+	 * The Settings-page disconnect form documents what disconnect will do
+	 * when a domain-handle change is currently in effect, so users aren't
+	 * surprised by a side-effect their click triggers.
+	 */
+	public function test_render_connection_actions_surfaces_pending_revert_note(): void {
+		update_option(
+			'atmosphere_connection',
+			array(
+				'did'          => 'did:plc:test123',
+				'handle'       => 'example.com',
+				'pds_endpoint' => 'https://bsky.social',
+				'access_token' => Encryption::encrypt( 'token' ),
+			)
+		);
+		update_option(
+			Bluesky_Domain_Handle::OPTION_PREVIOUS_HANDLE,
+			array(
+				'did'    => 'did:plc:test123',
+				'handle' => 'alice.bsky.social',
+			),
+			false
+		);
+
+		ob_start();
+		$this->provider->render_connection_actions();
+		$output = ob_get_clean();
+
+		$this->assertStringContainsString( 'Disconnecting will also restore your previous Bluesky handle', $output );
+		$this->assertStringContainsString( 'alice.bsky.social', $output );
+	}
+
+	/**
+	 * The disconnect note is suppressed when the snapshot belongs to a
+	 * different DID — the disconnect handler will refuse the revert
+	 * anyway, and rendering the note would falsely promise it.
+	 */
+	public function test_render_connection_actions_omits_revert_note_for_mismatched_did(): void {
+		update_option(
+			'atmosphere_connection',
+			array(
+				'did'          => 'did:plc:current-account',
+				'handle'       => 'alice.bsky.social',
+				'pds_endpoint' => 'https://bsky.social',
+				'access_token' => Encryption::encrypt( 'token' ),
+			)
+		);
+		update_option(
+			Bluesky_Domain_Handle::OPTION_PREVIOUS_HANDLE,
+			array(
+				'did'    => 'did:plc:other-account',
+				'handle' => 'somebody-else.bsky.social',
+			),
+			false
+		);
+
+		ob_start();
+		$this->provider->render_connection_actions();
+		$output = ob_get_clean();
+
+		$this->assertStringNotContainsString( 'Disconnecting will also restore', $output );
+		$this->assertStringNotContainsString( 'somebody-else.bsky.social', $output );
+	}
+
+	/**
 	 * Disconnect against an account that does NOT match the snapshot's DID
 	 * leaves the snapshot alone and runs no revert call — protects users
 	 * who reconnected to a different Bluesky account between set + disconnect.

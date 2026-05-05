@@ -108,7 +108,7 @@ class Setup_Page {
 		if ( $ok ) {
 			add_settings_error( 'fosse', 'fosse_saved', __( 'Settings saved.', 'fosse' ), 'success' );
 		}
-		set_transient( 'settings_errors', get_settings_errors(), 30 );
+		User_Notices::persist();
 
 		wp_safe_redirect( admin_url( 'admin.php?page=fosse&settings-updated=true' ) );
 		exit;

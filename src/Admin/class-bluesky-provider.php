@@ -258,7 +258,32 @@ class Bluesky_Provider implements Connection_Provider {
 				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
 					<input type="hidden" name="action" value="fosse_disconnect_bluesky" />
 					<input type="hidden" name="_wpnonce" value="<?php echo esc_attr( wp_create_nonce( 'fosse_disconnect_bluesky' ) ); ?>" />
-					<?php submit_button( __( 'Disconnect Bluesky', 'fosse' ), 'secondary' ); ?>
+					<?php
+					// Surface the planned handle-revert so users understand
+					// disconnect isn't just "log me out" when FOSSE previously
+					// changed their Bluesky handle. The disconnect handler
+					// runs the revert before dropping the OAuth token; if the
+					// snapshot belongs to a different DID (reconnect to a
+					// different account) the getter returns '' and the note
+					// is suppressed.
+					$pending_revert = Bluesky_Domain_Handle::get_pending_revert_handle();
+					if ( '' !== $pending_revert ) :
+						?>
+						<p class="description fosse-domain-handle-revert-note">
+							<?php
+							echo esc_html(
+								sprintf(
+									/* translators: %s: previous Bluesky handle that disconnect will restore (e.g. alice.bsky.social). */
+									__( 'Disconnecting will also restore your previous Bluesky handle (%s) on the account.', 'fosse' ),
+									$pending_revert
+								)
+							);
+							?>
+						</p>
+						<?php
+					endif;
+					submit_button( __( 'Disconnect Bluesky', 'fosse' ), 'secondary' );
+					?>
 				</form>
 			<?php endif; ?>
 		</div>
@@ -848,7 +873,7 @@ class Bluesky_Provider implements Connection_Provider {
 	 */
 	private function redirect_with_notice( string $message, string $type, string $return_context = '' ): void {
 		add_settings_error( 'atmosphere', 'fosse_bluesky_notice', $message, $type );
-		set_transient( 'settings_errors', get_settings_errors(), 30 );
+		User_Notices::persist();
 
 		wp_safe_redirect( $this->get_redirect_url( $return_context ) );
 		exit;
