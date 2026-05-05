@@ -238,6 +238,42 @@ class MenuTest extends BaseTestCase {
 		$this->assertNotFalse( get_option( Onboarding_Wizard::REDIRECT_OPTION ) );
 	}
 
+	// --- hidden wizard title ---
+
+	/**
+	 * Hidden wizard pages still need a core admin title before admin-header.php.
+	 */
+	public function test_sets_wizard_admin_title_when_missing(): void {
+		$old_title = $GLOBALS['title'] ?? null;
+
+		try {
+			$GLOBALS['title'] = null; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Test setup for core title global.
+
+			Menu::set_wizard_admin_title();
+
+			$this->assertSame( 'Setup Wizard', $GLOBALS['title'] );
+		} finally {
+			$GLOBALS['title'] = $old_title; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Restore core title global after test.
+		}
+	}
+
+	/**
+	 * Existing non-empty admin titles are preserved.
+	 */
+	public function test_preserves_existing_wizard_admin_title(): void {
+		$old_title = $GLOBALS['title'] ?? null;
+
+		try {
+			$GLOBALS['title'] = 'Existing Title'; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Test setup for core title global.
+
+			Menu::set_wizard_admin_title();
+
+			$this->assertSame( 'Existing Title', $GLOBALS['title'] );
+		} finally {
+			$GLOBALS['title'] = $old_title; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Restore core title global after test.
+		}
+	}
+
 	// --- notice suppression (#56) ---
 
 	/**
