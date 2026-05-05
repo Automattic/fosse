@@ -828,11 +828,13 @@ class Onboarding_Wizard {
 		$destinations = array(
 			self::DESTINATION_FEDIVERSE_BLUESKY => array(
 				'badge' => __( 'Recommended', 'fosse' ),
+				'icon'  => 'dashicons-share-alt2',
 				'title' => __( 'Fediverse + Bluesky', 'fosse' ),
 				'desc'  => __( 'Let people follow your site from Mastodon-compatible apps and publish eligible posts to Bluesky.', 'fosse' ),
 			),
 			self::DESTINATION_FEDIVERSE_ONLY    => array(
 				'badge' => __( 'Simple setup', 'fosse' ),
+				'icon'  => 'dashicons-admin-site-alt3',
 				'title' => __( 'Fediverse only', 'fosse' ),
 				'desc'  => __( 'Let people follow your site from Mastodon-compatible apps without setting up Bluesky in this wizard.', 'fosse' ),
 			),
@@ -859,6 +861,9 @@ class Onboarding_Wizard {
 								class="fosse-destination-card__input"
 								<?php checked( $value, $current_destination ); ?>
 							/>
+							<span class="fosse-destination-card__icon">
+								<span class="dashicons <?php echo esc_attr( $destination['icon'] ); ?>"></span>
+							</span>
 							<span class="fosse-destination-card__badge"><?php echo esc_html( $destination['badge'] ); ?></span>
 							<span class="fosse-destination-card__title"><?php echo esc_html( $destination['title'] ); ?></span>
 							<span class="fosse-destination-card__desc"><?php echo esc_html( $destination['desc'] ); ?></span>

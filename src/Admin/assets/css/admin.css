@@ -152,8 +152,47 @@
    ============================================= */
 
 .fosse-wizard {
-	max-width: 700px;
+	--fosse-wizard-accent: #3858e9;
+	--fosse-wizard-success: #39a95c;
+	--fosse-wizard-ink: #1f2933;
+	--fosse-wizard-muted: #5f6b76;
+	--fosse-wizard-border: #e1d8c8;
+	--fosse-wizard-panel: #fffaf2;
+	--fosse-wizard-surface: rgba(255, 255, 255, 0.88);
+
+	box-sizing: border-box;
+	isolation: isolate;
+	max-width: 760px;
 	margin: 0 auto;
+	padding: 34px 20px 56px;
+	position: relative;
+}
+
+.fosse-wizard::before {
+	background: radial-gradient(
+			circle at 15% 25%,
+			rgba(57, 169, 92, 0.18),
+			transparent 34%
+		),
+		radial-gradient(
+			circle at 88% 6%,
+			rgba(56, 88, 233, 0.15),
+			transparent 30%
+		),
+		linear-gradient(
+			135deg,
+			rgba(255, 250, 242, 0.95),
+			rgba(238, 246, 255, 0.56)
+		);
+	border-radius: 32px;
+	content: "";
+	height: 260px;
+	left: -56px;
+	pointer-events: none;
+	position: absolute;
+	right: -56px;
+	top: 14px;
+	z-index: -1;
 }
 
 /* Progress indicator */
@@ -161,8 +200,12 @@
 	display: flex;
 	align-items: center;
 	gap: 8px;
-	margin: 0 0 32px;
-	padding: 0;
+	margin: 0 0 46px;
+	padding: 13px 18px;
+	background: var(--fosse-wizard-surface);
+	border: 1px solid rgba(225, 216, 200, 0.9);
+	border-radius: 999px;
+	box-shadow: 0 18px 40px rgba(31, 41, 51, 0.08);
 	list-style: none;
 }
 
@@ -171,68 +214,72 @@
 	align-items: center;
 	gap: 4px;
 	font-size: 12px;
-	color: #949494;
+	color: #8a8f94;
 }
 
 .fosse-wizard__progress-step.is-active {
-	color: #3858e9;
-	font-weight: 500;
+	color: var(--fosse-wizard-accent);
+	font-weight: 600;
 }
 
 .fosse-wizard__progress-step.is-complete {
-	color: #4ab866;
+	color: var(--fosse-wizard-success);
+	font-weight: 600;
 }
 
 .fosse-wizard__progress-dot {
 	width: 8px;
 	height: 8px;
 	border-radius: 50%;
-	background: #ddd;
+	background: #d7d7d7;
 	flex-shrink: 0;
 }
 
 .fosse-wizard__progress-step.is-active .fosse-wizard__progress-dot {
-	background: #3858e9;
+	background: var(--fosse-wizard-accent);
+	box-shadow: 0 0 0 4px rgba(56, 88, 233, 0.12);
 	width: 10px;
 	height: 10px;
 }
 
 .fosse-wizard__progress-step.is-complete .fosse-wizard__progress-dot {
-	background: #4ab866;
+	background: var(--fosse-wizard-success);
 }
 
 .fosse-wizard__progress-line {
 	flex: 1;
 	height: 2px;
-	background: #ddd;
+	background: #dedede;
 }
 
 .fosse-wizard__progress-line.is-complete {
-	background: #4ab866;
+	background: var(--fosse-wizard-success);
 }
 
 /* Title and description */
 .fosse-wizard__title {
 	font-size: 32px;
-	font-weight: 500;
+	font-weight: 600;
 	line-height: 1.2;
+	color: var(--fosse-wizard-ink);
 	margin-bottom: 12px;
 }
 
 .fosse-wizard__description {
 	font-size: 15px;
-	color: #757575;
+	color: var(--fosse-wizard-muted);
 	line-height: 1.6;
-	margin-bottom: 32px;
+	margin-bottom: 34px;
 	max-width: 560px;
 }
 
 /* Main content card */
 .fosse-wizard__card {
 	background: #fff;
-	border: 1px solid #c3c4c7;
-	border-radius: 8px;
-	padding: 32px;
+	border: 1px solid var(--fosse-wizard-border);
+	border-radius: 18px;
+	box-shadow: 0 24px 55px rgba(31, 41, 51, 0.1);
+	padding: 34px;
 	margin-bottom: 24px;
 }
 
@@ -303,19 +350,24 @@
 	position: relative;
 	display: flex;
 	flex-direction: column;
-	min-height: 140px;
-	padding: 18px 20px;
-	border: 2px solid #dcdcde;
-	border-radius: 8px;
-	background: #fff;
+	min-height: 180px;
+	padding: 22px;
+	border: 2px solid #ddd5c7;
+	border-radius: 16px;
+	background: linear-gradient(180deg, #fff, var(--fosse-wizard-panel));
+	box-shadow: 0 12px 30px rgba(31, 41, 51, 0.06);
 	cursor: pointer;
 	transition:
 		border-color 0.15s ease,
-		background-color 0.15s ease;
+		background-color 0.15s ease,
+		box-shadow 0.15s ease,
+		transform 0.15s ease;
 }
 
 .fosse-destination-card:hover {
-	border-color: #a7aaad;
+	border-color: #b9ad99;
+	box-shadow: 0 16px 36px rgba(31, 41, 51, 0.09);
+	transform: translateY(-2px);
 }
 
 .fosse-destination-card__input {
@@ -325,15 +377,33 @@
 }
 
 .fosse-destination-card:has(.fosse-destination-card__input:checked) {
-	border-color: #3858e9;
-	background: #f7f9ff;
+	border-color: var(--fosse-wizard-accent);
+	background: linear-gradient(180deg, #fff, #f4f7ff);
 }
 
 .fosse-destination-card:has(.fosse-destination-card__input:focus-visible),
 .fosse-destination-card:focus-within {
-	border-color: #3858e9;
-	outline: 2px solid #3858e9;
+	border-color: var(--fosse-wizard-accent);
+	outline: 2px solid var(--fosse-wizard-accent);
 	outline-offset: 2px;
+}
+
+.fosse-destination-card__icon {
+	width: 44px;
+	height: 44px;
+	border-radius: 14px;
+	background: rgba(56, 88, 233, 0.08);
+	color: var(--fosse-wizard-accent);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	margin-bottom: 18px;
+}
+
+.fosse-destination-card__icon .dashicons {
+	font-size: 22px;
+	width: 22px;
+	height: 22px;
 }
 
 .fosse-destination-card__badge {
@@ -342,20 +412,21 @@
 	font-size: 11px;
 	font-weight: 600;
 	text-transform: uppercase;
-	color: #3858e9;
+	color: var(--fosse-wizard-accent);
+	letter-spacing: 0.02em;
 }
 
 .fosse-destination-card__title {
 	margin-bottom: 6px;
 	font-size: 17px;
 	font-weight: 600;
-	color: #1e1e1e;
+	color: var(--fosse-wizard-ink);
 }
 
 .fosse-destination-card__desc {
 	font-size: 13px;
 	line-height: 1.5;
-	color: #646970;
+	color: var(--fosse-wizard-muted);
 }
 
 .fosse-destination-card__check {
@@ -367,7 +438,7 @@
 
 .fosse-destination-card:has(.fosse-destination-card__input:checked)
 	.fosse-destination-card__check {
-	color: #3858e9;
+	color: var(--fosse-wizard-accent);
 }
 
 /* Actor mode cards */
@@ -382,16 +453,21 @@
 	display: flex;
 	align-items: flex-start;
 	gap: 16px;
-	padding: 16px 24px;
-	border: 2px solid #e0e0e0;
-	border-radius: 8px;
+	padding: 18px 24px;
+	border: 2px solid #e6e0d6;
+	border-radius: 14px;
 	cursor: pointer;
-	transition: border-color 0.15s ease;
+	transition:
+		border-color 0.15s ease,
+		box-shadow 0.15s ease,
+		transform 0.15s ease;
 	background: #fff;
 }
 
 .fosse-mode-card:hover {
-	border-color: #ccc;
+	border-color: #c7bdac;
+	box-shadow: 0 12px 26px rgba(31, 41, 51, 0.06);
+	transform: translateY(-1px);
 }
 
 /* Hide the real radio input */
@@ -403,14 +479,14 @@
 
 /* Selected state via :has(:checked) */
 .fosse-mode-card:has(.fosse-mode-card__input:checked) {
-	border-color: #3858e9;
-	background: rgba(56, 88, 233, 0.02);
+	border-color: var(--fosse-wizard-accent);
+	background: rgba(56, 88, 233, 0.03);
 }
 
 /* Keyboard focus state — radio is visually hidden, so surface focus on the card. */
 .fosse-mode-card:has(.fosse-mode-card__input:focus-visible) {
-	border-color: #3858e9;
-	outline: 2px solid #3858e9;
+	border-color: var(--fosse-wizard-accent);
+	outline: 2px solid var(--fosse-wizard-accent);
 	outline-offset: 2px;
 }
 
@@ -418,16 +494,16 @@
    Same outline treatment so keyboard navigation surfaces a focus ring on the
    card even when :focus-visible isn't honored on the visually-hidden radio. */
 .fosse-mode-card:focus-within {
-	border-color: #3858e9;
-	outline: 2px solid #3858e9;
+	border-color: var(--fosse-wizard-accent);
+	outline: 2px solid var(--fosse-wizard-accent);
 	outline-offset: 2px;
 }
 
 .fosse-mode-card__icon {
 	width: 40px;
 	height: 40px;
-	border-radius: 8px;
-	background: #f0f0f0;
+	border-radius: 12px;
+	background: #f5f2ec;
 	display: flex;
 	align-items: center;
 	justify-content: center;
@@ -443,13 +519,13 @@
 	font-size: 20px;
 	width: 20px;
 	height: 20px;
-	color: #757575;
+	color: var(--fosse-wizard-muted);
 }
 
 .fosse-mode-card:has(.fosse-mode-card__input:checked)
 	.fosse-mode-card__icon
 	.dashicons {
-	color: #3858e9;
+	color: var(--fosse-wizard-accent);
 }
 
 .fosse-mode-card__content {
@@ -458,13 +534,14 @@
 
 .fosse-mode-card__title {
 	font-size: 15px;
-	font-weight: 500;
+	font-weight: 600;
+	color: var(--fosse-wizard-ink);
 	margin-bottom: 4px;
 }
 
 .fosse-mode-card__desc {
 	font-size: 13px;
-	color: #757575;
+	color: var(--fosse-wizard-muted);
 	line-height: 1.5;
 }
 
@@ -482,13 +559,13 @@
 	font-size: 24px;
 	width: 24px;
 	height: 24px;
-	color: #ddd;
+	color: #d7d7d7;
 }
 
 .fosse-mode-card:has(.fosse-mode-card__input:checked)
 	.fosse-mode-card__check
 	.dashicons {
-	color: #3858e9;
+	color: var(--fosse-wizard-accent);
 }
 
 /* Fediverse address preview */
@@ -496,22 +573,23 @@
 	display: flex;
 	align-items: center;
 	gap: 8px;
-	background: #f0f0f0;
-	border-radius: 4px;
-	padding: 12px 16px;
+	background: #f6f2eb;
+	border: 1px solid #ebe2d3;
+	border-radius: 10px;
+	padding: 13px 16px;
 	font-size: 13px;
 }
 
 .fosse-address-preview__label {
-	color: #757575;
+	color: var(--fosse-wizard-muted);
 }
 
 .fosse-address-preview__address {
 	font-size: 12px;
 	background: #fff;
 	padding: 4px 8px;
-	border-radius: 2px;
-	border: 1px solid #e0e0e0;
+	border-radius: 6px;
+	border: 1px solid #e2d8c8;
 }
 
 /* Wizard Appearance step swaps which fediverse-address preview is visible
@@ -740,11 +818,26 @@
 	.fosse-wizard {
 		max-width: none;
 		margin: 0;
+		padding: 24px 12px 40px;
+	}
+
+	.fosse-wizard::before {
+		border-radius: 24px;
+		left: -12px;
+		right: -12px;
+		top: 8px;
 	}
 
 	.fosse-wizard__progress {
 		flex-wrap: wrap;
+		margin-bottom: 30px;
+		padding: 12px;
+		border-radius: 22px;
 		row-gap: 10px;
+	}
+
+	.fosse-wizard__progress-step {
+		flex: 1 1 auto;
 	}
 
 	.fosse-wizard__progress-line {
@@ -753,6 +846,10 @@
 
 	.fosse-wizard__card {
 		padding: 24px;
+	}
+
+	.fosse-destination-card {
+		min-height: 0;
 	}
 
 	.fosse-destination-cards {
