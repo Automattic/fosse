@@ -80,7 +80,7 @@ class Menu {
 		// preserving a real admin URL. (PHP 8.2 deprecates passing null
 		// through plugin_basename() inside add_submenu_page(), so we keep
 		// the empty-string form rather than the documented null idiom.)
-		add_submenu_page(
+		$wizard_hook = add_submenu_page(
 			'',
 			__( 'Setup Wizard', 'fosse' ),
 			__( 'Setup Wizard', 'fosse' ),
@@ -88,6 +88,29 @@ class Menu {
 			'fosse-wizard',
 			array( Onboarding_Wizard::class, 'render' )
 		);
+
+		if ( false !== $wizard_hook ) {
+			add_action( "load-{$wizard_hook}", array( static::class, 'set_wizard_admin_title' ) );
+		}
+	}
+
+	/**
+	 * Provide a title for the hidden wizard screen before admin-header.php runs.
+	 *
+	 * WordPress core's admin header calls `strip_tags( $title )`. Hidden
+	 * submenu pages registered under an empty parent can leave `$title` null
+	 * on newer Playground builds, which emits a PHP 8.3 deprecation before
+	 * headers are sent. Setting the core global on the screen's `load-*` hook
+	 * keeps the page title intact and prevents the follow-on header warnings.
+	 *
+	 * @return void
+	 */
+	public static function set_wizard_admin_title(): void {
+		global $title;
+
+		if ( ! is_string( $title ) || '' === $title ) {
+			$title = __( 'Setup Wizard', 'fosse' ); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Core expects this global before admin-header.php renders.
+		}
 	}
 
 	/**

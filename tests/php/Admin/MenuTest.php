@@ -238,6 +238,75 @@ class MenuTest extends BaseTestCase {
 		$this->assertNotFalse( get_option( Onboarding_Wizard::REDIRECT_OPTION ) );
 	}
 
+	// --- hidden wizard title ---
+
+	/**
+	 * Hidden wizard pages still need a core admin title before admin-header.php.
+	 *
+	 * Hooks `gettext` to confirm the title goes through `__()` with the
+	 * `fosse` text domain — asserting the rendered string alone wouldn't
+	 * catch a regression that dropped the wrapper, since wrapped and
+	 * unwrapped paths produce identical output in a no-translation env.
+	 */
+	public function test_sets_wizard_admin_title_when_missing(): void {
+		$had_title = array_key_exists( 'title', $GLOBALS );
+		$old_title = $GLOBALS['title'] ?? null;
+
+		$captured = array();
+		$capture  = static function ( $translation, $text, $domain ) use ( &$captured ) {
+			$captured[ $text ] = $domain;
+			return $translation;
+		};
+		add_filter( 'gettext', $capture, 10, 3 );
+
+		try {
+			$GLOBALS['title'] = null; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Test setup for core title global.
+
+			Menu::set_wizard_admin_title();
+
+			$this->assertSame( __( 'Setup Wizard', 'fosse' ), $GLOBALS['title'] );
+			$this->assertSame(
+				'fosse',
+				$captured['Setup Wizard'] ?? null,
+				'Wizard title must call __() with the fosse text domain.'
+			);
+		} finally {
+			remove_filter( 'gettext', $capture, 10 );
+
+			// `?? null` can't distinguish an absent key from a null value, so
+			// only restore the original value when the key existed; otherwise
+			// drop the key we just introduced to avoid leaking state into
+			// later tests.
+			if ( $had_title ) {
+				$GLOBALS['title'] = $old_title; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Restore core title global after test.
+			} else {
+				unset( $GLOBALS['title'] );
+			}
+		}
+	}
+
+	/**
+	 * Existing non-empty admin titles are preserved.
+	 */
+	public function test_preserves_existing_wizard_admin_title(): void {
+		$had_title = array_key_exists( 'title', $GLOBALS );
+		$old_title = $GLOBALS['title'] ?? null;
+
+		try {
+			$GLOBALS['title'] = 'Existing Title'; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Test setup for core title global.
+
+			Menu::set_wizard_admin_title();
+
+			$this->assertSame( 'Existing Title', $GLOBALS['title'] );
+		} finally {
+			if ( $had_title ) {
+				$GLOBALS['title'] = $old_title; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Restore core title global after test.
+			} else {
+				unset( $GLOBALS['title'] );
+			}
+		}
+	}
+
 	// --- notice suppression (#56) ---
 
 	/**
