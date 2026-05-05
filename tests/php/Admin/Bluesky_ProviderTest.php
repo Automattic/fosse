@@ -1425,7 +1425,9 @@ class Bluesky_ProviderTest extends BaseTestCase {
 
 		$this->assertNotFalse( has_action( 'admin_post_fosse_connect_bluesky', array( $this->provider, 'handle_connect' ) ) );
 		$this->assertNotFalse( has_action( 'admin_post_fosse_disconnect_bluesky', array( $this->provider, 'handle_disconnect' ) ) );
+		$this->assertNotFalse( has_action( 'admin_post_fosse_enable_bluesky_auto_publish', array( $this->provider, 'handle_enable_auto_publish' ) ) );
 		$this->assertNotFalse( has_action( 'admin_init', array( $this->provider, 'handle_oauth_callback' ) ) );
+		$this->assertNotFalse( has_action( 'admin_notices', array( $this->provider, 'maybe_render_auto_publish_disabled_notice' ) ) );
 		$this->assertSame( 1, has_action( 'init', array( $this->provider, 'serve_atproto_did_well_known' ) ) );
 		$this->assertSame( 1, has_action( 'template_redirect', array( $this->provider, 'maybe_suppress_atmosphere_well_known' ) ) );
 		$this->assertNotFalse( has_filter( 'atmosphere_oauth_redirect_uri', array( $this->provider, 'filter_oauth_redirect_uri' ) ) );
@@ -1460,6 +1462,226 @@ class Bluesky_ProviderTest extends BaseTestCase {
 
 		$this->assertTrue( $ok );
 		$this->assertSame( '1', get_option( 'atmosphere_auto_publish' ) );
+	}
+
+	/**
+	 * Pins the upstream contract that FOSSE's "preserved option" claim
+	 * depends on: when `atmosphere_auto_publish` is absent from the
+	 * database, `get_option()` returns `'1'` (auto-publish enabled).
+	 * Atmosphere's publish hook reads the option with the same default,
+	 * so an absent option is functionally equivalent to "on."
+	 *
+	 * If a future Atmosphere bump flips the documented default, or if
+	 * something registers the option with a different default at
+	 * `register_setting()` time, this assertion catches the contract
+	 * change before it silently disables Bluesky publishing for every
+	 * default-state site.
+	 */
+	public function test_absent_atmosphere_auto_publish_option_defaults_to_enabled() {
+		delete_option( 'atmosphere_auto_publish' );
+
+		$this->assertFalse(
+			get_option( 'atmosphere_auto_publish' ),
+			'Sanity check: option should be absent so the default-fallback path runs.'
+		);
+		$this->assertSame(
+			'1',
+			get_option( 'atmosphere_auto_publish', '1' ),
+			'FOSSE removed the auto-publish UI on the assumption that an absent option reads as enabled. If this assertion fails, the assumption is no longer safe and the recovery notice / handler in Bluesky_Provider must be reconsidered.'
+		);
+	}
+
+	// --- maybe_render_auto_publish_disabled_notice ----------------------
+
+	/**
+	 * Notice fires when the option is explicitly `'0'` and Bluesky is
+	 * connected, on a FOSSE admin screen, for a user who can manage
+	 * options. Renders a warning notice with a one-click re-enable form.
+	 */
+	public function test_auto_publish_disabled_notice_renders_when_explicitly_off() {
+		$this->seed_connected_atmosphere_connection();
+		update_option( 'atmosphere_auto_publish', '0' );
+		$this->become_admin();
+		set_current_screen( 'toplevel_page_fosse' );
+
+		ob_start();
+		$this->provider->maybe_render_auto_publish_disabled_notice();
+		$output = ob_get_clean();
+
+		$this->assertStringContainsString( 'notice notice-warning', $output );
+		$this->assertStringContainsString( 'Bluesky auto-publishing is off.', $output );
+		$this->assertStringContainsString( 'fosse_enable_bluesky_auto_publish', $output );
+		$this->assertStringContainsString( 'Turn auto-publishing back on', $output );
+	}
+
+	/**
+	 * Notice does NOT fire when the option is at its absent / default-on
+	 * state — that's the silent-majority path and would be noise.
+	 */
+	public function test_auto_publish_disabled_notice_silent_when_option_absent() {
+		$this->seed_connected_atmosphere_connection();
+		delete_option( 'atmosphere_auto_publish' );
+		$this->become_admin();
+		set_current_screen( 'toplevel_page_fosse' );
+
+		ob_start();
+		$this->provider->maybe_render_auto_publish_disabled_notice();
+		$output = ob_get_clean();
+
+		$this->assertSame( '', trim( $output ) );
+	}
+
+	/**
+	 * Notice does NOT fire when the option is explicitly `'1'` — same
+	 * default-on intent, just with the option materialized.
+	 */
+	public function test_auto_publish_disabled_notice_silent_when_explicitly_on() {
+		$this->seed_connected_atmosphere_connection();
+		update_option( 'atmosphere_auto_publish', '1' );
+		$this->become_admin();
+		set_current_screen( 'toplevel_page_fosse' );
+
+		ob_start();
+		$this->provider->maybe_render_auto_publish_disabled_notice();
+		$output = ob_get_clean();
+
+		$this->assertSame( '', trim( $output ) );
+	}
+
+	/**
+	 * Notice does NOT fire on non-FOSSE screens — even when the user is
+	 * in the at-risk state, we limit the surface to avoid leaking across
+	 * wp-admin.
+	 */
+	public function test_auto_publish_disabled_notice_silent_off_fosse_screens() {
+		$this->seed_connected_atmosphere_connection();
+		update_option( 'atmosphere_auto_publish', '0' );
+		$this->become_admin();
+		set_current_screen( 'dashboard' );
+
+		ob_start();
+		$this->provider->maybe_render_auto_publish_disabled_notice();
+		$output = ob_get_clean();
+
+		$this->assertSame( '', trim( $output ) );
+	}
+
+	/**
+	 * Notice does NOT fire when Bluesky is disconnected — there's nothing
+	 * for auto-publish to do anyway, so the notice would be misleading.
+	 */
+	public function test_auto_publish_disabled_notice_silent_when_disconnected() {
+		// No `seed_connected_atmosphere_connection()` — disconnected.
+		update_option( 'atmosphere_auto_publish', '0' );
+		$this->become_admin();
+		set_current_screen( 'toplevel_page_fosse' );
+
+		ob_start();
+		$this->provider->maybe_render_auto_publish_disabled_notice();
+		$output = ob_get_clean();
+
+		$this->assertSame( '', trim( $output ) );
+	}
+
+	/**
+	 * Notice does NOT fire for users without `manage_options`.
+	 */
+	public function test_auto_publish_disabled_notice_silent_for_subscriber() {
+		$this->seed_connected_atmosphere_connection();
+		update_option( 'atmosphere_auto_publish', '0' );
+		set_current_screen( 'toplevel_page_fosse' );
+
+		$this->become_subscriber();
+
+		ob_start();
+		$this->provider->maybe_render_auto_publish_disabled_notice();
+		$output = ob_get_clean();
+
+		$this->assertSame( '', trim( $output ) );
+	}
+
+	// --- handle_enable_auto_publish -----------------------------------
+
+	/**
+	 * The re-enable handler flips the option to `'1'` and redirects with
+	 * a success notice, recovering sites stranded by the toggle removal.
+	 */
+	public function test_handle_enable_auto_publish_flips_option_and_redirects() {
+		$this->seed_connected_atmosphere_connection();
+		update_option( 'atmosphere_auto_publish', '0' );
+		$this->become_admin();
+
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
+		$_POST    = array(
+			'_wpnonce' => wp_create_nonce( 'fosse_enable_bluesky_auto_publish' ),
+		);
+		$_REQUEST = $_POST;
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+
+		add_filter(
+			'wp_redirect',
+			static function () {
+				throw new RedirectFired( 'redirect' );
+			}
+		);
+
+		try {
+			$this->provider->handle_enable_auto_publish();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$this->assertSame( '1', get_option( 'atmosphere_auto_publish' ) );
+	}
+
+	/**
+	 * Re-enable handler rejects requests with a missing or invalid nonce.
+	 */
+	public function test_handle_enable_auto_publish_rejects_bad_nonce() {
+		$this->seed_connected_atmosphere_connection();
+		update_option( 'atmosphere_auto_publish', '0' );
+		$this->become_admin();
+
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
+		$_POST    = array(
+			'_wpnonce' => 'invalid_nonce_value',
+		);
+		$_REQUEST = $_POST;
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+
+		$this->install_wp_die_handler();
+		$this->expectException( \RuntimeException::class );
+		$this->provider->handle_enable_auto_publish();
+	}
+
+	/**
+	 * Re-enable handler rejects subscribers — option must not change for
+	 * users without `manage_options`.
+	 */
+	public function test_handle_enable_auto_publish_rejects_subscriber() {
+		$this->seed_connected_atmosphere_connection();
+		update_option( 'atmosphere_auto_publish', '0' );
+
+		$this->become_subscriber();
+
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
+		$_POST    = array(
+			'_wpnonce' => wp_create_nonce( 'fosse_enable_bluesky_auto_publish' ),
+		);
+		$_REQUEST = $_POST;
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+
+		$this->install_wp_die_handler();
+		$this->expectException( \RuntimeException::class );
+		try {
+			$this->provider->handle_enable_auto_publish();
+		} finally {
+			$this->assertSame(
+				'0',
+				get_option( 'atmosphere_auto_publish' ),
+				'Subscriber must not be able to flip the option.'
+			);
+		}
 	}
 
 	/**
