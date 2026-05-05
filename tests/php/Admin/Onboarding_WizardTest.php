@@ -1269,7 +1269,8 @@ class Onboarding_WizardTest extends BaseTestCase {
 	}
 
 	/**
-	 * The publish CTA's helper paragraph reflects the selected destinations.
+	 * The publish CTA's helper paragraph reflects the selected destinations
+	 * when Bluesky has not been connected yet.
 	 */
 	public function test_render_complete_step_cta_uses_destination_specific_language(): void {
 		Onboarding_Wizard::mark_complete();
@@ -1281,6 +1282,44 @@ class Onboarding_WizardTest extends BaseTestCase {
 			$output,
 			'The publish CTA helper copy must describe the selected destinations.'
 		);
+	}
+
+	/**
+	 * The publish CTA helper reflects active Bluesky publishing even when the
+	 * latest wizard run selected Fediverse-only onboarding.
+	 */
+	public function test_render_complete_step_cta_mentions_connected_bluesky_for_fediverse_only_destination(): void {
+		Onboarding_Wizard::mark_complete();
+		update_option( Onboarding_Wizard::DESTINATION_OPTION, 'fediverse_only' );
+		$this->seed_bluesky_connection( 'alice.bsky.social', 'did:plc:alice123' );
+
+		$output = $this->render_wizard_step( 'complete' );
+
+		$this->assertMatchesRegularExpression(
+			'~<p[^>]*class="[^"]*fosse-wizard__cta-help[^"]*"[^>]*>[^<]*Mastodon-compatible apps and Bluesky\.~i',
+			$output,
+			'The publish CTA helper copy must mention Bluesky when existing settings will publish there.'
+		);
+	}
+
+	/**
+	 * A connected Bluesky account with auto-publishing disabled should not make
+	 * the publish CTA helper promise that the next post will reach Bluesky.
+	 */
+	public function test_render_complete_step_cta_explains_disabled_bluesky_auto_publish(): void {
+		Onboarding_Wizard::mark_complete();
+		update_option( Onboarding_Wizard::DESTINATION_OPTION, 'fediverse_only' );
+		update_option( 'atmosphere_auto_publish', '0' );
+		$this->seed_bluesky_connection( 'alice.bsky.social', 'did:plc:alice123' );
+
+		$output = $this->render_wizard_step( 'complete' );
+
+		$this->assertMatchesRegularExpression(
+			'~<p[^>]*class="[^"]*fosse-wizard__cta-help[^"]*"[^>]*>[^<]*automatic publishing is off\.~i',
+			$output,
+			'The publish CTA helper copy must explain why a connected account will not receive the next post.'
+		);
+		$this->assertStringNotContainsString( 'Mastodon-compatible apps and Bluesky.', $output );
 	}
 
 	/**

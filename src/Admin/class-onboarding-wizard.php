@@ -1368,6 +1368,7 @@ class Onboarding_Wizard {
 		$destination       = self::get_destination();
 		$includes_bluesky  = self::DESTINATION_FEDIVERSE_BLUESKY === $destination;
 		$destination_label = self::get_destination_label( $destination );
+		$publishes_bluesky = $bluesky['connected'] && $bluesky['auto_publish'];
 
 		$handles     = self::get_handle_previews( $actor_mode );
 		$user_handle = $handles['user'] ?? '';
@@ -1444,6 +1445,15 @@ class Onboarding_Wizard {
 
 		<?php
 		$cta = self::resolve_publish_cta( $post_types );
+		if ( $publishes_bluesky ) {
+			$cta_help = __( 'Your post will reach followers across Mastodon-compatible apps and Bluesky.', 'fosse' );
+		} elseif ( $bluesky['connected'] ) {
+			$cta_help = __( 'Your post will reach followers across Mastodon-compatible apps. Bluesky is connected, but automatic publishing is off.', 'fosse' );
+		} elseif ( $includes_bluesky ) {
+			$cta_help = __( 'Your post will reach followers across Mastodon-compatible apps and Bluesky if connected.', 'fosse' );
+		} else {
+			$cta_help = __( 'Your post will reach followers across Mastodon-compatible apps.', 'fosse' );
+		}
 		?>
 		<div class="fosse-wizard__actions fosse-wizard__actions--center">
 			<a href="<?php echo esc_url( $cta['url'] ); ?>" class="button button-primary button-hero fosse-wizard__cta-publish">
@@ -1452,13 +1462,7 @@ class Onboarding_Wizard {
 		</div>
 
 		<p class="fosse-wizard__cta-help">
-			<?php
-			echo esc_html(
-				$includes_bluesky
-					? __( 'Your post will reach followers across Mastodon-compatible apps and Bluesky if connected.', 'fosse' )
-					: __( 'Your post will reach followers across Mastodon-compatible apps.', 'fosse' )
-			);
-			?>
+			<?php echo esc_html( $cta_help ); ?>
 		</p>
 
 		<div class="fosse-wizard__actions fosse-wizard__actions--center fosse-wizard__actions--secondary">
