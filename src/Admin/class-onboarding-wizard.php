@@ -840,7 +840,7 @@ class Onboarding_Wizard {
 		?>
 		<h1 class="fosse-wizard__title"><?php esc_html_e( 'Where should your WordPress posts appear?', 'fosse' ); ?></h1>
 		<p class="fosse-wizard__description">
-			<?php esc_html_e( 'Choose where FOSSE should share your posts. You can change this later in FOSSE Settings.', 'fosse' ); ?>
+			<?php esc_html_e( 'Choose where FOSSE should share your posts. You can connect Bluesky or change these settings later from FOSSE Settings.', 'fosse' ); ?>
 		</p>
 
 		<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
