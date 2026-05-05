@@ -253,12 +253,81 @@ class Bluesky_Provider implements Connection_Provider {
 					</tr>
 				</table>
 
+				<?php $this->render_domain_handle_panel( $status ); ?>
+
 				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
 					<input type="hidden" name="action" value="fosse_disconnect_bluesky" />
 					<input type="hidden" name="_wpnonce" value="<?php echo esc_attr( wp_create_nonce( 'fosse_disconnect_bluesky' ) ); ?>" />
 					<?php submit_button( __( 'Disconnect Bluesky', 'fosse' ), 'secondary' ); ?>
 				</form>
 			<?php endif; ?>
+		</div>
+		<?php
+	}
+
+	/**
+	 * Render the "use my domain as my Bluesky handle" panel.
+	 *
+	 * Surfaces the explicit confirm button on the Bluesky settings panel
+	 * and the wizard's connected-state Bluesky step. Always shows the
+	 * current handle alongside the target so the user understands the
+	 * trade — clicking the button replaces their handle and the old one
+	 * stops resolving.
+	 *
+	 * @param array<string, mixed> $status Bluesky provider status snapshot.
+	 * @return void
+	 */
+	public function render_domain_handle_panel( array $status ): void {
+		if ( ! Bluesky_Domain_Handle::should_offer( $status ) ) {
+			return;
+		}
+
+		$current = isset( $status['handle'] ) ? (string) $status['handle'] : '';
+		$target  = Bluesky_Domain_Handle::get_target_handle();
+		?>
+		<div class="fosse-domain-handle-panel">
+			<h4><?php esc_html_e( 'Use your domain as your Bluesky handle', 'fosse' ); ?></h4>
+			<p>
+				<?php
+				if ( '' !== $current ) {
+					echo esc_html(
+						sprintf(
+							/* translators: 1: current Bluesky handle (e.g. alice.bsky.social); 2: target handle = site host (e.g. example.com). */
+							__( 'Your current Bluesky handle is %1$s. Click the button below to replace it with %2$s.', 'fosse' ),
+							$current,
+							$target
+						)
+					);
+				} else {
+					echo esc_html(
+						sprintf(
+							/* translators: %s: target handle = site host (e.g. example.com). */
+							__( 'Click the button below to set your Bluesky handle to %s.', 'fosse' ),
+							$target
+						)
+					);
+				}
+				?>
+			</p>
+			<p class="description">
+				<?php esc_html_e( 'Heads up: replacing your handle is destructive. Your previous handle will stop resolving immediately, and links to it will break. Bluesky verifies the new handle through this site automatically.', 'fosse' ); ?>
+			</p>
+			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+				<input type="hidden" name="action" value="fosse_set_bluesky_domain_handle" />
+				<input type="hidden" name="_wpnonce" value="<?php echo esc_attr( wp_create_nonce( 'fosse_set_bluesky_domain_handle' ) ); ?>" />
+				<?php
+				submit_button(
+					sprintf(
+						/* translators: %s: target handle = site host (e.g. example.com). */
+						__( 'Use %s as my Bluesky handle', 'fosse' ),
+						$target
+					),
+					'secondary',
+					'submit',
+					false
+				);
+				?>
+			</form>
 		</div>
 		<?php
 	}
@@ -358,6 +427,7 @@ class Bluesky_Provider implements Connection_Provider {
 	public function register_hooks(): void {
 		add_action( 'admin_post_fosse_connect_bluesky', array( $this, 'handle_connect' ) );
 		add_action( 'admin_post_fosse_disconnect_bluesky', array( $this, 'handle_disconnect' ) );
+		add_action( 'admin_post_fosse_set_bluesky_domain_handle', array( $this, 'handle_set_domain_handle' ) );
 		add_action( 'admin_init', array( $this, 'handle_oauth_callback' ) );
 		add_action( 'init', array( $this, 'serve_atproto_did_well_known' ), 1 );
 		add_action( 'template_redirect', array( $this, 'maybe_suppress_atmosphere_well_known' ), 1 );
@@ -591,6 +661,14 @@ class Bluesky_Provider implements Connection_Provider {
 
 		check_admin_referer( 'fosse_disconnect_bluesky' );
 
+		// Best-effort handle revert BEFORE the disconnect drops the OAuth
+		// token: if FOSSE previously set the handle to the site domain,
+		// restore the snapshotted previous handle while we still have a
+		// valid access token. The call posts a notice on the way out;
+		// disconnect proceeds regardless of result so a token-revoked or
+		// network-failed revert can't trap the user in a connected state.
+		Bluesky_Domain_Handle::maybe_revert_on_disconnect();
+
 		\Atmosphere\OAuth\Client::disconnect();
 
 		// Disconnect orphans any in-flight wizard return marker; clear it so
@@ -609,6 +687,37 @@ class Bluesky_Provider implements Connection_Provider {
 		}
 
 		$this->redirect_with_notice( __( 'Disconnected from Bluesky.', 'fosse' ), 'info' );
+	}
+
+	/**
+	 * Handle the explicit "use my domain as my Bluesky handle" submission.
+	 *
+	 * Posted from the wizard's connected-state confirm button or the FOSSE
+	 * Settings page. Verifies capability + nonce, defers to
+	 * {@see Bluesky_Domain_Handle::set_handle()} for the actual call, then
+	 * redirects back to the originating screen with a settings notice
+	 * already populated by Bluesky_Domain_Handle.
+	 *
+	 * Always requires explicit user confirmation; there is no auto-set
+	 * path. Changing a Bluesky handle is destructive (the old handle stops
+	 * resolving), so this remains a deliberate user action regardless of
+	 * how the host environment is configured.
+	 *
+	 * @return void
+	 */
+	public function handle_set_domain_handle(): void {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( esc_html__( 'You do not have permission to do this.', 'fosse' ) );
+		}
+
+		check_admin_referer( 'fosse_set_bluesky_domain_handle' );
+
+		$return_context = $this->get_connect_return_context();
+
+		Bluesky_Domain_Handle::set_handle();
+
+		wp_safe_redirect( $this->get_redirect_url( $return_context ) );
+		exit;
 	}
 
 	/**

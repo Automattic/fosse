@@ -8,6 +8,7 @@
 namespace Automattic\Fosse\Tests\Admin;
 
 use Atmosphere\OAuth\Encryption;
+use Automattic\Fosse\Admin\Bluesky_Domain_Handle;
 use Automattic\Fosse\Admin\Bluesky_Provider;
 use Automattic\Fosse\Admin\Connection_Provider_Registry;
 use Automattic\Fosse\Provider_Loader;
@@ -49,17 +50,22 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		Connection_Provider_Registry::reset();
 		delete_option( 'atmosphere_connection' );
 		delete_option( 'atmosphere_auto_publish' );
+		delete_option( Bluesky_Domain_Handle::OPTION_PREVIOUS_HANDLE );
 
 		remove_all_filters( 'fosse_register_providers' );
 		remove_all_filters( 'atmosphere_oauth_redirect_uri' );
 		remove_all_filters( 'wp_redirect' );
 		remove_all_filters( 'admin_post_fosse_connect_bluesky' );
 		remove_all_filters( 'admin_post_fosse_disconnect_bluesky' );
+		remove_all_filters( 'admin_post_fosse_set_bluesky_domain_handle' );
 		remove_all_filters( 'admin_init' );
 		remove_all_filters( 'fosse_serve_atproto_did_well_known' );
 		remove_all_filters( 'status_header' );
 		remove_all_filters( 'pre_http_request' );
 		remove_all_filters( 'pre_option_atmosphere_connection' );
+		remove_all_filters( Bluesky_Domain_Handle::FILTER_ENABLED );
+		remove_all_filters( Bluesky_Domain_Handle::FILTER_PRE_UPDATE );
+		remove_all_filters( 'home_url' );
 
 		global $wp_settings_errors;
 		$wp_settings_errors = array(); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited,WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedVariableFound -- reset core settings-error storage for test isolation.
@@ -1752,5 +1758,334 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		);
 
 		wp_set_current_user( $user_id );
+	}
+
+	// ---- domain-handle integration: explicit confirm flow ----
+
+	/**
+	 * Force home_url() to a fixed value so domain-handle assertions are stable.
+	 *
+	 * @param string $url Forced URL.
+	 * @return void
+	 */
+	private function force_home_url( string $url ): void {
+		add_filter(
+			'home_url',
+			static function ( $existing, $path ) use ( $url ) { // phpcs:ignore VariableAnalysis.CodeAnalysis.VariableAnalysis.UnusedVariable -- filter signature.
+				return rtrim( $url, '/' ) . ( '' === $path ? '' : $path );
+			},
+			10,
+			2
+		);
+	}
+
+	/**
+	 * Settings panel surfaces the confirm button when the user is connected
+	 * with a non-matching handle on a root install.
+	 */
+	public function test_render_connection_actions_renders_domain_handle_panel_when_eligible(): void {
+		$this->force_home_url( 'https://example.com' );
+		$this->seed_connected_atmosphere_connection();
+
+		ob_start();
+		$this->provider->render_connection_actions();
+		$output = ob_get_clean();
+
+		$this->assertStringContainsString( 'fosse_set_bluesky_domain_handle', $output );
+		$this->assertStringContainsString( 'Use example.com as my Bluesky handle', $output );
+		$this->assertStringContainsString( 'Heads up: replacing your handle is destructive', $output );
+	}
+
+	/**
+	 * Settings panel suppresses the confirm button when the feature is disabled.
+	 */
+	public function test_render_connection_actions_omits_panel_when_feature_disabled(): void {
+		$this->force_home_url( 'https://example.com' );
+		$this->seed_connected_atmosphere_connection();
+		add_filter( Bluesky_Domain_Handle::FILTER_ENABLED, '__return_false' );
+
+		ob_start();
+		$this->provider->render_connection_actions();
+		$output = ob_get_clean();
+
+		$this->assertStringNotContainsString( 'fosse_set_bluesky_domain_handle', $output );
+	}
+
+	/**
+	 * Subdirectory installs do not render the confirm panel.
+	 */
+	public function test_render_connection_actions_omits_panel_for_subdirectory_install(): void {
+		$this->force_home_url( 'https://example.com/blog' );
+		$this->seed_connected_atmosphere_connection();
+
+		ob_start();
+		$this->provider->render_connection_actions();
+		$output = ob_get_clean();
+
+		$this->assertStringNotContainsString( 'fosse_set_bluesky_domain_handle', $output );
+	}
+
+	/**
+	 * The confirm panel disappears once the handle already matches the host.
+	 */
+	public function test_render_connection_actions_omits_panel_when_handle_already_matches(): void {
+		$this->force_home_url( 'https://example.com' );
+		update_option(
+			'atmosphere_connection',
+			array(
+				'did'          => 'did:plc:test123',
+				'handle'       => 'example.com',
+				'pds_endpoint' => 'https://bsky.social',
+				'access_token' => Encryption::encrypt( 'token' ),
+			)
+		);
+
+		ob_start();
+		$this->provider->render_connection_actions();
+		$output = ob_get_clean();
+
+		$this->assertStringNotContainsString( 'fosse_set_bluesky_domain_handle', $output );
+	}
+
+	/**
+	 * The handle-set handler delegates to Bluesky_Domain_Handle and redirects
+	 * back to the FOSSE Settings page on a normal (non-wizard) submission.
+	 */
+	public function test_handle_set_domain_handle_invokes_service_and_redirects(): void {
+		// Don't force a custom home_url here: wp_safe_redirect() validates the
+		// admin_url host against the allowed hosts derived from home_url, and
+		// a forced home_url with the default admin_url would mismatch and
+		// fall back to a bare wp-admin redirect. The set_handle service is
+		// exercised under a forced home_url in Bluesky_Domain_HandleTest.
+		$this->seed_connected_atmosphere_connection();
+		$this->become_admin();
+
+		$site_host = wp_parse_url( home_url(), PHP_URL_HOST );
+
+		$captured_handle = null;
+		add_filter(
+			Bluesky_Domain_Handle::FILTER_PRE_UPDATE,
+			static function ( $pre, $handle ) use ( &$captured_handle ) { // phpcs:ignore VariableAnalysis.CodeAnalysis.VariableAnalysis.UnusedVariable -- filter signature.
+				$captured_handle = $handle;
+				return true;
+			},
+			10,
+			2
+		);
+
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
+		$_POST    = array(
+			'_wpnonce' => wp_create_nonce( 'fosse_set_bluesky_domain_handle' ),
+		);
+		$_REQUEST = $_POST;
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+
+		$captured_redirect = null;
+		add_filter(
+			'wp_redirect',
+			static function ( $location ) use ( &$captured_redirect ) {
+				$captured_redirect = (string) $location;
+				throw new RedirectFired( 'redirect' );
+			}
+		);
+
+		try {
+			$this->provider->handle_set_domain_handle();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$this->assertSame( $site_host, $captured_handle );
+		$this->assertNotNull( $captured_redirect );
+		$this->assertStringContainsString( 'page=fosse', $captured_redirect );
+		$this->assertStringNotContainsString( 'page=fosse-wizard', $captured_redirect );
+		$this->assertSame( 'alice.bsky.social', get_option( Bluesky_Domain_Handle::OPTION_PREVIOUS_HANDLE ) );
+	}
+
+	/**
+	 * The handle-set handler returns to the wizard when the wizard return
+	 * context was carried in the form payload.
+	 */
+	public function test_handle_set_domain_handle_redirects_to_wizard_when_wizard_origin(): void {
+		// See note in test_handle_set_domain_handle_invokes_service_and_redirects
+		// — leaving home_url default avoids the wp_safe_redirect host-mismatch
+		// fallback path.
+		$this->seed_connected_atmosphere_connection();
+		$this->become_admin();
+
+		add_filter( Bluesky_Domain_Handle::FILTER_PRE_UPDATE, '__return_true' );
+
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
+		$_POST    = array(
+			'_wpnonce'                             => wp_create_nonce( 'fosse_set_bluesky_domain_handle' ),
+			Bluesky_Provider::RETURN_CONTEXT_FIELD => Bluesky_Provider::RETURN_CONTEXT_WIZARD,
+		);
+		$_REQUEST = $_POST;
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+
+		$captured_redirect = null;
+		add_filter(
+			'wp_redirect',
+			static function ( $location ) use ( &$captured_redirect ) {
+				$captured_redirect = (string) $location;
+				throw new RedirectFired( 'redirect' );
+			}
+		);
+
+		try {
+			$this->provider->handle_set_domain_handle();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$this->assertNotNull( $captured_redirect );
+		$this->assertStringContainsString( 'page=fosse-wizard', $captured_redirect );
+		$this->assertStringContainsString( 'step=bluesky', $captured_redirect );
+	}
+
+	/**
+	 * Subscribers cannot trigger the handle change.
+	 */
+	public function test_handle_set_domain_handle_rejects_subscriber(): void {
+		$this->force_home_url( 'https://example.com' );
+		$this->seed_connected_atmosphere_connection();
+		$this->become_subscriber();
+
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
+		$_POST    = array(
+			'_wpnonce' => wp_create_nonce( 'fosse_set_bluesky_domain_handle' ),
+		);
+		$_REQUEST = $_POST;
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+
+		$this->install_wp_die_handler();
+
+		$this->expectException( \RuntimeException::class );
+		$this->provider->handle_set_domain_handle();
+	}
+
+	/**
+	 * A bad nonce is rejected — the call must never run silently.
+	 */
+	public function test_handle_set_domain_handle_rejects_bad_nonce(): void {
+		$this->force_home_url( 'https://example.com' );
+		$this->seed_connected_atmosphere_connection();
+		$this->become_admin();
+
+		$captured = false;
+		add_filter(
+			Bluesky_Domain_Handle::FILTER_PRE_UPDATE,
+			static function () use ( &$captured ) {
+				$captured = true;
+				return true;
+			}
+		);
+
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
+		$_POST    = array(
+			'_wpnonce' => 'invalid-nonce',
+		);
+		$_REQUEST = $_POST;
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+
+		$this->install_wp_die_handler();
+
+		try {
+			$this->provider->handle_set_domain_handle();
+			$this->fail( 'wp_die() should have been triggered.' );
+		} catch ( \RuntimeException $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- expected wp_die.
+			unset( $e );
+		}
+
+		$this->assertFalse( $captured, 'A bad nonce must short-circuit before the call runs.' );
+	}
+
+	/**
+	 * Disconnect attempts a handle revert before the OAuth token disappears,
+	 * and successfully clears the snapshot when the revert succeeds.
+	 */
+	public function test_handle_disconnect_reverts_previously_set_handle(): void {
+		$this->seed_connected_atmosphere_connection();
+		update_option( Bluesky_Domain_Handle::OPTION_PREVIOUS_HANDLE, 'alice.bsky.social', false );
+
+		$this->become_admin();
+
+		$received = null;
+		add_filter(
+			Bluesky_Domain_Handle::FILTER_PRE_UPDATE,
+			static function ( $pre, $handle ) use ( &$received ) { // phpcs:ignore VariableAnalysis.CodeAnalysis.VariableAnalysis.UnusedVariable -- filter signature.
+				$received = $handle;
+				return true;
+			},
+			10,
+			2
+		);
+
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
+		$_POST    = array(
+			'_wpnonce' => wp_create_nonce( 'fosse_disconnect_bluesky' ),
+		);
+		$_REQUEST = $_POST;
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+
+		add_filter(
+			'wp_redirect',
+			static function () {
+				throw new RedirectFired( 'redirect' );
+			}
+		);
+
+		try {
+			$this->provider->handle_disconnect();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$this->assertSame( 'alice.bsky.social', $received );
+		$this->assertFalse( get_option( Bluesky_Domain_Handle::OPTION_PREVIOUS_HANDLE ) );
+		$this->assertFalse( \Atmosphere\is_connected() );
+	}
+
+	/**
+	 * Disconnect proceeds even if the revert call fails — keeping the user
+	 * in a connected state would trap them. The snapshot is preserved so a
+	 * future "set handle, then disconnect" cycle can still try to revert.
+	 */
+	public function test_handle_disconnect_proceeds_when_revert_fails(): void {
+		$this->seed_connected_atmosphere_connection();
+		update_option( Bluesky_Domain_Handle::OPTION_PREVIOUS_HANDLE, 'alice.bsky.social', false );
+
+		$this->become_admin();
+
+		add_filter(
+			Bluesky_Domain_Handle::FILTER_PRE_UPDATE,
+			static fn() => new \WP_Error( 'fake_pds', 'token revoked' )
+		);
+
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
+		$_POST    = array(
+			'_wpnonce' => wp_create_nonce( 'fosse_disconnect_bluesky' ),
+		);
+		$_REQUEST = $_POST;
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+
+		add_filter(
+			'wp_redirect',
+			static function () {
+				throw new RedirectFired( 'redirect' );
+			}
+		);
+
+		try {
+			$this->provider->handle_disconnect();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$this->assertFalse( \Atmosphere\is_connected(), 'Disconnect must finish even when revert fails.' );
+		$this->assertSame( 'alice.bsky.social', get_option( Bluesky_Domain_Handle::OPTION_PREVIOUS_HANDLE ) );
+
+		$types = wp_list_pluck( get_settings_errors( 'atmosphere' ), 'type' );
+		$this->assertContains( 'warning', $types );
 	}
 }

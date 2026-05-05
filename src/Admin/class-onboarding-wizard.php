@@ -1162,6 +1162,52 @@ class Onboarding_Wizard {
 						</tr>
 					<?php endif; ?>
 				</table>
+
+				<?php
+				// Connected-state confirm button: replace the user's Bluesky
+				// handle with the site domain. Always requires this explicit
+				// click — Bluesky_Domain_Handle::should_offer() short-circuits
+				// when the handle already matches, when the install is in a
+				// subdirectory, or when the feature is disabled.
+				if ( Bluesky_Domain_Handle::should_offer( $status ) ) :
+					$target_host = Bluesky_Domain_Handle::get_target_handle();
+					?>
+					<div class="fosse-wizard__domain-handle">
+						<h3><?php esc_html_e( 'Use your domain as your Bluesky handle', 'fosse' ); ?></h3>
+						<p>
+							<?php
+							echo esc_html(
+								sprintf(
+									/* translators: 1: current Bluesky handle (e.g. alice.bsky.social); 2: target handle = site host (e.g. example.com). */
+									__( 'Your handle is currently %1$s. Replace it with %2$s so people can find you on Bluesky by your site\'s domain.', 'fosse' ),
+									(string) $status['handle'],
+									$target_host
+								)
+							);
+							?>
+						</p>
+						<p class="description">
+							<?php esc_html_e( 'Heads up: replacing your handle is destructive. Your previous handle will stop resolving immediately, and links to it will break. Bluesky verifies the new handle through this site automatically.', 'fosse' ); ?>
+						</p>
+						<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+							<input type="hidden" name="action" value="fosse_set_bluesky_domain_handle" />
+							<input type="hidden" name="_wpnonce" value="<?php echo esc_attr( wp_create_nonce( 'fosse_set_bluesky_domain_handle' ) ); ?>" />
+							<input type="hidden" name="<?php echo esc_attr( Bluesky_Provider::RETURN_CONTEXT_FIELD ); ?>" value="<?php echo esc_attr( Bluesky_Provider::RETURN_CONTEXT_WIZARD ); ?>" />
+							<?php
+							submit_button(
+								sprintf(
+									/* translators: %s: target handle = site host (e.g. example.com). */
+									__( 'Use %s as my Bluesky handle', 'fosse' ),
+									$target_host
+								),
+								'secondary',
+								'submit',
+								false
+							);
+							?>
+						</form>
+					</div>
+				<?php endif; ?>
 			<?php else : ?>
 				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
 					<input type="hidden" name="action" value="fosse_connect_bluesky" />

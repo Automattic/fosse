@@ -10,6 +10,7 @@ namespace Automattic\Fosse\Tests\Admin;
 use Atmosphere\OAuth\Encryption;
 use Automattic\Fosse\Admin\Actor_Mode_Lock;
 use Automattic\Fosse\Admin\AP_Provider;
+use Automattic\Fosse\Admin\Bluesky_Domain_Handle;
 use Automattic\Fosse\Admin\Bluesky_Provider;
 use Automattic\Fosse\Admin\Connection_Provider;
 use Automattic\Fosse\Admin\Connection_Provider_Registry;
@@ -839,6 +840,73 @@ class Onboarding_WizardTest extends BaseTestCase {
 		$this->assertStringContainsString( 'did:plc:alice123', $output );
 		$this->assertStringContainsString( 'Finish setup', $output );
 		$this->assertStringNotContainsString( 'fosse_connect_bluesky', $output );
+	}
+
+	/**
+	 * The connected-state Bluesky step exposes the explicit "use my domain"
+	 * confirm button when the install qualifies (root install, connected,
+	 * non-matching handle). Clicking the button is required to actually
+	 * perform the change — the wizard never auto-sets the handle.
+	 */
+	public function test_render_bluesky_step_connected_shows_domain_handle_panel_when_eligible(): void {
+		$this->seed_bluesky_connection( 'alice.bsky.social', 'did:plc:alice123' );
+
+		$output = $this->render_wizard_step( 'bluesky' );
+
+		$this->assertStringContainsString( 'fosse_set_bluesky_domain_handle', $output );
+		$this->assertStringContainsString( 'Use your domain as your Bluesky handle', $output );
+		$this->assertStringContainsString( 'Heads up: replacing your handle is destructive', $output );
+		// The panel must label which handle replaces what so the user knows
+		// what they're trading.
+		$site_host = wp_parse_url( home_url(), PHP_URL_HOST );
+		$this->assertStringContainsString( (string) $site_host, $output );
+		$this->assertStringContainsString( 'alice.bsky.social', $output );
+	}
+
+	/**
+	 * The pre-OAuth connect form must NOT carry a domain-handle checkbox.
+	 *
+	 * The earlier design used a checkbox to opt into setting the handle
+	 * during OAuth. That was changed to a post-connect confirm flow
+	 * because replacing a Bluesky handle is destructive — a checkbox can
+	 * be ticked accidentally, but a labeled confirm button after the user
+	 * has visibly connected requires deliberate action.
+	 */
+	public function test_render_bluesky_step_disconnected_omits_domain_handle_checkbox(): void {
+		$output = $this->render_wizard_step( 'bluesky' );
+
+		$this->assertStringContainsString( 'fosse_connect_bluesky', $output );
+		$this->assertStringNotContainsString( 'fosse_set_domain_handle', $output );
+		$this->assertStringNotContainsString( 'fosse_set_bluesky_domain_handle', $output );
+	}
+
+	/**
+	 * Disabling the feature suppresses the connected-state confirm button.
+	 */
+	public function test_render_bluesky_step_omits_domain_handle_panel_when_feature_disabled(): void {
+		$this->seed_bluesky_connection( 'alice.bsky.social', 'did:plc:alice123' );
+		add_filter( Bluesky_Domain_Handle::FILTER_ENABLED, '__return_false' );
+
+		try {
+			$output = $this->render_wizard_step( 'bluesky' );
+		} finally {
+			remove_filter( Bluesky_Domain_Handle::FILTER_ENABLED, '__return_false' );
+		}
+
+		$this->assertStringNotContainsString( 'fosse_set_bluesky_domain_handle', $output );
+	}
+
+	/**
+	 * Once the connected handle already matches the site host, the offer
+	 * disappears — there's nothing to confirm.
+	 */
+	public function test_render_bluesky_step_omits_domain_handle_panel_when_handle_matches(): void {
+		$site_host = (string) wp_parse_url( home_url(), PHP_URL_HOST );
+		$this->seed_bluesky_connection( $site_host, 'did:plc:alice123' );
+
+		$output = $this->render_wizard_step( 'bluesky' );
+
+		$this->assertStringNotContainsString( 'fosse_set_bluesky_domain_handle', $output );
 	}
 
 	/**
