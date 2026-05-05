@@ -265,24 +265,30 @@ class Menu {
 	}
 
 	/**
-	 * Suppress foreign admin notices on FOSSE Settings and Wizard screens.
+	 * Suppress foreign admin notices on the FOSSE Setup Wizard screen.
 	 *
-	 * The wizard and Settings page are focused flows; third-party notices
-	 * (host banners, plugin upsells, "rate this plugin" prompts) inject
+	 * The wizard is a focused first-run flow; third-party notices (host
+	 * banners, plugin upsells, "rate this plugin" prompts) inject
 	 * themselves into the wizard surface and break the orientation.
-	 * Strip the four core notice hooks on those screens only — the Status
-	 * page is exempt because it's a long-lived dashboard where foreign
-	 * notices are more legitimate.
+	 * Strip the four core notice hooks on that screen only.
 	 *
-	 * FOSSE's own messaging is unaffected: `settings_errors()` is rendered
-	 * by direct calls in our templates, not via the `admin_notices` hook,
-	 * so removing every callback here doesn't drop FOSSE notices.
+	 * The Settings page is NOT suppressed: long-lived admin pages benefit
+	 * from FOSSE's own `admin_notices`-hooked banners (e.g. the recovery
+	 * notice rendered by
+	 * {@see Bluesky_Provider::maybe_render_auto_publish_disabled_notice()})
+	 * and from legitimate cross-plugin notices that the user expects to
+	 * see in their normal admin flow. The Status page was already exempt
+	 * for the same reason.
+	 *
+	 * FOSSE's own template-driven messaging is unaffected either way:
+	 * `settings_errors()` is rendered by direct calls in our templates,
+	 * not via the `admin_notices` hook.
 	 *
 	 * @param \WP_Screen $screen Current admin screen.
 	 * @return void
 	 */
 	public static function maybe_suppress_admin_notices( \WP_Screen $screen ): void {
-		if ( ! self::is_fosse_setup_or_wizard_screen( $screen ) ) {
+		if ( ! self::is_fosse_wizard_screen( $screen ) ) {
 			return;
 		}
 
@@ -317,20 +323,17 @@ class Menu {
 	}
 
 	/**
-	 * Whether the given screen is the FOSSE Settings page or Setup Wizard.
+	 * Whether the given screen is the FOSSE Setup Wizard.
 	 *
-	 * Centralized so the suppression list and any future callers (e.g.
-	 * conditional asset enqueues) stay in sync. Status is excluded by
-	 * design — see {@see self::maybe_suppress_admin_notices()}.
+	 * Centralized so the suppression list and any future wizard-only
+	 * callers (e.g. conditional asset enqueues) stay in sync. Settings
+	 * and Status pages are excluded by design — see
+	 * {@see self::maybe_suppress_admin_notices()}.
 	 *
 	 * @param \WP_Screen $screen Current admin screen.
 	 * @return bool
 	 */
-	private static function is_fosse_setup_or_wizard_screen( \WP_Screen $screen ): bool {
-		return in_array(
-			$screen->id,
-			array( 'toplevel_page_fosse', 'admin_page_fosse-wizard' ),
-			true
-		);
+	private static function is_fosse_wizard_screen( \WP_Screen $screen ): bool {
+		return 'admin_page_fosse-wizard' === $screen->id;
 	}
 }

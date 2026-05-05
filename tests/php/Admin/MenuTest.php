@@ -310,29 +310,10 @@ class MenuTest extends BaseTestCase {
 	// --- notice suppression (#56) ---
 
 	/**
-	 * Foreign admin notice callbacks are stripped on the FOSSE Setup screen.
-	 *
-	 * Covers the four core notice hooks WordPress fires during admin header
-	 * rendering. The wizard / Setup page are focused flows; foreign notices
-	 * (host banners, plugin upsells) break the orientation.
-	 */
-	public function test_suppresses_admin_notices_on_setup_screen(): void {
-		$fired = array();
-		$this->register_notice_canaries( $fired );
-
-		Menu::maybe_suppress_admin_notices( $this->fake_screen( 'toplevel_page_fosse' ) );
-
-		do_action( 'admin_notices' );
-		do_action( 'all_admin_notices' );
-		do_action( 'network_admin_notices' );
-		do_action( 'user_admin_notices' );
-
-		$this->assertSame( array(), $fired, 'Foreign notices should be suppressed on the Setup screen.' );
-	}
-
-	/**
-	 * Same suppression on the Setup Wizard screen — the original incident
-	 * (Jurassic Ninja credentials banner) was on the wizard, not Setup.
+	 * Foreign admin notice callbacks are stripped on the FOSSE Setup
+	 * Wizard screen — the original incident (Jurassic Ninja credentials
+	 * banner) was on the wizard, and the wizard is a focused first-run
+	 * flow where foreign notices break the orientation.
 	 */
 	public function test_suppresses_admin_notices_on_wizard_screen(): void {
 		$fired = array();
@@ -349,7 +330,32 @@ class MenuTest extends BaseTestCase {
 	}
 
 	/**
-	 * Suppression is scoped to Setup + Wizard. The Status page is a
+	 * The Settings page (`toplevel_page_fosse`) does NOT suppress notices
+	 * — long-lived admin pages benefit from FOSSE's own
+	 * `admin_notices`-hooked banners (e.g. the auto-publish recovery
+	 * notice in Bluesky_Provider) and from legitimate cross-plugin
+	 * signal in the user's normal admin flow.
+	 */
+	public function test_does_not_suppress_admin_notices_on_settings_screen(): void {
+		$fired = array();
+		$this->register_notice_canaries( $fired );
+
+		Menu::maybe_suppress_admin_notices( $this->fake_screen( 'toplevel_page_fosse' ) );
+
+		do_action( 'admin_notices' );
+		do_action( 'all_admin_notices' );
+		do_action( 'network_admin_notices' );
+		do_action( 'user_admin_notices' );
+
+		$this->assertSame(
+			array( 'admin_notices', 'all_admin_notices', 'network_admin_notices', 'user_admin_notices' ),
+			$fired,
+			'Settings screen must preserve foreign notices so FOSSE-hooked banners can render.'
+		);
+	}
+
+	/**
+	 * Suppression is scoped to the Wizard. The Status page is a
 	 * long-lived dashboard; foreign notices are more legitimate there
 	 * and stripping them would risk masking real cross-plugin signal.
 	 */
@@ -392,13 +398,15 @@ class MenuTest extends BaseTestCase {
 	 * between `current_screen` and the actual notice hooks (e.g. via
 	 * `admin_head` or `admin_enqueue_scripts`). Mirrors the
 	 * `current_screen` test but exercises the `in_admin_header`-bound
-	 * `maybe_suppress_admin_notices_late()` wrapper.
+	 * `maybe_suppress_admin_notices_late()` wrapper. Targets the wizard
+	 * screen since that's the only screen the early stage suppresses
+	 * — the late stage must agree.
 	 */
 	public function test_late_suppression_strips_admin_head_added_notices(): void {
-		set_current_screen( 'toplevel_page_fosse' );
+		set_current_screen( 'admin_page_fosse-wizard' );
 		$current = get_current_screen();
 		if ( $current instanceof \WP_Screen ) {
-			$current->id = 'toplevel_page_fosse';
+			$current->id = 'admin_page_fosse-wizard';
 		}
 
 		$fired = array();
