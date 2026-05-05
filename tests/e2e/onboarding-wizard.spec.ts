@@ -193,6 +193,10 @@ test( 'Selecting a mode and continuing saves the option', async ( {
 test( 'Content step saves post types and advances to Bluesky', async ( {
 	page,
 } ) => {
+	// Persist the Fediverse + Bluesky destination so the post-content
+	// redirect deterministically lands on the Bluesky step regardless of any
+	// stale destination state left behind by a prior run.
+	await selectDestination( page, 'Fediverse + Bluesky' );
 	await page.goto( '/wp-admin/admin.php?page=fosse-wizard&step=content' );
 
 	// Posts should be checked by default; check Pages too.
