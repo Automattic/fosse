@@ -63,7 +63,7 @@ If a future bundled AP version drops or substantially restructures any of these,
 - No FOSSE-side reply state. AP's `in_reply_to` machinery owns it. FOSSE just constructs the URL.
 - No bookmarklet that scrapes/parses third-party page content beyond URL + selection. Source detection happens server-side at composer load.
 - No drafts, no scheduling, no preview in the FOSSE → Post composer. Use the standard editor for any of those.
-- This SDD does not file or implement upstream Atmosphere work. A pre-publish federation sidebar panel for Bluesky is being proposed upstream as a standalone Atmosphere UX improvement (tracked separately) but is independent of this SDD's deliverables.
+- This SDD does not file or implement upstream Atmosphere work. A pre-publish federation sidebar panel for Bluesky has been proposed upstream at [wordpress-atmosphere#50](https://github.com/Automattic/wordpress-atmosphere/issues/50) and tracked on our side at [DOTCOM-17007](https://linear.app/a8c/issue/DOTCOM-17007). Independent of this SDD's deliverables.
 
 ## Source Material / Code Inspected
 

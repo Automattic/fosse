@@ -93,7 +93,7 @@ On submit failure: re-render the composer with `add_settings_error()` notice and
 - Per-post long-form Bluesky strategy override (the site-wide `fosse_long_form_strategy` from DOTCOM-16810 stays the only knob).
 - Bluesky outbound-reply support. The Atmosphere-side work (resolve URL → URI+CID, thread into publisher) has no current driver. If users ask for it, file a separate FOSSE issue then.
 - Front-end (theme-side) display of federated replies. That's the unified-homepage-display family of work — canceled per the related triage.
-- Filing or implementing upstream Atmosphere work in this SDD. (A pre-publish federation sidebar panel for Bluesky is being proposed upstream as a standalone Atmosphere UX improvement — tracked separately, independent of this SDD.)
+- Filing or implementing upstream Atmosphere work in this SDD. (A pre-publish federation sidebar panel for Bluesky has been proposed upstream as a standalone Atmosphere UX improvement at [wordpress-atmosphere#50](https://github.com/Automattic/wordpress-atmosphere/issues/50) and tracked on our side at [DOTCOM-17007](https://linear.app/a8c/issue/DOTCOM-17007). Independent of this SDD; not a deliverable here.)
 
 ## Open Questions
 
