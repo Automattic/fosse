@@ -2,7 +2,7 @@
 
 ## Goal
 
-Three discoverable paths into a focused composer for short notes and federated replies, with most of the heavy lifting done by bundled ActivityPub (already shipped) and bundled Atmosphere (small upstream PRs to land). FOSSE itself owns the composer page, the admin-bar entry, the bookmarklet generator, and the URL-construction logic that hands off to the upstream reply-intent machinery.
+Three discoverable paths into a focused composer for short notes and federated replies. AP reply infrastructure already exists in bundled code and works today; FOSSE owns the composer page, the admin-bar entry, the bookmarklet generator, and the URL-construction logic that hands off to the existing AP reply-intent machinery. Bluesky outbound-reply support is intentionally not in v1 — the composer falls back gracefully for unrecognized sources.
 
 ## Decisions
 
@@ -23,7 +23,7 @@ All three land on the same composer page. The composer reads URL params (`source
 Fields:
 
 - **Text** — multi-line textarea, autofocus on load. No character limit enforced in the UI (the long-form strategy projector handles oversized posts at publish time).
-- **Source URL** (optional) — auto-populated when arriving via bookmarklet. If present and non-empty at submit time, the composer constructs the appropriate `?in_reply_to=<url>` redirect to the standard editor (see Decision 3) instead of creating a quick-note post directly. This is the federated-reply path.
+- **Source URL** (optional) — auto-populated when arriving via bookmarklet. If present and recognized as AP-detectable at submit time, the composer redirects to the standard editor with `?in_reply_to=<url>` instead of creating a quick-note post directly. This is the federated-reply path. Bluesky URLs and other unrecognized sources fall back to the quick-note path with a notice.
 - **Photo** (optional) — single image upload via standard `wp_handle_upload`.
 - **Alt text** (required when a photo is attached) — non-empty validation before publish.
 - **Publish button** — single primary action. No drafts, no scheduling, no preview.
@@ -32,16 +32,13 @@ The composer renders inside `wp-admin` chrome (admin header, no sidebar collapse
 
 ### 3. Federated-reply flow
 
-When the composer is submitted with a non-empty Source URL:
+When the composer is submitted with a non-empty Source URL, FOSSE classifies the URL into one of two buckets:
 
-1. FOSSE classifies the URL:
-   - **AP-detectable** (Mastodon profile/post URL, ActivityPub-aware blog URL) → redirect to `wp-admin/post-new.php?post_format=status&in_reply_to=<source-url>`. Bundled AP's `handle_in_reply_to_get_param` hook (`class-blocks.php:75`) and reply-intent JS plugin (`build/reply-intent/plugin.js`) take over: they pre-populate the standard block editor with an `activitypub/reply` block referencing the source. The user finishes writing in the standard editor.
-   - **Bluesky URL** (`bsky.app/profile/<handle>/post/<rkey>`, also accepts `<handle>.bsky.social/post/<rkey>` and `at://...` AT-URI form) → same redirect mechanism but to Atmosphere's equivalent handler. **Requires upstream Atmosphere PR — see Decision 5**. Until upstream lands, the Bluesky path falls back to a notice in the composer: "Bluesky reply support requires Atmosphere pre-release. Reply via the standard editor or paste the source URL into the body."
-   - **Unrecognized URL** → notice in the composer: "Source URL not recognized as a federated post. Posting as a quick note instead." Then proceed with the quick-note path (no reply context).
+- **AP-detectable** (Mastodon profile/post URL, ActivityPub-aware blog URL): redirect to `wp-admin/post-new.php?post_format=status&in_reply_to=<source-url>`. Bundled AP's `handle_in_reply_to_get_param` hook (`class-blocks.php:75`) and reply-intent JS plugin (`build/reply-intent/plugin.js`) take over: they pre-populate the standard block editor with an `activitypub/reply` block referencing the source. The user finishes writing in the standard editor, with full access to AP's pre-publish panel, content-warning controls, visibility settings, and the rest of the bundled federation UX.
 
-2. If no Source URL or unrecognized: FOSSE proceeds with the quick-note path — `wp_insert_post()` with `post_format='status'`, optional `media_handle_upload()`, redirect to the published post on the front-end.
+- **Anything else** (Bluesky URL, news article, generic web page, malformed URL, empty): surface a notice — "Source URL not recognized as a federated post. Posting as a quick note instead." — and proceed with the quick-note path. The URL is not auto-inserted into the post body. The user can manually edit the URL out of the source field and re-submit if they want a clean quick-note.
 
-The reply path therefore intentionally diverts the user to the standard editor when source is detected. The standard editor has the reply block, AP/Atmosphere preview, federation panel — everything FOSSE would otherwise have to rebuild. FOSSE's contribution is just the URL routing.
+The reply path therefore intentionally diverts the user to the standard editor when AP source is detected. The standard editor has the reply block, AP preview, federation panel — everything FOSSE would otherwise have to rebuild. FOSSE's contribution is just the URL routing and the focused composer surface.
 
 ### 4. Bookmarklet
 
@@ -59,27 +56,13 @@ Generated per-site (the `EXAMPLE.com` is interpolated to the current site URL) o
 
 The bookmarklet does NOT scrape or fetch the third-party page. It only captures `location.href` and the user's text selection. Source classification and rendering is server-side.
 
-### 5. Upstream Atmosphere work (referenced, not in this PR)
-
-Three pieces of Bluesky-side infrastructure live upstream in `wordpress-atmosphere`:
-
-| Piece | Equivalent of |
-|-------|---------------|
-| `atmosphere/reply` block | `activitypub/reply` block |
-| Reply-intent JS plugin (handles `?in_reply_to=<bsky-url>`) | `bundled/activitypub/build/reply-intent/plugin.js` |
-| Pre-publish federation sidebar panel for Bluesky | `bundled/activitypub/build/pre-publish-panel/plugin.js` |
-
-Each is a small PR against `wordpress-atmosphere`. FOSSE consumes them via `tools/sync-bundled.sh` once they ship. **This SDD does not block on those PRs landing** — the FOSSE-side composer + bookmarklet ship; the Bluesky reply path falls back gracefully (Decision 3) until Atmosphere catches up.
-
-File these as separate Atmosphere upstream issues, owner: kraft (or whoever owns Atmosphere). They are out of scope for this SDD's PR.
-
-### 6. Image upload + alt text
+### 5. Image upload + alt text
 
 Single image per quick-note. Alt-text required (non-empty validation before publish). Uses `media_handle_upload()` with standard WP attachment flow. Attached as featured image.
 
 If the user wants multiple images, captions, or a gallery, they go to the standard editor. The bookmarklet result also lands in the standard editor (via the reply-intent path), so multi-image cases naturally route there.
 
-### 7. Post lifecycle on publish
+### 6. Post lifecycle on publish
 
 On submit (no source URL or unrecognized source):
 
@@ -98,9 +81,8 @@ On submit failure: re-render the composer with `add_settings_error()` notice and
 | --- | --- |
 | User clicks admin-bar button, writes text, clicks Publish | New `post_format=status` post published; redirect to permalink. |
 | User clicks bookmarklet on a Mastodon post page | FOSSE → Post opens with source_url filled. On submit, redirected to standard editor with `?in_reply_to=<mastodon-url>`. AP's reply-intent JS inserts the reply block. User finishes in editor. |
-| User clicks bookmarklet on a Bluesky post page (Atmosphere upstream NOT shipped) | FOSSE → Post opens with source_url filled. On submit, composer notice surfaces: "Bluesky reply support requires Atmosphere pre-release." User can edit URL out and proceed as a quick-note, or copy the URL into the body. |
-| User clicks bookmarklet on a Bluesky post page (Atmosphere upstream shipped) | FOSSE → Post opens with source_url filled. On submit, redirected to standard editor with `?in_reply_to=<bsky-url>`. Atmosphere's reply-intent JS inserts the `atmosphere/reply` block. User finishes in editor. |
-| User clicks bookmarklet on a generic URL (e.g., a news article) | FOSSE → Post opens with source_url filled. On submit, composer notice: "Source URL not recognized as a federated post. Posting as a quick note." Proceeds as quick-note; the URL is not auto-inserted into the body. |
+| User clicks bookmarklet on a Bluesky post page | FOSSE → Post opens with source_url filled. On submit, composer notice surfaces: "Source URL not recognized as a federated post. Posting as a quick note." User can edit URL out and proceed as a quick-note, or paste it into the body. |
+| User clicks bookmarklet on a generic URL (e.g., a news article) | Same as the Bluesky case — unrecognized source → quick-note fallback. |
 | Image attached without alt-text | Validation error on submit: "Alt-text is required for accessibility." Form re-renders with text + image preserved. |
 | Empty text AND no photo | Validation error: "Add some text or a photo." |
 
@@ -109,14 +91,14 @@ On submit failure: re-render the composer with `add_settings_error()` notice and
 - Replacing the standard block editor for any case other than quick-note posting. Long-form, scheduled posts, drafts, multi-image, custom blocks → standard editor.
 - Post-publish unified send-status surface (DOTCOM-16805 — canceled).
 - Per-post long-form Bluesky strategy override (the site-wide `fosse_long_form_strategy` from DOTCOM-16810 stays the only knob).
-- Any Atmosphere reply-block / reply-intent / pre-publish-panel implementation — those land upstream.
+- Bluesky outbound-reply support. The Atmosphere-side work (resolve URL → URI+CID, thread into publisher) has no current driver. If users ask for it, file a separate FOSSE issue then.
 - Front-end (theme-side) display of federated replies. That's the unified-homepage-display family of work — canceled per the related triage.
+- Filing or implementing upstream Atmosphere work in this SDD. (A pre-publish federation sidebar panel for Bluesky is being proposed upstream as a standalone Atmosphere UX improvement — tracked separately, independent of this SDD.)
 
 ## Open Questions
 
 - **Bookmarklet behavior on sites with strict Content Security Policy.** Many news sites + some Mastodon instances block javascript URIs in bookmarks via CSP. Document the CSP fallback (drag-and-drop fails silently; user copy-pastes the URL into FOSSE → Post manually).
 - **Selection length cap.** `slice(0,500)` is arbitrary. Tune after seeing real bookmarklet usage.
-- **Atmosphere upstream coordination.** Is the Bluesky pre-publish panel on Atmosphere's roadmap? Worth checking with whoever owns wordpress-atmosphere before filing the upstream PRs to avoid duplicate work.
 
 ## Tests
 
@@ -127,7 +109,6 @@ Required test coverage:
 - `tests/php/Admin/Post_PageTest.php`: submit with text + image (with alt-text) attaches the image as featured.
 - `tests/php/Admin/Post_PageTest.php`: submit with image but no alt-text returns a validation error and re-renders.
 - `tests/php/Admin/Post_PageTest.php`: submit with an AP source URL redirects to `post-new.php?post_format=status&in_reply_to=<url>`.
-- `tests/php/Admin/Post_PageTest.php`: submit with a Bluesky source URL falls back to the upstream-not-shipped notice (until Atmosphere upstream lands).
-- `tests/php/Admin/Post_PageTest.php`: submit with an unrecognized URL falls back to the not-recognized notice and proceeds as quick-note.
+- `tests/php/Admin/Post_PageTest.php`: submit with an unrecognized URL (Bluesky URL, news URL, garbage) falls back to the quick-note notice and proceeds as quick-note.
 - `tests/e2e/posting-ui.spec.ts`: e2e smoke — admin-bar entry visible, FOSSE → Post page reachable, simple text-only publish round-trips.
 - `tests/e2e/posting-ui.spec.ts`: bookmarklet snippet on the Settings page contains the current site URL (regression guard).

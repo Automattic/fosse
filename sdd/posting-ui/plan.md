@@ -6,13 +6,12 @@ Based on: `sdd/posting-ui/spec.md`
 
 - [ ] Task 1: Source-URL classifier helper + tests
 - [ ] Task 2: Post composer admin page (FOSSE → Post)
-- [ ] Task 3: Composer submit handler (quick-note path + reply redirect)
+- [ ] Task 3: Composer submit handler (quick-note path + AP reply redirect)
 - [ ] Task 4: Admin bar entry
 - [ ] Task 5: Bookmarklet generator on Settings page
 - [ ] Task 6: e2e coverage
-- [ ] Task 7: Atmosphere upstream coordination (file issues, do not block)
-- [ ] Task 8: Update SDD implementation notes
-- [ ] Task 9: Run verification
+- [ ] Task 7: Update SDD implementation notes
+- [ ] Task 8: Run verification
 
 ## Tasks
 
@@ -23,10 +22,9 @@ Based on: `sdd/posting-ui/spec.md`
   - Create: `src/Admin/class-source-url-classifier.php`
   - Create: `tests/php/Admin/Source_URL_ClassifierTest.php`
 - **Do**:
-  1. Add `Automattic\Fosse\Admin\Source_URL_Classifier` with `public static function classify( string $url ): string` returning one of `'activitypub' | 'bluesky' | 'unrecognized'`.
+  1. Add `Automattic\Fosse\Admin\Source_URL_Classifier` with `public static function classify( string $url ): string` returning one of `'activitypub' | 'unrecognized'`. (No `'bluesky'` bucket in v1 — Bluesky URLs classify as `'unrecognized'` and fall through to the quick-note path.)
   2. AP detection rules: WebFinger-style URL (`https://<host>/@<handle>`), Mastodon post URL (`https://<host>/@<handle>/<post-id>`), generic ActivityPub URL with `/users/<handle>` or `/notes/<id>` patterns. Conservative — when in doubt, return `'unrecognized'`. Server-side fetching is out of scope; classification is pattern-only.
-  3. Bluesky detection rules: `bsky.app/profile/<handle>/post/<rkey>`, `<handle>.bsky.social/post/<rkey>`, `at://did:plc:<did>/app.bsky.feed.post/<rkey>` AT-URI form.
-  4. Tests: each rule's positive case, each rule's negative case (similar but not matching URL), `null`/empty input → `'unrecognized'`.
+  3. Tests: each AP rule's positive case, each AP rule's negative case, Bluesky URL → `'unrecognized'`, generic news URL → `'unrecognized'`, `null`/empty input → `'unrecognized'`.
 - **Verify**:
   - `composer run-script test-php -- --filter Source_URL_ClassifierTest` passes.
   - `composer run-script lint-php -- src/Admin/class-source-url-classifier.php tests/php/Admin/Source_URL_ClassifierTest.php`
@@ -50,7 +48,7 @@ Based on: `sdd/posting-ui/spec.md`
 - **Verify**:
   - `composer run-script test-php -- --filter Post_PageTest`
   - `composer run-script lint-php`
-- **Depends on**: Task 1 (composer can construct compose links if it wants to preview the redirect, though strictly only Task 3 needs this)
+- **Depends on**: Task 1
 
 ### Task 3: Composer submit handler
 
@@ -63,8 +61,7 @@ Based on: `sdd/posting-ui/spec.md`
   2. Verify nonce + capability.
   3. If `source_url` is non-empty, classify via Task 1's helper:
      - `'activitypub'`: `wp_safe_redirect( admin_url( 'post-new.php?post_format=status&in_reply_to=' . rawurlencode( $source_url ) ) )`. Bundled AP takes over.
-     - `'bluesky'`: same redirect target but to the URL the upstream Atmosphere PR will define. Until upstream lands, surface a notice via `add_settings_error()` and re-render the composer (don't redirect to a broken target).
-     - `'unrecognized'`: surface notice "Source URL not recognized as a federated post" and proceed with quick-note path (treat as no source URL).
+     - `'unrecognized'`: surface a notice via `add_settings_error()` — "Source URL not recognized as a federated post. Posting as a quick note instead." — and proceed with quick-note path (treat as no source URL).
   4. Quick-note path:
      - Validate text non-empty OR photo attached.
      - If photo: validate alt-text non-empty.
@@ -120,29 +117,14 @@ Based on: `sdd/posting-ui/spec.md`
 - **Do**:
   1. Smoke: log in as admin, navigate via admin bar to FOSSE → Post, type text, click Publish, assert redirect to a published post permalink.
   2. Validation: submit empty form → assert error notice; submit with image but no alt-text → assert error notice with text + image preserved.
-  3. Reply path: navigate to FOSSE → Post with `?source_url=<mastodon-test-url>`, click Publish, assert redirect to `post-new.php?post_format=status&in_reply_to=<url>` (don't need to verify AP's reply-block insertion in this spec; that's bundled AP's responsibility).
-  4. Bluesky reply fallback: navigate with a `bsky.app` URL, click Publish, assert the "Bluesky reply support requires Atmosphere pre-release" notice surfaces and the composer re-renders.
+  3. AP reply path: navigate to FOSSE → Post with `?source_url=<mastodon-test-url>`, click Publish, assert redirect to `post-new.php?post_format=status&in_reply_to=<url>` (don't need to verify AP's reply-block insertion in this spec; that's bundled AP's responsibility).
+  4. Unrecognized-source fallback: navigate with a non-AP URL (e.g., a Bluesky URL or a generic news URL), click Publish, assert the "Source URL not recognized" notice surfaces and the post is created as a quick-note (without the URL in the body).
   5. Bookmarklet snippet present on Settings page with the current site URL.
 - **Verify**:
   - `pnpm exec playwright test tests/e2e/posting-ui.spec.ts`
 - **Depends on**: Tasks 2, 3, 4, 5
 
-### Task 7: Atmosphere upstream coordination
-
-- **Status**: Not started
-- **Files**: none in this repo
-- **Do**:
-  1. File three issues against `Automattic/wordpress-atmosphere` (or whichever the canonical Atmosphere upstream repo is):
-     - "Add `atmosphere/reply` block (parity with `activitypub/reply`)"
-     - "Add reply-intent JS plugin handling `?in_reply_to=<bsky-url>`"
-     - "Add pre-publish federation sidebar panel"
-  2. Each issue body should reference this SDD and explain that FOSSE consumes the result via `tools/sync-bundled.sh`.
-  3. Add a note to `sdd/posting-ui/implementation-notes.md` (created in Task 8) tracking the upstream issue numbers and their states.
-- **Verify**:
-  - Three issues exist on the Atmosphere repo. Track in implementation-notes.md.
-- **Depends on**: spec landed; can be done in parallel with implementation. Not a blocker for this PR landing.
-
-### Task 8: Update SDD implementation notes
+### Task 7: Update SDD implementation notes
 
 - **Status**: Not started
 - **Files**:
@@ -150,14 +132,13 @@ Based on: `sdd/posting-ui/spec.md`
   - Modify: `sdd/posting-ui/plan.md`
 - **Do**:
   1. Record any implementation deviations.
-  2. Track the Atmosphere upstream issue numbers from Task 7 and their status.
-  3. Update task statuses in this plan as each ships.
+  2. Update task statuses in this plan as each ships.
 - **Verify**:
   - implementation-notes.md exists.
   - Plan checklist sync.
 - **Depends on**: implementation tasks as they complete
 
-### Task 9: Run verification
+### Task 8: Run verification
 
 - **Status**: Not started
 - **Files**: none
@@ -171,4 +152,4 @@ Based on: `sdd/posting-ui/spec.md`
   4. e2e: `pnpm exec playwright test tests/e2e/posting-ui.spec.ts`.
 - **Verify**:
   - All commands pass, or failures recorded in implementation-notes.md.
-- **Depends on**: Tasks 1-8
+- **Depends on**: Tasks 1-7
