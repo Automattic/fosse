@@ -268,11 +268,17 @@ class Bluesky_Provider implements Connection_Provider {
 	/**
 	 * Render the "use my domain as my Bluesky handle" panel.
 	 *
-	 * Surfaces the explicit confirm button on the Bluesky settings panel
-	 * and the wizard's connected-state Bluesky step. Always shows the
-	 * current handle alongside the target so the user understands the
-	 * trade — clicking the button replaces their handle and the old one
-	 * stops resolving.
+	 * Surfaces the explicit confirm button on the Bluesky Settings panel.
+	 * The wizard's connected-state Bluesky step renders an equivalent panel
+	 * with wizard-shaped copy inline; both surfaces share the same
+	 * eligibility gate via {@see Bluesky_Domain_Handle::should_offer()},
+	 * but the wizard does not call this method directly. If the panel
+	 * markup ever drifts between the two, the gate stays the source of
+	 * truth for "should this offer surface at all".
+	 *
+	 * Always shows the current handle alongside the target so the user
+	 * understands the trade — clicking the button replaces their handle
+	 * and the old one stops resolving.
 	 *
 	 * @param array<string, mixed> $status Bluesky provider status snapshot.
 	 * @return void
@@ -664,10 +670,12 @@ class Bluesky_Provider implements Connection_Provider {
 		// Best-effort handle revert BEFORE the disconnect drops the OAuth
 		// token: if FOSSE previously set the handle to the site domain,
 		// restore the snapshotted previous handle while we still have a
-		// valid access token. The call posts a notice on the way out;
-		// disconnect proceeds regardless of result so a token-revoked or
-		// network-failed revert can't trap the user in a connected state.
-		Bluesky_Domain_Handle::maybe_revert_on_disconnect();
+		// valid access token. The result is composed into the final
+		// disconnect notice below — `maybe_revert_on_disconnect()`
+		// deliberately does not post its own notice on failure so we
+		// don't end up with a yellow warning the cheerful "Disconnected"
+		// success can drown out.
+		$revert_result = Bluesky_Domain_Handle::maybe_revert_on_disconnect();
 
 		\Atmosphere\OAuth\Client::disconnect();
 
@@ -682,6 +690,18 @@ class Bluesky_Provider implements Connection_Provider {
 			$this->redirect_with_notice(
 				__( 'Could not disconnect from Bluesky. Please try again.', 'fosse' ),
 				'error'
+			);
+			return;
+		}
+
+		if ( is_wp_error( $revert_result ) ) {
+			$this->redirect_with_notice(
+				sprintf(
+					/* translators: %s: error message from the failed handle-revert PDS call. */
+					__( 'Disconnected from Bluesky, but could not restore your previous handle: %s. You may need to set it manually from the Bluesky app.', 'fosse' ),
+					$revert_result->get_error_message()
+				),
+				'warning'
 			);
 			return;
 		}

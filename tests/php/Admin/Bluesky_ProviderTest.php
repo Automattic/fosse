@@ -1899,7 +1899,17 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		$this->assertNotNull( $captured_redirect );
 		$this->assertStringContainsString( 'page=fosse', $captured_redirect );
 		$this->assertStringNotContainsString( 'page=fosse-wizard', $captured_redirect );
-		$this->assertSame( 'alice.bsky.social', get_option( Bluesky_Domain_Handle::OPTION_PREVIOUS_HANDLE ) );
+
+		// Snapshot is the new {did, handle} shape, bound to the current
+		// account so a later reconnect-to-different-account can't push the
+		// wrong handle on disconnect.
+		$this->assertSame(
+			array(
+				'did'    => 'did:plc:test123',
+				'handle' => 'alice.bsky.social',
+			),
+			get_option( Bluesky_Domain_Handle::OPTION_PREVIOUS_HANDLE )
+		);
 	}
 
 	/**
@@ -2006,7 +2016,14 @@ class Bluesky_ProviderTest extends BaseTestCase {
 	 */
 	public function test_handle_disconnect_reverts_previously_set_handle(): void {
 		$this->seed_connected_atmosphere_connection();
-		update_option( Bluesky_Domain_Handle::OPTION_PREVIOUS_HANDLE, 'alice.bsky.social', false );
+		update_option(
+			Bluesky_Domain_Handle::OPTION_PREVIOUS_HANDLE,
+			array(
+				'did'    => 'did:plc:test123',
+				'handle' => 'alice.bsky.social',
+			),
+			false
+		);
 
 		$this->become_admin();
 
@@ -2047,13 +2064,22 @@ class Bluesky_ProviderTest extends BaseTestCase {
 	}
 
 	/**
-	 * Disconnect proceeds even if the revert call fails — keeping the user
-	 * in a connected state would trap them. The snapshot is preserved so a
-	 * future "set handle, then disconnect" cycle can still try to revert.
+	 * Disconnect proceeds even if the revert call fails. The snapshot is
+	 * preserved so a future retry can still revert. Critically, the user
+	 * sees a SINGLE combined "Disconnected, but couldn't restore your
+	 * previous handle" warning — not a yellow warning followed by a
+	 * cheerful green "Disconnected" success that's easy to read past.
 	 */
 	public function test_handle_disconnect_proceeds_when_revert_fails(): void {
 		$this->seed_connected_atmosphere_connection();
-		update_option( Bluesky_Domain_Handle::OPTION_PREVIOUS_HANDLE, 'alice.bsky.social', false );
+		update_option(
+			Bluesky_Domain_Handle::OPTION_PREVIOUS_HANDLE,
+			array(
+				'did'    => 'did:plc:test123',
+				'handle' => 'alice.bsky.social',
+			),
+			false
+		);
 
 		$this->become_admin();
 
@@ -2083,9 +2109,79 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		}
 
 		$this->assertFalse( \Atmosphere\is_connected(), 'Disconnect must finish even when revert fails.' );
-		$this->assertSame( 'alice.bsky.social', get_option( Bluesky_Domain_Handle::OPTION_PREVIOUS_HANDLE ) );
+		$this->assertSame(
+			array(
+				'did'    => 'did:plc:test123',
+				'handle' => 'alice.bsky.social',
+			),
+			get_option( Bluesky_Domain_Handle::OPTION_PREVIOUS_HANDLE )
+		);
 
-		$types = wp_list_pluck( get_settings_errors( 'atmosphere' ), 'type' );
+		$errors = get_settings_errors( 'atmosphere' );
+		$types  = wp_list_pluck( $errors, 'type' );
 		$this->assertContains( 'warning', $types );
+		$this->assertNotContains( 'info', $types, 'Cheerful "Disconnected" success must not stack on top of the warning.' );
+
+		$messages = wp_list_pluck( $errors, 'message' );
+		$this->assertNotEmpty(
+			array_filter(
+				$messages,
+				static fn( $m ) => false !== strpos( $m, 'Disconnected from Bluesky' ) && false !== strpos( $m, 'token revoked' )
+			),
+			'The single warning notice must communicate both the disconnect and the failed revert.'
+		);
+	}
+
+	/**
+	 * Disconnect against an account that does NOT match the snapshot's DID
+	 * leaves the snapshot alone and runs no revert call — protects users
+	 * who reconnected to a different Bluesky account between set + disconnect.
+	 */
+	public function test_handle_disconnect_skips_revert_when_snapshot_did_does_not_match(): void {
+		$this->seed_connected_atmosphere_connection();
+		update_option(
+			Bluesky_Domain_Handle::OPTION_PREVIOUS_HANDLE,
+			array(
+				'did'    => 'did:plc:other-account',
+				'handle' => 'somebody-else.bsky.social',
+			),
+			false
+		);
+
+		$this->become_admin();
+
+		$captured = false;
+		add_filter(
+			Bluesky_Domain_Handle::FILTER_PRE_UPDATE,
+			static function () use ( &$captured ) {
+				$captured = true;
+				return true;
+			}
+		);
+
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
+		$_POST    = array(
+			'_wpnonce' => wp_create_nonce( 'fosse_disconnect_bluesky' ),
+		);
+		$_REQUEST = $_POST;
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+
+		add_filter(
+			'wp_redirect',
+			static function () {
+				throw new RedirectFired( 'redirect' );
+			}
+		);
+
+		try {
+			$this->provider->handle_disconnect();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$this->assertFalse( $captured, 'Mismatched-DID snapshot must not trigger an updateHandle call.' );
+		$this->assertFalse( \Atmosphere\is_connected() );
+		// Snapshot is preserved — the legitimate account may reconnect later.
+		$this->assertNotFalse( get_option( Bluesky_Domain_Handle::OPTION_PREVIOUS_HANDLE ) );
 	}
 }

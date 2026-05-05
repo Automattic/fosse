@@ -910,6 +910,49 @@ class Onboarding_WizardTest extends BaseTestCase {
 	}
 
 	/**
+	 * The wizard's top-of-step notice-suppression filter exists to dedupe
+	 * Atmosphere's own connect-success echo — but it must let our own
+	 * domain-handle success/info notices through, since they describe a
+	 * separate explicit confirm action that needs its own feedback.
+	 */
+	public function test_render_bluesky_step_surfaces_domain_handle_success_notice(): void {
+		$this->seed_bluesky_connection( 'alice.bsky.social', 'did:plc:alice123' );
+
+		// Seed the kind of success notice Bluesky_Domain_Handle posts after
+		// a confirmed updateHandle call.
+		add_settings_error(
+			'atmosphere',
+			'fosse_domain_handle',
+			'Your Bluesky handle is now example.com.',
+			'success'
+		);
+
+		$output = $this->render_wizard_step( 'bluesky' );
+
+		$this->assertStringContainsString( 'Your Bluesky handle is now example.com', $output );
+	}
+
+	/**
+	 * Atmosphere's own connect-success echo (different `code`) is still
+	 * suppressed at the top of the step — the connected-state copy below
+	 * already speaks for the success case.
+	 */
+	public function test_render_bluesky_step_still_suppresses_atmosphere_connect_success(): void {
+		$this->seed_bluesky_connection( 'alice.bsky.social', 'did:plc:alice123' );
+
+		add_settings_error(
+			'atmosphere',
+			'fosse_bluesky_notice',
+			'Successfully connected to Bluesky.',
+			'success'
+		);
+
+		$output = $this->render_wizard_step( 'bluesky' );
+
+		$this->assertStringNotContainsString( 'Successfully connected to Bluesky.', $output );
+	}
+
+	/**
 	 * The completion summary reflects an already-connected Bluesky account.
 	 */
 	public function test_complete_summary_shows_connected_bluesky_account(): void {

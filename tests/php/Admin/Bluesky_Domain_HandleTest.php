@@ -91,17 +91,36 @@ class Bluesky_Domain_HandleTest extends BaseTestCase {
 	 * resolve to a usable handle without going through real OAuth.
 	 *
 	 * @param string $handle Handle to seed.
+	 * @param string $did    DID to seed.
 	 * @return void
 	 */
-	private function seed_connection( string $handle = 'alice.bsky.social' ): void {
+	private function seed_connection( string $handle = 'alice.bsky.social', string $did = 'did:plc:test123' ): void {
 		update_option(
 			'atmosphere_connection',
 			array(
-				'did'          => 'did:plc:test123',
+				'did'          => $did,
 				'handle'       => $handle,
 				'pds_endpoint' => 'https://bsky.social',
 				'access_token' => Encryption::encrypt( 'token' ),
 			)
+		);
+	}
+
+	/**
+	 * Seed a previous-handle snapshot in the new `{did, handle}` format.
+	 *
+	 * @param string $did    DID the snapshot is bound to.
+	 * @param string $handle Handle to revert to.
+	 * @return void
+	 */
+	private function seed_snapshot( string $did, string $handle ): void {
+		update_option(
+			Bluesky_Domain_Handle::OPTION_PREVIOUS_HANDLE,
+			array(
+				'did'    => $did,
+				'handle' => $handle,
+			),
+			false
 		);
 	}
 
@@ -257,9 +276,10 @@ class Bluesky_Domain_HandleTest extends BaseTestCase {
 	// ---- set_handle ----
 
 	/**
-	 * Disabled feature short-circuits the call.
+	 * Disabled feature short-circuits the call AND posts an info notice
+	 * so the caller doesn't have to invent a "nothing happened" message.
 	 */
-	public function test_set_handle_disabled_returns_null_without_calling_pds(): void {
+	public function test_set_handle_disabled_returns_null_with_info_notice(): void {
 		$this->force_home_url( 'https://example.com' );
 		$this->seed_connection();
 		add_filter( Bluesky_Domain_Handle::FILTER_ENABLED, '__return_false' );
@@ -275,16 +295,41 @@ class Bluesky_Domain_HandleTest extends BaseTestCase {
 
 		$this->assertNull( Bluesky_Domain_Handle::set_handle() );
 		$this->assertFalse( $captured, 'Disabled feature must not invoke the underlying call.' );
+		$this->assertContains( 'info', wp_list_pluck( get_settings_errors( 'atmosphere' ), 'type' ) );
 	}
 
 	/**
-	 * Subdirectory installs short-circuit the call.
+	 * Subdirectory installs short-circuit the call AND post an error notice
+	 * explaining why — otherwise the user clicks confirm and sees a silent
+	 * reload with no feedback.
 	 */
-	public function test_set_handle_subdirectory_returns_null(): void {
+	public function test_set_handle_subdirectory_returns_null_with_error_notice(): void {
 		$this->force_home_url( 'https://example.com/blog' );
 		$this->seed_connection();
 
 		$this->assertNull( Bluesky_Domain_Handle::set_handle() );
+
+		$messages = wp_list_pluck( get_settings_errors( 'atmosphere' ), 'message' );
+		$this->assertNotEmpty(
+			array_filter(
+				$messages,
+				static fn( $m ) => false !== stripos( $m, 'subdirectory' )
+			)
+		);
+	}
+
+	/**
+	 * Empty hostname (degraded `home` option) refuses the call AND posts
+	 * an error notice — otherwise we'd send `handle: ''` to the PDS.
+	 */
+	public function test_set_handle_empty_host_returns_null_with_error_notice(): void {
+		$this->force_home_url( 'https:///just-a-path' );
+		$this->seed_connection();
+
+		$this->assertNull( Bluesky_Domain_Handle::set_handle() );
+
+		$types = wp_list_pluck( get_settings_errors( 'atmosphere' ), 'type' );
+		$this->assertContains( 'error', $types );
 	}
 
 	/**
@@ -302,7 +347,11 @@ class Bluesky_Domain_HandleTest extends BaseTestCase {
 	}
 
 	/**
-	 * Successful call snapshots the previous handle and posts a success notice.
+	 * Successful call snapshots the previous handle (DID-bound), syncs the
+	 * locally-cached connection handle, and posts a success notice.
+	 *
+	 * The DID binding prevents reconnect-to-different-account from later
+	 * pushing the wrong handle to the new account on disconnect.
 	 */
 	public function test_set_handle_success_snapshots_previous_handle(): void {
 		$this->force_home_url( 'https://example.com' );
@@ -323,7 +372,20 @@ class Bluesky_Domain_HandleTest extends BaseTestCase {
 
 		$this->assertTrue( $result );
 		$this->assertSame( 'example.com', $received );
-		$this->assertSame( 'alice.bsky.social', get_option( Bluesky_Domain_Handle::OPTION_PREVIOUS_HANDLE ) );
+		$this->assertSame(
+			array(
+				'did'    => 'did:plc:test123',
+				'handle' => 'alice.bsky.social',
+			),
+			get_option( Bluesky_Domain_Handle::OPTION_PREVIOUS_HANDLE )
+		);
+
+		// The locally-cached connection handle must reflect the new value
+		// immediately — otherwise the UI keeps offering a no-op confirm
+		// and Atmosphere's mention-facet builder keeps emitting the old
+		// handle.
+		$connection = get_option( 'atmosphere_connection' );
+		$this->assertSame( 'example.com', $connection['handle'] );
 
 		$messages = wp_list_pluck( get_settings_errors( 'atmosphere' ), 'message' );
 		$this->assertNotEmpty(
@@ -336,7 +398,9 @@ class Bluesky_Domain_HandleTest extends BaseTestCase {
 
 	/**
 	 * No-op when the connection handle already matches the site host —
-	 * nothing to call, nothing to snapshot.
+	 * nothing to call, nothing to snapshot. Posts an info notice so the
+	 * user understands "you're already set" instead of seeing a silent
+	 * page reload with no feedback.
 	 */
 	public function test_set_handle_already_matches_skips_call_and_snapshot(): void {
 		$this->force_home_url( 'https://example.com' );
@@ -356,13 +420,25 @@ class Bluesky_Domain_HandleTest extends BaseTestCase {
 		$this->assertNull( $result );
 		$this->assertFalse( $captured );
 		$this->assertFalse( get_option( Bluesky_Domain_Handle::OPTION_PREVIOUS_HANDLE ) );
+
+		$messages = wp_list_pluck( get_settings_errors( 'atmosphere' ), 'message' );
+		$this->assertNotEmpty(
+			array_filter(
+				$messages,
+				static fn( $m ) => false !== strpos( $m, 'already' )
+			)
+		);
 	}
 
 	/**
-	 * A failed call surfaces the WP_Error and posts a settings notice — without
-	 * losing the snapshot of the previous handle.
+	 * A failed call surfaces the WP_Error and posts an error notice — and
+	 * deliberately does NOT leave a stale snapshot behind. The earlier
+	 * design wrote the snapshot before the call, which let a failed
+	 * `set_handle()` followed by an external handle change get
+	 * silently overwritten on disconnect; storing only after confirmed
+	 * success closes that gap.
 	 */
-	public function test_set_handle_failure_surfaces_error_and_keeps_snapshot(): void {
+	public function test_set_handle_failure_surfaces_error_without_writing_snapshot(): void {
 		$this->force_home_url( 'https://example.com' );
 		$this->seed_connection( 'alice.bsky.social' );
 
@@ -375,7 +451,12 @@ class Bluesky_Domain_HandleTest extends BaseTestCase {
 
 		$this->assertInstanceOf( \WP_Error::class, $result );
 		$this->assertSame( 'rate limited', $result->get_error_message() );
-		$this->assertSame( 'alice.bsky.social', get_option( Bluesky_Domain_Handle::OPTION_PREVIOUS_HANDLE ) );
+		$this->assertFalse( get_option( Bluesky_Domain_Handle::OPTION_PREVIOUS_HANDLE ) );
+
+		// The locally-cached connection handle must NOT change on failure —
+		// the remote handle is still the old value.
+		$connection = get_option( 'atmosphere_connection' );
+		$this->assertSame( 'alice.bsky.social', $connection['handle'] );
 
 		$messages = wp_list_pluck( get_settings_errors( 'atmosphere' ), 'message' );
 		$this->assertNotEmpty(
@@ -406,10 +487,12 @@ class Bluesky_Domain_HandleTest extends BaseTestCase {
 	}
 
 	/**
-	 * Successful revert clears the snapshot and posts an info notice.
+	 * Successful revert clears the snapshot, syncs the locally-cached
+	 * connection handle, and posts an info notice.
 	 */
 	public function test_maybe_revert_on_disconnect_success_clears_option(): void {
-		update_option( Bluesky_Domain_Handle::OPTION_PREVIOUS_HANDLE, 'alice.bsky.social', false );
+		$this->seed_connection( 'example.com' );
+		$this->seed_snapshot( 'did:plc:test123', 'alice.bsky.social' );
 
 		$received = null;
 		add_filter(
@@ -428,6 +511,10 @@ class Bluesky_Domain_HandleTest extends BaseTestCase {
 		$this->assertSame( 'alice.bsky.social', $received );
 		$this->assertFalse( get_option( Bluesky_Domain_Handle::OPTION_PREVIOUS_HANDLE ) );
 
+		// Local connection handle must roll back to match the remote.
+		$connection = get_option( 'atmosphere_connection' );
+		$this->assertSame( 'alice.bsky.social', $connection['handle'] );
+
 		$messages = wp_list_pluck( get_settings_errors( 'atmosphere' ), 'message' );
 		$this->assertNotEmpty(
 			array_filter(
@@ -438,10 +525,15 @@ class Bluesky_Domain_HandleTest extends BaseTestCase {
 	}
 
 	/**
-	 * Failed revert preserves the snapshot so a future retry can still revert.
+	 * Failed revert preserves the snapshot so a future retry can still revert,
+	 * and deliberately does NOT post its own notice — the caller composes a
+	 * combined "disconnected, but couldn't revert" message instead, so the
+	 * user doesn't see a green "Disconnected" success appended after a
+	 * yellow warning that's easy to read past.
 	 */
-	public function test_maybe_revert_on_disconnect_failure_preserves_option(): void {
-		update_option( Bluesky_Domain_Handle::OPTION_PREVIOUS_HANDLE, 'alice.bsky.social', false );
+	public function test_maybe_revert_on_disconnect_failure_preserves_option_without_notice(): void {
+		$this->seed_connection( 'example.com' );
+		$this->seed_snapshot( 'did:plc:test123', 'alice.bsky.social' );
 
 		add_filter(
 			Bluesky_Domain_Handle::FILTER_PRE_UPDATE,
@@ -451,14 +543,45 @@ class Bluesky_Domain_HandleTest extends BaseTestCase {
 		$result = Bluesky_Domain_Handle::maybe_revert_on_disconnect();
 
 		$this->assertInstanceOf( \WP_Error::class, $result );
-		$this->assertSame( 'alice.bsky.social', get_option( Bluesky_Domain_Handle::OPTION_PREVIOUS_HANDLE ) );
+		$this->assertSame(
+			array(
+				'did'    => 'did:plc:test123',
+				'handle' => 'alice.bsky.social',
+			),
+			get_option( Bluesky_Domain_Handle::OPTION_PREVIOUS_HANDLE )
+		);
 
-		$messages = wp_list_pluck( get_settings_errors( 'atmosphere' ), 'message' );
-		$this->assertNotEmpty(
-			array_filter(
-				$messages,
-				static fn( $m ) => false !== strpos( $m, 'Could not restore your previous Bluesky handle' )
-			)
+		$this->assertEmpty(
+			get_settings_errors( 'atmosphere' ),
+			'maybe_revert_on_disconnect() must not post its own notice on failure — the caller composes a combined message.'
+		);
+	}
+
+	/**
+	 * Snapshot is bound to the DID it was taken under. A subsequent
+	 * connect-to-different-account followed by disconnect must NOT push
+	 * the prior account's handle onto the new account.
+	 */
+	public function test_maybe_revert_on_disconnect_refuses_when_did_does_not_match(): void {
+		$this->seed_connection( 'bob.bsky.social', 'did:plc:bob456' );
+		$this->seed_snapshot( 'did:plc:alice123', 'alice.bsky.social' );
+
+		$captured = false;
+		add_filter(
+			Bluesky_Domain_Handle::FILTER_PRE_UPDATE,
+			static function () use ( &$captured ) {
+				$captured = true;
+				return true;
+			}
+		);
+
+		$result = Bluesky_Domain_Handle::maybe_revert_on_disconnect();
+
+		$this->assertNull( $result );
+		$this->assertFalse( $captured, 'Revert must not run when the snapshot belongs to a different DID.' );
+		$this->assertNotFalse(
+			get_option( Bluesky_Domain_Handle::OPTION_PREVIOUS_HANDLE ),
+			'Mismatched-DID snapshots are kept — the legitimate account may reconnect later.'
 		);
 	}
 
@@ -466,7 +589,8 @@ class Bluesky_Domain_HandleTest extends BaseTestCase {
 	 * Disabled feature skips the revert path entirely.
 	 */
 	public function test_maybe_revert_on_disconnect_disabled_returns_null(): void {
-		update_option( Bluesky_Domain_Handle::OPTION_PREVIOUS_HANDLE, 'alice.bsky.social', false );
+		$this->seed_connection( 'example.com' );
+		$this->seed_snapshot( 'did:plc:test123', 'alice.bsky.social' );
 		add_filter( Bluesky_Domain_Handle::FILTER_ENABLED, '__return_false' );
 
 		$captured = false;
@@ -480,7 +604,13 @@ class Bluesky_Domain_HandleTest extends BaseTestCase {
 
 		$this->assertNull( Bluesky_Domain_Handle::maybe_revert_on_disconnect() );
 		$this->assertFalse( $captured );
-		$this->assertSame( 'alice.bsky.social', get_option( Bluesky_Domain_Handle::OPTION_PREVIOUS_HANDLE ) );
+		$this->assertSame(
+			array(
+				'did'    => 'did:plc:test123',
+				'handle' => 'alice.bsky.social',
+			),
+			get_option( Bluesky_Domain_Handle::OPTION_PREVIOUS_HANDLE )
+		);
 	}
 
 	// ---- pre-update filter contract ----
@@ -500,7 +630,8 @@ class Bluesky_Domain_HandleTest extends BaseTestCase {
 	}
 
 	/**
-	 * Class metadata is stable: filter names, settings group, option key.
+	 * Class metadata is stable: filter names, settings group, option key,
+	 * and the notice code the wizard's notice-suppression filter pivots on.
 	 *
 	 * Catches accidental constant renames that would silently break
 	 * external integrations filtering on the documented filter names or
@@ -510,6 +641,7 @@ class Bluesky_Domain_HandleTest extends BaseTestCase {
 		$this->assertSame( 'fosse_domain_handle_enabled', Bluesky_Domain_Handle::FILTER_ENABLED );
 		$this->assertSame( 'fosse_pre_bluesky_update_handle', Bluesky_Domain_Handle::FILTER_PRE_UPDATE );
 		$this->assertSame( 'atmosphere', Bluesky_Domain_Handle::NOTICE_SETTING );
+		$this->assertSame( 'fosse_domain_handle', Bluesky_Domain_Handle::NOTICE_CODE );
 		$this->assertSame( 'fosse_bluesky_previous_handle', Bluesky_Domain_Handle::OPTION_PREVIOUS_HANDLE );
 
 		$reflection = new ReflectionClass( Bluesky_Domain_Handle::class );
@@ -521,5 +653,34 @@ class Bluesky_Domain_HandleTest extends BaseTestCase {
 			$reflection->hasConstant( 'FORM_FIELD' ),
 			'The pre-OAuth checkbox was deliberately removed; the confirm flow runs after connect.'
 		);
+	}
+
+	/**
+	 * Every notice this service posts is tagged with NOTICE_CODE so the
+	 * wizard's top-of-step notice-suppression filter can distinguish our
+	 * messages from Atmosphere's own connect-success echo.
+	 *
+	 * Without the code tag, our success message would be silently
+	 * suppressed by the wizard's `success`/`info` type filter, leaving the
+	 * user with no confirmation that their handle change went through.
+	 */
+	public function test_all_notices_carry_the_domain_handle_code(): void {
+		$this->force_home_url( 'https://example.com' );
+
+		// Cover one early-return path (disabled) plus one successful call —
+		// proves the code tag is consistent across info/success/error types.
+		add_filter( Bluesky_Domain_Handle::FILTER_ENABLED, '__return_false' );
+		Bluesky_Domain_Handle::set_handle();
+
+		remove_all_filters( Bluesky_Domain_Handle::FILTER_ENABLED );
+		$this->seed_connection( 'alice.bsky.social' );
+		add_filter( Bluesky_Domain_Handle::FILTER_PRE_UPDATE, '__return_true' );
+		Bluesky_Domain_Handle::set_handle();
+
+		$codes = wp_list_pluck( get_settings_errors( 'atmosphere' ), 'code' );
+		$this->assertNotEmpty( $codes );
+		foreach ( $codes as $code ) {
+			$this->assertSame( Bluesky_Domain_Handle::NOTICE_CODE, $code );
+		}
 	}
 }

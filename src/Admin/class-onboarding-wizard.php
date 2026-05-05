@@ -1100,10 +1100,17 @@ class Onboarding_Wizard {
 		// error notice on failure. The wizard's in-card connected state
 		// already speaks for the success case, so rendering the top success
 		// notice would double-up the confirmation. Surface only error/warning
-		// here so a failed connect doesn't go silent on the Bluesky step.
+		// here so a failed connect doesn't go silent on the Bluesky step —
+		// EXCEPT for FOSSE's own domain-handle notices, which describe a
+		// separate explicit action (the confirm button) and need their own
+		// confirmation/error feedback regardless of type.
 		foreach ( get_settings_errors( 'atmosphere' ) as $atmosphere_notice ) {
 			$notice_type = isset( $atmosphere_notice['type'] ) ? (string) $atmosphere_notice['type'] : 'error';
-			if ( in_array( $notice_type, array( 'success', 'updated', 'info' ), true ) ) {
+			$notice_code = isset( $atmosphere_notice['code'] ) ? (string) $atmosphere_notice['code'] : '';
+
+			$is_domain_handle_notice = Bluesky_Domain_Handle::NOTICE_CODE === $notice_code;
+
+			if ( ! $is_domain_handle_notice && in_array( $notice_type, array( 'success', 'updated', 'info' ), true ) ) {
 				continue;
 			}
 
