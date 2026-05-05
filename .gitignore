@@ -30,5 +30,8 @@
 /.claude/scheduled_tasks.lock
 /.claude/worktrees/
 
+# Local agent config
+/.air/
+
 # Superpowers — local visual brainstorming sessions
 /.superpowers/
