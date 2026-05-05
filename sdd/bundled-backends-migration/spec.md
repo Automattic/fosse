@@ -1,141 +1,97 @@
 # Spec: Bundled Backends Migration
 
-## Goal
+## Status: DEFERRED
 
-Move FOSSE from "checked-in bundled backend plugins are the product architecture" to "FOSSE is the UI/orchestration plugin, and backend plugins are independently distributed dependencies", without interrupting current standalone zip installs or wp.com Simple rollout.
+This SDD captures a future migration. **No implementation is planned at this time.** The bundled-backends approach (`bundled/activitypub/` and `bundled/atmosphere/` checked into the FOSSE repo, included in the standalone zip and the wp.com Simple artifact) is the production architecture for now and the foreseeable future. The "short-term bootstrap" framing from `sdd/bundled-backends/` is correct in spirit but, in practice, the bootstrap is now a load-bearing wall.
 
-## Recommendation
+This doc exists so the eventual migration has a starting design rather than a fresh blank page, and so today's architectural decisions are made with the future migration in mind.
 
-### Near-Term Recommendation
+## Why deferred
 
-Keep artifact vendoring as the near-term bridge, but tighten policy and prove a replacement packaging path immediately.
+Concrete blockers — each of these would need to clear before migration becomes worth the cost:
 
-Near-term means:
+1. **Atmosphere has no stable public release.** `ATMOSPHERE_VERSION` is `'unreleased'` in the bundled copy. Composer-based deps, package registries, and external-plugin distribution all assume a stable release artifact to depend on. There isn't one yet.
 
-- Continue shipping the existing standalone zip with backend artifacts included while FOSSE needs one-click install behavior.
-- Keep `bundled/` read-only and refreshed only through `tools/sync-bundled.sh`.
-- Add explicit policy and verification around vendored source so no one treats it as FOSSE-owned code.
-- Build a packaging proof that assembles ActivityPub and Atmosphere from versioned package inputs instead of checked-in `bundled/` source.
-- Keep wp.com Simple on artifact vendoring until the platform has an equivalent deployment bundle or dependency-management story.
+2. **wp.com Simple just shipped on bundled.** DOTCOM-16983 (artifact vendoring) and DOTCOM-16984 (mu-plugin loader) landed within the past week. The platform deployment workflow is built around a single vendored artifact at `wp-content/plugins/fosse/<version>/`. Migrating now would force a redesign of the wp.com Simple deployment story before its first round of production-incident-driven feedback has even arrived.
 
-This avoids breaking rollout while making the migration measurable.
+3. **WordPress.org plugin directory does not allow Composer-managed dependencies.** Plugins must include their vendored code in the zip. So "FOSSE depends on AP/Atmosphere via Composer" only works for self-hosted-via-GitHub or platform-built artifacts — it doesn't help the WP.org distribution case at all.
 
-### Long-Term Recommendation
+4. **Bundling is working in production.** Coexistence with standalone AP/Atmosphere is handled cleanly by the skip-when-standalone checks at `fosse.php:42-58`. There are no open bug reports or operational incidents traceable to the bundling architecture. The maintenance burden (`tools/sync-bundled.sh`) is real but small — a few syncs a month.
 
-Split FOSSE UI/orchestration from backend plugin distribution.
+5. **Migration is high-risk, low-immediate-value.** The benefits (smaller plugin zip, cleaner upstream sync) don't outweigh the costs (wp.com platform redesign, dependency UX work, WP.org policy navigation, regression risk on a production-critical path) until at least one of items 1-4 changes.
 
-Long-term, FOSSE should not contain hidden copies of ActivityPub or Atmosphere in its repository. The preferred model is:
+## Trigger conditions for revisiting
 
-- `wordpress-activitypub` and `wordpress-atmosphere` ship as independent plugins with their own releases.
-- FOSSE declares and detects those backend plugins as dependencies.
-- FOSSE owns shared UI, onboarding, settings projection, provider state, and FOSSE-specific policy.
-- Backend-agnostic correctness and protocol implementation continue upstream.
-- Platform builds, including wp.com Simple, may assemble FOSSE plus required backend plugins as a deployment artifact, but that should be a platform packaging concern rather than FOSSE's source tree shape.
+Revisit this SDD and consider activating implementation when ANY of the following becomes true:
 
-Composer VCS dependencies or an Automattic package registry are the best transition mechanism for reproducible artifact assembly. They are not the final user-facing architecture by themselves, because a WordPress site installing a plugin zip cannot be expected to run Composer.
+- **Atmosphere ships a stable public release** (versioned tag, published on a reachable distribution channel — wordpress.org, an Automattic Composer registry, or a stable GitHub release artifact).
+- **The bundling approach actively breaks.** Specifically: a `tools/sync-bundled.sh` run produces unrecoverable conflicts, a security advisory in upstream AP or Atmosphere requires faster-than-sync turnaround, or the bundled zip exceeds a size limit imposed by a distribution channel.
+- **WordPress.org's plugin dependency tooling matures** to allow declarative cross-plugin dependencies that work for the standalone install case (currently in development as part of WP core; not yet a usable surface).
+- **wp.com platform asks for separated artifacts** as part of its own deployment evolution.
+- **Three or more sync conflicts in a single quarter** that require manual resolution beyond the standard `sync-bundled.sh` flow.
 
-## Options Evaluated
+When a trigger fires, the next step is: re-evaluate this spec, confirm the chosen direction below still holds, expand `plan.md` with implementation tasks, and only then begin work.
 
-### Option A: Composer VCS Dependencies or Package Registry
+## What to be aware of in the meantime
 
-FOSSE could depend on versioned package inputs for ActivityPub and Atmosphere, either through VCS repositories or a package registry. The build step would resolve those inputs and assemble the distribution artifact.
+These are constraints today's architectural decisions should respect even though we're not migrating:
 
-**Pros**
+1. **Don't add NEW load-bearing assumptions about `bundled/`.** Existing FOSSE code reads bundled AP/Atmosphere class names and constants (e.g. `ACTIVITYPUB_PLUGIN_DIR`, `\Activitypub\Activitypub`, `\Atmosphere\Publisher`). That's existing surface area. Don't grow it. Specifically:
+   - Don't add `require_once bundled/...` calls outside `fosse.php`'s existing bootstrap.
+   - Don't add filters/hooks whose contracts depend on bundled code being at a specific filesystem path.
+   - Don't add tests that reach into `bundled/` directly.
 
-- Reproducible version pinning through `composer.lock` or an equivalent lockfile.
-- Removes local manual sync as the source of truth.
-- Creates a clean audit trail for which upstream versions ship.
-- Fits CI proofs and artifact builds well.
-- Can support private/pre-release Atmosphere builds before public plugin-directory availability.
+2. **Treat `bundled/` as read-only.** Already enforced by policy. `tools/sync-bundled.sh` is the only legitimate writer.
 
-**Cons**
+3. **Land protocol-agnostic functionality upstream first.** This is the existing "upstream-first" policy; migration just makes it more important. Anything that's a candidate for "should be in AP / Atmosphere" should land there before the bundled copy gets it via sync. Reduces the migration delta when the time comes.
 
-- WordPress plugin users do not run Composer during plugin install.
-- Composer packages for full WordPress plugins need careful install paths, artifact pruning, and autoload boundaries.
-- If the resulting zip still embeds backend plugin source, this replaces checked-in vendoring with build-time vendoring but does not by itself solve hidden dependency ownership.
-- VCS dependencies are slower and less stable than a package registry for routine CI.
+4. **Document the load contract at every coupling point.** The wp.com Simple load-order contract (`fosse.php:25-38`) is a model. When FOSSE adds a new touchpoint with bundled code, document the contract in-line so the migration team (probably future-us) can find the contracts to redesign.
 
-**Assessment**
+5. **Keep `bin/build-zip.sh` validation strict.** The existing "fail if `bundled/vendor/autoload.php` missing" check (`bin/build-zip.sh:73-83`) is exactly the kind of guard that protects the bundled artifact from silent breakage. Add similar guards for any new bundled file that load-bearing code depends on.
+
+## Chosen direction (when implementation begins)
+
+Two-phase migration:
+
+1. **Bridge phase**: keep checked-in `bundled/` artifacts, but harden policy and add a packaging proof. Build a CI job that assembles an equivalent FOSSE zip from versioned package inputs (Composer VCS, GitHub release zips, or Automattic package registry — whichever is most stable at the time) without relying on `bundled/` source. Compare the assembled artifact byte-for-byte (or structurally) with the current bundled output.
+
+2. **Migration phase**: once the packaging proof + dependency UX + wp.com Simple platform path are all proven, move backend source out of the FOSSE repo. FOSSE becomes UI/orchestration; ActivityPub and Atmosphere become external dependencies. The standalone artifact (if still desired) is built from package inputs at release time, not from checked-in source.
+
+The bridge phase has an explicit expiration gate: once package-based artifact assembly is green in CI, new feature work must not extend `bundled/` except through upstream syncs needed to reach migration cutover.
+
+## Options analysis (for future reference)
+
+The four candidate distribution models, evaluated when this SDD was originally drafted. Preserved here so the migration team has the prior reasoning when they pick this up.
+
+### Option A: Composer VCS dependencies or package registry
 
 Recommended as the near-term packaging proof and transition path. Prefer a package registry once upstream release automation exists; use VCS only while releases are still moving quickly.
 
-### Option B: Split FOSSE UI from Backend Plugins
+**Pros**: reproducible version pinning via lockfile; removes manual sync as source of truth; clean audit trail; CI-friendly; supports private/pre-release Atmosphere builds.
+**Cons**: WP plugin users don't run Composer; resulting zip may still embed backend source (build-time vendoring instead of checked-in vendoring); VCS deps slower than registry.
 
-FOSSE becomes an orchestration/UI plugin that requires ActivityPub and Atmosphere to be installed separately. It detects backend availability, guides activation, and degrades clearly when dependencies are missing.
-
-**Pros**
-
-- Clean ownership boundary.
-- Backend plugins update independently and remain visible to site owners.
-- FOSSE stops shipping hidden copies of other plugins.
-- Aligns with upstream-first policy.
-- Makes dependency state explicit in wp-admin instead of implicit in `bundled/`.
-- Removes class-collision and activation-hook gaps caused by programmatic nested plugin loading.
-
-**Cons**
-
-- Standalone install is no longer a single zip unless the artifact includes all plugins or the user installs dependencies separately.
-- Requires dependency UX, activation checks, and failure states.
-- WordPress plugin dependency tooling helps, but the user experience still needs design and testing.
-- wp.com Simple needs a platform deployment answer so rollout remains one coordinated install.
-
-**Assessment**
+### Option B: Split FOSSE UI from backend plugins
 
 Recommended long-term architecture. Do not switch until dependency UX and platform artifact assembly are proven.
 
-### Option C: wp.com-Specific Artifact Strategy
+**Pros**: clean ownership boundary; backend plugins update independently; no hidden copies; aligns with upstream-first; explicit dependency state in wp-admin; removes class-collision and activation-hook gaps from programmatic nested loading.
+**Cons**: standalone install no longer one zip unless all plugins assembled; requires dependency UX work; WP plugin dependency tooling helps but UX still needs design; wp.com Simple needs platform deployment answer.
 
-Keep FOSSE source clean, but let wp.com Simple build/deploy an artifact containing FOSSE plus the required backend plugins.
-
-**Pros**
-
-- Matches wp.com's platform control over plugin deployment and load ordering.
-- Avoids forcing wp.com constraints into the open-source repository.
-- Can preserve one-step rollout while FOSSE's public source moves toward explicit dependencies.
-- Allows platform-specific pinning, staged rollout, and rollback.
-
-**Cons**
-
-- Creates two distribution paths that must be tested separately.
-- Risk of wp.com artifact behavior diverging from the public plugin zip.
-- Requires clear ownership of artifact assembly and backend version pins outside the FOSSE source tree.
-
-**Assessment**
+### Option C: wp.com-specific artifact strategy
 
 Recommended as part of the transition. wp.com Simple can keep artifact vendoring longer than the public repo if needed, but it should become platform packaging, not checked-in FOSSE source.
 
-### Option D: Continued Vendoring With Stricter Policy
+**Pros**: matches wp.com's platform control over plugin deployment; avoids forcing wp.com constraints into open-source repo; preserves one-step rollout while public source moves; allows platform-specific pinning, staged rollout, rollback.
+**Cons**: two distribution paths to test separately; wp.com artifact behavior could diverge from public zip; requires clear ownership of artifact assembly outside FOSSE source tree.
 
-Keep `bundled/` checked in, but add stronger rules: no hand edits, source SHA manifest, automated drift checks, build checks, and periodic removal review.
+### Option D: Continued vendoring with stricter policy
 
-**Pros**
+**This is the current production choice.** Accept as a long bridge while migration triggers haven't fired. Not recommended as the eventual long-term architecture, but the right choice today given the deferral rationale above.
 
-- Lowest immediate risk.
-- Preserves current standalone zip and wp.com Simple behavior.
-- Easy to understand with current code.
-- Adds guardrails quickly.
+**Pros**: lowest immediate risk; preserves current standalone zip + wp.com Simple behavior; easy to understand; current guardrails (no hand edits, sync-only refresh) work.
+**Cons**: still makes FOSSE carry other plugins' source; risks the temporary approach becoming permanent (already happened); creates large vendored diffs; doesn't solve dependency ownership.
 
-**Cons**
-
-- Still makes FOSSE carry other plugins' source.
-- Still risks the temporary approach becoming permanent.
-- Still creates large generated/vendored diffs.
-- Does not solve dependency ownership or independent backend updates.
-
-**Assessment**
-
-Accept only as a short bridge while Option A's packaging proof and Option B's dependency model are built. Not recommended as the long-term architecture.
-
-## Chosen Direction
-
-Use a two-phase migration:
-
-1. **Bridge phase:** Keep the current checked-in `bundled/` artifacts, but harden the policy and add migration checks. In parallel, prove that CI can assemble an equivalent FOSSE zip from versioned backend package inputs.
-2. **Migration phase:** Move backend source out of the FOSSE repository once the packaging proof, dependency UX, and wp.com artifact path are accepted. FOSSE then treats ActivityPub and Atmosphere as external backend plugins.
-
-The bridge phase should have an explicit expiration gate: once package-based artifact assembly and dependency UX are green in CI, new backend feature work must not extend `bundled/` except through upstream syncs required to reach the migration cutover.
-
-## Target Architecture
+## Target architecture (when implementation begins)
 
 ```
 Development source:
@@ -153,17 +109,10 @@ Automattic/wordpress-atmosphere
   `-- independent plugin release
 ```
 
-Distribution artifacts may differ:
+Distribution artifacts at the migration target:
 
 ```
-Public standalone artifact, transitional:
-  fosse/
-    fosse.php
-    src/
-    vendor/
-    bundled/ or assembled backend artifacts
-
-Public standalone artifact, final:
+Public standalone artifact (final):
   fosse/
     fosse.php
     src/
@@ -175,7 +124,7 @@ wp.com Simple artifact:
   with pinned backend versions and rollout/rollback controls
 ```
 
-## Migration Principles
+## Migration principles (when implementation begins)
 
 - **Source ownership stays upstream.** If a change is useful outside FOSSE, land it in ActivityPub or Atmosphere first.
 - **FOSSE owns projection and product policy.** FOSSE-specific option defaults, unified UI, and cross-network coordination stay in FOSSE.
@@ -183,68 +132,21 @@ wp.com Simple artifact:
 - **Dependency state must be visible.** Users and operators should be able to tell whether ActivityPub and Atmosphere are installed, active, bundled, or missing.
 - **Rollout should be reversible.** Do not delete `bundled/` until package-based artifact assembly and dependency UX both have tests.
 
-## Required Proofs Before Removing `bundled/`
+## Required proofs before removing `bundled/` (when implementation begins)
 
-1. **Packaging proof**
-   - Resolve ActivityPub and Atmosphere from versioned inputs.
-   - Assemble an installable FOSSE artifact without relying on checked-in `bundled/`.
-   - Verify the artifact includes whatever backend files the selected transition path requires.
-   - Run `composer run-script build-zip` or successor build command in CI.
+1. **Packaging proof**: resolve AP and Atmosphere from versioned inputs; assemble an installable FOSSE artifact without relying on checked-in `bundled/`; verify the artifact includes whatever backend files the selected transition path requires; CI build job green.
+2. **Runtime proof**: install generated artifact in Playground; FOSSE admin loads without fatals; AP and Atmosphere provider availability reported correctly; standalone backend plugins don't class-collide with FOSSE.
+3. **Dependency UX proof**: missing AP shows clear action/state; missing Atmosphere shows clear action/state; installed-but-inactive distinguished from absent; FOSSE setup/status pages remain useful when one backend is unavailable.
+4. **wp.com Simple proof**: platform artifact or deployment path installs FOSSE plus required backend versions; load ordering still suppresses duplicate platform AP loads where required; rollback returns to previous known-good artifact.
 
-2. **Runtime proof**
-   - Install the generated artifact in Playground.
-   - Confirm FOSSE admin loads without fatals.
-   - Confirm ActivityPub and Atmosphere provider availability is reported correctly.
-   - Confirm standalone backend plugins do not class-collide with FOSSE.
-
-3. **Dependency UX proof**
-   - Missing ActivityPub shows a clear action/state.
-   - Missing Atmosphere shows a clear action/state.
-   - Installed-but-inactive backends are distinguished from absent backends.
-   - FOSSE setup/status pages remain useful when one backend is unavailable.
-
-4. **wp.com Simple proof**
-   - Platform artifact or deployment path installs FOSSE plus the required backend versions.
-   - Load ordering still suppresses duplicate platform ActivityPub loads where required.
-   - Rollback can return to the previous known-good artifact.
-
-## Build and CI Implications
-
-The existing `bin/build-zip.sh` assumes tracked source plus production `vendor/`. The migration should either:
-
-- Extend the build to assemble backend artifacts from package inputs before zipping, or
-- Remove backend artifacts from the FOSSE zip and rely on explicit plugin dependencies.
-
-During the bridge phase, CI should keep verifying the current checked-in bundle. Once the packaging proof exists, CI should add a second artifact job that builds from package inputs and compares key files/behavior against the current bundle.
-
-Minimum checks:
-
-- Backend entrypoints are present in transitional artifacts when expected.
-- FOSSE root `vendor/autoload_packages.php` is present.
-- Bundled or external backend activation path does not fatal.
-- `bundled/` is not included in FOSSE Composer classmap.
-- No files under `bundled/` are modified except by a sync task.
-
-## Deprecation Plan
-
-1. Mark checked-in `bundled/` as bridge-only in SDD, AGENTS.md, and release engineering notes.
-2. Add a backend-version manifest or package-lock equivalent so vendored source has traceable provenance while it remains.
-3. Prove package-based artifact assembly in CI.
-4. Build dependency UX for missing/inactive external backends.
-5. Decide whether the public standalone artifact should:
-   - Continue including backend artifacts assembled at build time for one-click install, or
-   - Stop including backend artifacts and rely on explicit plugin dependencies.
-6. Move wp.com Simple to a platform-owned artifact/dependency strategy.
-7. Remove checked-in `bundled/`, `tools/sync-bundled.sh`, and bundle-specific export/linguist/tooling rules after the selected replacement ships.
-
-## Non-Goals
+## Non-goals (now AND when implementation begins)
 
 - This SDD does not remove `bundled/`.
 - This SDD does not pick exact package names or registry infrastructure.
 - This SDD does not redesign FOSSE onboarding or provider UI.
 - This SDD does not change upstream release policy for ActivityPub or Atmosphere.
 
-## Open Questions
+## Open questions (for the future migration team)
 
 - Should the first packaging proof use Composer VCS repositories, GitHub release zips, or an internal Automattic package registry?
 - Does the public FOSSE zip need to remain one-click with backend artifacts included after v1, or can it rely on WordPress plugin dependency installation UX?
