@@ -1382,11 +1382,7 @@ class Onboarding_Wizard {
 			$post_types
 		);
 
-		$bluesky_summary = $includes_bluesky ? __( 'Not connected', 'fosse' ) : __( 'Skipped', 'fosse' );
-		if ( ! $bluesky['available'] && $includes_bluesky ) {
-			$bluesky_summary = __( 'Unavailable', 'fosse' );
-		}
-		if ( $includes_bluesky && $bluesky['connected'] ) {
+		if ( $bluesky['connected'] ) {
 			$bluesky_summary = $bluesky['handle']
 				? sprintf(
 					/* translators: %s: Bluesky handle. */
@@ -1394,6 +1390,10 @@ class Onboarding_Wizard {
 					$bluesky['handle']
 				)
 				: __( 'Connected', 'fosse' );
+		} elseif ( ! $bluesky['available'] && $includes_bluesky ) {
+			$bluesky_summary = __( 'Unavailable', 'fosse' );
+		} else {
+			$bluesky_summary = $includes_bluesky ? __( 'Not connected', 'fosse' ) : __( 'Skipped', 'fosse' );
 		}
 
 		?>
@@ -1433,7 +1433,7 @@ class Onboarding_Wizard {
 				</tr>
 				<tr>
 					<td class="fosse-summary__label"><?php esc_html_e( 'Bluesky', 'fosse' ); ?></td>
-					<td class="fosse-summary__value<?php echo $includes_bluesky && $bluesky['connected'] ? '' : ' fosse-summary__value--muted'; ?>"><?php echo esc_html( $bluesky_summary ); ?></td>
+					<td class="fosse-summary__value<?php echo $bluesky['connected'] ? '' : ' fosse-summary__value--muted'; ?>"><?php echo esc_html( $bluesky_summary ); ?></td>
 				</tr>
 			</table>
 

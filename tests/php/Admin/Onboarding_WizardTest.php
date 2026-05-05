@@ -1027,6 +1027,26 @@ class Onboarding_WizardTest extends BaseTestCase {
 	}
 
 	/**
+	 * The Review summary reports an existing Bluesky connection even when the
+	 * latest wizard run selected Fediverse-only onboarding.
+	 */
+	public function test_complete_summary_prioritizes_connected_bluesky_for_fediverse_only_destination(): void {
+		Onboarding_Wizard::mark_complete();
+		update_option( Onboarding_Wizard::DESTINATION_OPTION, 'fediverse_only' );
+		$this->seed_bluesky_connection( 'alice.bsky.social', 'did:plc:alice123' );
+
+		$output = $this->render_wizard_step( 'complete' );
+
+		$this->assertStringContainsString( 'Fediverse only', $output );
+		$this->assertMatchesRegularExpression(
+			'~<td class="fosse-summary__label">Bluesky</td>\s*<td class="fosse-summary__value">Connected as alice\.bsky\.social</td>~',
+			$output,
+			'Connected Bluesky accounts must not be visually muted even when the saved destination is Fediverse-only.'
+		);
+		$this->assertStringNotContainsString( 'Skipped', $output );
+	}
+
+	/**
 	 * In `actor_blog` mode, the completion screen shows both the user and
 	 * site fediverse handles instead of dropping them in favor of a bare
 	 * mode label. Stub `activitypub_user_can_activitypub` because WorDBless
