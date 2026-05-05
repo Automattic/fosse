@@ -19,6 +19,8 @@ When FOSSE is deactivated, WordPress stops loading `fosse.php`. That naturally r
 
 No options are deleted on deactivation. If standalone ActivityPub and/or Atmosphere are active, their native menus reappear and continue reading the same `activitypub_*` and `atmosphere_*` options FOSSE edited. If the site only used FOSSE's bundled copies, those backends stop loading because they are not separate active WordPress plugins; their options remain for later reactivation or standalone handoff.
 
+FOSSE also does not flush rewrite rules or invoke the bundled plugins' deactivation hooks on its own deactivation. Both are non-destructive: WP rewrite caches expire naturally and bundled-plugin scheduled hooks become no-ops once their callbacks are no longer loaded. Reversing them adds risk (slow deactivation paths on large sites, surprising side effects on later reactivation) without solving any user-visible problem.
+
 ### 2. Uninstall Deletes FOSSE-Owned State Only
 
 Deleting FOSSE will remove FOSSE-owned lifecycle, projector, and temporary state:
@@ -50,6 +52,8 @@ Deleting FOSSE will not remove:
 
 Rationale: FOSSE intentionally writes AP/Atmosphere's canonical options directly. That makes the standalone handoff simple, but it also means FOSSE uninstall must not treat those options as disposable FOSSE state.
 
+**Broader principle**: FOSSE never deletes data while another active plugin uses it. The upstream-namespace preservation rule above is the concrete instance — `activitypub_*` and `atmosphere_*` keys are FOSSE-written but consumed by their respective standalone plugins when those are active. The same rule applies to any future FOSSE-owned option that another active plugin (an extension, a custom integration) reads: preserve.
+
 ### 3. Use `uninstall.php` Plus A Small Lifecycle Class
 
 Use a root `uninstall.php` so cleanup runs when WordPress deletes the plugin even if FOSSE is inactive. The file should:
@@ -59,7 +63,7 @@ Use a root `uninstall.php` so cleanup runs when WordPress deletes the plugin eve
 3. Call `Automattic\Fosse\Lifecycle::uninstall()` when the class is available.
 4. Fall back to a minimal procedural cleanup list if the autoloader is unavailable, so release packaging mistakes do not leave known FOSSE options behind.
 
-The reusable logic lives in `src/class-lifecycle.php` so PHPUnit can call it directly without simulating WordPress's plugin deletion flow.
+The reusable logic lives in `src/class-lifecycle.php` so PHPUnit can call it directly without simulating WordPress's plugin deletion flow. `Lifecycle::uninstall()` must remain callable by out-of-band tooling (see Decision 7 — wp.com Simple) so cleanup is possible on contexts where `uninstall.php` never fires.
 
 ### 4. Standalone Backend Detection Stays Conservative
 
@@ -72,33 +76,17 @@ Keep the current `fosse.php` behavior:
 
 This yields to standalone installs before activation and prevents WordPress's `plugin_sandbox_scrape()` from requiring a standalone plugin into the same request after FOSSE already loaded a bundled copy.
 
-The implementation must preserve FOSSE's current bare-clone degradation behavior. Today, missing Composer autoload does not stop the bundled backend load checks from running. If detection moves into a helper class, `fosse.php` must either require that helper file directly before using it or fall back to equivalent inline checks when the class is unavailable.
+The implementation must preserve FOSSE's current bare-clone degradation behavior. Today, missing Composer autoload does not stop the bundled backend load checks from running.
 
-### 5. Add Admin Notices For Inactive Standalone Backends
+**FOSSE does not warn about inactive standalone plugins.** The previous draft proposed an admin notice when standalone backend files exist on disk but are not active. That premise is wrong: inactive plugins do nothing, so warning the user about them solves no real problem. The filesystem-skip behavior above silently does the right thing (avoid redeclare fatals); the user notices nothing because nothing is broken.
 
-The filesystem skip avoids class redeclare fatals, but it can leave a confusing state: a standalone backend exists on disk, is not active, and FOSSE therefore skips its bundled copy. In that state the provider is unavailable and FOSSE should explain why.
-
-V1 adds an admin notice when all of the following are true for a backend:
-
-- The standalone plugin file exists at its canonical path.
-- The corresponding standalone sentinel constant is not defined.
-- FOSSE did not load the bundled copy.
-- The current user can `activate_plugins`.
-
-Notice behavior:
-
-- Show on `plugins.php`, FOSSE Setup, FOSSE Wizard, and FOSSE Status screens.
-- Use a warning notice, not an error, because activation or removal is an admin choice.
-- Include the backend name and exact action: activate the standalone plugin, or remove it so FOSSE can load its bundled backend.
-- If `is_plugin_active()` is available and confirms the standalone plugin is active but the sentinel is still missing, show a stronger "backend failed to load" message.
-
-This is FOSSE-owned admin UX and does not require upstream hooks.
-
-### 6. Standalone-Active Is Not A Conflict
+### 5. Standalone-Active Is Not A Conflict
 
 When standalone ActivityPub or Atmosphere is active and successfully loaded, FOSSE treats it as the backend. FOSSE's admin UI can remain the unified surface while FOSSE is active, and the native menus reappear when FOSSE is deactivated. No data migration is needed because option keys are upstream-identical.
 
-### 7. Per-Provider Disable Is Deferred
+**On FOSSE deactivation while standalone AP/Atmosphere is active**, surface a one-line confirmation notice on the next admin page load: "FOSSE deactivated. Federation will continue via the standalone ActivityPub/Atmosphere plugin." This is a confirmation, not a warning — the user already chose to deactivate; the notice just makes the handoff legible. Notice does NOT render when no standalone backend is active (silent deactivation is fine; the user knows what they did).
+
+### 6. Per-Provider Disable Is Deferred
 
 V1 does not add a generic provider disable toggle such as `fosse_bluesky_enabled` or `fosse_activitypub_enabled`.
 
@@ -109,17 +97,33 @@ For Bluesky, v1 already offers two practical controls:
 
 For ActivityPub, v1 does not add a FOSSE-level off switch. Users can change AP's supported post types or deactivate FOSSE / standalone AP depending on the desired scope. A future provider-control SDD can add first-class provider enablement if product wants a single "turn this network off" affordance.
 
+### 7. wp.com Simple Lifecycle Is Sticker-Driven, Not Uninstall-Driven
+
+On wp.com Simple, FOSSE is loaded by `wp-content/mu-plugins/fosse-loader.php` gated on the `enable-fosse` blog sticker. The user has no Plugins-screen affordance to deactivate or delete FOSSE; the lifecycle operation is sticker removal.
+
+V1 behavior:
+
+- **Removing the `enable-fosse` sticker** stops FOSSE from loading on subsequent requests.
+- Stored options (FOSSE-owned + upstream-namespace) **remain in the database**.
+- `uninstall.php` is **not invoked** — the WordPress plugin lifecycle never fires for FOSSE on Simple. The mu-plugin loader is a load gate, not a plugin in the WP plugin-registry sense.
+
+Cleanup of FOSSE-owned options on a sticker-removed Simple site is operationally separate. `Lifecycle::uninstall()` (per Decision 3) remains callable directly — by a wp.com platform script, a wp-admin tool, or WP-CLI — for cases where data cleanup is wanted. v1 does not auto-trigger it; the load gate is treated as a load gate, not a destructive lifecycle event.
+
+This matches how wp.com handles other sticker-gated mu-plugins (e.g., `enable-activitypub`): sticker removal stops the feature; data cleanup, if needed, is a separate operational decision.
+
 ## Lifecycle Matrix
 
 | Scenario | V1 Behavior |
 | --- | --- |
 | FOSSE active, no standalone AP/Atmosphere files | FOSSE loads bundled backends, bootstraps upstream activation side effects once per version, hides native menus, shows FOSSE UI. |
 | FOSSE active, standalone AP/Atmosphere active | FOSSE skips bundled copy, uses standalone backend APIs/options, hides native menus while active, keeps direct URL access. |
-| FOSSE active, standalone AP/Atmosphere files present but inactive | FOSSE skips bundled copy to avoid future redeclare fatal, provider may be unavailable, admin notice tells user to activate or remove standalone backend. |
-| FOSSE deactivated, standalone AP/Atmosphere active | FOSSE menus and suppressions disappear; native backend menus reappear; upstream options keep last configured values. |
-| FOSSE deactivated, no standalone AP/Atmosphere active | Bundled backends stop loading; FOSSE and native backend menus are absent; stored options remain. |
-| FOSSE deleted/uninstalled | FOSSE-owned state is deleted; AP/Atmosphere options and credentials remain. |
-| User installs standalone backend after FOSSE | Existing filesystem skip prevents bundled load collisions; new notice handles inactive/ambiguous state. |
+| FOSSE active, standalone AP/Atmosphere files present but inactive | FOSSE skips bundled copy to avoid future redeclare fatal; provider may be unavailable. No notice — inactive plugins are not affecting behavior. |
+| FOSSE deactivated, standalone AP/Atmosphere active | FOSSE menus and suppressions disappear; native backend menus reappear; upstream options keep last configured values. One-line confirmation notice surfaces on next admin page load: "FOSSE deactivated. Federation will continue via the standalone ActivityPub/Atmosphere plugin." |
+| FOSSE deactivated, no standalone AP/Atmosphere active | Bundled backends stop loading; FOSSE and native backend menus are absent; stored options remain. No notice. |
+| FOSSE deleted/uninstalled (self-hosted) | `uninstall.php` runs `Lifecycle::uninstall()`. FOSSE-owned state is deleted; AP/Atmosphere options and credentials remain. |
+| **wp.com Simple: `enable-fosse` sticker removed** | FOSSE stops loading on next request. No options deleted. `uninstall.php` does NOT fire. `Lifecycle::uninstall()` available for out-of-band cleanup if needed. |
+| **wp.com Simple: `disable-fosse` sticker added (per-blog kill)** | Same as sticker removal — FOSSE stops loading. The kill switch is reversible by removing the disable sticker; data persists across the toggle. |
+| User installs standalone backend after FOSSE | Existing filesystem skip prevents bundled load collisions. No new notice (inactive plugins do nothing). On next FOSSE deactivation, the standalone-handoff confirmation notice from Decision 5 fires. |
 
 ## Data Ownership
 
@@ -155,11 +159,11 @@ Required test coverage:
 
 - `tests/php/LifecycleTest.php`: `Lifecycle::uninstall()` deletes only FOSSE-owned options/transients and preserves seeded `activitypub_*` / `atmosphere_*` values.
 - `tests/php/LifecycleTest.php`: uninstall cleanup handles missing FOSSE options without warnings.
-- `tests/php/Admin/Standalone_Backend_NoticeTest.php`: notices render for inactive standalone backend files and do not render when the backend is active or absent.
-- `tests/php/Bundled/Standalone_Backend_StatusTest.php`: backend status helper distinguishes bundled-loaded, standalone-active, standalone-present-inactive, and absent states.
+- `tests/php/Admin/Standalone_Handoff_NoticeTest.php`: deactivation handoff notice renders only when standalone AP or Atmosphere is active at the moment of FOSSE deactivation; does NOT render when no standalone backend is active.
 - `tests/e2e/bundled-backends.spec.ts`: extend existing coverage to assert no fatal banner appears on backend pages and that native menu suppression remains unchanged while FOSSE is active.
 
 ## Open Questions
 
 - Should FOSSE eventually provide a single provider enable/disable control per network? Deferred out of v1 because Bluesky already has auto-publish and disconnect controls, and ActivityPub disable semantics need a product decision.
 - Should uninstall cleanup become network-wide on multisite? Deferred until FOSSE supports multisite as a first-class target.
+- On wp.com Simple, should sticker removal *eventually* trigger an out-of-band cleanup pass (e.g. via a platform-side cron) so abandoned-sticker blogs don't accumulate FOSSE option rows? Deferred — coordinate with wp.com platform once usage data exists.
