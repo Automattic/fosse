@@ -735,12 +735,24 @@ class Onboarding_Wizard {
 	private static function get_bluesky_status(): array {
 		$provider = Connection_Provider_Registry::get_provider( 'bluesky' );
 
+		// `auto_publish` is read directly from the Atmosphere option
+		// rather than `Bluesky_Provider::get_status()` because the
+		// provider intentionally no longer exposes it: the toggle was
+		// removed from FOSSE's UI (Atmosphere has no per-post manual
+		// publish surface to back it up). The wizard's complete-step
+		// CTA still needs the value to phrase its messaging accurately
+		// — "your post will reach Bluesky" vs. "Bluesky is connected
+		// but auto-publish is off" — so the read happens here, against
+		// the same `'1'` default Atmosphere itself uses.
+		$auto_publish = '1' === get_option( 'atmosphere_auto_publish', '1' );
+
 		$defaults = array(
 			'available'    => false,
 			'connected'    => false,
 			'handle'       => '',
 			'did'          => '',
 			'pds_endpoint' => '',
+			'auto_publish' => $auto_publish,
 			'token_error'  => null,
 		);
 
