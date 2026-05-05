@@ -650,7 +650,6 @@ class Onboarding_Wizard {
 			'handle'       => '',
 			'did'          => '',
 			'pds_endpoint' => '',
-			'auto_publish' => false,
 			'token_error'  => null,
 		);
 
@@ -1145,10 +1144,6 @@ class Onboarding_Wizard {
 							<td class="fosse-summary__value"><code><?php echo esc_html( $status['did'] ); ?></code></td>
 						</tr>
 					<?php endif; ?>
-					<tr>
-						<td class="fosse-summary__label"><?php esc_html_e( 'Auto Publish', 'fosse' ); ?></td>
-						<td class="fosse-summary__value"><?php echo esc_html( $status['auto_publish'] ? __( 'Enabled', 'fosse' ) : __( 'Disabled', 'fosse' ) ); ?></td>
-					</tr>
 					<?php if ( ! empty( $handle_previews['user'] ) ) : ?>
 						<tr>
 							<td class="fosse-summary__label"><?php esc_html_e( 'Your fediverse address', 'fosse' ); ?></td>

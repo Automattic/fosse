@@ -131,7 +131,7 @@ class Bluesky_ProviderTest extends BaseTestCase {
 	}
 
 	/**
-	 * Default status is disconnected with auto-publish enabled.
+	 * Default status is disconnected with empty connection fields.
 	 */
 	public function test_status_disconnected_by_default() {
 		$status = $this->provider->get_status();
@@ -140,7 +140,6 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		$this->assertSame( '', $status['handle'] );
 		$this->assertSame( '', $status['did'] );
 		$this->assertSame( '', $status['pds_endpoint'] );
-		$this->assertTrue( $status['auto_publish'] );
 		$this->assertNull( $status['token_error'] );
 	}
 
@@ -157,7 +156,6 @@ class Bluesky_ProviderTest extends BaseTestCase {
 				'access_token' => Encryption::encrypt( 'token' ),
 			)
 		);
-		update_option( 'atmosphere_auto_publish', '0' );
 
 		$status = $this->provider->get_status();
 
@@ -165,7 +163,6 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		$this->assertSame( 'alice.bsky.social', $status['handle'] );
 		$this->assertSame( 'did:plc:test123', $status['did'] );
 		$this->assertSame( 'https://bsky.social', $status['pds_endpoint'] );
-		$this->assertFalse( $status['auto_publish'] );
 		$this->assertNull( $status['token_error'] );
 	}
 
@@ -190,26 +187,28 @@ class Bluesky_ProviderTest extends BaseTestCase {
 	}
 
 	/**
-	 * The settings section is empty while disconnected — no auto-publish
-	 * toggle, no connect form. Connect/disconnect actions render via
-	 * `render_connection_actions()` outside the unified Settings form.
+	 * `render_setup_section()` is a no-op in both connected and disconnected
+	 * states. The auto-publish toggle that used to live here was removed
+	 * (Atmosphere has no per-post manual publish UI to back it up); the
+	 * connect / disconnect actions render via `render_connection_actions()`
+	 * outside the unified Settings form. Other interface methods (status
+	 * card, save_settings) keep working — this test just pins the
+	 * "nothing renders into the unified Settings form" contract.
 	 */
-	public function test_render_setup_section_disconnected_is_empty() {
+	public function test_render_setup_section_is_no_op_when_disconnected() {
 		ob_start();
 		$this->provider->render_setup_section();
 		$output = ob_get_clean();
 
 		$this->assertSame( '', trim( $output ) );
-		$this->assertStringNotContainsString( 'fosse_connect_bluesky', $output );
-		$this->assertStringNotContainsString( 'fosse_disconnect_bluesky', $output );
 	}
 
 	/**
-	 * Connected settings section exposes the auto-publish toggle as a
-	 * fields-only fragment (no opening `<form>` tag) so it can sit inside
-	 * the unified Settings form alongside General + AP fields.
+	 * Connected state also renders nothing — the toggle was the only thing
+	 * gated on `connected`, so removing it leaves no Bluesky-specific row
+	 * in the unified Settings form.
 	 */
-	public function test_render_setup_section_connected_renders_auto_publish_toggle() {
+	public function test_render_setup_section_is_no_op_when_connected() {
 		update_option(
 			'atmosphere_connection',
 			array(
@@ -224,68 +223,7 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		$this->provider->render_setup_section();
 		$output = ob_get_clean();
 
-		$this->assertStringContainsString( 'class="fosse-settings-section"', $output );
-		$this->assertStringContainsString( '<h3>Bluesky publishing</h3>', $output );
-		$this->assertStringContainsString( 'name="atmosphere_auto_publish"', $output );
-		$this->assertStringContainsString( 'Auto-publish', $output );
-		$this->assertStringNotContainsString( '<form', $output );
-		$this->assertStringNotContainsString( 'fosse_connect_bluesky', $output );
-		$this->assertStringNotContainsString( 'fosse_disconnect_bluesky', $output );
-	}
-
-	/**
-	 * Auto-publish checkbox reflects the stored option. With Atmosphere's
-	 * default ('1' = enabled), an unset option still renders the box checked.
-	 */
-	public function test_render_setup_section_auto_publish_checked_by_default() {
-		update_option(
-			'atmosphere_connection',
-			array(
-				'did'          => 'did:plc:test123',
-				'handle'       => 'alice.bsky.social',
-				'pds_endpoint' => 'https://bsky.social',
-				'access_token' => Encryption::encrypt( 'token' ),
-			)
-		);
-		delete_option( 'atmosphere_auto_publish' );
-
-		ob_start();
-		$this->provider->render_setup_section();
-		$output = ob_get_clean();
-
-		// WordPress's `checked()` may emit `checked='checked'` or a bare
-		// `checked` attribute depending on core version; match either form
-		// so the assertion stays stable across the supported floor.
-		$this->assertMatchesRegularExpression(
-			'~<input[^>]+name="atmosphere_auto_publish"[^>]+(checked(?:=\'checked\'|="checked")?)~',
-			$output
-		);
-	}
-
-	/**
-	 * When auto-publish is explicitly disabled ('0'), the checkbox renders
-	 * unchecked.
-	 */
-	public function test_render_setup_section_auto_publish_unchecked_when_disabled() {
-		update_option(
-			'atmosphere_connection',
-			array(
-				'did'          => 'did:plc:test123',
-				'handle'       => 'alice.bsky.social',
-				'pds_endpoint' => 'https://bsky.social',
-				'access_token' => Encryption::encrypt( 'token' ),
-			)
-		);
-		update_option( 'atmosphere_auto_publish', '0' );
-
-		ob_start();
-		$this->provider->render_setup_section();
-		$output = ob_get_clean();
-
-		$this->assertDoesNotMatchRegularExpression(
-			'~<input[^>]+name="atmosphere_auto_publish"[^>]+(checked(?:=\'checked\'|="checked")?)~',
-			$output
-		);
+		$this->assertSame( '', trim( $output ) );
 	}
 
 	/**
@@ -1496,59 +1434,29 @@ class Bluesky_ProviderTest extends BaseTestCase {
 	// --- save_settings ----------------------------------------------------
 
 	/**
-	 * A submitted, checked auto-publish input persists `'1'` so Atmosphere's
-	 * publish flow remains enabled after save.
+	 * `save_settings()` is currently a no-op (the auto-publish toggle was
+	 * removed from `render_setup_section()` because Atmosphere has no
+	 * per-post manual publish UI to back it up). It must still return
+	 * true so the unified Settings save's all-or-nothing semantics
+	 * succeed, and it must NOT touch `atmosphere_auto_publish` — the
+	 * option remains stored at its existing value (default `'1'`)
+	 * regardless of POST contents.
 	 */
-	public function test_save_settings_stores_auto_publish_when_checked() {
+	public function test_save_settings_is_no_op_and_returns_true() {
 		$this->seed_connected_atmosphere_connection();
+		update_option( 'atmosphere_auto_publish', '1' );
 
-		$ok = $this->provider->save_settings( array( 'atmosphere_auto_publish' => '1' ) );
+		// Even a payload that LOOKS like the legacy unchecked-checkbox
+		// shape (omitted key) must not flip the option to '0' — there's
+		// no input rendered, so its absence is meaningless.
+		$ok = $this->provider->save_settings( array() );
 
 		$this->assertTrue( $ok );
 		$this->assertSame( '1', get_option( 'atmosphere_auto_publish' ) );
-	}
 
-	/**
-	 * An omitted checkbox while connected is the legitimate "disabled"
-	 * submission — HTML forms drop unchecked checkboxes from the POST body,
-	 * so absence must persist `'0'` instead of preserving the previous value.
-	 */
-	public function test_save_settings_disables_auto_publish_when_unchecked() {
-		$this->seed_connected_atmosphere_connection();
-		update_option( 'atmosphere_auto_publish', '1' );
-
-		$ok = $this->provider->save_settings( array() );
-
-		$this->assertTrue( $ok );
-		$this->assertSame( '0', get_option( 'atmosphere_auto_publish' ) );
-	}
-
-	/**
-	 * An empty-string value (defensive) reads as "unchecked" and disables
-	 * auto-publish — guards against malformed POST bodies that submit the
-	 * field name without a value.
-	 */
-	public function test_save_settings_disables_auto_publish_for_empty_value() {
-		$this->seed_connected_atmosphere_connection();
-		update_option( 'atmosphere_auto_publish', '1' );
-
-		$this->provider->save_settings( array( 'atmosphere_auto_publish' => '' ) );
-
-		$this->assertSame( '0', get_option( 'atmosphere_auto_publish' ) );
-	}
-
-	/**
-	 * A Settings save while disconnected must NOT touch
-	 * `atmosphere_auto_publish` — the toggle isn't rendered in that state,
-	 * so an omitted checkbox is the absence of a setting, not an
-	 * intentional "uncheck". Without this guard a routine General-section
-	 * save would silently flip the option to `'0'`.
-	 */
-	public function test_save_settings_disconnected_preserves_auto_publish() {
-		// Provider is disconnected by set_up_provider() (no connection seed).
-		update_option( 'atmosphere_auto_publish', '1' );
-
-		$ok = $this->provider->save_settings( array() );
+		// And a payload that explicitly carries the legacy field is also
+		// ignored — safety against a stale form somehow being POSTed.
+		$ok = $this->provider->save_settings( array( 'atmosphere_auto_publish' => '0' ) );
 
 		$this->assertTrue( $ok );
 		$this->assertSame( '1', get_option( 'atmosphere_auto_publish' ) );
