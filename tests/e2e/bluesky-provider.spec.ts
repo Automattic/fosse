@@ -70,7 +70,10 @@ test.describe( 'Bluesky provider UI', () => {
 			.locator( '.fosse-status-card' )
 			.filter( { hasText: 'Bluesky' } );
 		await expect( blueskyCard ).toContainText( 'Disconnected' );
-		await expect( blueskyCard ).toContainText( 'Enabled' );
+		// Auto Publish row was removed alongside the Settings toggle —
+		// the status card no longer surfaces "Enabled" / "Disabled" text
+		// for it in any state.
+		await expect( blueskyCard ).not.toContainText( 'Auto Publish' );
 	} );
 
 	test( 'setup and status pages show mocked connected Bluesky details', async ( {
