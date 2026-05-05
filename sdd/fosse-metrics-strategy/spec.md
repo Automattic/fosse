@@ -37,7 +37,7 @@ Operationally defined: WordPress.com Simple plan users. People who don't install
 
 5. **Time horizon is layered.** Single-post funnel as the early-signal report; sustained-activity and differential-liveness as the steady-state quarterly read. **— agreed.**
 
-6. **Doc scope is wp.com Simple primary, self-host as a section.** Self-host's metric story is essentially WP.org install count + GitHub release downloads + an optional opt-out aggregate ping. The wp.com integration is where the success criterion actually lives. **— agreed.**
+6. **Doc scope is wp.com Simple primary, with Jetpack-connected self-hosted as the natural Phase 2 extension and pure-self-hosted as a deferred long tail.** Self-host's metric story splits in two: Jetpack-connected sites can use the same Tracks pipeline as wp.com (respecting whatever consent Jetpack already collected from the user), while pure-self-hosted (no Jetpack) is WP.org install count + GitHub release downloads, with at most a hard-opt-in aggregate ping that may not ship at all. The wp.com integration is where the success criterion actually lives. **— agreed.**
 
 7. **Consumption / reception side is out of scope.** Another team's work. FOSSE measures the publish path and the round-trip back — not the read-experience side of federated content. **— agreed.**
 
@@ -108,15 +108,17 @@ Compare Cohort A (FOSSE-on) to Cohort C (FOSSE-off, otherwise comparable Simple 
 
 This is the strongest causal claim available without a randomized trial. Requires a clean baseline reading on Cohort C *before* FOSSE-on rolls out broadly, so the comparison isn't contaminated by reverse-causation (sites that opted out of search-indexing being inherently different).
 
-### Self-host signal (long-tail)
+### Jetpack-connected self-hosted (middle population)
 
-The plugin we just shipped is a reference implementation and an evangelism surface, not the volume play. Its metric story:
+WordPress sites that have Jetpack connected to a wp.com account already ship the Tracks pipeline FOSSE needs. The privacy/opt-in tension that hard-blocks pure self-host telemetry is partially resolved here: consent piggybacks on whatever the user already agreed to with Jetpack. FOSSE adds no new consent surface — if Jetpack's tracking opt-status says "yes," FOSSE emits Tracks events through the existing Jetpack connection package; if Jetpack says "no," FOSSE emits nothing. That keeps FOSSE on the right side of the self-hosting ethos without re-prompting the user.
 
-- WP.org active-install count (public, free, noisy but directional)
-- GitHub release download stats (public, free, even noisier)
-- Optional: opt-out aggregate pingback for "completed wizard yes/no" + version + active-network presence. Aggregate counts only — no per-user content, no DIDs, no handles. Privacy framing minimal because everything is aggregate; opt-out (not opt-in) because the data is already low-stakes.
+This unlocks the "FOSSE-on Jetpack site vs comparable Jetpack site" comparison Ryan raised in the RFC discussion — Tier 3 differential liveness extends naturally to the Jetpack-connected cohort, not just wp.com Simple. The extension is obvious Phase 2 work once the wp.com integration is real and the event taxonomy has settled with the data team. It is not in scope for the v1 ship.
 
-This section confirms the open-source side isn't dead, but doesn't drive the success-or-failure call on FOSSE the project.
+### Pure self-hosted (long tail, deferred — possibly never)
+
+Self-hosted FOSSE sites that are NOT Jetpack-connected: WP.org active-install count + GitHub release download stats remain the only no-cost signals. Anything richer would need either a FOSSE-owned opt-in pingback (with its own endpoint, abuse/rate-limit infra, retention policy, GDPR posture, plugin opt-out UI) or asking the user to install Jetpack — both with real cost.
+
+Position: **may not ship at all**. If it does, the only acceptable shape is hard opt-in (not opt-out — the self-hosting ethos rules out a default-on phone home, even for aggregate data), aggregate-only payload bounded by the same privacy contract below, and an obvious off switch. The complexity-to-signal ratio is poor given that the leading-indicator cohort lives elsewhere.
 
 ## Recommended Approach
 
@@ -152,6 +154,54 @@ The self-host signal piggybacks on what's free (WP.org, GitHub) from day 1; the 
 - **Cohort B:** dedicated landing page on a wp.com subdomain. Feeds into the standard new-Simple-site flow with FOSSE pre-configured.
 - **Self-host:** plugin distribution via WP.org and GitHub Releases. Tracking is public counts only.
 
+## Implementation architecture (skeleton)
+
+This doc is the strategy half. The implementation half awaits a dedicated SDD; what follows is the shape that SDD should take, derived from the closed PR 94 draft and refined against the strategy above.
+
+### Sink abstraction
+
+FOSSE core owns the event taxonomy. Transport (the "sink") is host-provided:
+
+| Cohort | Sink | Consent model |
+|--------|------|---------------|
+| wp.com Simple (A, B, C) | Tracks via the wpcom integration layer | Platform-managed; no FOSSE-specific consent |
+| Jetpack-connected self-hosted | Tracks via the Jetpack connection package | Inherits Jetpack's existing tracking opt-status; FOSSE adds no surface |
+| Pure self-hosted (no Jetpack) | None by default | Hard opt-in only; may not ship |
+| Tests | In-memory recorder | n/a |
+
+FOSSE's recorder accepts events and dispatches to whichever sink the host registered. No sink registered → events are no-ops. This keeps FOSSE core free of any wpcom-specific or Jetpack-specific code paths and makes the privacy boundary architectural rather than a runtime check.
+
+### Privacy boundary (hard contract)
+
+Event payloads NEVER include:
+
+- Post content or excerpts
+- ActivityPub actor URIs, Bluesky DIDs, or fediverse handles (full or partial)
+- Federated post URLs (any network)
+- Raw error messages from upstream APIs
+- IP addresses (the sink layer scrubs these)
+
+What's allowed: anonymized counts, enum-typed status (success / failure / timeout), strategy enums (long-form-teaser-thread / short-form-note / link-card-fallback), and pre-classified error categories (auth_failed / rate_limited / network_timeout / other).
+
+Self-hosted aggregate ping (if it ever ships) is bound by the same contract.
+
+### v1 event taxonomy (strawman)
+
+Maps to the Tier 1 7-step funnel. Names are placeholders — the wp.com data team owns the final schema (Open Question 1 already calls this out). Step 1 (site created) is wp.com's existing event, not FOSSE-emitted.
+
+| Funnel step | Event name | Properties (allowed) |
+|-------------|------------|----------------------|
+| 2 | `fosse_active_on_site` | site_age_days_bucket, cohort |
+| 3 | `fosse_connection_completed` | network (mastodon\|bluesky), connection_count |
+| 4 | `fosse_post_published` | post_format, has_image |
+| 5 | `fosse_publish_result` | network, status (success\|failure), strategy (teaser-thread\|short-note\|link-card-fallback), error_category |
+| 6 | `fosse_inbound_interaction` | network, kind (like\|reply\|repost), days_since_publish_bucket |
+| 7 | `fosse_author_engaged` | network, kind (replied\|clicked-through), days_since_interaction_bucket |
+
+### Implementation SDD: deferred
+
+A follow-up SDD (under a new sub-issue of [DOTCOM-16879](https://linear.app/a8c/issue/DOTCOM-16879)) will detail: the recorder API, sink registration, Jetpack consent inheritance, the cohort A/B/C Tracks event schema review with the data team, and — only if it survives the next round of triage — the pure-self-hosted opt-in pingback. This is implementation-side work; it does not block the strategy agreement this doc is asking for.
+
 ## The Assignment
 
 This is a Radical Speed Month project — there's no external sponsor gate, just FOSSE-team agreement. The next move is getting Ryan and whoever else is on the project bought in on the shape:
@@ -183,8 +233,8 @@ An adversarial review of this doc on 2026-04-28 surfaced thirteen issues at qual
 
 ### Clarity
 11. **"Search-engine-indexable" not precisely defined.** Option name is `blog_public` (`1` = indexable, `0` = discouraged). Toggle-after-launch behavior unspecified — recommend re-evaluating on each publish; opt-out immediate, opt-in with a 24-hour debounce to prevent oscillation.
-12. **"Native render" (step 5) hand-waved.** Replace "native record (not link-card fallback)" with explicit strategy enum: `strategy ∈ {long-form-teaser-thread, short-form-note}`; `strategy='link-card-fallback'` counts as not-native. Tied to the projector code that already emits this.
-13. **"Author engaged" (step 7) acknowledged as under-defined but funnel reportable from week 1.** Lock v1 definition: "replied OR clicked through to source." OQ4 becomes "iterate after seeing data."
+12. **"Native render" (step 5) — RESOLVED.** The projector code already emits the strategy enum at publish time (`long-form-teaser-thread` / `short-form-note` / `link-card-fallback`). Step 5 success = strategy is one of the first two. Captured in the Implementation Architecture event taxonomy above as `fosse_publish_result.strategy`.
+13. **"Author engaged" (step 7) — RESOLVED for v1.** Definition locked: "replied to the inbound reaction OR clicked through from the inbound notification to the source post on the originating network." Captured as `fosse_author_engaged.kind ∈ {replied, clicked-through}`. Iterate the definition after seeing real data.
 
 ### Scope, Feasibility, Missing Sections (overflow — addressed in groups)
 - Cohort B (fosse.wordpress.com) understates the lift. Marketing site + landing page + new-Simple-site signup hook is multi-team work. Either confirm staffing or descope to "Phase 2."
