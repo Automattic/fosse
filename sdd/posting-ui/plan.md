@@ -1,254 +1,174 @@
-# Implementation Plan: FOSSE-Native Posting UI
+# Implementation Plan: Posting UI
 
 Based on: `sdd/posting-ui/spec.md`
 
 ## Progress
 
-- [ ] Task 1: Add FOSSE Post admin page shell
-- [ ] Task 2: Create status-post publishing service
-- [ ] Task 3: Add photo upload and alt-text persistence
-- [ ] Task 4: Add composer JavaScript, styling, and accessibility polish
-- [ ] Task 5: Add send-status panel and retry UI contract
-- [ ] Task 6: Add quick-entry / Press This-style path
-- [ ] Task 7: Complete verification and SDD updates
+- [ ] Task 1: Source-URL classifier helper + tests
+- [ ] Task 2: Post composer admin page (FOSSE → Post)
+- [ ] Task 3: Composer submit handler (quick-note path + reply redirect)
+- [ ] Task 4: Admin bar entry
+- [ ] Task 5: Bookmarklet generator on Settings page
+- [ ] Task 6: e2e coverage
+- [ ] Task 7: Atmosphere upstream coordination (file issues, do not block)
+- [ ] Task 8: Update SDD implementation notes
+- [ ] Task 9: Run verification
 
 ## Tasks
 
-### Task 1: Add FOSSE Post admin page shell
+### Task 1: Source-URL classifier helper + tests
 
 - **Status**: Not started
 - **Files**:
-  - Modify: `src/Admin/class-menu.php`
-  - Create: `src/Admin/class-posting-page.php`
-  - Create: `src/Admin/templates/posting-page.php`
-  - Modify: `tests/php/Admin/MenuTest.php`
-  - Create: `tests/php/Admin/Posting_PageTest.php`
+  - Create: `src/Admin/class-source-url-classifier.php`
+  - Create: `tests/php/Admin/Source_URL_ClassifierTest.php`
 - **Do**:
-  1. Add `Posting_Page::register_hooks()` to `Menu::register()`.
-  2. Add a FOSSE submenu page after Settings:
-     - parent slug: `fosse`
-     - page title/menu title: `Post`
-     - capability: match existing FOSSE admin pages for MVP (`manage_options`) unless the implementation deliberately widens to `publish_posts`.
-     - slug: `fosse-post`
-     - callback: `Posting_Page::render`
-  3. Create `Posting_Page` with:
-     - `PUBLISH_ACTION = 'fosse_publish_note'`
-     - `RETRY_ACTION = 'fosse_retry_publication'`
-     - `register_hooks()`
-     - `render()`
-     - initial `handle_publish()` that validates capability/nonce and redirects back with a controlled notice until Task 2 wires real publishing.
-  4. Create `posting-page.php` with the usable composer shell:
-     - textarea `name="fosse_note_text"`
-     - file input `name="fosse_photo"` with `accept="image/*"`
-     - text input or textarea `name="fosse_photo_alt"`
-     - submit button text `Post`
-     - hidden `action` and nonce fields
-     - `enctype="multipart/form-data"`
-  5. Add PHPUnit coverage that the page renders the form, nonce action, textarea, file input, alt input, and submit button.
-  6. Add menu tests that the `fosse-post` submenu is registered.
+  1. Add `Automattic\Fosse\Admin\Source_URL_Classifier` with `public static function classify( string $url ): string` returning one of `'activitypub' | 'bluesky' | 'unrecognized'`.
+  2. AP detection rules: WebFinger-style URL (`https://<host>/@<handle>`), Mastodon post URL (`https://<host>/@<handle>/<post-id>`), generic ActivityPub URL with `/users/<handle>` or `/notes/<id>` patterns. Conservative — when in doubt, return `'unrecognized'`. Server-side fetching is out of scope; classification is pattern-only.
+  3. Bluesky detection rules: `bsky.app/profile/<handle>/post/<rkey>`, `<handle>.bsky.social/post/<rkey>`, `at://did:plc:<did>/app.bsky.feed.post/<rkey>` AT-URI form.
+  4. Tests: each rule's positive case, each rule's negative case (similar but not matching URL), `null`/empty input → `'unrecognized'`.
 - **Verify**:
-  - `composer run-script test-php -- --filter 'Posting_PageTest|MenuTest'`
-  - `composer run-script lint-php`
+  - `composer run-script test-php -- --filter Source_URL_ClassifierTest` passes.
+  - `composer run-script lint-php -- src/Admin/class-source-url-classifier.php tests/php/Admin/Source_URL_ClassifierTest.php`
 - **Depends on**: none
 
-### Task 2: Create status-post publishing service
+### Task 2: Post composer admin page (FOSSE → Post)
 
 - **Status**: Not started
 - **Files**:
-  - Create: `src/class-posting-service.php`
-  - Modify: `src/Admin/class-posting-page.php`
-  - Modify: `src/Admin/templates/posting-page.php`
-  - Create: `tests/php/Posting_ServiceTest.php`
-  - Modify: `tests/php/Admin/Posting_PageTest.php`
+  - Create: `src/Admin/class-post-page.php`
+  - Create: `src/Admin/templates/post-page.php`
+  - Modify: `src/Admin/class-menu.php` (register `fosse-post` submenu)
+  - Create: `tests/php/Admin/Post_PageTest.php`
 - **Do**:
-  1. Create `Automattic\Fosse\Posting_Service`.
-  2. Add `create_note( array $payload ): int|\WP_Error`.
-  3. Validate text:
-     - trim whitespace;
-     - reject empty text;
-     - count grapheme clusters with `grapheme_strlen()` when available, otherwise `mb_strlen()`;
-     - reject more than 300 graphemes.
-  4. Insert a normal post:
-     - `post_type => 'post'`
-     - `post_status => 'publish'`
-     - `post_author => get_current_user_id()`
-     - `post_title => ''`
-     - `post_content =>` sanitized paragraph/block content for the note text; escape again only when rendering
-  5. Call `set_post_format( $post_id, 'status' )` after insertion.
-  6. Replace the initial `Posting_Page::handle_publish()` notice branch with the service call and redirect to `admin.php?page=fosse-post&posted=<post_id>` on success.
-  7. Render validation failures through the existing WordPress `settings_errors` transient pattern used by FOSSE admin handlers.
-  8. Add PHPUnit coverage:
-     - text-only publish creates a `post`;
-     - post title remains empty;
-     - post status is `publish`;
-     - post format is `status`;
-     - current user is the author;
-     - empty text fails;
-     - over-300 text fails;
-     - successful handler redirects to `page=fosse-post&posted=<id>`.
+  1. Add `Automattic\Fosse\Admin\Post_Page` with `register_hooks()`, `render()`.
+  2. Submenu slug: `fosse-post`. Title: `Post`. Capability: `publish_posts`.
+  3. Render reads URL params: `source_url` (raw, then validated/sanitized for display), `selection` (sanitized as text, capped at 500 chars).
+  4. Template fields: textarea (autofocus), source-URL input (pre-filled from query param), photo file input, alt-text input (only required if photo attached), Publish button.
+  5. Form action posts to `admin-post.php` with action `fosse_post_publish` and a nonce.
+  6. Tests assert: page renders without fatal at `?page=fosse-post`; URL params populate the form fields; capability check rejects users without `publish_posts`.
 - **Verify**:
-  - `composer run-script test-php -- --filter 'Posting_ServiceTest|Posting_PageTest'`
+  - `composer run-script test-php -- --filter Post_PageTest`
   - `composer run-script lint-php`
-- **Depends on**: Task 1
+- **Depends on**: Task 1 (composer can construct compose links if it wants to preview the redirect, though strictly only Task 3 needs this)
 
-### Task 3: Add photo upload and alt-text persistence
+### Task 3: Composer submit handler
 
 - **Status**: Not started
 - **Files**:
-  - Modify: `src/class-posting-service.php`
-  - Modify: `src/Admin/class-posting-page.php`
-  - Modify: `src/Admin/templates/posting-page.php`
-  - Modify: `tests/php/Posting_ServiceTest.php`
-  - Modify: `tests/php/Admin/Posting_PageTest.php`
+  - Modify: `src/Admin/class-post-page.php` (add `handle_publish()` admin-post action)
+  - Modify: `tests/php/Admin/Post_PageTest.php`
 - **Do**:
-  1. Extend `Posting_Service::create_note()` to accept an uploaded file array and alt text.
-  2. If no file was uploaded, ignore empty alt text and create a text-only status post.
-  3. If a file was uploaded, require non-empty alt text before inserting media.
-  4. Load WordPress media helpers inside the service when needed:
-     - `wp-admin/includes/file.php`
-     - `wp-admin/includes/media.php`
-     - `wp-admin/includes/image.php`
-  5. Use `media_handle_upload( 'fosse_photo', $post_id )` or an equivalent testable wrapper to create the attachment.
-  6. Validate that the attachment mime type is an image.
-  7. Store the alt text with `update_post_meta( $attachment_id, '_wp_attachment_image_alt', $alt_text )`.
-  8. Set the attachment as featured image with `set_post_thumbnail( $post_id, $attachment_id )`.
-  9. Update post content so the note text remains first and the uploaded image block follows it.
-  10. Add PHPUnit coverage:
-      - image upload without alt text fails;
-      - image upload with alt text stores `_wp_attachment_image_alt`;
-      - uploaded attachment is parented to the post;
-      - `_thumbnail_id` points to the attachment;
-      - post content contains the image block or attachment reference.
+  1. `Post_Page::handle_publish()` hooked on `admin_post_fosse_post_publish`.
+  2. Verify nonce + capability.
+  3. If `source_url` is non-empty, classify via Task 1's helper:
+     - `'activitypub'`: `wp_safe_redirect( admin_url( 'post-new.php?post_format=status&in_reply_to=' . rawurlencode( $source_url ) ) )`. Bundled AP takes over.
+     - `'bluesky'`: same redirect target but to the URL the upstream Atmosphere PR will define. Until upstream lands, surface a notice via `add_settings_error()` and re-render the composer (don't redirect to a broken target).
+     - `'unrecognized'`: surface notice "Source URL not recognized as a federated post" and proceed with quick-note path (treat as no source URL).
+  4. Quick-note path:
+     - Validate text non-empty OR photo attached.
+     - If photo: validate alt-text non-empty.
+     - `wp_insert_post()` with `post_format='status'`, content = paragraph block wrapping the text.
+     - If photo: `media_handle_upload()`, `set_post_thumbnail()`, `update_post_meta('_wp_attachment_image_alt', alt_text)` on the attachment.
+     - `wp_safe_redirect( get_permalink( $post_id ) )`.
+  5. Validation failures: `add_settings_error()`, `wp_safe_redirect( admin_url( 'admin.php?page=fosse-post&...preserved-fields' ) )`.
+  6. Tests: each path has a positive case + a validation-failure case.
 - **Verify**:
-  - `composer run-script test-php -- --filter 'Posting_ServiceTest|Posting_PageTest'`
+  - `composer run-script test-php -- --filter Post_PageTest`
   - `composer run-script lint-php`
 - **Depends on**: Task 2
 
-### Task 4: Add composer JavaScript, styling, and accessibility polish
+### Task 4: Admin bar entry
 
 - **Status**: Not started
 - **Files**:
-  - Modify: `src/Admin/class-menu.php`
-  - Create: `src/Admin/assets/js/composer.js`
-  - Modify: `src/Admin/assets/css/admin.css`
-  - Modify: `src/Admin/templates/posting-page.php`
-  - Create: `tests/js/posting-composer.test.js`
+  - Modify: `src/Admin/class-menu.php` OR create `src/Admin/class-admin-bar.php`
+  - Modify: `tests/php/Admin/MenuTest.php` OR new `Admin_BarTest.php`
+- **Do**:
+  1. Hook `admin_bar_menu` at default priority.
+  2. Add a node: `id='fosse-post'`, `title='Post'`, `href=admin_url('admin.php?page=fosse-post')`, `parent=null` (top-level admin bar).
+  3. Capability gate: `publish_posts`.
+  4. Test: node present in admin bar HTML for users with `publish_posts`, absent for users without.
+- **Verify**:
+  - `composer run-script test-php -- --filter '(Menu|Admin_Bar)Test'`
+  - `composer run-script lint-php`
+- **Depends on**: Task 2
+
+### Task 5: Bookmarklet generator on Settings page
+
+- **Status**: Not started
+- **Files**:
+  - Modify: `src/Admin/templates/setup-page.php` (add a "Bookmarklet" section)
+  - Modify: `src/Admin/class-setup-page.php` if helper logic needed (URL escaping, etc.)
+  - Create: `tests/php/Admin/Bookmarklet_RenderTest.php`
+- **Do**:
+  1. Add a Bookmarklet section to the FOSSE Settings page, below the General/Federation sections.
+  2. Render the bookmarklet snippet as the `href` of an anchor tag styled like a button: `<a href="javascript:..." class="button">FOSSE: Post this</a>` plus a "Drag this link to your bookmarks bar" hint.
+  3. The bookmarklet body interpolates the current site URL (`admin_url('admin.php?page=fosse-post')`). The user-facing URL never includes auth — the bookmark just constructs the wp-admin URL.
+  4. Add a copy-to-clipboard fallback below the link for browsers / contexts where dragging a `javascript:` URL doesn't work.
+  5. Tests: the bookmarklet snippet contains the current admin URL; the snippet contains `encodeURIComponent(location.href)`; capability gate (`publish_posts`).
+- **Verify**:
+  - `composer run-script test-php -- --filter Bookmarklet_RenderTest`
+  - `composer run-script lint-php`
+- **Depends on**: Task 2 (the bookmarklet target URL points at the composer page)
+
+### Task 6: e2e coverage
+
+- **Status**: Not started
+- **Files**:
   - Create: `tests/e2e/posting-ui.spec.ts`
 - **Do**:
-  1. Enqueue `fosse-composer` script only on the FOSSE Post admin screen.
-  2. Keep the JavaScript build-free, following `wizard-appearance.js`.
-  3. Add a live 300-grapheme counter using `Intl.Segmenter` when available and a conservative fallback otherwise.
-  4. Disable the submit button client-side when the note is empty, over 300 graphemes, or a photo is selected without alt text. Server validation from Tasks 2 and 3 remains authoritative.
-  5. Show an image preview after file selection.
-  6. Make the alt-text control visible and focusable when a photo is selected. Keep it present in non-JavaScript markup.
-  7. Add `fosse-composer` prefixed CSS for compact layout, preview, validation hints, status rows, and narrow admin widths. Do not introduce a one-hue decorative palette or nested cards.
-  8. Add Jest coverage for grapheme counting and photo/alt UI state.
-  9. Add Playwright coverage:
-     - FOSSE Post page loads without fatal errors;
-     - text-only post can be submitted;
-     - over-limit text blocks submit and shows validation;
-     - selecting an image exposes alt text;
-     - image without alt text shows validation;
-     - mobile viewport has no horizontal overflow.
+  1. Smoke: log in as admin, navigate via admin bar to FOSSE → Post, type text, click Publish, assert redirect to a published post permalink.
+  2. Validation: submit empty form → assert error notice; submit with image but no alt-text → assert error notice with text + image preserved.
+  3. Reply path: navigate to FOSSE → Post with `?source_url=<mastodon-test-url>`, click Publish, assert redirect to `post-new.php?post_format=status&in_reply_to=<url>` (don't need to verify AP's reply-block insertion in this spec; that's bundled AP's responsibility).
+  4. Bluesky reply fallback: navigate with a `bsky.app` URL, click Publish, assert the "Bluesky reply support requires Atmosphere pre-release" notice surfaces and the composer re-renders.
+  5. Bookmarklet snippet present on Settings page with the current site URL.
 - **Verify**:
-  - `pnpm test -- posting-composer`
-  - `pnpm run format:check`
-  - `pnpm run lint`
   - `pnpm exec playwright test tests/e2e/posting-ui.spec.ts`
-  - `composer run-script lint-php`
-- **Depends on**: Task 3
+- **Depends on**: Tasks 2, 3, 4, 5
 
-### Task 5: Add send-status panel and retry UI contract
+### Task 7: Atmosphere upstream coordination
 
 - **Status**: Not started
-- **Files**:
-  - Modify: `src/Admin/class-posting-page.php`
-  - Modify: `src/Admin/templates/posting-page.php`
-  - Create: `tests/e2e/mu-plugins/fosse-publication-status-seed.php`
-  - Modify: `tests/php/Admin/Posting_PageTest.php`
-  - Modify: `tests/e2e/posting-ui.spec.ts`
+- **Files**: none in this repo
 - **Do**:
-  1. Add a result panel when `posted=<post_id>` is present and the current user can edit/read that post.
-  2. Fetch statuses through the data-consistency contract defined in `spec.md`:
-     - Prefer `Automattic\Fosse\Send_Status::for_post( $post_id )` when the class exists.
-     - Apply the `fosse_send_status_for_post` filter as the test/extension seam.
-  3. Render ActivityPub and Bluesky rows from the `activitypub` and `atproto` status keys. If no backend data is available, render both as `unknown` and no retry buttons.
-  4. For each status, show provider name, state label, message/error text, update time, remote link when present, next retry time when present, and retry button when `can_retry` is true and state is `failed`.
-  5. Add `Posting_Page::handle_retry_publication()`:
-     - verify capability and nonce;
-     - sanitize `post_id` and `network`;
-     - allow only `activitypub` and `atproto`;
-     - call `do_action( 'fosse_retry_publication', $post_id, $network )`;
-     - redirect back to the posted result screen.
-  6. Add a test-only mu-plugin for E2E that supplies fake provider statuses through the filter and records retry action calls.
-  7. Add PHPUnit coverage for unknown, sent, failed, and retry-visible states.
-  8. Add Playwright coverage for sent/failed rows and retry button submission.
-  9. Revisit this task when the data-consistency implementation lands and record any shipped API deviation in implementation notes.
+  1. File three issues against `Automattic/wordpress-atmosphere` (or whichever the canonical Atmosphere upstream repo is):
+     - "Add `atmosphere/reply` block (parity with `activitypub/reply`)"
+     - "Add reply-intent JS plugin handling `?in_reply_to=<bsky-url>`"
+     - "Add pre-publish federation sidebar panel"
+  2. Each issue body should reference this SDD and explain that FOSSE consumes the result via `tools/sync-bundled.sh`.
+  3. Add a note to `sdd/posting-ui/implementation-notes.md` (created in Task 8) tracking the upstream issue numbers and their states.
 - **Verify**:
-  - `composer run-script test-php -- --filter 'Posting_PageTest'`
-  - `composer run-script lint-php`
-  - `pnpm exec playwright test tests/e2e/posting-ui.spec.ts`
-- **Depends on**: Task 4, `sdd/data-consistency-sync/` for completion of DOTCOM-16805
+  - Three issues exist on the Atmosphere repo. Track in implementation-notes.md.
+- **Depends on**: spec landed; can be done in parallel with implementation. Not a blocker for this PR landing.
 
-### Task 6: Add quick-entry / Press This-style path
+### Task 8: Update SDD implementation notes
 
 - **Status**: Not started
 - **Files**:
-  - Modify: `src/Admin/class-posting-page.php`
-  - Modify: `src/Admin/templates/posting-page.php`
-  - Modify: `src/Admin/assets/js/composer.js`
-  - Modify: `src/Admin/assets/css/admin.css`
-  - Modify: `tests/php/Admin/Posting_PageTest.php`
-  - Modify: `tests/e2e/posting-ui.spec.ts`
-- **Do**:
-  1. Support `admin.php?page=fosse-post&quick=1` as compact mode using the same template and submit handler.
-  2. Read GET parameters only for prefill:
-     - `text`
-     - `url`
-     - `title`
-  3. Sanitize prefill values and place them in the editable textarea. If `url` is present, append it to the text on its own line.
-  4. Render a bookmarklet link from the normal FOSSE Post page that opens the quick composer with `document.title`, `location.href`, and selected text.
-  5. Keep all publish validation in `Posting_Service`; quick-entry must not have a second validation path.
-  6. Add PHPUnit coverage that prefill values are escaped and that quick mode still renders the same nonce/action.
-  7. Add Playwright coverage:
-     - quick URL pre-fills selected text and URL;
-     - compact mode works at mobile viewport width;
-     - submitting quick-entry creates a `post_format = status` post.
-- **Verify**:
-  - `composer run-script test-php -- --filter 'Posting_PageTest|Posting_ServiceTest'`
-  - `composer run-script lint-php`
-  - `pnpm run format:check`
-  - `pnpm run lint`
-  - `pnpm exec playwright test tests/e2e/posting-ui.spec.ts`
-- **Depends on**: Task 5 for final ordering, though prefill can be developed earlier if the core composer service is stable
-
-### Task 7: Complete verification and SDD updates
-
-- **Status**: Not started
-- **Files**:
-  - Modify: `sdd/posting-ui/requirements.md`
-  - Modify: `sdd/posting-ui/spec.md`
+  - Create: `sdd/posting-ui/implementation-notes.md`
   - Modify: `sdd/posting-ui/plan.md`
-  - Create if needed: `sdd/posting-ui/implementation-notes.md`
 - **Do**:
-  1. Run the full local verification suite:
-     - `composer run-script lint-php`
-     - `composer run-script test-php`
-     - `pnpm run format:check`
-     - `pnpm run lint`
-     - `pnpm test`
-     - `pnpm exec playwright test tests/e2e/posting-ui.spec.ts`
-  2. Manually smoke test in Playground:
-     - text-only post;
-     - photo post with alt text;
-     - photo post without alt text rejection;
-     - post-publish status panel;
-     - retry button with seeded failed status;
-     - quick-entry prefill on desktop and mobile widths.
-  3. Update this plan's Progress checklist and each task Status with the final PR/commit reference.
-  4. Record implementation deviations in `implementation-notes.md` only if the implementation differs materially from `spec.md`.
-  5. If `sdd/data-consistency-sync/` chose a different status/retry API, update `spec.md` and this plan to match the shipped contract.
+  1. Record any implementation deviations.
+  2. Track the Atmosphere upstream issue numbers from Task 7 and their status.
+  3. Update task statuses in this plan as each ships.
 - **Verify**:
-  - All commands above pass or documented failures have linked follow-up issues.
-  - `sdd/posting-ui/requirements.md`, `spec.md`, and `plan.md` describe the shipped behavior accurately.
-- **Depends on**: Tasks 1-6
+  - implementation-notes.md exists.
+  - Plan checklist sync.
+- **Depends on**: implementation tasks as they complete
+
+### Task 9: Run verification
+
+- **Status**: Not started
+- **Files**: none
+- **Do**:
+  1. Targeted PHPUnit while developing:
+     - `composer run-script test-php -- --filter Source_URL_ClassifierTest`
+     - `composer run-script test-php -- --filter Post_PageTest`
+     - `composer run-script test-php -- --filter Bookmarklet_RenderTest`
+  2. Broader: `composer run-script test-php`.
+  3. Lint: `composer run-script lint-php`, `pnpm run format:check`, `pnpm run lint`.
+  4. e2e: `pnpm exec playwright test tests/e2e/posting-ui.spec.ts`.
+- **Verify**:
+  - All commands pass, or failures recorded in implementation-notes.md.
+- **Depends on**: Tasks 1-8

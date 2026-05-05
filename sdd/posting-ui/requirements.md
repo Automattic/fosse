@@ -1,70 +1,80 @@
-# FOSSE-Native Posting UI - Requirements
+# Posting UI — Requirements
 
 ## Goal
 
-Create a minimal, clean FOSSE-owned composer for the "post once, reach everywhere" workflow. This is not a replacement for the WordPress block editor. The product demo should be: open the FOSSE posting UI, type a sentence, attach a photo, add alt text, hit Post, and see whether ActivityPub and Bluesky accepted the send.
+Reduce the friction of "I want to post a quick note" or "I want to reply to something I saw on the federated web" from a WordPress site running FOSSE. Land a Bluesky equivalent of bundled ActivityPub's pre-publish federation panel as upstream Atmosphere work. Do NOT replace the standard block editor — long-form posting stays where it lives.
 
-Source: DOTCOM-16794 "2. FOSSE-native Posting UI".
+## Linear Issue
 
-## Linear Issues
+- **DOTCOM-16794** — FOSSE-native Posting UI (parent epic)
 
-- **DOTCOM-16794** - 2. FOSSE-native Posting UI
-- **DOTCOM-16804** - Minimal note composer
-- **DOTCOM-16805** - Cross-network send status + retry UI
-- **DOTCOM-16806** - Featured-image alt-text UX
-- **DOTCOM-16807** - Quick-entry / Press This-style posting path
+Sibling sub-issues this SDD touches:
+
+- **DOTCOM-16804** — Minimal note composer (subsumed by the FOSSE > Post composer here)
+- **DOTCOM-16807** — Quick-entry / Press This-style posting path (subsumed by the bookmarklet here)
+
+Sibling sub-issue we're explicitly NOT doing:
+
+- **DOTCOM-16805** — Cross-network send status + retry UI. AP is pull-model (others read from its outbox); Bluesky is push. The two surfaces don't reconcile cleanly into a unified user-visible status without inventing fiction. Cancel.
+
+## Pre-requisite assumptions
+
+This SDD assumes the bundled ActivityPub plugin's existing reply infrastructure works as-shipped:
+
+- `bundled/activitypub/build/reply-intent/plugin.js` — the JS plugin that detects `?in_reply_to=` URL params and auto-inserts an `activitypub/reply` block in the editor.
+- `bundled/activitypub/includes/class-blocks.php:75` — `add_action('load-post-new.php', 'handle_in_reply_to_get_param')`, the PHP side of the same handshake.
+- `bundled/activitypub/build/pre-publish-panel/plugin.js` — the editor's pre-publish federation panel that surfaces post-format suggestions and Fediverse readiness before publish.
+- `activitypub/reply` block — a standard Gutenberg block that embeds a quoted preview of the source post and threads the reply on the network.
+
+If the bundled AP version drops or substantially restructures any of these, this SDD's reply path breaks. The `tools/sync-bundled.sh` review process should flag changes to those files.
+
+The SDD also assumes that bundled Atmosphere does **not** currently have any of the equivalent Bluesky-side pieces (verified — `bundled/atmosphere/` has no `reply-intent` build, no `atmosphere/reply` block, no `PluginPrePublishPanel` registration). The Bluesky parity work lands as upstream Atmosphere PRs and reaches FOSSE via `tools/sync-bundled.sh`.
 
 ## Requirements
 
-1. **A FOSSE-owned posting entry point in wp-admin.** Add a focused "Post" page under the existing top-level FOSSE menu. The first screen is the composer itself, not a landing page, explanation page, or block-editor wrapper.
-2. **Minimal note composer.** The core form has a text field and an optional photo. It creates normal WordPress `post` records with no custom post type. Short notes use `post_format = status` so the existing ActivityPub and Atmosphere short-form discriminators treat them as native social posts.
-3. **Short-note length discipline.** The UI and server both enforce a 300-grapheme note limit for the FOSSE quick composer. Longer writing belongs in the normal WordPress editor and the existing long-form strategy. This avoids silent Bluesky truncation on the happy path.
-4. **Photo attachment with visible alt text.** When a photo is attached, the composer shows an editable alt-text field before publish. Server-side validation requires alt text for attached photos, stores it in `_wp_attachment_image_alt`, and keeps the attachment associated with the post in standard WordPress places.
-5. **Photo storage is WordPress-native.** The attached image is uploaded through WordPress media APIs, parented to the created post, set as the featured image, and inserted into post content in a way themes can render. FOSSE does not invent a parallel media store.
-6. **Cross-network send status after publish.** After posting, the UI shows per-network status rows for ActivityPub and Bluesky using the data-consistency status enum: not configured, pending, sent, retrying, failed, deleted, skipped, or a development-only unknown fallback. Failed rows expose a retry action when the backend says retry is available.
-7. **Backend status dependency is explicit.** DOTCOM-16805 depends on `sdd/data-consistency-sync/` for durable send-state and retry semantics. This SDD consumes that backend contract and does not define database tables, post-meta persistence, queue internals, or retry scheduling beyond the UI-facing integration points.
-8. **Quick-entry path follows core composer.** DOTCOM-16807 is a follow-on phase after the core composer, media/alt-text flow, and send-status UI. It should reuse the same validation and post-creation service rather than creating a second posting path.
-9. **Quick-entry accepts shared context.** The follow-on path supports Press This-style query parameters for selected text, source URL, and title, and provides a bookmarklet/mobile-friendly admin URL that pre-fills the composer for logged-in users.
-10. **No separate CPT.** FOSSE posts remain normal WordPress posts so the homepage stream, feeds, ActivityPub, Atmosphere, existing themes, and the normal editor all see one canonical object.
-11. **No full block editor dependency.** The composer may link to the full editor after creation, but it should not embed or replicate the block editor. Use compact native admin UI and small vanilla JavaScript where needed for character count, image preview, and alt-text affordances.
-12. **Accessible, repeatable admin UI.** The page should be dense enough for repeated use, keyboard-accessible, screen-reader labeled, and consistent with the existing FOSSE Settings/Status pages. Avoid marketing copy and explanatory text beyond necessary labels, validation messages, and status details.
+1. **Quick-note entry points.** Three discoverable paths to "post a short note from anywhere":
+   - WP admin bar button (present on every wp-admin screen).
+   - FOSSE → Post submenu page.
+   - Press-This-style bookmarklet that opens FOSSE → Post pre-filled with the captured page.
 
-## Constraints
+2. **Focused composer at FOSSE → Post.** Small textarea + optional photo upload + optional source URL field (auto-populated when arrived via bookmarklet). One "Publish" button. No editor chrome. Publishes as `post_status='publish'`, `post_format='status'`. Drafts and scheduling are out of scope for v1 — focused-composer paths are publish-now or close.
 
-- Self-hosted WordPress plugin first. No wp.com-only APIs or Calypso dependencies.
-- PHP 8.2+, WordPress 6.9+, existing Composer classmap from `src/`.
-- Existing FOSSE admin UI is PHP-rendered with native WordPress admin patterns. Stay with that unless a specific interaction requires JavaScript.
-- Bundled code in `bundled/` must not be edited by hand. If image federation requires upstream changes in ActivityPub or Atmosphere, land those upstream and consume through `tools/sync-bundled.sh`.
-- The composer must work when JavaScript is unavailable: the form can still submit text and a file input. JavaScript improves preview, counter, and alt-text visibility.
-- Keep CI green: PHP unit tests, PHPCS, JS formatting/linting, Jest where JavaScript behavior is added, and Playwright E2E coverage.
+3. **Federated-reply support via existing AP machinery.** When the composer's source URL field contains an AP-detectable URL (Mastodon post, ActivityPub-aware blog), submitting the composer creates the post AND adds an `activitypub/reply` block referencing the source. Reuses bundled AP's `?in_reply_to=` URL handler — no FOSSE-side reply state.
 
-## Out of Scope
+4. **Federated-reply support for Bluesky via upstream Atmosphere PR.** When the composer's source URL field is a Bluesky post URL (`bsky.app/profile/.../post/...`), the equivalent reply flow is provided by an Atmosphere upstream PR that ships:
+   - An `atmosphere/reply` block (parity with `activitypub/reply`).
+   - A reply-intent JS plugin that handles `?in_reply_to=<bsky-url>` (parity with AP's).
+   - A pre-publish sidebar panel (parity with AP's `PluginPrePublishPanel`).
+   FOSSE references the upstream work as a prerequisite; landing this SDD's PR does NOT block on upstream Atmosphere, but the Bluesky reply flow is incomplete until Atmosphere ships those pieces.
 
-- A replacement for the WordPress post editor.
-- Draft management, scheduling, categories, tags, title editing, template selection, or reusable blocks in the FOSSE composer.
-- Multiple images, galleries, video, audio, polls, quote-post composition, or thread composition.
-- New backend persistence for send-state/retry. That belongs to `sdd/data-consistency-sync/`.
-- Backend image embed support for Bluesky if Atmosphere does not already support it. This SDD stores image and alt data correctly in WordPress; backend federation support remains upstream/backend work.
-- Reader/inbox features and inbound reactions.
-- Multi-author editorial workflow beyond the current logged-in author creating a normal post.
+5. **Bookmarklet generated by FOSSE.** Settings page exposes a "Drag this to your bookmarks bar" UI with the per-site bookmarklet snippet. The bookmarklet:
+   - Captures the current page's URL and selected text.
+   - Opens `wp-admin/admin.php?page=fosse-post&source_url=<url>&selection=<text>` in a new tab/window.
+   - Tiny enough to be a single-line snippet (~200 chars). No external script load.
 
-## Existing Shipped Pieces
+6. **Image upload + alt-text.** When the composer includes an image, alt-text is required (non-empty before publish). Single image per quick-note in v1. Multi-image is the standard editor's job.
 
-- `src/Admin/class-menu.php` registers the top-level FOSSE admin menu, Settings page, Status page, wizard, assets, and bundled-menu suppression.
-- `src/Admin/class-setup-page.php` and `src/Admin/templates/setup-page.php` show the established PHP-template pattern for FOSSE admin pages.
-- `src/Admin/class-status-page.php` and `src/Admin/templates/status-page.php` show provider-card rendering and status-oriented layout.
-- `src/Admin/interface-connection-provider.php`, `class-ap-provider.php`, and `class-bluesky-provider.php` expose the provider registry/status pattern that the posting UI should reuse for labels and availability.
-- `src/Admin/assets/css/admin.css` is the existing admin stylesheet. New composer styles should be added there under a `fosse-composer` prefix.
-- `src/Admin/assets/js/wizard-appearance.js` is the current pattern for small, page-specific vanilla JavaScript.
-- `src/class-object-type.php` projects FOSSE's short-form option across ActivityPub and Atmosphere.
-- `src/class-long-form-strategy.php` projects FOSSE's long-form Bluesky strategy into Atmosphere.
-- `src/class-post-types.php` keeps ActivityPub post-type selection aligned with Atmosphere syncable post types.
-- Existing E2E tests under `tests/e2e/` use WordPress Playground, helper mu-plugins, and direct wp-admin navigation.
+7. **Publish flow.** On publish, the composer:
+   - Creates the WP post via `wp_insert_post()`.
+   - Uploads media (if any) via `media_handle_upload()`, attaches to the post, sets featured image.
+   - On success, redirects to the published post on the front-end.
+   - On failure (validation, image upload error), re-renders the composer with the error and the user's input preserved.
 
-## Open Questions Resolved
+8. **No replacement of the standard block editor.** The standard editor remains the path for any post that wants drafts, scheduling, blocks beyond text + image, or fine-grained federation control. FOSSE → Post is the focused-composer surface, not the federated-post entry point.
 
-- **Should this create a new content type?** No. Use normal WordPress posts and `post_format = status` for short notes.
-- **Should the FOSSE composer allow long posts?** No for v1. The FOSSE-native composer is optimized for quick social notes. Longer content belongs in the full WordPress editor and the existing long-form publishing strategy.
-- **Should alt text be optional?** No when a photo is attached. The composer should require explicit alt text for the attached photo before publishing.
-- **Should quick-entry ship first?** No. Build the core composer first, then add quick-entry as a reuse layer over the same post-creation service.
-- **Can send-status UI ship without durable backend state?** It can render an `unknown` state for development, but DOTCOM-16805 is only complete once `sdd/data-consistency-sync/` supplies durable per-provider status and retry behavior.
+## Non-Requirements
+
+- No post-publish unified send-status surface. Tracked separately on individual networks; reconciling them at the FOSSE layer is not worth the abstraction.
+- No per-post long-form strategy override UI. The site-wide `fosse_long_form_strategy` from DOTCOM-16810 stays as-is; per-post override is a future SDD if the site-default proves insufficient.
+- No FOSSE-side reply state. AP's `in_reply_to` machinery and Atmosphere's upstream equivalent own it. FOSSE just constructs the URL.
+- No bookmarklet that scrapes/parses third-party page content beyond URL + selection. Source detection (AP vs Bluesky vs neither) happens server-side at composer load.
+- No drafts, no scheduling, no preview in the FOSSE → Post composer. Use the standard editor for any of those.
+
+## Source Material / Code Inspected
+
+- `bundled/activitypub/build/reply-intent/plugin.js` — existing reply-intent JS plugin.
+- `bundled/activitypub/includes/class-blocks.php:75-180` — `handle_in_reply_to_get_param` PHP handler and reply-block registration.
+- `bundled/activitypub/build/pre-publish-panel/plugin.js` — existing pre-publish federation panel.
+- `bundled/activitypub/build/editor-plugin/plugin.js` — existing editor sidebar (Federation settings, content warning, visibility, quote policy).
+- `bundled/atmosphere/includes/transformer/class-comment.php` — Atmosphere's existing reply-struct construction (used for inbound→outbound comment replies; outbound post-as-reply requires an upstream PR to expose).
+- WordPress's deprecated `wp-admin/press-this.php` for bookmarklet pattern reference.
