@@ -441,7 +441,7 @@ class Onboarding_WizardTest extends BaseTestCase {
 		$output = $this->render_wizard_step( '' );
 
 		$this->assertStringContainsString( 'Where should your WordPress posts appear?', $output );
-		$this->assertStringContainsString( 'Choose where FOSSE should share your posts. You can connect Bluesky or change these settings later from FOSSE Settings.', $output );
+		$this->assertStringContainsString( 'Choose where FOSSE should share your posts. You can connect Bluesky or change these settings later in FOSSE Settings.', $output );
 		$this->assertStringContainsString( 'Fediverse + Bluesky', $output );
 		$this->assertStringContainsString( 'Fediverse only', $output );
 		$this->assertStringContainsString( 'Simple setup', $output );
