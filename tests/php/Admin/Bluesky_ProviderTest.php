@@ -978,7 +978,8 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		$messages = array_column( $errors, 'message' );
 
 		$this->assertNotEmpty( $messages );
-		$this->assertStringContainsString( 'handle', strtolower( implode( ' ', $messages ) ) );
+		$this->assertStringContainsString( 'valid handle', strtolower( implode( ' ', $messages ) ) );
+		$this->assertStringContainsString( 'example.com', strtolower( implode( ' ', $messages ) ) );
 	}
 
 	/**

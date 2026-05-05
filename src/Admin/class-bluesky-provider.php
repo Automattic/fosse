@@ -513,7 +513,7 @@ class Bluesky_Provider implements Connection_Provider {
 		// upstream error like "PDS lookup failed: dns_get_record returned false".
 		if ( ! preg_match( '/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/', $handle ) ) {
 			$this->redirect_with_notice(
-				__( 'That doesn\'t look like a Bluesky handle. Try something like alice.bsky.social.', 'fosse' ),
+				__( 'That doesn\'t look like a valid handle. Try something like alice.bsky.social or example.com.', 'fosse' ),
 				'error',
 				$return_context
 			);
