@@ -735,13 +735,24 @@ class Onboarding_Wizard {
 	private static function get_bluesky_status(): array {
 		$provider = Connection_Provider_Registry::get_provider( 'bluesky' );
 
+		// `auto_publish` no longer rides along with `get_status()` (the
+		// Settings toggle that read it was removed). The wizard's
+		// complete-step CTA still needs the value to phrase its
+		// messaging accurately — "your post will reach Bluesky" vs.
+		// "Bluesky is connected but auto-publish is off" — so we read
+		// it through the provider's centralized helper, which encodes
+		// the absent-defaults-to-enabled rule alongside the recovery
+		// handler's `update_option` writes that depend on the same
+		// default.
+		$auto_publish = Bluesky_Provider::is_auto_publish_enabled();
+
 		$defaults = array(
 			'available'    => false,
 			'connected'    => false,
 			'handle'       => '',
 			'did'          => '',
 			'pds_endpoint' => '',
-			'auto_publish' => false,
+			'auto_publish' => $auto_publish,
 			'token_error'  => null,
 		);
 
@@ -1284,10 +1295,6 @@ class Onboarding_Wizard {
 							<td class="fosse-summary__value"><code><?php echo esc_html( $status['did'] ); ?></code></td>
 						</tr>
 					<?php endif; ?>
-					<tr>
-						<td class="fosse-summary__label"><?php esc_html_e( 'Auto Publish', 'fosse' ); ?></td>
-						<td class="fosse-summary__value"><?php echo esc_html( $status['auto_publish'] ? __( 'Enabled', 'fosse' ) : __( 'Disabled', 'fosse' ) ); ?></td>
-					</tr>
 					<?php if ( ! empty( $handle_previews['user'] ) ) : ?>
 						<tr>
 							<td class="fosse-summary__label"><?php esc_html_e( 'Your fediverse address', 'fosse' ); ?></td>

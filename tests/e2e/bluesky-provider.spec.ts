@@ -70,7 +70,10 @@ test.describe( 'Bluesky provider UI', () => {
 			.locator( '.fosse-status-card' )
 			.filter( { hasText: 'Bluesky' } );
 		await expect( blueskyCard ).toContainText( 'Disconnected' );
-		await expect( blueskyCard ).toContainText( 'Enabled' );
+		// Auto Publish row was removed alongside the Settings toggle —
+		// the status card no longer surfaces "Enabled" / "Disabled" text
+		// for it in any state.
+		await expect( blueskyCard ).not.toContainText( 'Auto Publish' );
 	} );
 
 	test( 'setup and status pages show mocked connected Bluesky details', async ( {
@@ -81,18 +84,13 @@ test.describe( 'Bluesky provider UI', () => {
 			handle: 'alice.bsky.social',
 			did: 'did:plc:alice123',
 			pds_endpoint: 'https://bsky.social',
-			auto_publish: false,
 		} );
 
 		await page.goto( '/wp-admin/admin.php?page=fosse' );
 
-		const federationSettings = page.locator( '#fosse-federation-settings' );
 		const connections = page.locator( '#fosse-connections' );
 		const blueskyConnection = connections.locator(
 			'#fosse-provider-bluesky'
-		);
-		const blueskySettings = federationSettings.locator(
-			'#fosse-provider-bluesky-settings'
 		);
 
 		await expect(
@@ -102,9 +100,14 @@ test.describe( 'Bluesky provider UI', () => {
 		).toBeVisible();
 		await expect( blueskyConnection ).toContainText( 'alice.bsky.social' );
 		await expect( blueskyConnection ).toContainText( 'did:plc:alice123' );
+
+		// The auto-publish toggle was removed from the unified Settings
+		// form (Atmosphere has no per-post manual publish UI to back it
+		// up); the Bluesky-specific settings section now renders nothing,
+		// so its container shouldn't appear at all.
 		await expect(
-			blueskySettings.locator( 'input[name="atmosphere_auto_publish"]' )
-		).not.toBeChecked();
+			page.locator( '#fosse-provider-bluesky-settings' )
+		).toHaveCount( 0 );
 
 		await page.goto( '/wp-admin/admin.php?page=fosse-status' );
 
@@ -114,7 +117,10 @@ test.describe( 'Bluesky provider UI', () => {
 		await expect( blueskyCard ).toContainText( 'Connected' );
 		await expect( blueskyCard ).toContainText( 'alice.bsky.social' );
 		await expect( blueskyCard ).toContainText( 'did:plc:alice123' );
-		await expect( blueskyCard ).toContainText( 'Disabled' );
 		await expect( blueskyCard ).toContainText( 'OK' );
+
+		// Auto-publish row was removed from the status card alongside the
+		// Settings toggle.
+		await expect( blueskyCard ).not.toContainText( 'Auto Publish' );
 	} );
 } );

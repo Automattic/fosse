@@ -131,7 +131,7 @@ class Bluesky_ProviderTest extends BaseTestCase {
 	}
 
 	/**
-	 * Default status is disconnected with auto-publish enabled.
+	 * Default status is disconnected with empty connection fields.
 	 */
 	public function test_status_disconnected_by_default() {
 		$status = $this->provider->get_status();
@@ -140,7 +140,6 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		$this->assertSame( '', $status['handle'] );
 		$this->assertSame( '', $status['did'] );
 		$this->assertSame( '', $status['pds_endpoint'] );
-		$this->assertTrue( $status['auto_publish'] );
 		$this->assertNull( $status['token_error'] );
 	}
 
@@ -157,7 +156,6 @@ class Bluesky_ProviderTest extends BaseTestCase {
 				'access_token' => Encryption::encrypt( 'token' ),
 			)
 		);
-		update_option( 'atmosphere_auto_publish', '0' );
 
 		$status = $this->provider->get_status();
 
@@ -165,7 +163,6 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		$this->assertSame( 'alice.bsky.social', $status['handle'] );
 		$this->assertSame( 'did:plc:test123', $status['did'] );
 		$this->assertSame( 'https://bsky.social', $status['pds_endpoint'] );
-		$this->assertFalse( $status['auto_publish'] );
 		$this->assertNull( $status['token_error'] );
 	}
 
@@ -190,26 +187,28 @@ class Bluesky_ProviderTest extends BaseTestCase {
 	}
 
 	/**
-	 * The settings section is empty while disconnected — no auto-publish
-	 * toggle, no connect form. Connect/disconnect actions render via
-	 * `render_connection_actions()` outside the unified Settings form.
+	 * `render_setup_section()` is a no-op in both connected and disconnected
+	 * states. The auto-publish toggle that used to live here was removed
+	 * (Atmosphere has no per-post manual publish UI to back it up); the
+	 * connect / disconnect actions render via `render_connection_actions()`
+	 * outside the unified Settings form. Other interface methods (status
+	 * card, save_settings) keep working — this test just pins the
+	 * "nothing renders into the unified Settings form" contract.
 	 */
-	public function test_render_setup_section_disconnected_is_empty() {
+	public function test_render_setup_section_is_no_op_when_disconnected() {
 		ob_start();
 		$this->provider->render_setup_section();
 		$output = ob_get_clean();
 
 		$this->assertSame( '', trim( $output ) );
-		$this->assertStringNotContainsString( 'fosse_connect_bluesky', $output );
-		$this->assertStringNotContainsString( 'fosse_disconnect_bluesky', $output );
 	}
 
 	/**
-	 * Connected settings section exposes the auto-publish toggle as a
-	 * fields-only fragment (no opening `<form>` tag) so it can sit inside
-	 * the unified Settings form alongside General + AP fields.
+	 * Connected state also renders nothing — the toggle was the only thing
+	 * gated on `connected`, so removing it leaves no Bluesky-specific row
+	 * in the unified Settings form.
 	 */
-	public function test_render_setup_section_connected_renders_auto_publish_toggle() {
+	public function test_render_setup_section_is_no_op_when_connected() {
 		update_option(
 			'atmosphere_connection',
 			array(
@@ -224,68 +223,7 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		$this->provider->render_setup_section();
 		$output = ob_get_clean();
 
-		$this->assertStringContainsString( 'class="fosse-settings-section"', $output );
-		$this->assertStringContainsString( '<h3>Bluesky publishing</h3>', $output );
-		$this->assertStringContainsString( 'name="atmosphere_auto_publish"', $output );
-		$this->assertStringContainsString( 'Auto-publish', $output );
-		$this->assertStringNotContainsString( '<form', $output );
-		$this->assertStringNotContainsString( 'fosse_connect_bluesky', $output );
-		$this->assertStringNotContainsString( 'fosse_disconnect_bluesky', $output );
-	}
-
-	/**
-	 * Auto-publish checkbox reflects the stored option. With Atmosphere's
-	 * default ('1' = enabled), an unset option still renders the box checked.
-	 */
-	public function test_render_setup_section_auto_publish_checked_by_default() {
-		update_option(
-			'atmosphere_connection',
-			array(
-				'did'          => 'did:plc:test123',
-				'handle'       => 'alice.bsky.social',
-				'pds_endpoint' => 'https://bsky.social',
-				'access_token' => Encryption::encrypt( 'token' ),
-			)
-		);
-		delete_option( 'atmosphere_auto_publish' );
-
-		ob_start();
-		$this->provider->render_setup_section();
-		$output = ob_get_clean();
-
-		// WordPress's `checked()` may emit `checked='checked'` or a bare
-		// `checked` attribute depending on core version; match either form
-		// so the assertion stays stable across the supported floor.
-		$this->assertMatchesRegularExpression(
-			'~<input[^>]+name="atmosphere_auto_publish"[^>]+(checked(?:=\'checked\'|="checked")?)~',
-			$output
-		);
-	}
-
-	/**
-	 * When auto-publish is explicitly disabled ('0'), the checkbox renders
-	 * unchecked.
-	 */
-	public function test_render_setup_section_auto_publish_unchecked_when_disabled() {
-		update_option(
-			'atmosphere_connection',
-			array(
-				'did'          => 'did:plc:test123',
-				'handle'       => 'alice.bsky.social',
-				'pds_endpoint' => 'https://bsky.social',
-				'access_token' => Encryption::encrypt( 'token' ),
-			)
-		);
-		update_option( 'atmosphere_auto_publish', '0' );
-
-		ob_start();
-		$this->provider->render_setup_section();
-		$output = ob_get_clean();
-
-		$this->assertDoesNotMatchRegularExpression(
-			'~<input[^>]+name="atmosphere_auto_publish"[^>]+(checked(?:=\'checked\'|="checked")?)~',
-			$output
-		);
+		$this->assertSame( '', trim( $output ) );
 	}
 
 	/**
@@ -1488,7 +1426,9 @@ class Bluesky_ProviderTest extends BaseTestCase {
 
 		$this->assertNotFalse( has_action( 'admin_post_fosse_connect_bluesky', array( $this->provider, 'handle_connect' ) ) );
 		$this->assertNotFalse( has_action( 'admin_post_fosse_disconnect_bluesky', array( $this->provider, 'handle_disconnect' ) ) );
+		$this->assertNotFalse( has_action( 'admin_post_fosse_enable_bluesky_auto_publish', array( $this->provider, 'handle_enable_auto_publish' ) ) );
 		$this->assertNotFalse( has_action( 'admin_init', array( $this->provider, 'handle_oauth_callback' ) ) );
+		$this->assertNotFalse( has_action( 'admin_notices', array( $this->provider, 'maybe_render_auto_publish_disabled_notice' ) ) );
 		$this->assertSame( 1, has_action( 'init', array( $this->provider, 'serve_atproto_did_well_known' ) ) );
 		$this->assertSame( 1, has_action( 'template_redirect', array( $this->provider, 'maybe_suppress_atmosphere_well_known' ) ) );
 		$this->assertNotFalse( has_filter( 'atmosphere_oauth_redirect_uri', array( $this->provider, 'filter_oauth_redirect_uri' ) ) );
@@ -1497,62 +1437,288 @@ class Bluesky_ProviderTest extends BaseTestCase {
 	// --- save_settings ----------------------------------------------------
 
 	/**
-	 * A submitted, checked auto-publish input persists `'1'` so Atmosphere's
-	 * publish flow remains enabled after save.
+	 * `save_settings()` is currently a no-op (the auto-publish toggle was
+	 * removed from `render_setup_section()` because Atmosphere has no
+	 * per-post manual publish UI to back it up). It must still return
+	 * true so the unified Settings save's all-or-nothing semantics
+	 * succeed, and it must NOT touch `atmosphere_auto_publish` — the
+	 * option remains stored at its existing value (default `'1'`)
+	 * regardless of POST contents.
 	 */
-	public function test_save_settings_stores_auto_publish_when_checked() {
+	public function test_save_settings_is_no_op_and_returns_true() {
 		$this->seed_connected_atmosphere_connection();
+		update_option( 'atmosphere_auto_publish', '1' );
 
-		$ok = $this->provider->save_settings( array( 'atmosphere_auto_publish' => '1' ) );
+		// Even a payload that LOOKS like the legacy unchecked-checkbox
+		// shape (omitted key) must not flip the option to '0' — there's
+		// no input rendered, so its absence is meaningless.
+		$ok = $this->provider->save_settings( array() );
+
+		$this->assertTrue( $ok );
+		$this->assertSame( '1', get_option( 'atmosphere_auto_publish' ) );
+
+		// And a payload that explicitly carries the legacy field is also
+		// ignored — safety against a stale form somehow being POSTed.
+		$ok = $this->provider->save_settings( array( 'atmosphere_auto_publish' => '0' ) );
 
 		$this->assertTrue( $ok );
 		$this->assertSame( '1', get_option( 'atmosphere_auto_publish' ) );
 	}
 
 	/**
-	 * An omitted checkbox while connected is the legitimate "disabled"
-	 * submission — HTML forms drop unchecked checkboxes from the POST body,
-	 * so absence must persist `'0'` instead of preserving the previous value.
+	 * Pins the upstream contract that FOSSE's "preserved option" claim
+	 * depends on: when `atmosphere_auto_publish` is absent from the
+	 * database, `get_option()` returns `'1'` (auto-publish enabled).
+	 * Atmosphere's publish hook reads the option with the same default,
+	 * so an absent option is functionally equivalent to "on."
+	 *
+	 * If a future Atmosphere bump flips the documented default, or if
+	 * something registers the option with a different default at
+	 * `register_setting()` time, this assertion catches the contract
+	 * change before it silently disables Bluesky publishing for every
+	 * default-state site.
 	 */
-	public function test_save_settings_disables_auto_publish_when_unchecked() {
-		$this->seed_connected_atmosphere_connection();
-		update_option( 'atmosphere_auto_publish', '1' );
+	public function test_absent_atmosphere_auto_publish_option_defaults_to_enabled() {
+		delete_option( 'atmosphere_auto_publish' );
 
-		$ok = $this->provider->save_settings( array() );
+		$this->assertFalse(
+			get_option( 'atmosphere_auto_publish' ),
+			'Sanity check: option should be absent so the default-fallback path runs.'
+		);
+		$this->assertSame(
+			'1',
+			get_option( 'atmosphere_auto_publish', '1' ),
+			'FOSSE removed the auto-publish UI on the assumption that an absent option reads as enabled. If this assertion fails, the assumption is no longer safe and the recovery notice / handler in Bluesky_Provider must be reconsidered.'
+		);
+	}
 
-		$this->assertTrue( $ok );
-		$this->assertSame( '0', get_option( 'atmosphere_auto_publish' ) );
+	// --- is_auto_publish_enabled --------------------------------------
+
+	/**
+	 * Helper returns true when the option is absent — encodes the
+	 * "default-on" contract upstream Atmosphere shares. Pairs with
+	 * `test_absent_atmosphere_auto_publish_option_defaults_to_enabled`,
+	 * which pins the raw `get_option()` half of the same contract.
+	 */
+	public function test_is_auto_publish_enabled_true_when_option_absent() {
+		delete_option( 'atmosphere_auto_publish' );
+
+		$this->assertTrue( Bluesky_Provider::is_auto_publish_enabled() );
 	}
 
 	/**
-	 * An empty-string value (defensive) reads as "unchecked" and disables
-	 * auto-publish — guards against malformed POST bodies that submit the
-	 * field name without a value.
+	 * Helper returns true when the option is explicitly `'1'`.
 	 */
-	public function test_save_settings_disables_auto_publish_for_empty_value() {
-		$this->seed_connected_atmosphere_connection();
+	public function test_is_auto_publish_enabled_true_when_explicitly_on() {
 		update_option( 'atmosphere_auto_publish', '1' );
 
-		$this->provider->save_settings( array( 'atmosphere_auto_publish' => '' ) );
-
-		$this->assertSame( '0', get_option( 'atmosphere_auto_publish' ) );
+		$this->assertTrue( Bluesky_Provider::is_auto_publish_enabled() );
 	}
 
 	/**
-	 * A Settings save while disconnected must NOT touch
-	 * `atmosphere_auto_publish` — the toggle isn't rendered in that state,
-	 * so an omitted checkbox is the absence of a setting, not an
-	 * intentional "uncheck". Without this guard a routine General-section
-	 * save would silently flip the option to `'0'`.
+	 * Helper returns false when the option is explicitly `'0'` — the
+	 * recovery-notice population. The recovery-notice gate uses a
+	 * separate raw read because it must distinguish "explicit `'0'`"
+	 * from "absent"; this helper conflates the two by design (absent
+	 * reads as enabled).
 	 */
-	public function test_save_settings_disconnected_preserves_auto_publish() {
-		// Provider is disconnected by set_up_provider() (no connection seed).
+	public function test_is_auto_publish_enabled_false_when_explicitly_off() {
+		update_option( 'atmosphere_auto_publish', '0' );
+
+		$this->assertFalse( Bluesky_Provider::is_auto_publish_enabled() );
+	}
+
+	// --- maybe_render_auto_publish_disabled_notice ----------------------
+
+	/**
+	 * Notice fires when the option is explicitly `'0'` and Bluesky is
+	 * connected, on a FOSSE admin screen, for a user who can manage
+	 * options. Renders a warning notice with a one-click re-enable form.
+	 */
+	public function test_auto_publish_disabled_notice_renders_when_explicitly_off() {
+		$this->seed_connected_atmosphere_connection();
+		update_option( 'atmosphere_auto_publish', '0' );
+		$this->become_admin();
+		set_current_screen( 'toplevel_page_fosse' );
+
+		ob_start();
+		$this->provider->maybe_render_auto_publish_disabled_notice();
+		$output = ob_get_clean();
+
+		$this->assertStringContainsString( 'notice notice-warning', $output );
+		$this->assertStringContainsString( 'Bluesky auto-publishing is off.', $output );
+		$this->assertStringContainsString( 'fosse_enable_bluesky_auto_publish', $output );
+		$this->assertStringContainsString( 'Turn auto-publishing back on', $output );
+	}
+
+	/**
+	 * Notice does NOT fire when the option is at its absent / default-on
+	 * state — that's the silent-majority path and would be noise.
+	 */
+	public function test_auto_publish_disabled_notice_silent_when_option_absent() {
+		$this->seed_connected_atmosphere_connection();
+		delete_option( 'atmosphere_auto_publish' );
+		$this->become_admin();
+		set_current_screen( 'toplevel_page_fosse' );
+
+		ob_start();
+		$this->provider->maybe_render_auto_publish_disabled_notice();
+		$output = ob_get_clean();
+
+		$this->assertSame( '', trim( $output ) );
+	}
+
+	/**
+	 * Notice does NOT fire when the option is explicitly `'1'` — same
+	 * default-on intent, just with the option materialized.
+	 */
+	public function test_auto_publish_disabled_notice_silent_when_explicitly_on() {
+		$this->seed_connected_atmosphere_connection();
 		update_option( 'atmosphere_auto_publish', '1' );
+		$this->become_admin();
+		set_current_screen( 'toplevel_page_fosse' );
 
-		$ok = $this->provider->save_settings( array() );
+		ob_start();
+		$this->provider->maybe_render_auto_publish_disabled_notice();
+		$output = ob_get_clean();
 
-		$this->assertTrue( $ok );
+		$this->assertSame( '', trim( $output ) );
+	}
+
+	/**
+	 * Notice does NOT fire on non-FOSSE screens — even when the user is
+	 * in the at-risk state, we limit the surface to avoid leaking across
+	 * wp-admin.
+	 */
+	public function test_auto_publish_disabled_notice_silent_off_fosse_screens() {
+		$this->seed_connected_atmosphere_connection();
+		update_option( 'atmosphere_auto_publish', '0' );
+		$this->become_admin();
+		set_current_screen( 'dashboard' );
+
+		ob_start();
+		$this->provider->maybe_render_auto_publish_disabled_notice();
+		$output = ob_get_clean();
+
+		$this->assertSame( '', trim( $output ) );
+	}
+
+	/**
+	 * Notice does NOT fire when Bluesky is disconnected — there's nothing
+	 * for auto-publish to do anyway, so the notice would be misleading.
+	 */
+	public function test_auto_publish_disabled_notice_silent_when_disconnected() {
+		// No `seed_connected_atmosphere_connection()` — disconnected.
+		update_option( 'atmosphere_auto_publish', '0' );
+		$this->become_admin();
+		set_current_screen( 'toplevel_page_fosse' );
+
+		ob_start();
+		$this->provider->maybe_render_auto_publish_disabled_notice();
+		$output = ob_get_clean();
+
+		$this->assertSame( '', trim( $output ) );
+	}
+
+	/**
+	 * Notice does NOT fire for users without `manage_options`.
+	 */
+	public function test_auto_publish_disabled_notice_silent_for_subscriber() {
+		$this->seed_connected_atmosphere_connection();
+		update_option( 'atmosphere_auto_publish', '0' );
+		set_current_screen( 'toplevel_page_fosse' );
+
+		$this->become_subscriber();
+
+		ob_start();
+		$this->provider->maybe_render_auto_publish_disabled_notice();
+		$output = ob_get_clean();
+
+		$this->assertSame( '', trim( $output ) );
+	}
+
+	// --- handle_enable_auto_publish -----------------------------------
+
+	/**
+	 * The re-enable handler flips the option to `'1'` and redirects with
+	 * a success notice, recovering sites stranded by the toggle removal.
+	 */
+	public function test_handle_enable_auto_publish_flips_option_and_redirects() {
+		$this->seed_connected_atmosphere_connection();
+		update_option( 'atmosphere_auto_publish', '0' );
+		$this->become_admin();
+
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
+		$_POST    = array(
+			'_wpnonce' => wp_create_nonce( 'fosse_enable_bluesky_auto_publish' ),
+		);
+		$_REQUEST = $_POST;
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+
+		add_filter(
+			'wp_redirect',
+			static function () {
+				throw new RedirectFired( 'redirect' );
+			}
+		);
+
+		try {
+			$this->provider->handle_enable_auto_publish();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
 		$this->assertSame( '1', get_option( 'atmosphere_auto_publish' ) );
+	}
+
+	/**
+	 * Re-enable handler rejects requests with a missing or invalid nonce.
+	 */
+	public function test_handle_enable_auto_publish_rejects_bad_nonce() {
+		$this->seed_connected_atmosphere_connection();
+		update_option( 'atmosphere_auto_publish', '0' );
+		$this->become_admin();
+
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
+		$_POST    = array(
+			'_wpnonce' => 'invalid_nonce_value',
+		);
+		$_REQUEST = $_POST;
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+
+		$this->install_wp_die_handler();
+		$this->expectException( \RuntimeException::class );
+		$this->provider->handle_enable_auto_publish();
+	}
+
+	/**
+	 * Re-enable handler rejects subscribers — option must not change for
+	 * users without `manage_options`.
+	 */
+	public function test_handle_enable_auto_publish_rejects_subscriber() {
+		$this->seed_connected_atmosphere_connection();
+		update_option( 'atmosphere_auto_publish', '0' );
+
+		$this->become_subscriber();
+
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
+		$_POST    = array(
+			'_wpnonce' => wp_create_nonce( 'fosse_enable_bluesky_auto_publish' ),
+		);
+		$_REQUEST = $_POST;
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+
+		$this->install_wp_die_handler();
+		$this->expectException( \RuntimeException::class );
+		try {
+			$this->provider->handle_enable_auto_publish();
+		} finally {
+			$this->assertSame(
+				'0',
+				get_option( 'atmosphere_auto_publish' ),
+				'Subscriber must not be able to flip the option.'
+			);
+		}
 	}
 
 	/**
