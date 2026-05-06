@@ -899,6 +899,10 @@
 	color: var(--fosse-wizard-text);
 }
 
+.fosse-summary__value code {
+	overflow-wrap: anywhere;
+}
+
 .fosse-summary__value--muted {
 	color: var(--fosse-wizard-muted);
 	font-weight: 400;
