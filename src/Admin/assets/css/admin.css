@@ -312,6 +312,20 @@
 	margin: 0 0 24px;
 }
 
+/* Reset native fieldset chrome on the wizard card wrappers — the
+   semantic upgrade from <div> to <fieldset> for radio/checkbox grouping
+   is for assistive tech only. Without these resets the browser default
+   border, padding, margin, and `min-inline-size: min-content` would
+   add visible chrome and force overflow on narrow admin viewports. */
+.fosse-destination-cards,
+.fosse-mode-cards,
+.fosse-post-types__group {
+	border: 0;
+	padding: 0;
+	margin: 0;
+	min-inline-size: 0;
+}
+
 /* Destination cards */
 .fosse-destination-cards {
 	display: grid;
