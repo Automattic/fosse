@@ -86,6 +86,10 @@ class AP_Provider implements Connection_Provider {
 	 * @return array<string, mixed>
 	 */
 	public function get_status(): array {
+		if ( null !== $this->status_cache ) {
+			return $this->status_cache;
+		}
+
 		$actor_mode = get_option( 'activitypub_actor_mode', 'actor' );
 		$post_types = get_option( 'activitypub_support_post_types', array( 'post' ) );
 		// Gate handle resolution by mode. Constructing AP's actor models is
@@ -96,7 +100,7 @@ class AP_Provider implements Connection_Provider {
 		$user_address = $this->mode_includes_user( $actor_mode ) ? $this->get_user_address() : '';
 		$blog_address = $this->mode_includes_blog( $actor_mode ) ? $this->get_blog_address() : '';
 
-		return array(
+		$this->status_cache = array(
 			'connected'    => true,
 			'actor_mode'   => $actor_mode,
 			'post_types'   => $post_types,
@@ -104,7 +108,22 @@ class AP_Provider implements Connection_Provider {
 			'blog_address' => $blog_address,
 			'address'      => $this->resolve_legacy_address( $actor_mode, $user_address, $blog_address ),
 		);
+
+		return $this->status_cache;
 	}
+
+	/**
+	 * Per-request memo for {@see self::get_status()}. The Status page
+	 * renders each provider's status twice in the same request — once
+	 * filtering on `connected`, once inside `render_status_card()` —
+	 * and AP's actor-handle resolution dispatches the
+	 * `activitypub_construct_model_actor` filter, which third-party
+	 * code can hang arbitrary work off of. Cache the result so the
+	 * second call is a free array return.
+	 *
+	 * @var array<string, mixed>|null
+	 */
+	private ?array $status_cache = null;
 
 	/**
 	 * Render the AP-specific fields inside the unified Settings form.

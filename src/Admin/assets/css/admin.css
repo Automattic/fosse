@@ -56,6 +56,19 @@
 
 .fosse-status-card__label {
 	width: 40%;
+	/* Reset the bold/centered defaults `<th>` carries so the row label
+	   reads at the same weight as a `<td>` would. The semantic upgrade
+	   to `<th scope="row">` is for assistive tech, not for visual style. */
+	font-weight: normal;
+	text-align: left;
+}
+
+/* Bluesky auto-publish recovery notice form sits above its description
+   text by ~6px so the button doesn't crowd the next paragraph. Inline
+   on the form element previously; moved here so the FOSSE-screen
+   stylesheet (already enqueued) is the single source of truth. */
+.fosse-auto-publish-recover__form {
+	margin-bottom: 6px;
 }
 
 /* Defense in depth: token wrappers carry their own wrap rules, but if a
@@ -171,7 +184,9 @@
 	align-items: center;
 	gap: 4px;
 	font-size: 12px;
-	color: #949494;
+	/* #707070 hits 4.74:1 on white (WCAG AA for normal text). #949494
+	   was ~3.0:1 — fine for large text only, fail for 12px labels. */
+	color: #707070;
 }
 
 .fosse-wizard__progress-step.is-active {
@@ -180,7 +195,10 @@
 }
 
 .fosse-wizard__progress-step.is-complete {
-	color: #4ab866;
+	/* #2c8049 hits 4.61:1 on white (WCAG AA). The previous #4ab866
+	   was ~2.6:1 and failed AA badly at 12px. Stays in the green
+	   family so the "complete" affordance reads as a check. */
+	color: #2c8049;
 }
 
 .fosse-wizard__progress-dot {
@@ -283,7 +301,9 @@
 
 .fosse-wizard__hint p {
 	font-size: 12px;
-	color: #757575;
+	/* #555 hits 7.46:1 on the #f0f0f0 hint background (WCAG AAA).
+	   The previous #757575 was ~3.4:1 — fail AA at 12px. */
+	color: #555;
 	margin: 0;
 }
 

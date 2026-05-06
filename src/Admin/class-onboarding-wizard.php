@@ -860,7 +860,10 @@ class Onboarding_Wizard {
 			<input type="hidden" name="_wpnonce" value="<?php echo esc_attr( $nonce ); ?>" />
 
 			<div class="fosse-wizard__card">
-				<div class="fosse-destination-cards">
+				<fieldset class="fosse-destination-cards">
+					<legend class="screen-reader-text">
+						<?php esc_html_e( 'Where to publish', 'fosse' ); ?>
+					</legend>
 					<?php foreach ( $destinations as $value => $destination ) : ?>
 						<label class="fosse-destination-card">
 							<input
@@ -873,12 +876,12 @@ class Onboarding_Wizard {
 							<span class="fosse-destination-card__badge"><?php echo esc_html( $destination['badge'] ); ?></span>
 							<span class="fosse-destination-card__title"><?php echo esc_html( $destination['title'] ); ?></span>
 							<span class="fosse-destination-card__desc"><?php echo esc_html( $destination['desc'] ); ?></span>
-							<span class="fosse-destination-card__check">
+							<span class="fosse-destination-card__check" aria-hidden="true">
 								<span class="dashicons dashicons-yes-alt"></span>
 							</span>
 						</label>
 					<?php endforeach; ?>
-				</div>
+				</fieldset>
 			</div>
 
 			<div class="fosse-wizard__actions fosse-wizard__actions--center">
@@ -995,7 +998,10 @@ class Onboarding_Wizard {
 					</div>
 					<input type="hidden" name="activitypub_actor_mode" value="<?php echo esc_attr( $forced_mode ); ?>" />
 				<?php else : ?>
-					<div class="fosse-mode-cards">
+					<fieldset class="fosse-mode-cards">
+						<legend class="screen-reader-text">
+							<?php esc_html_e( 'How posts appear', 'fosse' ); ?>
+						</legend>
 						<?php foreach ( $modes as $value => $mode ) : ?>
 							<label class="fosse-mode-card">
 								<input
@@ -1005,19 +1011,19 @@ class Onboarding_Wizard {
 									class="fosse-mode-card__input"
 									<?php checked( $value, $current_mode ); ?>
 								/>
-								<div class="fosse-mode-card__icon">
+								<div class="fosse-mode-card__icon" aria-hidden="true">
 									<span class="dashicons <?php echo esc_attr( $mode['icon'] ); ?>"></span>
 								</div>
 								<div class="fosse-mode-card__content">
 									<div class="fosse-mode-card__title"><?php echo esc_html( $mode['title'] ); ?></div>
 									<div class="fosse-mode-card__desc"><?php echo wp_kses( $mode['desc'], array( 'strong' => array() ) ); ?></div>
 								</div>
-								<div class="fosse-mode-card__check">
+								<div class="fosse-mode-card__check" aria-hidden="true">
 									<span class="dashicons dashicons-yes-alt"></span>
 								</div>
 							</label>
 						<?php endforeach; ?>
-					</div>
+					</fieldset>
 				<?php endif; ?>
 
 				<?php
@@ -1168,8 +1174,8 @@ class Onboarding_Wizard {
 							continue;
 						}
 						?>
-						<div class="fosse-post-types__group">
-							<div class="fosse-post-types__group-label"><?php echo esc_html( $group['label'] ); ?></div>
+						<fieldset class="fosse-post-types__group">
+							<legend class="fosse-post-types__group-label"><?php echo esc_html( $group['label'] ); ?></legend>
 							<?php foreach ( $group['types'] as $pt ) : ?>
 								<label class="fosse-post-type-item">
 									<input
@@ -1183,7 +1189,7 @@ class Onboarding_Wizard {
 									</span>
 								</label>
 							<?php endforeach; ?>
-						</div>
+						</fieldset>
 					<?php endforeach; ?>
 				</div>
 
