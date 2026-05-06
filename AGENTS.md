@@ -44,7 +44,7 @@ fosse/
 │   ├── composer.json
 │   ├── sync-bundled.sh        # Refresh bundled/ from upstream checkouts
 │   └── bundled-excludes.txt   # Rsync exclude list for sync-bundled.sh
-├── sdd/                       # Spec-Driven Development docs (per-feature)
+├── sdd/                       # Spec-Driven Development docs (per-feature; index in sdd/roadmap.md)
 ├── .github/
 │   ├── workflows/             # tests.yml, linting.yml, e2e.yml, build-zip.yml
 │   └── dependabot.yml
@@ -157,6 +157,8 @@ This project follows **WordPress Coding Standards (WPCS)** for all PHP code, enf
 -   Component prefix when helpful: `Tests: add smoke test for X`.
 
 ### SDD plan status tracking
+
+`sdd/roadmap.md` indexes every SDD with one-line purpose, status, and Linear/PR pointers — start there to see what's been designed, what's shipped, and what's in flight.
 
 `sdd/<feature>/plan.md` is the persistent record of what's done — not git log, not Linear. For new SDD plans going forward, each task carries a `- **Status**:` field, and the top of the file carries a `## Progress` checklist mirroring the per-task statuses. Keep both in sync as work progresses. Older plans (e.g. `sdd/bundled-backends/`) predate this convention and don't need to be retrofitted unless intentionally updated.
 
