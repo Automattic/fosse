@@ -1,6 +1,6 @@
 <?php
 /**
- * Tests for the cross-network Object_Type projector.
+ * Tests for the cross-network Object_Type bridge.
  *
  * @package Automattic\Fosse
  */
@@ -13,10 +13,11 @@ use WorDBless\BaseTestCase;
 use WP_Post;
 
 /**
- * Verifies the FOSSE option-backed projector correctly translates the
- * fosse_object_type option into the Atmosphere short-form discriminator
- * (atmosphere_is_short_form_post) and the ActivityPub object type
- * (activitypub_post_object_type).
+ * Verifies the bridge translates the canonical `activitypub_object_type`
+ * option into the Atmosphere short-form discriminator
+ * (`atmosphere_is_short_form_post`). The AP object-type filter is no
+ * longer projected by FOSSE — ActivityPub reads its own option directly
+ * (see `sdd/canonical-upstream-options/`).
  */
 class Object_TypeTest extends BaseTestCase {
 
@@ -28,7 +29,7 @@ class Object_TypeTest extends BaseTestCase {
 	private WP_Post $post;
 
 	/**
-	 * Clean hook state + option + seed a WP_Post fixture before each test.
+	 * Clean hook state + options + seed a WP_Post fixture before each test.
 	 *
 	 * @before
 	 */
@@ -36,6 +37,7 @@ class Object_TypeTest extends BaseTestCase {
 	public function reset_state(): void {
 		remove_all_filters( 'atmosphere_is_short_form_post' );
 		remove_all_filters( 'activitypub_post_object_type' );
+		delete_option( 'activitypub_object_type' );
 		delete_option( 'fosse_object_type' );
 
 		Object_Type::register();
@@ -44,7 +46,7 @@ class Object_TypeTest extends BaseTestCase {
 	}
 
 	/**
-	 * With no option set, the Atmosphere filter returns its input unchanged.
+	 * With no AP option set, the Atmosphere filter returns its input unchanged.
 	 */
 	public function test_atmosphere_filter_passes_through_by_default() {
 		$this->assertFalse(
@@ -53,22 +55,22 @@ class Object_TypeTest extends BaseTestCase {
 	}
 
 	/**
-	 * Option=note forces short-form regardless of the incoming default.
+	 * AP option=note forces short-form regardless of the incoming default.
 	 */
-	public function test_atmosphere_filter_forces_short_form_when_option_note() {
-		update_option( 'fosse_object_type', 'note' );
+	public function test_atmosphere_filter_forces_short_form_when_ap_option_note() {
+		update_option( 'activitypub_object_type', 'note' );
 
 		$this->assertTrue(
 			apply_filters( 'atmosphere_is_short_form_post', false, $this->post ),
-			'A false default must become true when the option is note.'
+			'A false default must become true when activitypub_object_type=note.'
 		);
 	}
 
 	/**
-	 * Option=wordpress-post-format is a pass-through (defer to upstream).
+	 * AP option=wordpress-post-format is a pass-through (defer to upstream).
 	 */
-	public function test_atmosphere_filter_passes_through_when_option_wordpress_post_format() {
-		update_option( 'fosse_object_type', 'wordpress-post-format' );
+	public function test_atmosphere_filter_passes_through_when_ap_option_wordpress_post_format() {
+		update_option( 'activitypub_object_type', 'wordpress-post-format' );
 
 		$this->assertFalse(
 			apply_filters( 'atmosphere_is_short_form_post', false, $this->post )
@@ -79,49 +81,15 @@ class Object_TypeTest extends BaseTestCase {
 	}
 
 	/**
-	 * With no option set, the AP filter returns its input unchanged.
-	 */
-	public function test_ap_filter_passes_through_by_default() {
-		$this->assertSame(
-			'Article',
-			apply_filters( 'activitypub_post_object_type', 'Article', $this->post )
-		);
-	}
-
-	/**
-	 * Option=note forces 'Note' regardless of the upstream-computed type.
-	 */
-	public function test_ap_filter_forces_note_when_option_note() {
-		update_option( 'fosse_object_type', 'note' );
-
-		$this->assertSame(
-			'Note',
-			apply_filters( 'activitypub_post_object_type', 'Article', $this->post )
-		);
-	}
-
-	/**
-	 * Option=wordpress-post-format is a pass-through (defer to upstream).
-	 */
-	public function test_ap_filter_passes_through_when_option_wordpress_post_format() {
-		update_option( 'fosse_object_type', 'wordpress-post-format' );
-
-		$this->assertSame(
-			'Article',
-			apply_filters( 'activitypub_post_object_type', 'Article', $this->post )
-		);
-	}
-
-	/**
-	 * Unknown option values (typos, legacy values, garbage) pass through.
+	 * Unknown AP option values (typos, legacy values, garbage) pass through.
 	 *
-	 * The projector strictly matches `'note'`; anything else is treated as the
-	 * pass-through default. This test guards that invariant against a future
-	 * refactor to `!== 'wordpress-post-format'`-style logic that would silently
-	 * flip every unrecognized value to force-Note.
+	 * The bridge strictly matches `'note'`; anything else is treated as the
+	 * pass-through default. Guards against a future refactor to
+	 * `!== 'wordpress-post-format'`-style logic that would silently flip
+	 * every unrecognized value to force-Note.
 	 */
-	public function test_atmosphere_filter_passes_through_on_unknown_option_value() {
-		update_option( 'fosse_object_type', 'garbage' );
+	public function test_atmosphere_filter_passes_through_on_unknown_ap_option_value() {
+		update_option( 'activitypub_object_type', 'garbage' );
 
 		$this->assertFalse(
 			apply_filters( 'atmosphere_is_short_form_post', false, $this->post ),
@@ -134,21 +102,30 @@ class Object_TypeTest extends BaseTestCase {
 	}
 
 	/**
-	 * Unknown option values pass through on the AP filter too.
-	 *
-	 * See test_atmosphere_filter_passes_through_on_unknown_option_value() for
-	 * the rationale.
+	 * Legacy `fosse_object_type=note` is no longer read by the bridge —
+	 * the Canonical_Options_Migrator moves the value into
+	 * `activitypub_object_type` on `admin_init`. Guards against a future
+	 * refactor that quietly resurrects the FOSSE-side option.
 	 */
-	public function test_ap_filter_passes_through_on_unknown_option_value() {
-		update_option( 'fosse_object_type', 'garbage' );
+	public function test_atmosphere_filter_ignores_legacy_fosse_option(): void {
+		update_option( 'fosse_object_type', 'note' );
 
-		$this->assertSame(
-			'Article',
-			apply_filters( 'activitypub_post_object_type', 'Article', $this->post )
+		$this->assertFalse(
+			apply_filters( 'atmosphere_is_short_form_post', false, $this->post ),
+			'fosse_object_type is no longer authoritative; only activitypub_object_type drives the bridge.'
 		);
-		$this->assertSame(
-			'Page',
-			apply_filters( 'activitypub_post_object_type', 'Page', $this->post )
+	}
+
+	/**
+	 * The AP-side filter is no longer registered by FOSSE. ActivityPub reads
+	 * `activitypub_object_type` directly when computing object type, and
+	 * FOSSE registering its own callback would only re-create the desync the
+	 * canonicalization eliminated.
+	 */
+	public function test_ap_object_type_filter_is_not_registered(): void {
+		$this->assertFalse(
+			has_filter( 'activitypub_post_object_type' ),
+			'FOSSE must not register a callback on activitypub_post_object_type after canonicalization.'
 		);
 	}
 }
