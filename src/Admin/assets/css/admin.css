@@ -853,7 +853,7 @@
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	margin: 0 auto 24px;
+	margin: 0 auto 34px;
 	box-shadow: 0 0 0 8px rgba(22, 138, 74, 0.06);
 }
 
@@ -939,13 +939,14 @@
 
 .fosse-wizard__cta-help {
 	text-align: center;
-	margin: 16px 0 22px;
+	margin: 18px auto 0;
 	font-size: 13px;
 	color: var(--fosse-wizard-muted);
+	max-width: 590px;
 }
 
 .fosse-wizard__actions--secondary {
-	margin-top: 8px;
+	margin-top: 28px;
 }
 
 /* Bluesky signup affordance */

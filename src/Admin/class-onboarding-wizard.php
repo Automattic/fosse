@@ -869,7 +869,7 @@ class Onboarding_Wizard {
 			),
 			self::DESTINATION_FEDIVERSE_ONLY    => array(
 				'class' => 'fosse-destination-card--fediverse-only',
-				'icon'  => 'dashicons-yes',
+				'icon'  => 'dashicons-networking',
 				'badge' => __( 'Simple setup', 'fosse' ),
 				'title' => __( 'Fediverse only', 'fosse' ),
 				'desc'  => __( 'Let people follow your site from apps like Mastodon. You can connect Bluesky later.', 'fosse' ),
