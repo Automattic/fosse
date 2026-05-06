@@ -520,10 +520,21 @@ class Bluesky_Provider implements Connection_Provider {
 			$this->forget_oauth_return_context();
 		}
 
+		$source = self::context_to_source( $return_context );
+
+		self::record_metric(
+			'fosse_connection_attempt',
+			array(
+				'network' => 'bluesky',
+				'source'  => $source,
+			)
+		);
+
 		$handle = sanitize_text_field( wp_unslash( $_POST['bluesky_handle'] ?? '' ) );
 		$handle = strtolower( trim( ltrim( trim( $handle ), '@' ) ) );
 
 		if ( empty( $handle ) ) {
+			self::record_connection_failed( 'bluesky', $source, 'invalid_handle' );
 			$this->redirect_with_notice( __( 'Enter a Bluesky handle to continue.', 'fosse' ), 'error', $return_context );
 			return;
 		}
@@ -533,6 +544,7 @@ class Bluesky_Provider implements Connection_Provider {
 		// Pre-validate so users get an actionable hint instead of a raw
 		// upstream error like "PDS lookup failed: dns_get_record returned false".
 		if ( ! preg_match( '/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/', $handle ) ) {
+			self::record_connection_failed( 'bluesky', $source, 'invalid_handle' );
 			$this->redirect_with_notice(
 				__( 'That doesn\'t look like a valid handle. Try something like alice.bsky.social or example.com.', 'fosse' ),
 				'error',
@@ -544,6 +556,7 @@ class Bluesky_Provider implements Connection_Provider {
 		$auth_url = \Atmosphere\OAuth\Client::authorize( $handle );
 
 		if ( is_wp_error( $auth_url ) ) {
+			self::record_connection_failed( 'bluesky', $source, self::categorize_wp_error( $auth_url ) );
 			$this->redirect_with_notice( $auth_url->get_error_message(), 'error', $return_context );
 			return;
 		}
@@ -707,6 +720,7 @@ class Bluesky_Provider implements Connection_Provider {
 		// back but something stripped the other parameter mid-flight. Treat
 		// it as a real error instead of silently rendering an empty page.
 		if ( '' === $code || '' === $state ) {
+			self::record_connection_failed( 'bluesky', '', 'auth_failed' );
 			$this->redirect_with_notice(
 				__( 'Bluesky returned an incomplete response. Please try connecting again.', 'fosse' ),
 				'error'
@@ -718,10 +732,12 @@ class Bluesky_Provider implements Connection_Provider {
 		// off to Atmosphere so a stale or replayed callback can't strip the
 		// wizard marker away from a legitimate callback that arrives later.
 		$return_context = $this->consume_oauth_return_context( $state );
+		$source         = self::context_to_source( $return_context );
 
 		$result = \Atmosphere\OAuth\Client::handle_callback( $code, $state );
 
 		if ( is_wp_error( $result ) ) {
+			self::record_connection_failed( 'bluesky', $source, self::categorize_wp_error( $result ) );
 			$this->redirect_with_notice( $result->get_error_message(), 'error', $return_context );
 			return;
 		}
@@ -731,6 +747,7 @@ class Bluesky_Provider implements Connection_Provider {
 		// hostile filter), `is_connected()` flips back to false — surface
 		// that instead of falsely telling the user they're connected.
 		if ( ! \Atmosphere\is_connected() ) {
+			self::record_connection_failed( 'bluesky', $source, 'other' );
 			$this->redirect_with_notice(
 				__( 'Bluesky responded successfully, but the connection was not saved. Please try connecting again.', 'fosse' ),
 				'error',
@@ -738,6 +755,17 @@ class Bluesky_Provider implements Connection_Provider {
 			);
 			return;
 		}
+
+		// Connection succeeded. Subsequent publication-setup failures are
+		// surfaced as warnings (the Bluesky link itself is good), so they
+		// emit `_completed`, not `_failed`.
+		self::record_metric(
+			'fosse_connection_completed',
+			array(
+				'network' => 'bluesky',
+				'source'  => $source,
+			)
+		);
 
 		if ( ! method_exists( '\Atmosphere\Publisher', 'sync_publication' ) ) {
 			$this->redirect_with_notice(
@@ -764,6 +792,83 @@ class Bluesky_Provider implements Connection_Provider {
 		}
 
 		$this->redirect_with_notice( __( 'Successfully connected to Bluesky.', 'fosse' ), 'success', $return_context );
+	}
+
+	/**
+	 * Map an OAuth return context to the canonical `source` property.
+	 *
+	 * @param string $return_context Context string (typically `'wizard'` or `''`).
+	 * @return string `'wizard'` when initiated from the wizard, `'settings'` otherwise.
+	 */
+	private static function context_to_source( string $return_context ): string {
+		return self::RETURN_CONTEXT_WIZARD === $return_context ? 'wizard' : 'settings';
+	}
+
+	/**
+	 * Map a `WP_Error` to the funnel's bounded `error_category` enum.
+	 *
+	 * Pre-classified categories are part of the privacy contract: raw
+	 * upstream messages never leave the recorder. Codes recognized
+	 * here come from Atmosphere's OAuth client and the AT Protocol
+	 * handle-resolution path; anything else maps to `'other'`.
+	 *
+	 * @param \WP_Error $error WP_Error from Atmosphere\OAuth\Client.
+	 * @return string `'auth_failed'|'rate_limited'|'network_timeout'|'invalid_handle'|'other'`.
+	 */
+	private static function categorize_wp_error( \WP_Error $error ): string {
+		$code = (string) $error->get_error_code();
+
+		if ( false !== \stripos( $code, 'rate' ) || '429' === $code ) {
+			return 'rate_limited';
+		}
+		if ( false !== \stripos( $code, 'timeout' ) || false !== \stripos( $code, 'http_request_failed' ) ) {
+			return 'network_timeout';
+		}
+		if ( false !== \stripos( $code, 'handle' ) || false !== \stripos( $code, 'pds' ) || false !== \stripos( $code, 'did' ) ) {
+			return 'invalid_handle';
+		}
+		if ( false !== \stripos( $code, 'auth' ) || false !== \stripos( $code, 'oauth' ) || false !== \stripos( $code, 'token' ) ) {
+			return 'auth_failed';
+		}
+
+		return 'other';
+	}
+
+	/**
+	 * Emit a `fosse_connection_failed` event for the given network/source/category.
+	 *
+	 * @param string $network        `'bluesky'|'mastodon'`.
+	 * @param string $source         `'wizard'|'settings'` (or `''` when unknown — recorder allowlist drops empty).
+	 * @param string $error_category Pre-classified error category.
+	 * @return void
+	 */
+	private static function record_connection_failed( string $network, string $source, string $error_category ): void {
+		$properties = array(
+			'network'        => $network,
+			'error_category' => $error_category,
+		);
+		if ( '' !== $source ) {
+			$properties['source'] = $source;
+		}
+
+		self::record_metric( 'fosse_connection_failed', $properties );
+	}
+
+	/**
+	 * Forward to `Recorder::record()` if the metrics module is loaded.
+	 *
+	 * The class_exists guard keeps this provider safe to load on
+	 * checkouts that haven't shipped the metrics spine yet.
+	 *
+	 * @param string $event      Event name.
+	 * @param array  $properties Property bag.
+	 * @return void
+	 */
+	private static function record_metric( string $event, array $properties ): void {
+		if ( ! \class_exists( \Automattic\Fosse\Metrics\Recorder::class ) ) {
+			return;
+		}
+		\Automattic\Fosse\Metrics\Recorder::record( $event, $properties );
 	}
 
 	/**

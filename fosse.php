@@ -221,6 +221,25 @@ add_action(
 );
 
 /*
+ * Metrics: search-indexing watcher.
+ *
+ * Emits `fosse_search_indexing_disabled_post_active` when a site flips
+ * the federation gate (`blog_public`) off while FOSSE is active. Each
+ * host wires the active-determination via the
+ * `fosse_metrics_is_active_for_site` filter; the default is `false` so
+ * pure-self-host checkouts emit nothing.
+ */
+add_action(
+	'init',
+	static function () {
+		if ( ! class_exists( \Automattic\Fosse\Metrics\Search_Indexing_Watcher::class ) ) {
+			return;
+		}
+		\Automattic\Fosse\Metrics\Search_Indexing_Watcher::register();
+	}
+);
+
+/*
  * Provider bootstrap.
  *
  * Providers self-register on the 'fosse_register_providers' action fired

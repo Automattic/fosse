@@ -98,6 +98,28 @@ class Onboarding_Wizard {
 	private const ACTOR_MODES = array( 'actor', 'blog', 'actor_blog' );
 
 	/**
+	 * Per-user dedup flag for `fosse_wizard_started` emission.
+	 *
+	 * Stored as user_meta so the event fires once per user per wizard
+	 * lifecycle, not once per page load. Cleared when the wizard is
+	 * reset so a reset-then-start cycle re-emits.
+	 *
+	 * @var string
+	 */
+	private const USER_META_STARTED_EMITTED = '_fosse_wizard_started_emitted';
+
+	/**
+	 * Allowed `entry` property values for `fosse_wizard_started`.
+	 *
+	 * - `auto`         — post-activation auto-redirect via REDIRECT_OPTION.
+	 * - `admin_notice` — link from a FOSSE admin notice.
+	 * - `menu`         — direct nav to the FOSSE menu item (default fallback).
+	 *
+	 * @var string[]
+	 */
+	private const WIZARD_ENTRIES = array( 'auto', 'admin_notice', 'menu' );
+
+	/**
 	 * Whether the wizard has been completed.
 	 *
 	 * @return bool
@@ -165,6 +187,13 @@ class Onboarding_Wizard {
 		}
 
 		$step = self::get_current_step();
+
+		// Emit `fosse_wizard_started` the first time a user reaches step 1.
+		// Per-user dedup keeps a noisy refresh from inflating the funnel
+		// entry count.
+		if ( 'destinations' === $step ) {
+			self::record_wizard_started();
+		}
 
 		switch ( $step ) {
 			case 'destinations':
@@ -360,6 +389,8 @@ class Onboarding_Wizard {
 		);
 		self::require_nonce( 'fosse_wizard_complete', 'fosse_wizard_complete' );
 
+		self::record_wizard_completed();
+
 		self::mark_complete();
 
 		wp_safe_redirect( admin_url( 'admin.php?page=fosse-wizard&step=complete' ) );
@@ -380,6 +411,12 @@ class Onboarding_Wizard {
 
 		delete_option( self::COMPLETED_OPTION );
 		delete_option( self::DESTINATION_OPTION );
+
+		// Clear the per-user `fosse_wizard_started` dedup so a re-run
+		// after reset emits the started event again. Scoped to the
+		// current user — other users with their own dedup flags continue
+		// to suppress duplicates within their own wizard lifecycle.
+		\delete_user_meta( \get_current_user_id(), self::USER_META_STARTED_EMITTED );
 
 		wp_safe_redirect( admin_url( 'admin.php?page=fosse-wizard' ) );
 		exit;
@@ -1510,5 +1547,99 @@ class Onboarding_Wizard {
 			</a>
 		</p>
 		<?php
+	}
+
+	/**
+	 * Emit `fosse_wizard_started` once per user.
+	 *
+	 * Per-user dedup via `USER_META_STARTED_EMITTED` so that page-load
+	 * noise (refresh on step 1) doesn't inflate the funnel-entry count.
+	 * `entry` is read from `?fosse_entry` if present and recognized,
+	 * otherwise defaults to `'menu'`.
+	 *
+	 * @return void
+	 */
+	private static function record_wizard_started(): void {
+		if ( ! \class_exists( \Automattic\Fosse\Metrics\Recorder::class ) ) {
+			return;
+		}
+
+		$user_id = \get_current_user_id();
+		if ( 0 === $user_id ) {
+			return;
+		}
+
+		if ( '' !== (string) \get_user_meta( $user_id, self::USER_META_STARTED_EMITTED, true ) ) {
+			return;
+		}
+
+		\update_user_meta( $user_id, self::USER_META_STARTED_EMITTED, '1' );
+
+		\Automattic\Fosse\Metrics\Recorder::record(
+			'fosse_wizard_started',
+			array( 'entry' => self::derive_wizard_entry() )
+		);
+	}
+
+	/**
+	 * Emit `fosse_wizard_completed` with destination / actor / post-types / bluesky state.
+	 *
+	 * Called from `handle_complete()` immediately before
+	 * `mark_complete()` — capability and nonce have already been
+	 * verified by that point.
+	 *
+	 * @return void
+	 */
+	private static function record_wizard_completed(): void {
+		if ( ! \class_exists( \Automattic\Fosse\Metrics\Recorder::class ) ) {
+			return;
+		}
+
+		$post_types       = (array) \get_option( 'activitypub_support_post_types', array( 'post' ) );
+		$post_types_count = \Automattic\Fosse\Metrics\Buckets::post_types_count( \count( $post_types ) );
+
+		\Automattic\Fosse\Metrics\Recorder::record(
+			'fosse_wizard_completed',
+			array(
+				'destination'             => self::get_destination(),
+				'actor_mode'              => (string) \get_option( 'activitypub_actor_mode', 'actor' ),
+				'post_types_count_bucket' => $post_types_count,
+				'bluesky_state'           => self::derive_bluesky_state(),
+			)
+		);
+	}
+
+	/**
+	 * Resolve the `entry` source for the wizard-started event.
+	 *
+	 * Reads `?fosse_entry` and validates against `WIZARD_ENTRIES`.
+	 * Default `'menu'` covers the legacy direct-nav case where no entry
+	 * caller has been retrofitted with the GET param yet.
+	 *
+	 * @return string One of `WIZARD_ENTRIES`.
+	 */
+	private static function derive_wizard_entry(): string {
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- no state mutation; entry source is a tracking-only signal.
+		$raw = isset( $_GET['fosse_entry'] ) ? \sanitize_text_field( \wp_unslash( (string) $_GET['fosse_entry'] ) ) : '';
+
+		return \in_array( $raw, self::WIZARD_ENTRIES, true ) ? $raw : 'menu';
+	}
+
+	/**
+	 * Resolve the Bluesky-state property for the wizard-completed event.
+	 *
+	 * - `'connected'`   — `\Atmosphere\is_connected()` returns true.
+	 * - `'unavailable'` — Atmosphere isn't loaded (the wizard let the
+	 *                    user complete without ever seeing the Bluesky
+	 *                    step).
+	 * - `'skipped'`     — Atmosphere is loaded but no connection.
+	 *
+	 * @return string `'connected'|'skipped'|'unavailable'`.
+	 */
+	private static function derive_bluesky_state(): string {
+		if ( ! \function_exists( '\\Atmosphere\\is_connected' ) ) {
+			return 'unavailable';
+		}
+		return \Atmosphere\is_connected() ? 'connected' : 'skipped';
 	}
 }
