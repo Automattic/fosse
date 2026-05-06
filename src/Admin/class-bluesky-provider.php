@@ -124,6 +124,29 @@ class Bluesky_Provider implements Connection_Provider {
 	}
 
 	/**
+	 * Whether Bluesky auto-publishing is enabled for this site.
+	 *
+	 * Centralizes the "absent option reads as enabled" rule that
+	 * `Atmosphere` itself follows: with the FOSSE Settings toggle
+	 * removed, brand-new sites never materialize the option, so the
+	 * default has to be on — anything else would silently break
+	 * publishing for the silent majority.
+	 *
+	 * Static so callers (wizard CTA copy, future per-post UI) can read
+	 * the state without resolving a provider instance through the
+	 * registry — the option is global to the site, not provider-instance
+	 * state. Do NOT use this to gate the recovery notice: that path needs
+	 * to distinguish "explicit `'0'`" from "absent" and reads the option
+	 * raw via `get_option( ..., null )`. Conflating absent with the
+	 * default would surface the recovery banner on every fresh install.
+	 *
+	 * @return bool True when the option is absent or `'1'`; false when explicitly `'0'`.
+	 */
+	public static function is_auto_publish_enabled(): bool {
+		return '1' === get_option( 'atmosphere_auto_publish', '1' );
+	}
+
+	/**
 	 * Render Bluesky-specific settings inside the unified Settings form.
 	 *
 	 * Currently a no-op. The auto-publish toggle that used to render here

@@ -1492,6 +1492,42 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		);
 	}
 
+	// --- is_auto_publish_enabled --------------------------------------
+
+	/**
+	 * Helper returns true when the option is absent — encodes the
+	 * "default-on" contract upstream Atmosphere shares. Pairs with
+	 * `test_absent_atmosphere_auto_publish_option_defaults_to_enabled`,
+	 * which pins the raw `get_option()` half of the same contract.
+	 */
+	public function test_is_auto_publish_enabled_true_when_option_absent() {
+		delete_option( 'atmosphere_auto_publish' );
+
+		$this->assertTrue( Bluesky_Provider::is_auto_publish_enabled() );
+	}
+
+	/**
+	 * Helper returns true when the option is explicitly `'1'`.
+	 */
+	public function test_is_auto_publish_enabled_true_when_explicitly_on() {
+		update_option( 'atmosphere_auto_publish', '1' );
+
+		$this->assertTrue( Bluesky_Provider::is_auto_publish_enabled() );
+	}
+
+	/**
+	 * Helper returns false when the option is explicitly `'0'` — the
+	 * recovery-notice population. The recovery-notice gate uses a
+	 * separate raw read because it must distinguish "explicit `'0'`"
+	 * from "absent"; this helper conflates the two by design (absent
+	 * reads as enabled).
+	 */
+	public function test_is_auto_publish_enabled_false_when_explicitly_off() {
+		update_option( 'atmosphere_auto_publish', '0' );
+
+		$this->assertFalse( Bluesky_Provider::is_auto_publish_enabled() );
+	}
+
 	// --- maybe_render_auto_publish_disabled_notice ----------------------
 
 	/**
