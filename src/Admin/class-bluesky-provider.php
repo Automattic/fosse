@@ -370,9 +370,7 @@ class Bluesky_Provider implements Connection_Provider {
 	 * @param array<string, mixed> $post_data POST payload to read (unused).
 	 * @return bool Always true.
 	 */
-	public function save_settings( array $post_data ): bool {
-		unset( $post_data );
-
+	public function save_settings( array $post_data ): bool { // phpcs:ignore VariableAnalysis.CodeAnalysis.VariableAnalysis.UnusedVariable -- Connection_Provider interface contract; no Bluesky-side fields to persist after the auto-publish toggle removal.
 		return true;
 	}
 
