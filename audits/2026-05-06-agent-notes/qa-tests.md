@@ -12,8 +12,8 @@ Scope reviewed: PHPUnit/Jest/Playwright tests, e2e mu-plugins, `phpunit.xml.dist
 
 Proposed test/fix target:
 
-- Replace the local `setBlueskyState` helper in `tests/e2e/status-page.spec.ts` with `resetBlueskyState( browser, testInfo.project.use.baseURL )`, mirroring `tests/e2e/bluesky-provider.spec.ts:10-18`.
-- Add a small regression assertion in `tests/e2e/status-page.spec.ts` or `tests/e2e/test-helpers.ts` that hook-scope cleanup uses an absolute/baseURL-backed admin page before calling `/wp-json/fosse-e2e/v1/bluesky-state`.
+-   Replace the local `setBlueskyState` helper in `tests/e2e/status-page.spec.ts` with `resetBlueskyState( browser, testInfo.project.use.baseURL )`, mirroring `tests/e2e/bluesky-provider.spec.ts:10-18`.
+-   Add a small regression assertion in `tests/e2e/status-page.spec.ts` or `tests/e2e/test-helpers.ts` that hook-scope cleanup uses an absolute/baseURL-backed admin page before calling `/wp-json/fosse-e2e/v1/bluesky-state`.
 
 ### Medium: Jest is a harness smoke test, not coverage of the shipped admin JS
 
@@ -21,13 +21,13 @@ Proposed test/fix target:
 
 Proposed tests:
 
-- Replace `tests/js/fosse.test.js` with `tests/js/wizard-appearance.test.js`.
-- Load `src/Admin/assets/js/wizard-appearance.js` into jsdom and assert:
-  - on init, only the checked `.fosse-mode-card__input` preview lacks `is-hidden`;
-  - changing to `blog` or `actor_blog` reveals `[data-fosse-when="includes-blog"]`;
-  - changing back to `actor` hides the site-handle row;
-  - the script no-ops without radios and does not throw;
-  - both `document.readyState === 'loading'` and already-loaded paths initialize.
+-   Replace `tests/js/fosse.test.js` with `tests/js/wizard-appearance.test.js`.
+-   Load `src/Admin/assets/js/wizard-appearance.js` into jsdom and assert:
+    -   on init, only the checked `.fosse-mode-card__input` preview lacks `is-hidden`;
+    -   changing to `blog` or `actor_blog` reveals `[data-fosse-when="includes-blog"]`;
+    -   changing back to `actor` hides the site-handle row;
+    -   the script no-ops without radios and does not throw;
+    -   both `document.readyState === 'loading'` and already-loaded paths initialize.
 
 ### Medium: Facet/link-card e2e specs validate transformed records, not the real publish path
 
@@ -35,9 +35,9 @@ Proposed tests:
 
 Proposed tests:
 
-- Keep the capture specs, but relabel them as transformer/projector e2e guards.
-- Add a `tests/e2e/bluesky-publish-path.spec.ts` that seeds a connected `atmosphere_connection`, intercepts PDS requests through a test-only `pre_http_request` mu-plugin recorder, publishes a post via REST, and asserts the real publish flow attempted both the `app.bsky.feed.post` and `site.standard.document` writes.
-- Add a sad-path variant with disconnected Bluesky state and assert no PDS write is attempted.
+-   Keep the capture specs, but relabel them as transformer/projector e2e guards.
+-   Add a `tests/e2e/bluesky-publish-path.spec.ts` that seeds a connected `atmosphere_connection`, intercepts PDS requests through a test-only `pre_http_request` mu-plugin recorder, publishes a post via REST, and asserts the real publish flow attempted both the `app.bsky.feed.post` and `site.standard.document` writes.
+-   Add a sad-path variant with disconnected Bluesky state and assert no PDS write is attempted.
 
 ### Low: `test_handle_connect_strips_leading_at()` can pass without proving normalization
 
@@ -45,7 +45,7 @@ Proposed tests:
 
 Proposed test:
 
-- In `tests/php/Admin/Bluesky_ProviderTest.php`, strengthen the assertion to require the captured authorize/resolve URL to contain the normalized `alice.bsky.social` handle and not contain either raw `@alice` or encoded `%40alice`.
+-   In `tests/php/Admin/Bluesky_ProviderTest.php`, strengthen the assertion to require the captured authorize/resolve URL to contain the normalized `alice.bsky.social` handle and not contain either raw `@alice` or encoded `%40alice`.
 
 ## Missing Coverage Gaps
 
@@ -55,12 +55,12 @@ The PHPUnit coverage calls the private helper through reflection (`tests/php/Adm
 
 Proposed tests:
 
-- Add `tests/e2e/atproto-did-well-known.spec.ts`.
-- Scenarios:
-  - connected Bluesky state returns HTTP 200, `Content-Type: text/plain`, and exactly the stored DID body;
-  - disconnected state returns HTTP 404 with no DID body;
-  - encoded/lookalike paths such as `/.well-known/%61tproto-did`, `/.well-known/atproto-did/`, and `/.well-known/atproto-did%0A` do not return the DID;
-  - an opt-out mu-plugin filter for `fosse_serve_atproto_did_well_known` yields 404 and confirms the bundled Atmosphere handler does not still serve the route.
+-   Add `tests/e2e/atproto-did-well-known.spec.ts`.
+-   Scenarios:
+    -   connected Bluesky state returns HTTP 200, `Content-Type: text/plain`, and exactly the stored DID body;
+    -   disconnected state returns HTTP 404 with no DID body;
+    -   encoded/lookalike paths such as `/.well-known/%61tproto-did`, `/.well-known/atproto-did/`, and `/.well-known/atproto-did%0A` do not return the DID;
+    -   an opt-out mu-plugin filter for `fosse_serve_atproto_did_well_known` yields 404 and confirms the bundled Atmosphere handler does not still serve the route.
 
 ### High: Wizard content-save invalid-shape coverage is weaker than Settings save coverage
 
@@ -68,9 +68,9 @@ Proposed tests:
 
 Proposed tests:
 
-- Add `test_handle_save_content_drops_nested_array_post_types()` to `tests/php/Admin/Onboarding_WizardTest.php`, mirroring `Setup_PageTest`.
-- Add `test_handle_save_content_handles_non_array_post_types()` for scalar `activitypub_support_post_types`.
-- Assert no option overwrite with invalid-only input, no PHP warning, and redirect back to `step=content&error=empty_post_types`.
+-   Add `test_handle_save_content_drops_nested_array_post_types()` to `tests/php/Admin/Onboarding_WizardTest.php`, mirroring `Setup_PageTest`.
+-   Add `test_handle_save_content_handles_non_array_post_types()` for scalar `activitypub_support_post_types`.
+-   Assert no option overwrite with invalid-only input, no PHP warning, and redirect back to `step=content&error=empty_post_types`.
 
 ### Medium: E2E state isolation depends on serialization and best-effort teardown
 
@@ -78,9 +78,9 @@ Proposed tests:
 
 Proposed tests/infrastructure:
 
-- Add a global e2e cleanup helper that resets `atmosphere_connection`, `atmosphere_auto_publish`, `fosse_object_type`, wizard completion/destination options, and e2e capture artifacts before each test file.
-- Add a first-test baseline assertion that `/wp-json/fosse-e2e/v1/object-type` or a small state endpoint reports `fosse_object_type=note` and disconnected Bluesky before a spec mutates state.
-- Add `afterEach` cleanup to `long-form-link-card.spec.ts` to restore `fosse_object_type=note`.
+-   Add a global e2e cleanup helper that resets `atmosphere_connection`, `atmosphere_auto_publish`, `fosse_object_type`, wizard completion/destination options, and e2e capture artifacts before each test file.
+-   Add a first-test baseline assertion that `/wp-json/fosse-e2e/v1/object-type` or a small state endpoint reports `fosse_object_type=note` and disconnected Bluesky before a spec mutates state.
+-   Add `afterEach` cleanup to `long-form-link-card.spec.ts` to restore `fosse_object_type=note`.
 
 ### Medium: Unified Settings bad-nonce behavior is not tested
 
@@ -88,8 +88,8 @@ Proposed tests/infrastructure:
 
 Proposed test:
 
-- Add `test_handle_save_rejects_bad_nonce()` to `tests/php/Admin/Setup_PageTest.php`.
-- Seed an existing `activitypub_actor_mode`, submit a tampered `_wpnonce`, trap `wp_die`, and assert `activitypub_actor_mode`, `activitypub_support_post_types`, and `atmosphere_auto_publish` are unchanged.
+-   Add `test_handle_save_rejects_bad_nonce()` to `tests/php/Admin/Setup_PageTest.php`.
+-   Seed an existing `activitypub_actor_mode`, submit a tampered `_wpnonce`, trap `wp_die`, and assert `activitypub_actor_mode`, `activitypub_support_post_types`, and `atmosphere_auto_publish` are unchanged.
 
 ### Medium: Test-only REST mutation endpoints have no permission/nonce coverage
 
@@ -97,9 +97,9 @@ The e2e mu-plugins expose state-changing endpoints guarded by `current_user_can(
 
 Proposed tests:
 
-- Add `tests/e2e/e2e-helper-permissions.spec.ts`.
-- Use an unauthenticated request context, POST to `/wp-json/fosse-e2e/v1/object-type`, `/wp-json/fosse-e2e/v1/bluesky-state`, and `/wp-json/fosse-e2e/v1/seed-reactions`, and assert 401/403.
-- Also POST from an authenticated page without `X-WP-Nonce` and assert WordPress rejects the request.
+-   Add `tests/e2e/e2e-helper-permissions.spec.ts`.
+-   Use an unauthenticated request context, POST to `/wp-json/fosse-e2e/v1/object-type`, `/wp-json/fosse-e2e/v1/bluesky-state`, and `/wp-json/fosse-e2e/v1/seed-reactions`, and assert 401/403.
+-   Also POST from an authenticated page without `X-WP-Nonce` and assert WordPress rejects the request.
 
 ### Medium: Valid-handle network failure on connect is not directly covered
 
@@ -107,8 +107,8 @@ Invalid handles assert no network call is made (`tests/php/Admin/Bluesky_Provide
 
 Proposed test:
 
-- Add `test_handle_connect_surfaces_authorize_wp_error_for_valid_handle()` in `tests/php/Admin/Bluesky_ProviderTest.php`.
-- Submit `alice.bsky.social`, intercept `pre_http_request` to return `WP_Error`, trap redirect, assert an `error` settings notice under `atmosphere`, assert redirect goes back to the setup or wizard context as submitted, and assert no OAuth return-context transient is remembered.
+-   Add `test_handle_connect_surfaces_authorize_wp_error_for_valid_handle()` in `tests/php/Admin/Bluesky_ProviderTest.php`.
+-   Submit `alice.bsky.social`, intercept `pre_http_request` to return `WP_Error`, trap redirect, assert an `error` settings notice under `atmosphere`, assert redirect goes back to the setup or wizard context as submitted, and assert no OAuth return-context transient is remembered.
 
 ### Low: CI does not actively shake out order assumptions
 
@@ -116,6 +116,5 @@ Proposed test:
 
 Proposed CI/test additions:
 
-- Add an optional or scheduled PHPUnit job with random order, for example `composer run-script test-php -- --order-by=random`, once current order dependencies are removed.
-- Add a local-only documented command for `pnpm run test:e2e -- --workers=2` as an isolation stress test, even if the canonical CI job remains single-worker.
-
+-   Add an optional or scheduled PHPUnit job with random order, for example `composer run-script test-php -- --order-by=random`, once current order dependencies are removed.
+-   Add a local-only documented command for `pnpm run test:e2e -- --workers=2` as an isolation stress test, even if the canonical CI job remains single-worker.

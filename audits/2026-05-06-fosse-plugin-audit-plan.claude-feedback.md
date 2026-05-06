@@ -2,7 +2,7 @@
 
 Reviewed: 2026-05-06. Reviewer: Claude (Opus 4.7).
 
-Overall: a solid plan. Scope is clearly bounded, the five-agent split is orthogonal enough to avoid double-counting, and the requirement that every defect cite file/line is the right bar. Spot-checks against the source confirmed the four most consequential findings the plan ultimately produced (escaping in `settings_errors('atmosphere')`, wizard nested-array sanitize gap, AP/Bluesky object-type desync, Atmosphere long-form override). The issues below are about gaps in the *plan*, not the report's correctness.
+Overall: a solid plan. Scope is clearly bounded, the five-agent split is orthogonal enough to avoid double-counting, and the requirement that every defect cite file/line is the right bar. Spot-checks against the source confirmed the four most consequential findings the plan ultimately produced (escaping in `settings_errors('atmosphere')`, wizard nested-array sanitize gap, AP/Bluesky object-type desync, Atmosphere long-form override). The issues below are about gaps in the _plan_, not the report's correctness.
 
 ## Issues with the plan itself
 
@@ -10,8 +10,8 @@ Overall: a solid plan. Scope is clearly bounded, the five-agent split is orthogo
 
 Step 4 commits to `composer run-script lint-php`, `composer run-script test-php`, `pnpm run format:check`, `pnpm run lint`, `pnpm test`, and step 5 to `pnpm run test:e2e`. The plan does not say what to do if the toolchain is missing. In execution every one of those failed (`php`, `composer`, `pnpm`, `npm`, `corepack` not on PATH; `vendor/`, `node_modules/` absent). The report flags this honestly but several findings ("PHPUnit fails on warnings", "test would mask state across specs", "smoke test is the only JS coverage") were never empirically re-validated. The plan should have either:
 
-- Required an environment bootstrap step (install PHP via brew, run `composer install`, `pnpm install`) and said "abort if bootstrap fails," or
-- Explicitly downgraded to "static + source-contract review" up front so the reader knows runtime invariants are inferred.
+-   Required an environment bootstrap step (install PHP via brew, run `composer install`, `pnpm install`) and said "abort if bootstrap fails," or
+-   Explicitly downgraded to "static + source-contract review" up front so the reader knows runtime invariants are inferred.
 
 Recommendation for next round: have the agent run `command -v php composer pnpm` first and ask the user to bootstrap before continuing rather than producing a partially-grounded report.
 
@@ -45,13 +45,13 @@ The final sanity check is good but doesn't include "did we actually execute the 
 
 ## What the plan got right
 
-- Scoping bundled out of direct findings while letting agents read it for contracts is the right call.
-- The five agents are genuinely orthogonal — minimal overlap in evidence between the security, standards, QA, federation, and photoblog notes.
-- Requiring "explicit not-found notes for high-risk vectors checked but not present" (Agent A output spec) is exactly what makes a security audit re-readable later. The security note delivers on that well.
-- The execution steps document the worktree anchor and commit SHA, which makes the audit reproducible.
+-   Scoping bundled out of direct findings while letting agents read it for contracts is the right call.
+-   The five agents are genuinely orthogonal — minimal overlap in evidence between the security, standards, QA, federation, and photoblog notes.
+-   Requiring "explicit not-found notes for high-risk vectors checked but not present" (Agent A output spec) is exactly what makes a security audit re-readable later. The security note delivers on that well.
+-   The execution steps document the worktree anchor and commit SHA, which makes the audit reproducible.
 
 ## Issues with execution that the plan should prevent next time
 
-- Verification commands skipped silently, partially undermining several test-quality findings.
-- The escaping finding's exploitability never gets resolved — does upstream Atmosphere/Bluesky error text actually carry attacker-controlled HTML? That's a 30-minute follow-up the plan should have required.
-- The `status-page.spec.ts` cleanup finding is structurally correct (it diverges from the documented helper) but the report doesn't say whether the test currently passes anyway. "Fragile" vs "broken" matters for triage and the audit doesn't disambiguate.
+-   Verification commands skipped silently, partially undermining several test-quality findings.
+-   The escaping finding's exploitability never gets resolved — does upstream Atmosphere/Bluesky error text actually carry attacker-controlled HTML? That's a 30-minute follow-up the plan should have required.
+-   The `status-page.spec.ts` cleanup finding is structurally correct (it diverges from the documented helper) but the report doesn't say whether the test currently passes anyway. "Fragile" vs "broken" matters for triage and the audit doesn't disambiguate.

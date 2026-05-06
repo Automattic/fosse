@@ -29,9 +29,9 @@ Pixelfed and other AT-Proto image-aware clients render `app.bsky.embed.images` n
 
 Per [`app.bsky.embed.images`](https://raw.githubusercontent.com/bluesky-social/atproto/main/lexicons/app/bsky/embed/images.json) (current trunk):
 
-- `images` is required, max 4 entries.
-- Each entry needs `image` (`blob`, `image/*`, max 1MB) and `alt` (string, required, can be empty but the field must be present).
-- Optional `aspectRatio` ({ `width`, `height` }).
+-   `images` is required, max 4 entries.
+-   Each entry needs `image` (`blob`, `image/*`, max 1MB) and `alt` (string, required, can be empty but the field must be present).
+-   Optional `aspectRatio` ({ `width`, `height` }).
 
 The blob upload step is `com.atproto.repo.uploadBlob`, which Atmosphere already exercises in other contexts.
 
@@ -50,9 +50,9 @@ A new `Transformer\Post::build_image_embed_record()` (or similar) that:
 
 Suggest a new `atmosphere_post_embed_strategy` filter (paralleling `atmosphere_long_form_composition`) so consumers can pick:
 
-- `images` — when the post has attachments, embed images. Falls back to link-card or plain text when there are none.
-- `link-card` (current default) — today's behavior.
-- `none` — text-only.
+-   `images` — when the post has attachments, embed images. Falls back to link-card or plain text when there are none.
+-   `link-card` (current default) — today's behavior.
+-   `none` — text-only.
 
 Or, simpler: a per-post predicate `atmosphere_should_embed_images( $post )` that defaults to "true when the post has attachments and no significant body text" and lets consumers tune.
 
@@ -62,21 +62,21 @@ Worth a short RFC on the discriminator before implementing.
 
 Today's `atmosphere_long_form_composition` paths (`teaser-thread`, `truncate-link`, `link-card`) all assume text. For image embeds:
 
-- A short-form image post (< 300 chars body) should emit a single image-embed record.
-- A long-form image post (> 300 chars body, multiple images) is awkward — you can only embed one type per record. Probably: emit the long-form composition (thread / truncate / link card) as today, with images attached only to the first record (or a thread root). RFC territory.
+-   A short-form image post (< 300 chars body) should emit a single image-embed record.
+-   A long-form image post (> 300 chars body, multiple images) is awkward — you can only embed one type per record. Probably: emit the long-form composition (thread / truncate / link card) as today, with images attached only to the first record (or a thread root). RFC territory.
 
 ## Out of scope
 
-- Video embeds (`app.bsky.embed.video` lexicon). Different upload pipeline; worth a separate issue.
-- Quote embeds (`app.bsky.embed.record`). Already partly covered by the document-card forward-compat slot.
-- Pixelfed-specific shape preferences beyond what the lexicon describes.
+-   Video embeds (`app.bsky.embed.video` lexicon). Different upload pipeline; worth a separate issue.
+-   Quote embeds (`app.bsky.embed.record`). Already partly covered by the document-card forward-compat slot.
+-   Pixelfed-specific shape preferences beyond what the lexicon describes.
 
 ## References
 
-- AT Protocol image embed lexicon: https://github.com/bluesky-social/atproto/blob/main/lexicons/app/bsky/embed/images.json
-- AT Protocol post lexicon: https://github.com/bluesky-social/atproto/blob/main/lexicons/app/bsky/feed/post.json
-- Pixelfed ActivityPub docs: https://pixelfed.github.io/docs-next/spec/ActivityPub.html
-- FOSSE audit observation: `Automattic/fosse#103` (`audits/2026-05-06-fosse-plugin-audit-report.md`, "Photoblog And Blurt Assessment" + "Federation And Network Semantics" sections).
+-   AT Protocol image embed lexicon: https://github.com/bluesky-social/atproto/blob/main/lexicons/app/bsky/embed/images.json
+-   AT Protocol post lexicon: https://github.com/bluesky-social/atproto/blob/main/lexicons/app/bsky/feed/post.json
+-   Pixelfed ActivityPub docs: https://pixelfed.github.io/docs-next/spec/ActivityPub.html
+-   FOSSE audit observation: https://github.com/Automattic/fosse/pull/103 (`audits/2026-05-06-fosse-plugin-audit-report.md`, "Photoblog And Blurt Assessment" + "Federation And Network Semantics" sections).
 
 ## Why upstream, not in FOSSE
 
@@ -85,7 +85,8 @@ Per FOSSE's `AGENTS.md` upstream-contribution policy: the image embed shape is p
 ---
 
 **Reviewer notes (Claude → Brandon):**
-- I left the discriminator question open (filter vs predicate). My weak preference is the filter, since it parallels `atmosphere_long_form_composition` and gives consumers a single hook surface for embed-shape decisions.
-- The 1MB blob cap is per-blob, but Bluesky also enforces a total post-size limit. Worth verifying the math before posting — I didn't dig into that.
-- The "long-form interaction" section is genuinely unresolved. Might be worth posting as a separate RFC issue / discussion rather than embedding in the implementation issue.
-- Pixelfed's actual rendering of `app.bsky.embed.images` (vs ActivityPub `attachment` arrays) is undocumented to me. Probably worth a smoke test against a real Pixelfed instance before assuming the embed-images path actually reaches Pixelfed users — it may only render for native Bluesky clients.
+
+-   I left the discriminator question open (filter vs predicate). My weak preference is the filter, since it parallels `atmosphere_long_form_composition` and gives consumers a single hook surface for embed-shape decisions.
+-   The 1MB blob cap is per-blob, but Bluesky also enforces a total post-size limit. Worth verifying the math before posting — I didn't dig into that.
+-   The "long-form interaction" section is genuinely unresolved. Might be worth posting as a separate RFC issue / discussion rather than embedding in the implementation issue.
+-   Pixelfed's actual rendering of `app.bsky.embed.images` (vs ActivityPub `attachment` arrays) is undocumented to me. Probably worth a smoke test against a real Pixelfed instance before assuming the embed-images path actually reaches Pixelfed users — it may only render for native Bluesky clients.
