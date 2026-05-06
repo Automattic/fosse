@@ -133,6 +133,22 @@ class Canonical_Options_Migrator {
 			$existing = \get_option( 'activitypub_object_type', $sentinel );
 			if ( $sentinel === $existing ) {
 				\update_option( 'activitypub_object_type', 'note' );
+			} elseif ( 'note' !== $existing ) {
+				/**
+				 * Fires once during migration when the legacy FOSSE option
+				 * disagrees with an explicitly-set canonical option. The
+				 * migration preserves the canonical value (the visible UI
+				 * choice) and discards the legacy value; operators that
+				 * want a record of what changed can hook here to log,
+				 * persist a notice, or page the user.
+				 *
+				 * @param string $key      Migration key — `'object_type'` or
+				 *                         `'long_form_strategy'`.
+				 * @param mixed  $legacy   Legacy FOSSE option value being
+				 *                         discarded.
+				 * @param mixed  $existing Canonical option value being preserved.
+				 */
+				\do_action( 'fosse_canonical_migration_conflict', 'object_type', $stored, $existing );
 			}
 		}
 
@@ -174,6 +190,13 @@ class Canonical_Options_Migrator {
 		if ( false !== $stored ) {
 			if ( ! $canonical_set ) {
 				\update_option( 'atmosphere_long_form_composition', self::resolve_legacy_long_form_strategy( $stored ) );
+			} else {
+				$resolved_legacy = self::resolve_legacy_long_form_strategy( $stored );
+				$canonical       = (string) \get_option( 'atmosphere_long_form_composition', '' );
+				if ( $resolved_legacy !== $canonical ) {
+					/** This action is documented in {@see self::migrate_object_type()}. */
+					\do_action( 'fosse_canonical_migration_conflict', 'long_form_strategy', $stored, $canonical );
+				}
 			}
 			\delete_option( 'fosse_long_form_strategy' );
 			return;

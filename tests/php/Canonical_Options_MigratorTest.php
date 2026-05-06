@@ -112,6 +112,84 @@ class Canonical_Options_MigratorTest extends BaseTestCase {
 	}
 
 	/**
+	 * Object-type conflict fires the operator visibility hook so a site
+	 * that wants to log/notice on this can wire it up. Drives the
+	 * "canonical wins, but tell the operator" half of the conflict
+	 * policy — the migration is silent in the database but observable
+	 * via the action.
+	 */
+	public function test_migrate_object_type_conflict_fires_operator_hook(): void {
+		update_option( 'activitypub_object_type', 'wordpress-post-format' );
+		update_option( 'fosse_object_type', 'note' );
+
+		$captured = array();
+		add_action(
+			'fosse_canonical_migration_conflict',
+			static function ( $key, $legacy, $existing ) use ( &$captured ): void {
+				$captured[] = compact( 'key', 'legacy', 'existing' );
+			},
+			10,
+			3
+		);
+
+		Canonical_Options_Migrator::maybe_migrate();
+
+		$this->assertCount( 1, $captured );
+		$this->assertSame( 'object_type', $captured[0]['key'] );
+		$this->assertSame( 'note', $captured[0]['legacy'] );
+		$this->assertSame( 'wordpress-post-format', $captured[0]['existing'] );
+	}
+
+	/**
+	 * Long-form conflict fires the same operator hook. A canonical value
+	 * that happens to match the resolved legacy value is *not* a
+	 * conflict (no surprise to the operator), so the hook stays silent
+	 * in that case.
+	 */
+	public function test_migrate_long_form_conflict_fires_operator_hook(): void {
+		update_option( 'atmosphere_long_form_composition', 'link-card' );
+		update_option( 'fosse_long_form_strategy', 'teaser-thread' );
+
+		$captured = array();
+		add_action(
+			'fosse_canonical_migration_conflict',
+			static function ( $key, $legacy, $existing ) use ( &$captured ): void {
+				$captured[] = compact( 'key', 'legacy', 'existing' );
+			},
+			10,
+			3
+		);
+
+		Canonical_Options_Migrator::maybe_migrate();
+
+		$this->assertCount( 1, $captured );
+		$this->assertSame( 'long_form_strategy', $captured[0]['key'] );
+		$this->assertSame( 'teaser-thread', $captured[0]['legacy'] );
+		$this->assertSame( 'link-card', $captured[0]['existing'] );
+	}
+
+	/**
+	 * Matching canonical and legacy values are not a conflict — operator
+	 * hook stays silent so log noise tracks real disagreements only.
+	 */
+	public function test_migrate_long_form_matching_values_does_not_fire_operator_hook(): void {
+		update_option( 'atmosphere_long_form_composition', 'link-card' );
+		update_option( 'fosse_long_form_strategy', 'link-card' );
+
+		$fired = false;
+		add_action(
+			'fosse_canonical_migration_conflict',
+			static function () use ( &$fired ): void {
+				$fired = true;
+			}
+		);
+
+		Canonical_Options_Migrator::maybe_migrate();
+
+		$this->assertFalse( $fired );
+	}
+
+	/**
 	 * Unknown legacy values coerce to FOSSE's preferred default
 	 * (`'teaser-thread'`) before being written to the canonical option.
 	 * The deleted `Long_Form_Strategy` projector applied the same
