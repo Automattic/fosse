@@ -301,7 +301,14 @@ class Onboarding_Wizard {
 		}
 
 		if ( 'content' === $step ) {
-			$submitted   = array_map( 'sanitize_text_field', wp_unslash( (array) ( $_POST['activitypub_support_post_types'] ?? array() ) ) );
+			// Filter to strings before `sanitize_text_field` so a crafted POST
+			// submitting nested arrays for an element can't trip the function's
+			// array-to-string warning (which `phpunit.xml.dist` promotes to a
+			// hard failure via `failOnWarning`, and which would otherwise emit
+			// a notice in production). Mirrors {@see Setup_Page::save_general_settings()}.
+			// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- sanitized via array_map below; sniffer does not recognize the wrapping pattern.
+			$raw         = wp_unslash( (array) ( $_POST['activitypub_support_post_types'] ?? array() ) );
+			$submitted   = array_map( 'sanitize_text_field', array_filter( $raw, 'is_string' ) );
 			$valid_types = get_post_types( array( 'public' => true ) );
 			$post_types  = array_values( array_intersect( $submitted, $valid_types ) );
 
