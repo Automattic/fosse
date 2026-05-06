@@ -78,6 +78,10 @@ class Setup_PageTest extends BaseTestCase {
 		$_REQUEST = array();
 		remove_all_filters( 'wp_redirect' );
 		remove_all_filters( 'sanitize_option_activitypub_blog_identifier' );
+		// Clear the wp_die_handler tests in this file install — leaks
+		// would convert any later test's `wp_die()` into a thrown
+		// exception and confuse failure attribution.
+		remove_all_filters( 'wp_die_handler' );
 	}
 
 	/**
