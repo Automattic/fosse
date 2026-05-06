@@ -643,7 +643,7 @@ class Bluesky_Provider implements Connection_Provider {
 				<strong><?php esc_html_e( 'Bluesky auto-publishing is off.', 'fosse' ); ?></strong>
 				<?php
 				esc_html_e(
-					'New posts are not being sent to Bluesky. The toggle that controlled this was removed because FOSSE doesn\'t yet offer per-post manual publishing — until it does, leaving auto-publish off means your Bluesky connection is effectively idle.',
+					'New posts aren\'t being sent to Bluesky. The Settings toggle that controlled this was removed, so this notice is the only place to turn it back on. If leaving it off was intentional, no action is needed.',
 					'fosse'
 				);
 				?>
