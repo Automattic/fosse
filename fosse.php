@@ -185,14 +185,22 @@ add_action(
  *
  * Replaces the long-form `fosse_long_form_strategy` projector entirely
  * and the AP-side half of the object-type projector. Runs at most once
- * per site, gated on a flag option, on `admin_init` so frontend
- * requests never trigger writes. Also seeds Atmosphere's long-form
- * composition with FOSSE's preferred default (`'teaser-thread'`) for
- * fresh installs that have neither option set, preserving today's
- * behavior for new sites. See `sdd/canonical-upstream-options/`.
+ * per site, gated on a flag option, on `init` priority 5 so the
+ * migration completes before the projector callbacks (priority 10) and
+ * before any post publish path queries the canonical option. Also
+ * seeds Atmosphere's long-form composition with FOSSE's preferred
+ * default (`'teaser-thread'`) for fresh installs that have neither
+ * option set, preserving today's behavior for new sites.
+ *
+ * Registration is deferred to `plugins_loaded` (not the surrounding
+ * `init` callback) so the migrator's own `add_action('init', ..., 5)`
+ * lands on the priority-5 slot of the same `init` cycle. Registering
+ * from inside an `init`-default-priority callback would miss the
+ * priority-5 slot in the active iteration and the migration would
+ * never run on first activation. See `sdd/canonical-upstream-options/`.
  */
 add_action(
-	'init',
+	'plugins_loaded',
 	static function () {
 		if ( ! class_exists( \Automattic\Fosse\Canonical_Options_Migrator::class ) ) {
 			return;

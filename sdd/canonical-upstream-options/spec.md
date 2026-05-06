@@ -41,6 +41,12 @@ A one-time `init` priority 5 migrator (`Canonical_Options_Migrator`) gated on a 
 
 Hooking on `init` priority 5 closes the window: the migration completes before the bridge filter (priority 10) and before any post-publish path queries the canonical option. The flag gate keeps the cost to a single cached option-read per request after the first run, and the migration itself is idempotent so concurrent requests on the first hit converge to the same state.
 
+#### Why register from `plugins_loaded` (not from `init`)
+
+`Canonical_Options_Migrator::register()` calls `add_action( 'init', ..., 5 )`. If we registered it from inside an `init`-default-priority callback (matching `fosse.php`'s pattern for `Object_Type::register()` and `Post_Types::register()`), priority 5 of the active `init` iteration has already fired by the time we land — WordPress doesn't rewind. The action would only run on a *second* `init` call, which never comes in normal request flow. The migration would silently never execute, the legacy options would never be deleted, and existing `fosse_object_type=note` sites would publish AP as the upstream default while Atmosphere's bridge fallback still forced short-form.
+
+Registering from `plugins_loaded` (which fires before `init`) lands the priority-5 hook before the iteration starts. Per the existing pattern, the registration is wrapped in a `class_exists` guard so a bare clone without `vendor/` degrades cleanly.
+
 #### Belt-and-suspenders fallback
 
 `Object_Type::filter_atmosphere` falls back to the legacy `fosse_object_type` value when the migration flag is unset. The migrator runs at priority 5 so this branch should be unreachable in practice — it covers the autoloader edge case where `Object_Type` loaded but `Canonical_Options_Migrator` did not, and protects against any future re-ordering that might delay the migrator past the bridge.

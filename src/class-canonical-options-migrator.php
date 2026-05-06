@@ -40,11 +40,10 @@ class Canonical_Options_Migrator {
 
 	/**
 	 * Atmosphere long-form composition values FOSSE recognizes when
-	 * migrating. Mirrors the strategies the deleted `Long_Form_Strategy`
-	 * projector returned as-is. Atmosphere itself accepts only the first
-	 * three (`Atmosphere::LONG_FORM_STRATEGIES`); legacy values outside
-	 * the upstream enum are coerced to the fallback default below to
-	 * preserve the deleted projector's coercion behavior.
+	 * migrating. Matches Atmosphere's current `LONG_FORM_STRATEGIES`
+	 * enum exactly so the migrator never writes a value Atmosphere's
+	 * sanitize callback would reject. Other legacy values map per
+	 * {@see self::resolve_legacy_long_form_strategy()}.
 	 *
 	 * @var string[]
 	 */
@@ -55,16 +54,30 @@ class Canonical_Options_Migrator {
 	);
 
 	/**
-	 * FOSSE's preferred default. The deleted `Long_Form_Strategy`
-	 * projector coerced unset / empty / unrecognized option values to
-	 * this strategy, so the migrator preserves that behavior: a legacy
-	 * value Atmosphere wouldn't accept maps here rather than dropping
-	 * silently and falling through to Atmosphere's `'link-card'`
-	 * default. Per `sdd/long-form-bluesky-strategy/`.
+	 * FOSSE's preferred default for unset / empty / unknown legacy
+	 * values. The deleted `Long_Form_Strategy` projector coerced these
+	 * cases to `'teaser-thread'` at filter time, so the migrator
+	 * preserves that effective behavior rather than dropping silently
+	 * and falling through to Atmosphere's `'link-card'` default. Per
+	 * `sdd/long-form-bluesky-strategy/`.
 	 *
 	 * @var string
 	 */
 	private const DEFAULT_LONG_FORM_STRATEGY = 'teaser-thread';
+
+	/**
+	 * Legacy `'document-card'` was the deleted projector's forward-compat
+	 * slot for the Atmosphere v2 renderer. Atmosphere itself doesn't
+	 * recognize it today and falls back to `'link-card'` for unknown
+	 * strategies, so the deleted projector's pass-through effectively
+	 * resolved to `'link-card'` in production. Map it explicitly here
+	 * to preserve current effective behavior — coercing to the FOSSE
+	 * default would silently shift `document-card` sites from a single
+	 * link card to a multi-post teaser thread.
+	 *
+	 * @var string
+	 */
+	private const DOCUMENT_CARD_FALLBACK = 'link-card';
 
 	/**
 	 * Wire the `init` migration hook at priority 5.
@@ -139,11 +152,7 @@ class Canonical_Options_Migrator {
 		$stored = \get_option( 'fosse_long_form_strategy' );
 
 		if ( false !== $stored ) {
-			$resolved = \is_string( $stored ) && \in_array( $stored, self::ATMOSPHERE_KNOWN_STRATEGIES, true )
-				? $stored
-				: self::DEFAULT_LONG_FORM_STRATEGY;
-
-			\update_option( 'atmosphere_long_form_composition', $resolved );
+			\update_option( 'atmosphere_long_form_composition', self::resolve_legacy_long_form_strategy( $stored ) );
 			\delete_option( 'fosse_long_form_strategy' );
 			return;
 		}
@@ -156,5 +165,36 @@ class Canonical_Options_Migrator {
 		if ( $sentinel === $atmo_long ) {
 			\update_option( 'atmosphere_long_form_composition', self::DEFAULT_LONG_FORM_STRATEGY );
 		}
+	}
+
+	/**
+	 * Map a legacy `fosse_long_form_strategy` value to the canonical
+	 * Atmosphere strategy that preserves the user's *effective* behavior
+	 * under the deleted `Long_Form_Strategy` projector.
+	 *
+	 * - `teaser-thread` / `truncate-link` / `link-card` — pass through
+	 *   unchanged; Atmosphere accepts them directly.
+	 * - `document-card` — map to `link-card` (the deleted projector
+	 *   passed `document-card` through, but Atmosphere doesn't recognize
+	 *   it and falls back to `link-card`, so that was the user's actual
+	 *   effective behavior in production).
+	 * - Anything else (empty, garbage, non-string) — coerce to the
+	 *   FOSSE default; the deleted projector's coercion branch fired
+	 *   in the same cases.
+	 *
+	 * @param mixed $stored Raw legacy option value.
+	 * @return string Canonical Atmosphere strategy slug.
+	 */
+	private static function resolve_legacy_long_form_strategy( $stored ): string {
+		if ( ! \is_string( $stored ) ) {
+			return self::DEFAULT_LONG_FORM_STRATEGY;
+		}
+		if ( 'document-card' === $stored ) {
+			return self::DOCUMENT_CARD_FALLBACK;
+		}
+		if ( \in_array( $stored, self::ATMOSPHERE_KNOWN_STRATEGIES, true ) ) {
+			return $stored;
+		}
+		return self::DEFAULT_LONG_FORM_STRATEGY;
 	}
 }

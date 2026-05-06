@@ -124,18 +124,20 @@ class Canonical_Options_MigratorTest extends BaseTestCase {
 	}
 
 	/**
-	 * `document-card` is the legacy projector's forward-compat slot for the
-	 * v2 renderer, but Atmosphere's current `LONG_FORM_STRATEGIES` enum
-	 * does not accept it. Migrating that value as-is would leave the
-	 * canonical option in a state Atmosphere's sanitize callback rejects.
-	 * Coerce to the default instead.
+	 * `document-card` is the deleted projector's forward-compat slot for
+	 * the Atmosphere v2 renderer. The projector passed it through, but
+	 * current Atmosphere doesn't recognize it and falls back to
+	 * `'link-card'` — so the user's *effective* behavior was a single
+	 * link card, not a teaser thread. Map to `'link-card'` to preserve
+	 * that effective behavior; coercing to the FOSSE default would
+	 * silently shift these sites to multi-post threads.
 	 */
-	public function test_migrate_long_form_strategy_coerces_document_card_to_default(): void {
+	public function test_migrate_long_form_strategy_maps_document_card_to_link_card(): void {
 		update_option( 'fosse_long_form_strategy', 'document-card' );
 
 		Canonical_Options_Migrator::maybe_migrate();
 
-		$this->assertSame( 'teaser-thread', get_option( 'atmosphere_long_form_composition' ) );
+		$this->assertSame( 'link-card', get_option( 'atmosphere_long_form_composition' ) );
 		$this->assertFalse( get_option( 'fosse_long_form_strategy' ) );
 	}
 
@@ -205,5 +207,43 @@ class Canonical_Options_MigratorTest extends BaseTestCase {
 			has_action( 'init', array( Canonical_Options_Migrator::class, 'maybe_migrate' ) ),
 			'register() must hook maybe_migrate onto init at priority 5.'
 		);
+	}
+
+	/**
+	 * Bootstrap-order regression: the migrator must be reachable when
+	 * registered from `plugins_loaded` (per `fosse.php`) so the priority-5
+	 * `init` callback lands in the same iteration that ultimately fires
+	 * the bridge at priority 10. An earlier draft of this PR registered
+	 * the migrator from inside an `init` default-priority callback, which
+	 * missed the priority-5 slot in the active iteration and the
+	 * migration silently never ran.
+	 */
+	public function test_plugins_loaded_registration_runs_migration_on_init(): void {
+		remove_all_actions( 'plugins_loaded' );
+		remove_all_actions( 'init' );
+
+		// Mirror fosse.php's plugins_loaded callback — class-existence guard
+		// then register().
+		add_action(
+			'plugins_loaded',
+			static function (): void {
+				if ( ! class_exists( Canonical_Options_Migrator::class ) ) {
+					return;
+				}
+				Canonical_Options_Migrator::register();
+			}
+		);
+
+		update_option( 'fosse_object_type', 'note' );
+		update_option( 'fosse_long_form_strategy', 'truncate-link' );
+
+		do_action( 'plugins_loaded' );
+		do_action( 'init' );
+
+		$this->assertSame( 'note', get_option( 'activitypub_object_type' ) );
+		$this->assertSame( 'truncate-link', get_option( 'atmosphere_long_form_composition' ) );
+		$this->assertFalse( get_option( 'fosse_object_type' ) );
+		$this->assertFalse( get_option( 'fosse_long_form_strategy' ) );
+		$this->assertSame( '1', (string) get_option( Canonical_Options_Migrator::MIGRATED_FLAG_OPTION ) );
 	}
 }
