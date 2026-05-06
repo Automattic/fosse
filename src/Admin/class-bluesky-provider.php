@@ -617,7 +617,7 @@ class Bluesky_Provider implements Connection_Provider {
 		}
 
 		$screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
-		if ( null === $screen || ! is_string( $screen->id ) || false === strpos( $screen->id, 'fosse' ) ) {
+		if ( ! $screen instanceof \WP_Screen || ! Menu::is_fosse_admin_screen( $screen ) ) {
 			return;
 		}
 

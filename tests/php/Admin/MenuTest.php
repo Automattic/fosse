@@ -443,6 +443,57 @@ class MenuTest extends BaseTestCase {
 		$this->assertContains( 'admin_notices', $fired, 'Late-stage suppression must not affect unrelated screens.' );
 	}
 
+	// --- is_fosse_admin_screen ---
+
+	/**
+	 * The three FOSSE admin screen IDs match. Anchors the public helper
+	 * against the menu registration so adding a new admin page without
+	 * extending the helper would surface here.
+	 *
+	 * @dataProvider provide_fosse_admin_screens
+	 */
+	public function test_is_fosse_admin_screen_matches_known_screens( string $screen_id ): void {
+		$this->assertTrue(
+			Menu::is_fosse_admin_screen( $this->fake_screen( $screen_id ) ),
+			"Screen id {$screen_id} should be recognized as a FOSSE admin screen."
+		);
+	}
+
+	/**
+	 * Strict whitelist: substrings that contain "fosse" but aren't one of
+	 * the three registered FOSSE pages must not match. Guards against the
+	 * pre-fix `strpos( $id, 'fosse' )` regression where any third-party
+	 * plugin slug containing "fosse" would surface FOSSE-scoped notices.
+	 *
+	 * @dataProvider provide_non_fosse_screens
+	 */
+	public function test_is_fosse_admin_screen_rejects_unrelated_screens( string $screen_id ): void {
+		$this->assertFalse(
+			Menu::is_fosse_admin_screen( $this->fake_screen( $screen_id ) ),
+			"Screen id {$screen_id} must not be recognized as a FOSSE admin screen."
+		);
+	}
+
+	/**
+	 * @return iterable<string, array{0: string}>
+	 */
+	public static function provide_fosse_admin_screens(): iterable {
+		yield 'settings (top-level)' => array( 'toplevel_page_fosse' );
+		yield 'status (subpage)'     => array( 'fosse_page_fosse-status' );
+		yield 'wizard (hidden)'      => array( 'admin_page_fosse-wizard' );
+	}
+
+	/**
+	 * @return iterable<string, array{0: string}>
+	 */
+	public static function provide_non_fosse_screens(): iterable {
+		yield 'dashboard'                          => array( 'dashboard' );
+		yield 'plugins list'                       => array( 'plugins' );
+		yield 'third-party with fosse in slug'     => array( 'toplevel_page_fossify' );
+		yield 'third-party subpage with substring' => array( 'tools_page_fosse-clone' );
+		yield 'empty id'                           => array( '' );
+	}
+
 	/**
 	 * Register one canary callback per notice hook so the suppression
 	 * tests can observe which hooks still fire.

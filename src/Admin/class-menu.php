@@ -336,4 +336,34 @@ class Menu {
 	private static function is_fosse_wizard_screen( \WP_Screen $screen ): bool {
 		return 'admin_page_fosse-wizard' === $screen->id;
 	}
+
+	/**
+	 * Whether the given screen is any FOSSE-owned admin screen.
+	 *
+	 * Public so providers and other admin-side code can scope notices,
+	 * banners, or asset enqueues to FOSSE pages without each caller
+	 * re-implementing screen-id matching. Strict whitelist by design — a
+	 * substring check (e.g. `strpos( $id, 'fosse' )`) would accidentally
+	 * match third-party plugins whose admin pages happen to contain
+	 * "fosse" in their slug.
+	 *
+	 * Covers Settings (`toplevel_page_fosse`), Status
+	 * (`fosse_page_fosse-status`), and the hidden Setup Wizard
+	 * (`admin_page_fosse-wizard`). Add new FOSSE screen IDs here when
+	 * registering new admin pages in {@see self::add_menu()}.
+	 *
+	 * @param \WP_Screen $screen Current admin screen.
+	 * @return bool
+	 */
+	public static function is_fosse_admin_screen( \WP_Screen $screen ): bool {
+		return in_array(
+			$screen->id,
+			array(
+				'toplevel_page_fosse',
+				'fosse_page_fosse-status',
+				'admin_page_fosse-wizard',
+			),
+			true
+		);
+	}
 }
