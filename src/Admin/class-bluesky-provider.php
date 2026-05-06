@@ -779,13 +779,26 @@ class Bluesky_Provider implements Connection_Provider {
 	/**
 	 * Persist an admin notice and redirect back to the originating FOSSE screen.
 	 *
-	 * @param string $message        Notice message.
+	 * Messages are escaped with `esc_html()` before storage. The `'atmosphere'`
+	 * settings-error group is rendered both via the explicit
+	 * `settings_errors( 'atmosphere' )` call in {@see self::render_connection_actions()}
+	 * and automatically by WordPress on any `options-*.php` screen where the
+	 * core `_default_wp_die_handler` / `wp_auto_admin_notice_settings_error()`
+	 * path fires — both render the stored `message` field as raw HTML.
+	 * Several callers here pass untrusted text (`WP_Error` messages from
+	 * Atmosphere's OAuth client, the PDS, or `Publisher::sync_publication()`)
+	 * which could otherwise inject markup into wp-admin. Escaping at this
+	 * single chokepoint frees every caller from remembering the constraint.
+	 * Notice messages that need rich HTML must be added through a different
+	 * code path; nothing in FOSSE needs that today.
+	 *
+	 * @param string $message        Notice message (treated as plain text).
 	 * @param string $type           Notice type.
 	 * @param string $return_context Optional return context.
 	 * @return void
 	 */
 	private function redirect_with_notice( string $message, string $type, string $return_context = '' ): void {
-		add_settings_error( 'atmosphere', 'fosse_bluesky_notice', $message, $type );
+		add_settings_error( 'atmosphere', 'fosse_bluesky_notice', esc_html( $message ), $type );
 		set_transient( 'settings_errors', get_settings_errors(), 30 );
 
 		wp_safe_redirect( $this->get_redirect_url( $return_context ) );
