@@ -54,18 +54,34 @@ class Object_Type {
 	 * Project ActivityPub's object-type option onto Atmosphere's short-form
 	 * discriminator.
 	 *
+	 * Falls back to the legacy `fosse_object_type` option when the
+	 * canonical-options migrator has not yet completed. The migrator
+	 * normally runs at `init` priority 5 (before this filter at priority 10),
+	 * so the fallback should be unreachable in practice — it exists as
+	 * defense in depth for the narrow window between FOSSE bootstrap
+	 * registering this filter and the migrator copying the legacy value
+	 * to the canonical option (e.g. an autoloader edge case where the
+	 * migrator class is missing but Object_Type loaded).
+	 *
 	 * $post type is loose on purpose — upstream callers always pass a WP_Post
 	 * in normal filter contexts, but loosening the hint keeps the bridge
 	 * defensive if the upstream filter contract ever drifts.
 	 *
 	 * @param bool  $is_short Upstream-computed short-form default.
 	 * @param mixed $post     The post being transformed (unused).
-	 * @return bool Forced true when the AP option is `'note'`, else input.
+	 * @return bool Forced true when AP says `'note'` (or, pre-migration,
+	 *              when the legacy FOSSE option says `'note'`), else input.
 	 */
 	public static function filter_atmosphere( bool $is_short, $post ): bool {
 		unset( $post );
 
 		if ( self::NOTE_VALUE === \get_option( self::AP_OBJECT_TYPE_OPTION ) ) {
+			return true;
+		}
+
+		if ( '1' !== (string) \get_option( Canonical_Options_Migrator::MIGRATED_FLAG_OPTION, '' )
+			&& self::NOTE_VALUE === \get_option( 'fosse_object_type' )
+		) {
 			return true;
 		}
 

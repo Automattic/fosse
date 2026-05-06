@@ -92,16 +92,50 @@ class Canonical_Options_MigratorTest extends BaseTestCase {
 	}
 
 	/**
-	 * Unknown legacy values are dropped (not copied) so a typo or a
-	 * forward-incompat value doesn't propagate into the canonical option.
+	 * Unknown legacy values are coerced to FOSSE's preferred default
+	 * (`'teaser-thread'`) before being written to the canonical option.
+	 * The deleted `Long_Form_Strategy` projector applied the same
+	 * coercion at filter time; preserving it here keeps the site's
+	 * effective behavior consistent across the migration boundary
+	 * rather than silently falling through to Atmosphere's `'link-card'`
+	 * default (or worse, leaving an upstream-rejected value in place).
 	 */
-	public function test_migrate_long_form_strategy_drops_unknown_value(): void {
+	public function test_migrate_long_form_strategy_coerces_unknown_to_default(): void {
 		update_option( 'atmosphere_long_form_composition', 'link-card' );
 		update_option( 'fosse_long_form_strategy', 'garbage' );
 
 		Canonical_Options_Migrator::maybe_migrate();
 
-		$this->assertSame( 'link-card', get_option( 'atmosphere_long_form_composition' ) );
+		$this->assertSame( 'teaser-thread', get_option( 'atmosphere_long_form_composition' ) );
+		$this->assertFalse( get_option( 'fosse_long_form_strategy' ) );
+	}
+
+	/**
+	 * Empty-string legacy values follow the same coercion as unknown
+	 * values — the deleted projector treated empty as "use default."
+	 */
+	public function test_migrate_long_form_strategy_coerces_empty_to_default(): void {
+		update_option( 'fosse_long_form_strategy', '' );
+
+		Canonical_Options_Migrator::maybe_migrate();
+
+		$this->assertSame( 'teaser-thread', get_option( 'atmosphere_long_form_composition' ) );
+		$this->assertFalse( get_option( 'fosse_long_form_strategy' ) );
+	}
+
+	/**
+	 * `document-card` is the legacy projector's forward-compat slot for the
+	 * v2 renderer, but Atmosphere's current `LONG_FORM_STRATEGIES` enum
+	 * does not accept it. Migrating that value as-is would leave the
+	 * canonical option in a state Atmosphere's sanitize callback rejects.
+	 * Coerce to the default instead.
+	 */
+	public function test_migrate_long_form_strategy_coerces_document_card_to_default(): void {
+		update_option( 'fosse_long_form_strategy', 'document-card' );
+
+		Canonical_Options_Migrator::maybe_migrate();
+
+		$this->assertSame( 'teaser-thread', get_option( 'atmosphere_long_form_composition' ) );
 		$this->assertFalse( get_option( 'fosse_long_form_strategy' ) );
 	}
 
@@ -155,18 +189,21 @@ class Canonical_Options_MigratorTest extends BaseTestCase {
 	}
 
 	/**
-	 * `register()` wires the migration onto `admin_init` so it never runs
-	 * on a frontend request (and therefore can't multiply into option
-	 * writes during a traffic spike on an unmigrated site).
+	 * `register()` wires the migration onto `init` priority 5 so the
+	 * migration completes before the Object_Type bridge filter runs at
+	 * priority 10 (and before any post publish path queries the
+	 * canonical option). After the flag is set, the hook is a single
+	 * cached option-read per request.
 	 */
-	public function test_register_attaches_admin_init_hook(): void {
-		remove_all_actions( 'admin_init' );
+	public function test_register_attaches_init_hook_at_priority_5(): void {
+		remove_all_actions( 'init' );
 
 		Canonical_Options_Migrator::register();
 
-		$this->assertNotFalse(
-			has_action( 'admin_init', array( Canonical_Options_Migrator::class, 'maybe_migrate' ) ),
-			'register() must hook maybe_migrate onto admin_init.'
+		$this->assertSame(
+			5,
+			has_action( 'init', array( Canonical_Options_Migrator::class, 'maybe_migrate' ) ),
+			'register() must hook maybe_migrate onto init at priority 5.'
 		);
 	}
 }

@@ -20,13 +20,13 @@ type Capture = {
 
 /**
  * Complements short-form-facets.spec.ts by exercising the *pass-through*
- * branch of the Object_Type projector. When fosse_object_type is set to
- * 'wordpress-post-format', the projector returns its input unchanged, so
+ * branch of the Object_Type bridge. When activitypub_object_type is set
+ * to 'wordpress-post-format', the bridge returns its input unchanged, so
  * Atmosphere's native is_short_form() classification drives the composition.
  * A titled post with no post format is the classic long-form case:
  * Atmosphere builds a teaser + app.bsky.embed.external link card.
  *
- * This spec proves that the Object_Type filters don't accidentally force
+ * This spec proves that the bridge doesn't accidentally force
  * short-form on the pass-through path, which would silently break the
  * long-form composition for existing Atmosphere users.
  */
@@ -39,8 +39,9 @@ test( 'pass-through mode: titled post still takes the long-form link-card path',
 		() => !! ( window as any ).wpApiSettings?.nonce
 	);
 
-	// Flip fosse_object_type to pass-through mode. Blueprint seeds 'note';
-	// this test wants the filter to defer to Atmosphere's own detection.
+	// Flip activitypub_object_type to pass-through mode. Blueprint seeds
+	// 'note'; this test wants the bridge to defer to Atmosphere's own
+	// detection.
 	const flipResult = await page.evaluate( async () => {
 		const res = await fetch( '/wp-json/fosse-e2e/v1/object-type', {
 			method: 'POST',

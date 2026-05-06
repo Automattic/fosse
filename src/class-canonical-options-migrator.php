@@ -20,12 +20,14 @@ namespace Automattic\Fosse;
  * projector entirely. Object_Type still drives the Atmosphere
  * short-form bridge from the canonical `activitypub_object_type` value.
  *
- * Runs at most once per site. Gated on the
- * `fosse_canonical_options_migrated` option so a partially-migrated
- * site converges on a re-visit of the admin and a fully-migrated site
- * skips the work entirely. Hooked on `admin_init` so the migration
- * never runs on a frontend request — bots and uncached pageviews
- * shouldn't multiply into option writes.
+ * Runs at most once per site, gated on the
+ * `fosse_canonical_options_migrated` option. Hooked at `init` priority 5
+ * so the migration completes before the projector callbacks run at the
+ * default priority 10. This guarantees that any post publish — including
+ * those triggered by REST, cron, CLI, or a frontend hit immediately
+ * after deployment — sees the canonical option values, not the legacy
+ * ones the deleted projectors used to read. After the flag is set the
+ * hook is a single cached option-read per request.
  */
 class Canonical_Options_Migrator {
 
@@ -39,35 +41,43 @@ class Canonical_Options_Migrator {
 	/**
 	 * Atmosphere long-form composition values FOSSE recognizes when
 	 * migrating. Mirrors the strategies the deleted `Long_Form_Strategy`
-	 * projector used to coerce against; an unrecognized value is dropped
-	 * during migration so the canonical option is never written with garbage.
+	 * projector returned as-is. Atmosphere itself accepts only the first
+	 * three (`Atmosphere::LONG_FORM_STRATEGIES`); legacy values outside
+	 * the upstream enum are coerced to the fallback default below to
+	 * preserve the deleted projector's coercion behavior.
 	 *
 	 * @var string[]
 	 */
-	private const KNOWN_LONG_FORM_STRATEGIES = array(
+	private const ATMOSPHERE_KNOWN_STRATEGIES = array(
 		'teaser-thread',
 		'truncate-link',
 		'link-card',
-		'document-card',
 	);
 
 	/**
-	 * FOSSE's preferred default for fresh installs. Atmosphere's own
-	 * default is `'link-card'`; FOSSE's opinionated default is the
-	 * teaser-thread strategy (per `sdd/long-form-bluesky-strategy/`).
+	 * FOSSE's preferred default. The deleted `Long_Form_Strategy`
+	 * projector coerced unset / empty / unrecognized option values to
+	 * this strategy, so the migrator preserves that behavior: a legacy
+	 * value Atmosphere wouldn't accept maps here rather than dropping
+	 * silently and falling through to Atmosphere's `'link-card'`
+	 * default. Per `sdd/long-form-bluesky-strategy/`.
 	 *
 	 * @var string
 	 */
 	private const DEFAULT_LONG_FORM_STRATEGY = 'teaser-thread';
 
 	/**
-	 * Wire the `admin_init` migration hook. Idempotent: WordPress dedupes
-	 * identical callable-as-array registrations.
+	 * Wire the `init` migration hook at priority 5.
+	 *
+	 * Runs before the Object_Type bridge (registered at priority 10) so
+	 * the migration completes before any filter callback that reads the
+	 * canonical option. Idempotent: WordPress dedupes identical
+	 * callable-as-array registrations.
 	 *
 	 * @return void
 	 */
 	public static function register(): void {
-		\add_action( 'admin_init', array( self::class, 'maybe_migrate' ) );
+		\add_action( 'init', array( self::class, 'maybe_migrate' ), 5 );
 	}
 
 	/**
@@ -112,10 +122,16 @@ class Canonical_Options_Migrator {
 	 * because this site previously expressed its long-form choice via FOSSE,
 	 * which silently overrode whatever Atmosphere had stored.
 	 *
+	 * Empty / unknown / non-string legacy values coerce to
+	 * `self::DEFAULT_LONG_FORM_STRATEGY` rather than dropping. The deleted
+	 * `Long_Form_Strategy` projector applied the same coercion at filter
+	 * time, so preserving it here keeps the site's effective behavior
+	 * consistent across the migration boundary.
+	 *
 	 * On a fresh install with neither option set, seed
-	 * `atmosphere_long_form_composition` with FOSSE's preferred default
-	 * (`'teaser-thread'`) so installing FOSSE keeps opting users into the
-	 * thread strategy without further configuration.
+	 * `atmosphere_long_form_composition` with the same default so
+	 * installing FOSSE keeps opting users into the thread strategy
+	 * without further configuration.
 	 *
 	 * @return void
 	 */
@@ -123,9 +139,11 @@ class Canonical_Options_Migrator {
 		$stored = \get_option( 'fosse_long_form_strategy' );
 
 		if ( false !== $stored ) {
-			if ( \is_string( $stored ) && \in_array( $stored, self::KNOWN_LONG_FORM_STRATEGIES, true ) ) {
-				\update_option( 'atmosphere_long_form_composition', $stored );
-			}
+			$resolved = \is_string( $stored ) && \in_array( $stored, self::ATMOSPHERE_KNOWN_STRATEGIES, true )
+				? $stored
+				: self::DEFAULT_LONG_FORM_STRATEGY;
+
+			\update_option( 'atmosphere_long_form_composition', $resolved );
 			\delete_option( 'fosse_long_form_strategy' );
 			return;
 		}

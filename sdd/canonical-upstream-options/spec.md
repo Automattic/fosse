@@ -28,14 +28,24 @@ The cross-network short-form coordination: when AP is set to `note`, Atmosphere 
 
 ### Migration
 
-A one-time `admin_init`-hooked migrator (`Canonical_Options_Migrator`) gated on a `fosse_canonical_options_migrated` flag option. On first run after the upgrade lands, it:
+A one-time `init` priority 5 migrator (`Canonical_Options_Migrator`) gated on a `fosse_canonical_options_migrated` flag option. On first run after the upgrade lands, it:
 
 1. If `fosse_object_type === 'note'`, sets `activitypub_object_type=note` (the only FOSSE-set value that materially differed from upstream pass-through). Other stored values were pass-throughs and need no migration. Deletes `fosse_object_type` regardless.
-2. If `fosse_long_form_strategy` is set to a known strategy, copies to `atmosphere_long_form_composition` (overwriting whatever Atmosphere had, since the FOSSE option had been silently winning anyway). Drops unknown values without copying. Deletes `fosse_long_form_strategy` regardless.
+2. If `fosse_long_form_strategy` is set, copies to `atmosphere_long_form_composition` and deletes the legacy option. Empty / unknown / non-string / `'document-card'` values coerce to `'teaser-thread'` rather than dropping — the deleted projector applied the same coercion at filter time, so preserving it here keeps the site's effective behavior consistent across the migration boundary instead of silently falling through to Atmosphere's `'link-card'` default. (`'document-card'` was the projector's forward-compat slot for the v2 renderer; Atmosphere's current `LONG_FORM_STRATEGIES` enum doesn't accept it, so writing it would leave the option in a state Atmosphere's sanitize callback rejects.)
 3. If neither legacy option is set AND `atmosphere_long_form_composition` is also unset, seeds the canonical option with `'teaser-thread'` so fresh installs preserve FOSSE's preferred default (per `sdd/long-form-bluesky-strategy/`). Atmosphere's own default is `'link-card'`; without this seeding, a fresh FOSSE install would silently shift behavior on day 1.
-4. Sets the flag option so subsequent admin loads short-circuit.
+4. Sets the flag option so subsequent loads short-circuit.
 
-`admin_init` (not `init`) so frontend traffic — including bots and uncached anonymous pageviews — never trips into option writes on an unmigrated site.
+#### Why `init` priority 5 (not `admin_init`)
+
+`admin_init` was the original instinct because it avoids frontend writes. But the deleted projectors ran on every request — including REST, cron, XML-RPC, CLI, and frontend publishes — so removing them and waiting for an admin page load before the migration runs would create a window where existing `fosse_object_type=note` and the previous `'teaser-thread'` default are silently ignored. A site whose first post-deploy publish lands via cron or REST would federate with the wrong shape. Once sent to the networks, that's not a transient display issue.
+
+Hooking on `init` priority 5 closes the window: the migration completes before the bridge filter (priority 10) and before any post-publish path queries the canonical option. The flag gate keeps the cost to a single cached option-read per request after the first run, and the migration itself is idempotent so concurrent requests on the first hit converge to the same state.
+
+#### Belt-and-suspenders fallback
+
+`Object_Type::filter_atmosphere` falls back to the legacy `fosse_object_type` value when the migration flag is unset. The migrator runs at priority 5 so this branch should be unreachable in practice — it covers the autoloader edge case where `Object_Type` loaded but `Canonical_Options_Migrator` did not, and protects against any future re-ordering that might delay the migrator past the bridge.
+
+The long-form path needs no equivalent fallback: Atmosphere reads its own option directly, so as long as the migration runs before any publish path (which it does at `init` priority 5), the canonical option is always the value Atmosphere sees.
 
 ### Deferred
 

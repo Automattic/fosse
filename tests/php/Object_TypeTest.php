@@ -39,6 +39,7 @@ class Object_TypeTest extends BaseTestCase {
 		remove_all_filters( 'activitypub_post_object_type' );
 		delete_option( 'activitypub_object_type' );
 		delete_option( 'fosse_object_type' );
+		delete_option( \Automattic\Fosse\Canonical_Options_Migrator::MIGRATED_FLAG_OPTION );
 
 		Object_Type::register();
 
@@ -102,17 +103,34 @@ class Object_TypeTest extends BaseTestCase {
 	}
 
 	/**
-	 * Legacy `fosse_object_type=note` is no longer read by the bridge —
-	 * the Canonical_Options_Migrator moves the value into
-	 * `activitypub_object_type` on `admin_init`. Guards against a future
-	 * refactor that quietly resurrects the FOSSE-side option.
+	 * Pre-migration safety net: when the canonical-options migrator hasn't
+	 * marked itself complete, the bridge falls back to the legacy
+	 * `fosse_object_type=note` value so a frontend publish during the
+	 * narrow window between FOSSE bootstrap and the migrator firing
+	 * doesn't ship the wrong shape. Once the flag is set this branch is
+	 * unreachable.
 	 */
-	public function test_atmosphere_filter_ignores_legacy_fosse_option(): void {
+	public function test_atmosphere_filter_falls_back_to_legacy_option_pre_migration(): void {
 		update_option( 'fosse_object_type', 'note' );
+
+		$this->assertTrue(
+			apply_filters( 'atmosphere_is_short_form_post', false, $this->post ),
+			'Legacy fosse_object_type=note must still force short-form before the migrator completes.'
+		);
+	}
+
+	/**
+	 * Once the migrator marks itself complete, the legacy option is
+	 * ignored even if it's still present in the database (which would
+	 * indicate a corrupted migration — defense in depth).
+	 */
+	public function test_atmosphere_filter_ignores_legacy_option_after_migration(): void {
+		update_option( 'fosse_object_type', 'note' );
+		update_option( \Automattic\Fosse\Canonical_Options_Migrator::MIGRATED_FLAG_OPTION, '1' );
 
 		$this->assertFalse(
 			apply_filters( 'atmosphere_is_short_form_post', false, $this->post ),
-			'fosse_object_type is no longer authoritative; only activitypub_object_type drives the bridge.'
+			'After migration completes, only activitypub_object_type drives the bridge.'
 		);
 	}
 
