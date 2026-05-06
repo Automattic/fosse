@@ -107,9 +107,11 @@ class Bluesky_Provider implements Connection_Provider {
 	 * which is cheap individually but worth caching when render paths
 	 * multiply that work across providers and screens.
 	 *
-	 * Cleared by {@see self::clear_status_cache()} so admin paths that
-	 * mutate the connection (connect / disconnect) can force a fresh
-	 * read for any subsequent render in the same request.
+	 * No invalidation hook today: every connect/disconnect/auto-publish
+	 * mutator on this class ends in `wp_safe_redirect(); exit;`, so the
+	 * cache never has to survive an in-request mutation. If a future
+	 * caller needs to mutate the connection and re-render in the same
+	 * request, set this property back to null at the mutation site.
 	 *
 	 * @var array<string, mixed>|null
 	 */
@@ -127,16 +129,25 @@ class Bluesky_Provider implements Connection_Provider {
 			return $this->status_cache;
 		}
 
-		$connection  = \Atmosphere\get_connection();
-		$connected   = \Atmosphere\is_connected();
+		// Run the token-health probe first because Atmosphere's
+		// `OAuth\Client::access_token()` is not read-only — on a permanent
+		// OAuth failure (`invalid_grant`, `invalid_client`,
+		// `unauthorized_client`) it deletes `atmosphere_connection` to
+		// prevent silent re-use of dead credentials. Reading the
+		// connection BEFORE that probe and caching the pre-deletion view
+		// would freeze the admin's status as connected for the rest of
+		// the request even after the underlying state was invalidated.
 		$token_error = null;
-
-		if ( $connected && method_exists( '\Atmosphere\OAuth\Client', 'access_token' ) ) {
+		if ( \Atmosphere\is_connected() && method_exists( '\Atmosphere\OAuth\Client', 'access_token' ) ) {
 			$token = \Atmosphere\OAuth\Client::access_token();
 			if ( is_wp_error( $token ) ) {
 				$token_error = $token->get_error_message();
 			}
 		}
+
+		// Re-read after the probe so a deleted connection is reflected.
+		$connection = \Atmosphere\get_connection();
+		$connected  = \Atmosphere\is_connected();
 
 		$this->status_cache = array(
 			'connected'    => $connected,

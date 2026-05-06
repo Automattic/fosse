@@ -216,7 +216,7 @@
 }
 
 .fosse-wizard__progress-step.is-complete .fosse-wizard__progress-dot {
-	background: #4ab866;
+	background: #2c8049;
 }
 
 .fosse-wizard__progress-line {
@@ -226,7 +226,7 @@
 }
 
 .fosse-wizard__progress-line.is-complete {
-	background: #4ab866;
+	background: #2c8049;
 }
 
 /* Title and description */
