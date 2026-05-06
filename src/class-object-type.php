@@ -79,7 +79,13 @@ class Object_Type {
 			return true;
 		}
 
-		if ( '1' !== (string) \get_option( Canonical_Options_Migrator::MIGRATED_FLAG_OPTION, '' )
+		// Migration flag option name is duplicated as a literal string here
+		// (rather than referencing `Canonical_Options_Migrator::MIGRATED_FLAG_OPTION`)
+		// so this fallback path stays reachable even when the migrator
+		// class is the very thing missing from the autoloader — the case
+		// the fallback exists to handle. Keep in sync with
+		// `Canonical_Options_Migrator::MIGRATED_FLAG_OPTION`.
+		if ( '1' !== (string) \get_option( 'fosse_canonical_options_migrated', '' )
 			&& self::NOTE_VALUE === \get_option( 'fosse_object_type' )
 		) {
 			return true;

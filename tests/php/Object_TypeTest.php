@@ -135,6 +135,22 @@ class Object_TypeTest extends BaseTestCase {
 	}
 
 	/**
+	 * The migration-flag option name in the legacy fallback branch is
+	 * duplicated as a literal so the fallback stays reachable even when
+	 * the migrator class is missing from the autoloader. Lock in that
+	 * the literal stays in sync with the migrator's constant — a rename
+	 * of either side without updating the other would silently bypass
+	 * the post-migration check.
+	 */
+	public function test_legacy_fallback_flag_name_matches_migrator_constant(): void {
+		$this->assertSame(
+			'fosse_canonical_options_migrated',
+			\Automattic\Fosse\Canonical_Options_Migrator::MIGRATED_FLAG_OPTION,
+			'If the migrator constant is renamed, the duplicated literal in Object_Type::filter_atmosphere() must be renamed too.'
+		);
+	}
+
+	/**
 	 * The AP-side filter is no longer registered by FOSSE. ActivityPub reads
 	 * `activitypub_object_type` directly when computing object type, and
 	 * FOSSE registering its own callback would only re-create the desync the
