@@ -18,10 +18,12 @@ namespace Automattic\Fosse;
  * `Canonical_Options_Migrator` moved any pre-existing `fosse_object_type`
  * value into it on first run. FOSSE no longer keeps a parallel option.
  *
- * Recognized AP option values (per upstream):
- * - `note`                    — short-form / Note. Drives Atmosphere short-form too.
- * - `wordpress-post-format`   — defer to each network's own discriminator.
- * - default (`Article`)       — pass-through.
+ * Recognized AP option values (per upstream `activitypub_object_type`
+ * settings field): `note` and `wordpress-post-format`. The default
+ * (resolved by AP via the `option_activitypub_object_type` filter) is
+ * `wordpress-post-format`. Anything else is treated as pass-through —
+ * the bridge only forces Atmosphere short-form when the AP option is
+ * exactly `'note'`.
  */
 class Object_Type {
 

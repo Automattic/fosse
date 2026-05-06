@@ -143,9 +143,9 @@ if ( class_exists( \Automattic\Fosse\Admin\Actor_Mode_Lock::class ) ) {
  * `atmosphere_is_short_form_post` filter so a `'note'` choice in AP's
  * settings also forces Atmosphere short-form. The option is owned by
  * ActivityPub end-to-end; FOSSE no longer keeps a parallel option (see
- * `sdd/canonical-upstream-options/`). Hooked at default priority 10 so
- * the filter callback runs before Atmosphere's transition_post_status
- * handler schedules its outbound work. Degrades cleanly if FOSSE's own
+ * `sdd/canonical-upstream-options/`). Registered on `init` so the filter
+ * is in place before Atmosphere queries it during `transition_post_status`
+ * later in the request lifecycle. Degrades cleanly if FOSSE's own
  * composer autoload is missing — same posture as the bundled-bootstrap
  * shim above.
  */
