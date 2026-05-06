@@ -77,31 +77,50 @@ class Canonical_Options_MigratorTest extends BaseTestCase {
 	}
 
 	/**
-	 * The migration overwrites Atmosphere's stored value when the FOSSE
-	 * option was set — under the deleted projector, the FOSSE option won
-	 * silently, so preserving the user's effective choice means honoring
-	 * the FOSSE side here.
+	 * Conflict: when both legacy and canonical are set, preserve the
+	 * canonical value. The canonical option is what the user can see
+	 * and edit in Atmosphere's settings UI, so carrying the legacy
+	 * value forward would silently change publishing behavior away
+	 * from what the visible UI claims. The legacy value may have been
+	 * an implicit default rather than an explicit user choice; the
+	 * canonical option is always an explicit (or empty) state.
 	 */
-	public function test_migrate_long_form_strategy_overwrites_canonical_value(): void {
+	public function test_migrate_long_form_strategy_preserves_canonical_on_conflict(): void {
 		update_option( 'atmosphere_long_form_composition', 'link-card' );
 		update_option( 'fosse_long_form_strategy', 'teaser-thread' );
 
 		Canonical_Options_Migrator::maybe_migrate();
 
-		$this->assertSame( 'teaser-thread', get_option( 'atmosphere_long_form_composition' ) );
+		$this->assertSame( 'link-card', get_option( 'atmosphere_long_form_composition' ) );
+		$this->assertFalse( get_option( 'fosse_long_form_strategy' ) );
 	}
 
 	/**
-	 * Unknown legacy values are coerced to FOSSE's preferred default
+	 * Object-type conflict mirrors the long-form policy: when
+	 * `activitypub_object_type` is already stored, keep it instead of
+	 * overwriting from the legacy `fosse_object_type`. The legacy option
+	 * is still deleted so the migration completes cleanly.
+	 */
+	public function test_migrate_object_type_preserves_canonical_on_conflict(): void {
+		update_option( 'activitypub_object_type', 'wordpress-post-format' );
+		update_option( 'fosse_object_type', 'note' );
+
+		Canonical_Options_Migrator::maybe_migrate();
+
+		$this->assertSame( 'wordpress-post-format', get_option( 'activitypub_object_type' ) );
+		$this->assertFalse( get_option( 'fosse_object_type' ) );
+	}
+
+	/**
+	 * Unknown legacy values coerce to FOSSE's preferred default
 	 * (`'teaser-thread'`) before being written to the canonical option.
 	 * The deleted `Long_Form_Strategy` projector applied the same
-	 * coercion at filter time; preserving it here keeps the site's
-	 * effective behavior consistent across the migration boundary
-	 * rather than silently falling through to Atmosphere's `'link-card'`
-	 * default (or worse, leaving an upstream-rejected value in place).
+	 * coercion at filter time; preserving it on the legacy-only path
+	 * keeps the site's effective behavior consistent rather than
+	 * silently falling through to Atmosphere's `'link-card'` default
+	 * (or worse, leaving an upstream-rejected value in place).
 	 */
 	public function test_migrate_long_form_strategy_coerces_unknown_to_default(): void {
-		update_option( 'atmosphere_long_form_composition', 'link-card' );
 		update_option( 'fosse_long_form_strategy', 'garbage' );
 
 		Canonical_Options_Migrator::maybe_migrate();
@@ -129,8 +148,9 @@ class Canonical_Options_MigratorTest extends BaseTestCase {
 	 * current Atmosphere doesn't recognize it and falls back to
 	 * `'link-card'` — so the user's *effective* behavior was a single
 	 * link card, not a teaser thread. Map to `'link-card'` to preserve
-	 * that effective behavior; coercing to the FOSSE default would
-	 * silently shift these sites to multi-post threads.
+	 * that effective behavior on the legacy-only path; coercing to the
+	 * FOSSE default would silently shift these sites to multi-post
+	 * threads.
 	 */
 	public function test_migrate_long_form_strategy_maps_document_card_to_link_card(): void {
 		update_option( 'fosse_long_form_strategy', 'document-card' );

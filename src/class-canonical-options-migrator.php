@@ -110,10 +110,18 @@ class Canonical_Options_Migrator {
 	}
 
 	/**
-	 * Copy `fosse_object_type=note` to `activitypub_object_type=note` (the
-	 * only FOSSE-set value that materially differs from upstream defaults),
-	 * then delete the FOSSE-side option. Other stored values were
-	 * pass-throughs in the deleted projector and need no migration.
+	 * Copy `fosse_object_type=note` to `activitypub_object_type=note`,
+	 * then delete the FOSSE-side option.
+	 *
+	 * If `activitypub_object_type` is already set, preserve it — that
+	 * value is what the user can see and edit in ActivityPub's settings
+	 * UI, so trusting the legacy FOSSE option to overwrite it would
+	 * silently change the publishing shape away from what the visible
+	 * UI claims. The legacy value pre-canonicalization may have been an
+	 * implicit default rather than an explicit user choice; respecting
+	 * the canonical option keeps the user's most recent explicit choice
+	 * authoritative. Other stored legacy values were pass-throughs in
+	 * the deleted projector and need no migration.
 	 *
 	 * @return void
 	 */
@@ -121,7 +129,11 @@ class Canonical_Options_Migrator {
 		$stored = \get_option( 'fosse_object_type' );
 
 		if ( 'note' === $stored ) {
-			\update_option( 'activitypub_object_type', 'note' );
+			$sentinel = '__fosse_unset__';
+			$existing = \get_option( 'activitypub_object_type', $sentinel );
+			if ( $sentinel === $existing ) {
+				\update_option( 'activitypub_object_type', 'note' );
+			}
 		}
 
 		if ( false !== $stored ) {
@@ -131,38 +143,45 @@ class Canonical_Options_Migrator {
 
 	/**
 	 * Move `fosse_long_form_strategy` into `atmosphere_long_form_composition`
-	 * and delete the FOSSE-side option. Always overwrites the upstream value
-	 * because this site previously expressed its long-form choice via FOSSE,
-	 * which silently overrode whatever Atmosphere had stored.
+	 * and delete the FOSSE-side option.
 	 *
-	 * Empty / unknown / non-string legacy values coerce to
-	 * `self::DEFAULT_LONG_FORM_STRATEGY` rather than dropping. The deleted
-	 * `Long_Form_Strategy` projector applied the same coercion at filter
-	 * time, so preserving it here keeps the site's effective behavior
-	 * consistent across the migration boundary.
+	 * Conflict policy: when `atmosphere_long_form_composition` is already
+	 * stored, preserve it instead of overwriting from the legacy option.
+	 * The canonical option is the value the user can see and edit in
+	 * Atmosphere's settings UI; carrying the legacy value forward over
+	 * an explicit canonical choice would silently change publishing
+	 * behavior away from what the visible UI claims. The legacy value
+	 * pre-canonicalization may have been an implicit default (the
+	 * deleted projector coerced unset/empty/unknown to `'teaser-thread'`),
+	 * not an explicit user choice — so trusting the canonical when both
+	 * exist keeps the user's most recent explicit choice authoritative.
 	 *
-	 * On a fresh install with neither option set, seed
-	 * `atmosphere_long_form_composition` with the same default so
-	 * installing FOSSE keeps opting users into the thread strategy
-	 * without further configuration.
+	 * When only the legacy is set, copy it to the canonical option via
+	 * {@see self::resolve_legacy_long_form_strategy()} (which coerces
+	 * unrecognized values per the deleted projector's coercion rules).
+	 *
+	 * On a fresh install with neither option set, seed the canonical
+	 * option with FOSSE's preferred default so installing FOSSE keeps
+	 * opting users into the thread strategy without further configuration.
 	 *
 	 * @return void
 	 */
 	private static function migrate_long_form_strategy(): void {
-		$stored = \get_option( 'fosse_long_form_strategy' );
+		$stored        = \get_option( 'fosse_long_form_strategy' );
+		$sentinel      = '__fosse_unset__';
+		$canonical_set = $sentinel !== \get_option( 'atmosphere_long_form_composition', $sentinel );
 
 		if ( false !== $stored ) {
-			\update_option( 'atmosphere_long_form_composition', self::resolve_legacy_long_form_strategy( $stored ) );
+			if ( ! $canonical_set ) {
+				\update_option( 'atmosphere_long_form_composition', self::resolve_legacy_long_form_strategy( $stored ) );
+			}
 			\delete_option( 'fosse_long_form_strategy' );
 			return;
 		}
 
 		// Fresh install: seed the FOSSE default if and only if Atmosphere
-		// hasn't been configured. Use a default-sentinel argument to
-		// distinguish "never set" from "explicitly set to ''".
-		$sentinel  = '__fosse_unset__';
-		$atmo_long = \get_option( 'atmosphere_long_form_composition', $sentinel );
-		if ( $sentinel === $atmo_long ) {
+		// hasn't been configured.
+		if ( ! $canonical_set ) {
 			\update_option( 'atmosphere_long_form_composition', self::DEFAULT_LONG_FORM_STRATEGY );
 		}
 	}
