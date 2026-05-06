@@ -13,6 +13,7 @@ use Automattic\Fosse\Admin\Menu;
 use Automattic\Fosse\Admin\Onboarding_Wizard;
 use PHPUnit\Framework\Attributes\After;
 use PHPUnit\Framework\Attributes\Before;
+use PHPUnit\Framework\Attributes\DataProvider;
 use WorDBless\BaseTestCase;
 
 /**
@@ -450,8 +451,10 @@ class MenuTest extends BaseTestCase {
 	 * against the menu registration so adding a new admin page without
 	 * extending the helper would surface here.
 	 *
+	 * @param string $screen_id Screen id under test.
 	 * @dataProvider provide_fosse_admin_screens
 	 */
+	#[DataProvider( 'provide_fosse_admin_screens' )]
 	public function test_is_fosse_admin_screen_matches_known_screens( string $screen_id ): void {
 		$this->assertTrue(
 			Menu::is_fosse_admin_screen( $this->fake_screen( $screen_id ) ),
@@ -465,8 +468,10 @@ class MenuTest extends BaseTestCase {
 	 * pre-fix `strpos( $id, 'fosse' )` regression where any third-party
 	 * plugin slug containing "fosse" would surface FOSSE-scoped notices.
 	 *
+	 * @param string $screen_id Screen id under test.
 	 * @dataProvider provide_non_fosse_screens
 	 */
+	#[DataProvider( 'provide_non_fosse_screens' )]
 	public function test_is_fosse_admin_screen_rejects_unrelated_screens( string $screen_id ): void {
 		$this->assertFalse(
 			Menu::is_fosse_admin_screen( $this->fake_screen( $screen_id ) ),
@@ -475,6 +480,9 @@ class MenuTest extends BaseTestCase {
 	}
 
 	/**
+	 * Screen ids registered in {@see Menu::add_menu()} that the public
+	 * helper must recognize as FOSSE-owned.
+	 *
 	 * @return iterable<string, array{0: string}>
 	 */
 	public static function provide_fosse_admin_screens(): iterable {
@@ -484,6 +492,9 @@ class MenuTest extends BaseTestCase {
 	}
 
 	/**
+	 * Lookalike and unrelated screen ids that must not match — anchors the
+	 * strict whitelist against the substring-match regression.
+	 *
 	 * @return iterable<string, array{0: string}>
 	 */
 	public static function provide_non_fosse_screens(): iterable {
