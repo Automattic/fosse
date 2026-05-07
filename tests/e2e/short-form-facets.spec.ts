@@ -35,10 +35,10 @@ test( 'short-form post: tag/mention/link facets captured, no embed, plus documen
 		() => !! ( window as any ).wpApiSettings?.nonce
 	);
 
-	// Set fosse_object_type=note explicitly so this spec is robust to run
-	// order — long-form-link-card.spec.ts flips the option to
-	// 'wordpress-post-format'; without this reset, order-dependence would
-	// break one of the two tests.
+	// Set activitypub_object_type=note explicitly so this spec is robust
+	// to run order — long-form-link-card.spec.ts flips the canonical
+	// option to 'wordpress-post-format'; without this reset, order-
+	// dependence would break one of the two tests.
 	const flipResult = await page.evaluate( async () => {
 		const res = await fetch( '/wp-json/fosse-e2e/v1/object-type', {
 			method: 'POST',
