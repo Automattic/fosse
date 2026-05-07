@@ -78,6 +78,10 @@ class Setup_PageTest extends BaseTestCase {
 		$_REQUEST = array();
 		remove_all_filters( 'wp_redirect' );
 		remove_all_filters( 'sanitize_option_activitypub_blog_identifier' );
+		// Clear the wp_die_handler tests in this file install — leaks
+		// would convert any later test's `wp_die()` into a thrown
+		// exception and confuse failure attribution.
+		remove_all_filters( 'wp_die_handler' );
 	}
 
 	/**
@@ -367,6 +371,83 @@ class Setup_PageTest extends BaseTestCase {
 
 		$this->expectException( \RuntimeException::class );
 		Setup_Page::handle_save();
+	}
+
+	/**
+	 * A POST without `_wpnonce` (or with a stale/forged value) is rejected
+	 * by `check_admin_referer()` before any option write happens. Locks in
+	 * the nonce gate so a future refactor of the handler can't quietly
+	 * bypass CSRF protection.
+	 */
+	public function test_handle_save_rejects_missing_nonce(): void {
+		$this->become_admin();
+
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
+		$_POST    = array(
+			'action'                         => Setup_Page::SAVE_ACTION,
+			'activitypub_actor_mode'         => 'blog',
+			'activitypub_support_post_types' => array( 'post' ),
+		);
+		$_REQUEST = $_POST;
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+
+		add_filter(
+			'wp_die_handler',
+			static function () {
+				return static function ( $message ) {
+					throw new \RuntimeException( wp_kses( (string) $message, array() ) );
+				};
+			}
+		);
+
+		try {
+			Setup_Page::handle_save();
+			$this->fail( 'Expected check_admin_referer to wp_die on missing nonce.' );
+		} catch ( \RuntimeException $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- wp_die is expected.
+			unset( $e );
+		}
+
+		// Sanity: the actor-mode write that the body of handle_save() would
+		// otherwise perform never happened, proving check_admin_referer
+		// short-circuited before any option mutation.
+		$this->assertNotSame( 'blog', get_option( 'activitypub_actor_mode' ) );
+	}
+
+	/**
+	 * A POST with a forged `_wpnonce` value is also rejected. Distinct from
+	 * the missing-nonce case so a future "missing → empty default" refactor
+	 * can't silently skip the check.
+	 */
+	public function test_handle_save_rejects_forged_nonce(): void {
+		$this->become_admin();
+
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
+		$_POST    = array(
+			'_wpnonce'                       => 'not-a-real-nonce',
+			'action'                         => Setup_Page::SAVE_ACTION,
+			'activitypub_actor_mode'         => 'blog',
+			'activitypub_support_post_types' => array( 'post' ),
+		);
+		$_REQUEST = $_POST;
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+
+		add_filter(
+			'wp_die_handler',
+			static function () {
+				return static function ( $message ) {
+					throw new \RuntimeException( wp_kses( (string) $message, array() ) );
+				};
+			}
+		);
+
+		try {
+			Setup_Page::handle_save();
+			$this->fail( 'Expected check_admin_referer to wp_die on forged nonce.' );
+		} catch ( \RuntimeException $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- wp_die is expected.
+			unset( $e );
+		}
+
+		$this->assertNotSame( 'blog', get_option( 'activitypub_actor_mode' ) );
 	}
 
 	/**
