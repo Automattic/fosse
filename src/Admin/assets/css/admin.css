@@ -406,6 +406,8 @@
 
 .fosse-destination-card:focus-within {
 	border-color: var(--fosse-wizard-accent);
+	outline: 2px solid var(--fosse-wizard-accent);
+	outline-offset: 3px;
 }
 
 .fosse-destination-card:has(.fosse-destination-card__input:focus-visible) {
@@ -577,10 +579,12 @@
 	outline-offset: 3px;
 }
 
-/* :focus-within fallback keeps the selected card border visible for browsers
-   without :focus-visible support. */
+/* :focus-within keeps keyboard focus visible when :has() / :focus-visible
+   support is missing or inconsistent. */
 .fosse-mode-card:focus-within {
 	border-color: var(--fosse-wizard-accent);
+	outline: 2px solid var(--fosse-wizard-accent);
+	outline-offset: 3px;
 }
 
 .fosse-mode-card__icon {
