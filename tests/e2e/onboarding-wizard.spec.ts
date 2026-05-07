@@ -1,5 +1,25 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import { resetBlueskyState, setBlueskyState } from './test-helpers';
+
+const selectDestination = async ( page: Page, destination: string ) => {
+	await page.goto( '/wp-admin/admin.php?page=fosse-wizard' );
+	await page
+		.locator( '.fosse-destination-card', { hasText: destination } )
+		.click();
+	await page.getByRole( 'button', { name: 'Continue' } ).click();
+	await expect( page ).toHaveURL( /step=appearance/ );
+};
+
+const openBlueskyStep = async ( page: Page ) => {
+	await selectDestination( page, 'Fediverse + Bluesky' );
+	await page.goto( '/wp-admin/admin.php?page=fosse-wizard&step=bluesky' );
+};
+
+const completeThroughBlueskySkip = async ( page: Page ) => {
+	await openBlueskyStep( page );
+	await page.getByRole( 'link', { name: 'Skip Bluesky for now' } ).click();
+	await expect( page ).toHaveURL( /step=complete/ );
+};
 
 test( 'Wizard page loads without errors', async ( { page } ) => {
 	const response = await page.goto( '/wp-admin/admin.php?page=fosse-wizard' );
@@ -11,29 +31,51 @@ test( 'Wizard page loads without errors', async ( { page } ) => {
 	await expect( page.locator( '#error-page' ) ).toHaveCount( 0 );
 
 	await expect(
-		page.locator( '.fosse-wizard__title', { hasText: 'Welcome to FOSSE' } )
+		page.locator( '.fosse-wizard__title', {
+			hasText: 'Where should your WordPress posts appear?',
+		} )
 	).toBeVisible();
 } );
 
-test( 'Wizard shows progress indicator on welcome step', async ( { page } ) => {
+test( 'Wizard shows progress indicator on destination step', async ( {
+	page,
+} ) => {
 	await page.goto( '/wp-admin/admin.php?page=fosse-wizard' );
 
 	await expect( page.locator( '.fosse-wizard__progress' ) ).toBeVisible();
 	await expect(
 		page.locator( '.fosse-wizard__progress-step.is-active', {
-			hasText: 'Welcome',
+			hasText: 'Destinations',
 		} )
 	).toBeVisible();
 } );
 
-test( 'Get Started navigates to appearance step', async ( { page } ) => {
+test( 'Destination step shows two destination cards', async ( { page } ) => {
 	await page.goto( '/wp-admin/admin.php?page=fosse-wizard' );
 
-	await page.click( 'text=Get Started' );
+	await expect( page.locator( '.fosse-destination-card' ) ).toHaveCount( 2 );
+	await expect(
+		page.locator( '.fosse-destination-card', {
+			hasText: 'Fediverse + Bluesky',
+		} )
+	).toBeVisible();
+	await expect(
+		page.locator( '.fosse-destination-card', {
+			hasText: 'Fediverse only',
+		} )
+	).toBeVisible();
+} );
+
+test( 'Destination selection navigates to identity step', async ( {
+	page,
+} ) => {
+	await page.goto( '/wp-admin/admin.php?page=fosse-wizard' );
+
+	await page.getByRole( 'button', { name: 'Continue' } ).click();
 	await expect( page ).toHaveURL( /step=appearance/ );
 	await expect(
 		page.locator( '.fosse-wizard__title', {
-			hasText: 'How should your site appear',
+			hasText: 'Who should people follow?',
 		} )
 	).toBeVisible();
 } );
@@ -151,6 +193,10 @@ test( 'Selecting a mode and continuing saves the option', async ( {
 test( 'Content step saves post types and advances to Bluesky', async ( {
 	page,
 } ) => {
+	// Persist the Fediverse + Bluesky destination so the post-content
+	// redirect deterministically lands on the Bluesky step regardless of any
+	// stale destination state left behind by a prior run.
+	await selectDestination( page, 'Fediverse + Bluesky' );
 	await page.goto( '/wp-admin/admin.php?page=fosse-wizard&step=content' );
 
 	// Posts should be checked by default; check Pages too.
@@ -161,7 +207,7 @@ test( 'Content step saves post types and advances to Bluesky', async ( {
 } );
 
 test( 'Bluesky step shows connect form', async ( { page } ) => {
-	await page.goto( '/wp-admin/admin.php?page=fosse-wizard&step=bluesky' );
+	await openBlueskyStep( page );
 
 	await expect(
 		page.locator( '.fosse-wizard__title', {
@@ -171,6 +217,9 @@ test( 'Bluesky step shows connect form', async ( { page } ) => {
 	await expect( page.locator( '#fosse-bsky-handle' ) ).toBeVisible();
 	await expect(
 		page.getByRole( 'button', { name: 'Connect Bluesky' } )
+	).toHaveClass( /button-primary/ );
+	await expect(
+		page.getByRole( 'link', { name: 'Skip Bluesky for now' } )
 	).toBeVisible();
 	await expect( page.locator( 'text=Coming Soon' ) ).toHaveCount( 0 );
 } );
@@ -178,7 +227,7 @@ test( 'Bluesky step shows connect form', async ( { page } ) => {
 test( 'Bluesky step (disconnected) shows sign-up help linking to bsky.app', async ( {
 	page,
 } ) => {
-	await page.goto( '/wp-admin/admin.php?page=fosse-wizard&step=bluesky' );
+	await openBlueskyStep( page );
 
 	const signupLink = page.locator(
 		'.fosse-bluesky-signup a[href="https://bsky.app/"]'
@@ -240,10 +289,43 @@ test.describe( 'Bluesky step — connected (post-OAuth completion)', () => {
 	} );
 } );
 
-test( 'Skip for now on Bluesky step goes to completion', async ( { page } ) => {
-	await page.goto( '/wp-admin/admin.php?page=fosse-wizard&step=bluesky' );
+test( 'Fediverse-only path skips the Bluesky connect step', async ( {
+	page,
+} ) => {
+	await page.goto( '/wp-admin/admin.php?page=fosse-wizard' );
 
-	await page.click( 'text=Skip for now' );
+	await page
+		.locator( '.fosse-destination-card', { hasText: 'Fediverse only' } )
+		.click();
+	await page.getByRole( 'button', { name: 'Continue' } ).click();
+
+	await expect( page ).toHaveURL( /step=appearance/ );
+	await page
+		.locator( '.fosse-mode-card', {
+			has: page.locator( '.fosse-mode-card__title', {
+				hasText: /^As you$/,
+			} ),
+		} )
+		.click();
+	await page.click( 'input[type="submit"]' );
+
+	await expect( page ).toHaveURL( /step=content/ );
+	await page.click( 'input[type="submit"]' );
+
+	await expect( page ).toHaveURL( /step=complete/ );
+	await expect(
+		page.locator( '.fosse-summary__label', { hasText: 'Destinations' } )
+	).toBeVisible();
+	await expect( page.locator( '.fosse-summary' ) ).toContainText(
+		'Fediverse only'
+	);
+	await expect( page.locator( '.fosse-summary' ) ).toContainText( 'Skipped' );
+} );
+
+test( 'Skip Bluesky for now goes to completion', async ( { page } ) => {
+	await openBlueskyStep( page );
+
+	await page.getByRole( 'link', { name: 'Skip Bluesky for now' } ).click();
 	await expect( page ).toHaveURL( /step=complete/ );
 	await expect(
 		page.locator( '.fosse-wizard__title', {
@@ -253,11 +335,14 @@ test( 'Skip for now on Bluesky step goes to completion', async ( { page } ) => {
 } );
 
 test( 'Completion step shows summary', async ( { page } ) => {
-	await page.goto( '/wp-admin/admin.php?page=fosse-wizard&step=complete' );
+	await completeThroughBlueskySkip( page );
 
 	await expect( page.locator( '.fosse-summary' ) ).toBeVisible();
-	await expect( page.locator( 'text=Site appears as' ) ).toBeVisible();
-	await expect( page.locator( 'text=Sharing' ) ).toBeVisible();
+	await expect(
+		page.locator( '.fosse-summary__label', { hasText: 'Destinations' } )
+	).toBeVisible();
+	await expect( page.locator( 'text=People follow' ) ).toBeVisible();
+	await expect( page.locator( 'text=Content shared' ) ).toBeVisible();
 	await expect(
 		page.locator( '.fosse-summary__label', { hasText: 'Bluesky' } )
 	).toBeVisible();
@@ -266,7 +351,7 @@ test( 'Completion step shows summary', async ( { page } ) => {
 test( 'Completion step exposes "Publish your first Post" CTA to post-new.php', async ( {
 	page,
 } ) => {
-	await page.goto( '/wp-admin/admin.php?page=fosse-wizard&step=complete' );
+	await completeThroughBlueskySkip( page );
 
 	const publishCta = page.locator( '.fosse-wizard__cta-publish' );
 	await expect( publishCta ).toBeVisible();

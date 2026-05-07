@@ -78,6 +78,10 @@ class Setup_PageTest extends BaseTestCase {
 		$_REQUEST = array();
 		remove_all_filters( 'wp_redirect' );
 		remove_all_filters( 'sanitize_option_activitypub_blog_identifier' );
+		// Clear the wp_die_handler tests in this file install — leaks
+		// would convert any later test's `wp_die()` into a thrown
+		// exception and confuse failure attribution.
+		remove_all_filters( 'wp_die_handler' );
 	}
 
 	/**
@@ -104,19 +108,21 @@ class Setup_PageTest extends BaseTestCase {
 	}
 
 	/**
-	 * A clean unified save persists post types (the cross-protocol option),
-	 * actor mode (AP-side), and auto-publish (Atmosphere-side) in one shot
-	 * and posts the success notice to the FOSSE settings group.
+	 * A clean unified save persists post types (the cross-protocol option)
+	 * and actor mode (AP-side) in one shot and posts the success notice to
+	 * the FOSSE settings group. The Bluesky provider's `save_settings()`
+	 * is currently a no-op (auto-publish toggle removed), so the unified
+	 * save must still succeed even though no Bluesky-side fields are sent.
 	 */
 	public function test_handle_save_persists_general_and_per_provider_settings(): void {
 		$this->seed_connected_atmosphere_connection();
+		update_option( 'atmosphere_auto_publish', '1' );
 		$this->become_admin();
 
 		$this->simulate_post(
 			array(
 				'activitypub_actor_mode'         => 'actor_blog',
 				'activitypub_support_post_types' => array( 'post', 'page' ),
-				'atmosphere_auto_publish'        => '1',
 			)
 		);
 
@@ -130,6 +136,9 @@ class Setup_PageTest extends BaseTestCase {
 
 		$this->assertSame( 'actor_blog', get_option( 'activitypub_actor_mode' ) );
 		$this->assertSame( array( 'post', 'page' ), get_option( 'activitypub_support_post_types' ) );
+		// Auto-publish option is preserved — the toggle was removed from
+		// the UI but the underlying option keeps its stored value (default
+		// `'1'`) so Atmosphere's publish flow is unaffected.
 		$this->assertSame( '1', get_option( 'atmosphere_auto_publish' ) );
 
 		$codes = array_column( get_settings_errors( 'fosse' ), 'code' );
@@ -137,50 +146,25 @@ class Setup_PageTest extends BaseTestCase {
 	}
 
 	/**
-	 * Unchecking the auto-publish box drops the field from the POST body —
-	 * the unified save must persist `'0'` instead of preserving the prior
-	 * value. Mirrors the Bluesky_Provider unit test through the full handler.
+	 * The unified save must NOT touch `atmosphere_auto_publish` regardless
+	 * of POST contents — the toggle was removed from the UI, so any
+	 * appearance of the field in POST is meaningless (likely a stale form
+	 * or an attacker probe). The provider's `save_settings()` is a no-op
+	 * for this option; this test exercises the full handler to confirm
+	 * end-to-end behavior.
 	 */
-	public function test_handle_save_disables_auto_publish_when_field_omitted(): void {
+	public function test_handle_save_does_not_modify_auto_publish_option(): void {
 		$this->seed_connected_atmosphere_connection();
 		update_option( 'atmosphere_auto_publish', '1' );
 		$this->become_admin();
 
+		// Even an explicit `'0'` payload should be ignored — there's no
+		// input rendered for it, so its presence has no semantic meaning.
 		$this->simulate_post(
 			array(
 				'activitypub_actor_mode'         => 'actor',
 				'activitypub_support_post_types' => array( 'post' ),
-				// `atmosphere_auto_publish` intentionally omitted (unchecked).
-			)
-		);
-
-		$this->arm_redirect_trap();
-
-		try {
-			Setup_Page::handle_save();
-		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
-			unset( $e );
-		}
-
-		$this->assertSame( '0', get_option( 'atmosphere_auto_publish' ) );
-	}
-
-	/**
-	 * A Settings save while Bluesky is disconnected does NOT flip
-	 * `atmosphere_auto_publish` to `'0'` even though the toggle isn't in
-	 * the form. The Bluesky provider's disconnect guard owns the policy;
-	 * this test exercises it through the full unified handler.
-	 */
-	public function test_handle_save_disconnected_preserves_auto_publish(): void {
-		// No `seed_connected_atmosphere_connection()` — provider stays
-		// disconnected so save_settings() should bail out.
-		update_option( 'atmosphere_auto_publish', '1' );
-		$this->become_admin();
-
-		$this->simulate_post(
-			array(
-				'activitypub_actor_mode'         => 'actor',
-				'activitypub_support_post_types' => array( 'post' ),
+				'atmosphere_auto_publish'        => '0',
 			)
 		);
 
@@ -387,6 +371,83 @@ class Setup_PageTest extends BaseTestCase {
 
 		$this->expectException( \RuntimeException::class );
 		Setup_Page::handle_save();
+	}
+
+	/**
+	 * A POST without `_wpnonce` (or with a stale/forged value) is rejected
+	 * by `check_admin_referer()` before any option write happens. Locks in
+	 * the nonce gate so a future refactor of the handler can't quietly
+	 * bypass CSRF protection.
+	 */
+	public function test_handle_save_rejects_missing_nonce(): void {
+		$this->become_admin();
+
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
+		$_POST    = array(
+			'action'                         => Setup_Page::SAVE_ACTION,
+			'activitypub_actor_mode'         => 'blog',
+			'activitypub_support_post_types' => array( 'post' ),
+		);
+		$_REQUEST = $_POST;
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+
+		add_filter(
+			'wp_die_handler',
+			static function () {
+				return static function ( $message ) {
+					throw new \RuntimeException( wp_kses( (string) $message, array() ) );
+				};
+			}
+		);
+
+		try {
+			Setup_Page::handle_save();
+			$this->fail( 'Expected check_admin_referer to wp_die on missing nonce.' );
+		} catch ( \RuntimeException $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- wp_die is expected.
+			unset( $e );
+		}
+
+		// Sanity: the actor-mode write that the body of handle_save() would
+		// otherwise perform never happened, proving check_admin_referer
+		// short-circuited before any option mutation.
+		$this->assertNotSame( 'blog', get_option( 'activitypub_actor_mode' ) );
+	}
+
+	/**
+	 * A POST with a forged `_wpnonce` value is also rejected. Distinct from
+	 * the missing-nonce case so a future "missing → empty default" refactor
+	 * can't silently skip the check.
+	 */
+	public function test_handle_save_rejects_forged_nonce(): void {
+		$this->become_admin();
+
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
+		$_POST    = array(
+			'_wpnonce'                       => 'not-a-real-nonce',
+			'action'                         => Setup_Page::SAVE_ACTION,
+			'activitypub_actor_mode'         => 'blog',
+			'activitypub_support_post_types' => array( 'post' ),
+		);
+		$_REQUEST = $_POST;
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+
+		add_filter(
+			'wp_die_handler',
+			static function () {
+				return static function ( $message ) {
+					throw new \RuntimeException( wp_kses( (string) $message, array() ) );
+				};
+			}
+		);
+
+		try {
+			Setup_Page::handle_save();
+			$this->fail( 'Expected check_admin_referer to wp_die on forged nonce.' );
+		} catch ( \RuntimeException $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- wp_die is expected.
+			unset( $e );
+		}
+
+		$this->assertNotSame( 'blog', get_option( 'activitypub_actor_mode' ) );
 	}
 
 	/**

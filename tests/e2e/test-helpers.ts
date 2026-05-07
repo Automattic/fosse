@@ -15,6 +15,9 @@ import { type Browser, expect, type Page } from '@playwright/test';
  *                                       screen so wpApiSettings.nonce is available.
  * @param {Record<string, unknown>} body Connection state payload (connected,
  *                                       handle, did, pds_endpoint, auto_publish).
+ *                                       `auto_publish` is accepted by the seed
+ *                                       endpoint for backwards compatibility but
+ *                                       no longer surfaced in the UI.
  * @return {Promise<void>} Resolves when the seed succeeds; throws if not 200.
  */
 export const setBlueskyState = async (
