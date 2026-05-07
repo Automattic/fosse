@@ -46,7 +46,7 @@ Three Dashicons get `aria-hidden="true"`: the destination-card check, the mode-c
 Three color changes, all on 12px wizard text:
 
 - `.fosse-wizard__progress-step` (and `__progress-line`): `#949494` → `#707070` (4.74:1)
-- `.fosse-wizard__progress-step.is-complete` (and `__progress-line.is-complete` / `__progress-dot.is-complete`): `#4ab866` → `#2c8049` (4.61:1)
+- `.fosse-wizard__progress-step.is-complete` (and `__progress-line.is-complete` / `__progress-dot.is-complete`): `#4ab866` → `#287340` (5.81:1 on white, 5.34:1 on `#edf8f1` soft background)
 - `.fosse-wizard__hint p`: `#757575` on `#f0f0f0` → `#555` on `#f0f0f0` (7.46:1)
 
 All three pass WCAG AA for normal text. Inline comments document the contrast ratios so a future tweak knows the floor.
