@@ -827,7 +827,24 @@ class Bluesky_Provider implements Connection_Provider {
 		if ( false !== \stripos( $code, 'handle' ) || false !== \stripos( $code, 'pds' ) || false !== \stripos( $code, 'did' ) ) {
 			return 'invalid_handle';
 		}
-		if ( false !== \stripos( $code, 'auth' ) || false !== \stripos( $code, 'oauth' ) || false !== \stripos( $code, 'token' ) ) {
+		if (
+			false !== \stripos( $code, 'auth' ) ||
+			false !== \stripos( $code, 'oauth' ) ||
+			false !== \stripos( $code, 'token' ) ||
+			false !== \stripos( $code, 'state' ) ||
+			false !== \stripos( $code, 'expired' ) ||
+			false !== \stripos( $code, 'dpop' ) ||
+			false !== \stripos( $code, 'decrypt' ) ||
+			false !== \stripos( $code, 'refresh' )
+		) {
+			return 'auth_failed';
+		}
+
+		// Any remaining Atmosphere-prefixed code is most plausibly
+		// an OAuth-layer failure (PAR, connection, not_connected, etc.)
+		// rather than an unclassifiable error. Catching them here
+		// keeps the `error_category` enum representative on dashboards.
+		if ( 0 === \stripos( $code, 'atmosphere_' ) ) {
 			return 'auth_failed';
 		}
 

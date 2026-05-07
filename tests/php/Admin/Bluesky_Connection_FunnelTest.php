@@ -42,6 +42,17 @@ class Bluesky_Connection_FunnelTest extends BaseTestCase {
 			'oauth_token'            => array( 'oauth_token_exchange_failed', 'auth_failed' ),
 			'auth_word'              => array( 'auth_session_expired', 'auth_failed' ),
 			'token_word'             => array( 'token_invalid', 'auth_failed' ),
+			'atmosphere_state'       => array( 'atmosphere_state', 'auth_failed' ),
+			'atmosphere_expired'     => array( 'atmosphere_expired', 'auth_failed' ),
+			'atmosphere_dpop'        => array( 'atmosphere_dpop', 'auth_failed' ),
+			'atmosphere_decrypt'     => array( 'atmosphere_decrypt', 'auth_failed' ),
+			'atmosphere_refresh'     => array( 'atmosphere_refresh', 'auth_failed' ),
+			'atmosphere_no_refresh'  => array( 'atmosphere_no_refresh', 'auth_failed' ),
+			// `atmosphere_par` (Pushed Authorization Requests) falls
+			// through the specific tokens but is caught by the
+			// `atmosphere_` prefix fallback.
+			'atmosphere_par'         => array( 'atmosphere_par', 'auth_failed' ),
+			'atmosphere_connection'  => array( 'atmosphere_connection', 'auth_failed' ),
 			'unknown_falls_to_other' => array( 'something_unfamiliar', 'other' ),
 			'empty_falls_to_other'   => array( '', 'other' ),
 		);

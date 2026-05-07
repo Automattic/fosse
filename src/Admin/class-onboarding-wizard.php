@@ -352,6 +352,13 @@ class Onboarding_Wizard {
 				self::redirect_to_step( 'bluesky' );
 			}
 
+			// Fediverse-only completion path: the wizard ends here without
+			// passing through `handle_complete`, so emit the funnel event
+			// directly. Without this, fediverse-only users are invisible
+			// to the started → completed funnel.
+			if ( ! self::is_complete() ) {
+				self::record_wizard_completed();
+			}
 			self::mark_complete();
 			self::redirect_to_step( 'complete' );
 		}
@@ -396,7 +403,12 @@ class Onboarding_Wizard {
 		);
 		self::require_nonce( 'fosse_wizard_complete', 'fosse_wizard_complete' );
 
-		self::record_wizard_completed();
+		// Guard against duplicate emits when the user re-submits the
+		// completion link (nonces are valid for 12-24h, so a back-button
+		// or refresh after completion would otherwise re-fire the event).
+		if ( ! self::is_complete() ) {
+			self::record_wizard_completed();
+		}
 
 		self::mark_complete();
 
@@ -1625,7 +1637,12 @@ class Onboarding_Wizard {
 			return;
 		}
 
-		\update_user_meta( $user_id, self::USER_META_STARTED_EMITTED, '1' );
+		// Skip the emit if the dedup flag fails to persist — emitting
+		// without persistence inflates the started count by one per
+		// page load until the write eventually succeeds.
+		if ( false === \update_user_meta( $user_id, self::USER_META_STARTED_EMITTED, '1' ) ) {
+			return;
+		}
 
 		\Automattic\Fosse\Metrics\Recorder::record(
 			'fosse_wizard_started',

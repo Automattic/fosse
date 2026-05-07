@@ -91,4 +91,27 @@ class Search_Indexing_WatcherTest extends BaseTestCase {
 		$captured = $this->tracks_channel()->events_for( 'fosse_search_indexing_disabled_post_active' );
 		$this->assertCount( 1, $captured, 'Debounce should collapse repeat 1->0 transitions into a single event.' );
 	}
+
+	/**
+	 * Once the debounce window expires (transient cleared), a fresh 1 → 0
+	 * transition emits again.
+	 */
+	public function test_re_emits_after_debounce_expires(): void {
+		\add_filter( 'fosse_metrics_is_active_for_site', '__return_true' );
+
+		\update_option( 'blog_public', '0' );
+
+		// Simulate the 30-second window elapsing.
+		\delete_transient( 'fosse_search_indexing_flip_debounce' );
+
+		\update_option( 'blog_public', '1' );
+		\update_option( 'blog_public', '0' );
+
+		$captured = $this->tracks_channel()->events_for( 'fosse_search_indexing_disabled_post_active' );
+		$this->assertCount(
+			2,
+			$captured,
+			'Once the debounce window expires, a subsequent 1->0 transition should emit again.'
+		);
+	}
 }

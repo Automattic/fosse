@@ -129,10 +129,11 @@ class Wizard_MetricsTest extends BaseTestCase {
 		$this->assertSame( 'fediverse_only', $properties['destination'] );
 		$this->assertSame( 'blog', $properties['actor_mode'] );
 		$this->assertSame( '2-3', $properties['post_types_count_bucket'] );
-		// `bluesky_state` is `'connected'`, `'skipped'`, or `'unavailable'` —
-		// in WorDBless without an Atmosphere connection it's deterministic
-		// at `'skipped'` (the function exists but is not connected).
-		$this->assertContains( $properties['bluesky_state'], array( 'connected', 'skipped', 'unavailable' ) );
+		// In WorDBless, Atmosphere's `is_connected` is loaded but no
+		// connection exists, so `derive_bluesky_state` returns
+		// `'skipped'` deterministically. Pin the exact value rather
+		// than asserting against the full enum.
+		$this->assertSame( 'skipped', $properties['bluesky_state'] );
 	}
 
 	/**
@@ -171,5 +172,86 @@ class Wizard_MetricsTest extends BaseTestCase {
 		\ob_end_clean();
 
 		$this->assertCount( 2, $this->tracks_channel()->events_for( 'fosse_wizard_started' ) );
+	}
+
+	/**
+	 * `handle_complete` re-submission (refresh / back button within the
+	 * 12-24h nonce window) does not duplicate the completed event.
+	 */
+	public function test_handle_complete_is_idempotent(): void {
+		\update_option( Onboarding_Wizard::DESTINATION_OPTION, 'fediverse_only' );
+		\update_option( 'activitypub_actor_mode', 'blog' );
+		\update_option( 'activitypub_support_post_types', array( 'post' ) );
+
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
+		$_POST    = array(
+			'action'   => 'fosse_wizard_complete',
+			'_wpnonce' => \wp_create_nonce( 'fosse_wizard_complete' ),
+		);
+		$_REQUEST = $_POST;
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+
+		\add_filter(
+			'wp_redirect',
+			static function () {
+				throw new RedirectFired( 'redirect' );
+			}
+		);
+
+		for ( $attempt = 0; $attempt < 2; $attempt++ ) {
+			try {
+				Onboarding_Wizard::handle_complete();
+			} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+				unset( $e );
+			}
+		}
+
+		$this->assertCount(
+			1,
+			$this->tracks_channel()->events_for( 'fosse_wizard_completed' ),
+			'Re-submitting handle_complete must not duplicate the completed event.'
+		);
+	}
+
+	/**
+	 * Fediverse-only `handle_save` (no Bluesky in destination) reaches
+	 * `mark_complete` without going through `handle_complete` — it must
+	 * still emit `fosse_wizard_completed`, otherwise fediverse-only
+	 * users are invisible to the started → completed funnel.
+	 */
+	public function test_handle_save_fediverse_only_emits_completed(): void {
+		\update_option( Onboarding_Wizard::DESTINATION_OPTION, 'fediverse_only' );
+		\update_option( 'activitypub_actor_mode', 'actor' );
+
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
+		$_POST    = array(
+			'action'                         => 'fosse_wizard_save',
+			'_wpnonce'                       => \wp_create_nonce( 'fosse_wizard' ),
+			'fosse_wizard_step'              => 'content',
+			'activitypub_support_post_types' => array( 'post' ),
+		);
+		$_REQUEST = $_POST;
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+
+		\add_filter(
+			'wp_redirect',
+			static function () {
+				throw new RedirectFired( 'redirect' );
+			}
+		);
+
+		try {
+			Onboarding_Wizard::handle_save();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$captured = $this->tracks_channel()->events_for( 'fosse_wizard_completed' );
+		$this->assertCount(
+			1,
+			$captured,
+			'Fediverse-only completion via handle_save must emit fosse_wizard_completed.'
+		);
+		$this->assertSame( 'fediverse_only', $captured[0]['properties']['destination'] );
 	}
 }
