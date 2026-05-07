@@ -779,12 +779,13 @@ class Bluesky_Provider implements Connection_Provider {
 	/**
 	 * Persist an admin notice and redirect back to the originating FOSSE screen.
 	 *
-	 * Messages are escaped with `esc_html()` before storage. The `'atmosphere'`
-	 * settings-error group is rendered both via the explicit
-	 * `settings_errors( 'atmosphere' )` call in {@see self::render_connection_actions()}
-	 * and automatically by WordPress on any `options-*.php` screen where the
-	 * core `_default_wp_die_handler` / `wp_auto_admin_notice_settings_error()`
-	 * path fires — both render the stored `message` field as raw HTML.
+	 * Messages are escaped with `esc_html()` before storage. Every consumer of
+	 * the `'atmosphere'` settings-error group renders the stored `message`
+	 * field as HTML: the explicit `settings_errors( 'atmosphere' )` call in
+	 * {@see self::render_connection_actions()}, the `get_settings_errors(...)`
+	 * loop in {@see Onboarding_Wizard::render_step_bluesky()}, and any
+	 * `options-*.php` screen where WordPress core's automatic
+	 * `settings_errors()` invocation fires for queued settings errors.
 	 * Several callers here pass untrusted text (`WP_Error` messages from
 	 * Atmosphere's OAuth client, the PDS, or `Publisher::sync_publication()`)
 	 * which could otherwise inject markup into wp-admin. Escaping at this
