@@ -1054,7 +1054,7 @@ class Onboarding_WizardTest extends BaseTestCase {
 
 		$this->assertStringContainsString( 'Fediverse only', $output );
 		$this->assertMatchesRegularExpression(
-			'~<td class="fosse-summary__label">Bluesky</td>\s*<td class="fosse-summary__value">Connected as alice\.bsky\.social</td>~',
+			'~<th scope="row" class="fosse-summary__label">Bluesky</th>\s*<td class="fosse-summary__value">Connected as alice\.bsky\.social</td>~',
 			$output,
 			'Connected Bluesky accounts must not be visually muted even when the saved destination is Fediverse-only.'
 		);
