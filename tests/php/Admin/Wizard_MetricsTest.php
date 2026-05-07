@@ -204,6 +204,17 @@ class Wizard_MetricsTest extends BaseTestCase {
 			} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
 				unset( $e );
 			}
+
+			// After the first attempt the wizard is marked complete;
+			// pin this so a future regression that breaks `mark_complete`
+			// (and thus the dedup mechanism) fails this assertion rather
+			// than the more downstream event-count check.
+			if ( 0 === $attempt ) {
+				$this->assertTrue(
+					Onboarding_Wizard::is_complete(),
+					'mark_complete should have set the COMPLETED_OPTION before re-submission.'
+				);
+			}
 		}
 
 		$this->assertCount(

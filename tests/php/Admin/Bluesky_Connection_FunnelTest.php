@@ -53,6 +53,10 @@ class Bluesky_Connection_FunnelTest extends BaseTestCase {
 			// `atmosphere_` prefix fallback.
 			'atmosphere_par'         => array( 'atmosphere_par', 'auth_failed' ),
 			'atmosphere_connection'  => array( 'atmosphere_connection', 'auth_failed' ),
+			// Pin the `atmosphere_` prefix-fallback branch in isolation —
+			// this code contains none of the explicit substring tokens
+			// (auth/oauth/token/state/expired/dpop/decrypt/refresh).
+			'atmosphere_prefix_only' => array( 'atmosphere_not_connected', 'auth_failed' ),
 			'unknown_falls_to_other' => array( 'something_unfamiliar', 'other' ),
 			'empty_falls_to_other'   => array( '', 'other' ),
 		);
