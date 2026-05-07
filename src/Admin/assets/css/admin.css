@@ -175,7 +175,7 @@
 	--fosse-wizard-accent-soft: #f3f6ff;
 	--fosse-wizard-accent-icon: #e6ecff;
 	--fosse-wizard-accent-soft-border: rgba(56, 88, 233, 0.38);
-	--fosse-wizard-success: #2c8049;
+	--fosse-wizard-success: #287340;
 	--fosse-wizard-success-soft: #edf8f1;
 	--fosse-wizard-text: #1d2327;
 	--fosse-wizard-muted: #646970;
@@ -227,8 +227,9 @@
 }
 
 .fosse-wizard__progress-step.is-complete {
-	/* var(--fosse-wizard-success) is #2c8049 — 4.89:1 on white
-	   (WCAG AA). The earlier #4ab866 was ~2.6:1 (fail AA at 12px). */
+	/* var(--fosse-wizard-success) is #287340 — 5.81:1 on white,
+	   5.34:1 on var(--fosse-wizard-success-soft) #edf8f1 (both WCAG AA).
+	   The earlier #4ab866 was ~2.6:1 (fail AA at 12px). */
 	color: var(--fosse-wizard-success);
 }
 
