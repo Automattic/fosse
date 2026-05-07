@@ -788,6 +788,14 @@
 	outline-offset: 2px;
 }
 
+/* `:focus-within` fallback for browsers without `:has()` / `:focus-visible`,
+   matching the destination-card and mode-card fallbacks above so keyboard
+   focus stays visible across all three interactive card types. */
+.fosse-post-type-item:focus-within {
+	outline: 2px solid var(--fosse-wizard-accent);
+	outline-offset: 2px;
+}
+
 .fosse-post-type-item__label {
 	font-size: 13px;
 	font-weight: 600;
