@@ -1,43 +1,18 @@
 import { test, expect, type Page } from '@playwright/test';
-
-const setBlueskyState = async (
-	page: Page,
-	body: Record< string, unknown >
-) => {
-	const result = await page.evaluate( async ( payload ) => {
-		const res = await fetch( '/wp-json/fosse-e2e/v1/bluesky-state', {
-			method: 'POST',
-			headers: {
-				'Content-Type': 'application/json',
-				'X-WP-Nonce': ( window as any ).wpApiSettings.nonce,
-			},
-			body: JSON.stringify( payload ),
-		} );
-
-		return { status: res.status, text: await res.text() };
-	}, body );
-
-	expect(
-		result.status,
-		`fosse-e2e/v1/bluesky-state returned: ${ result.text.slice( 0, 300 ) }`
-	).toBe( 200 );
-};
+import { resetBlueskyState, setBlueskyState } from './test-helpers';
 
 test.describe( 'Status page polish', () => {
 	// Connected-state writes leak across specs (the wizard's connect step
 	// flips to its summary branch when atmosphere_connection is set), so
 	// reset to disconnected on the way out — mirrors bluesky-provider.spec.ts.
-	test.afterAll( async ( { browser } ) => {
-		const page = await browser.newPage();
-		await page.goto( '/wp-admin/post-new.php' );
-		await page.waitForFunction(
-			() => !! ( window as any ).wpApiSettings?.nonce
-		);
-		await setBlueskyState( page, {
-			connected: false,
-			auto_publish: true,
-		} );
-		await page.close();
+	test.afterAll( async ( { browser }, testInfo ) => {
+		const baseURL = testInfo.project.use.baseURL;
+		if ( ! baseURL ) {
+			throw new Error(
+				'baseURL must be configured in playwright.config.ts'
+			);
+		}
+		await resetBlueskyState( browser, baseURL );
 	} );
 
 	test.beforeEach( async ( { page } ) => {
