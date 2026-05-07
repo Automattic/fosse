@@ -264,6 +264,100 @@ class Onboarding_WizardTest extends BaseTestCase {
 		$this->assertNotContains( 'faketype', $saved );
 	}
 
+	/**
+	 * Nested arrays inside the post-types payload (e.g. a crafted POST with
+	 * `activitypub_support_post_types[0][]=post`) are filtered out before
+	 * `sanitize_text_field()` runs, so the array-to-string warning that
+	 * `phpunit.xml.dist` promotes to a hard failure via `failOnWarning` does
+	 * not fire and the option is not overwritten with an invalid shape.
+	 *
+	 * Mirrors the Settings page's `test_handle_save_drops_nested_array_post_types`
+	 * coverage so the wizard path matches the hardened Settings path.
+	 */
+	public function test_handle_save_content_drops_nested_array_post_types(): void {
+		update_option( 'activitypub_support_post_types', array( 'post' ) );
+
+		$this->simulate_save_request(
+			'content',
+			array(
+				'activitypub_support_post_types' => array(
+					array( 'post' ),
+					'page',
+				),
+			)
+		);
+
+		try {
+			Onboarding_Wizard::handle_save();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$saved = get_option( 'activitypub_support_post_types' );
+		$this->assertNotContains( 'post', $saved, 'Nested-array element must not survive sanitization.' );
+		$this->assertContains( 'page', $saved, 'Sibling string element must still pass through.' );
+	}
+
+	/**
+	 * A scalar (non-array) post-types payload is coerced to an array
+	 * containing the scalar — the existing `(array) $value` cast handles
+	 * the shape, and `is_string` filtering keeps it sane. Locks in the
+	 * coercion so a future refactor can't quietly start rejecting scalars.
+	 */
+	public function test_handle_save_content_coerces_scalar_post_types(): void {
+		$this->simulate_save_request(
+			'content',
+			array( 'activitypub_support_post_types' => 'page' )
+		);
+
+		try {
+			Onboarding_Wizard::handle_save();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$saved = get_option( 'activitypub_support_post_types' );
+		$this->assertSame( array( 'page' ), $saved );
+	}
+
+	/**
+	 * A payload that is entirely nested arrays (no string elements) becomes
+	 * an empty selection after sanitization and triggers the
+	 * `empty_post_types` redirect rather than overwriting the option.
+	 */
+	public function test_handle_save_content_invalid_only_redirects_with_error(): void {
+		update_option( 'activitypub_support_post_types', array( 'post' ) );
+
+		$captured = null;
+		$this->simulate_save_request(
+			'content',
+			array(
+				'activitypub_support_post_types' => array(
+					array( 'post' ),
+					array( 'page' ),
+				),
+			)
+		);
+		add_filter(
+			'wp_redirect',
+			static function ( $location ) use ( &$captured ) {
+				$captured = (string) $location;
+				throw new RedirectFired( 'redirect' );
+			},
+			9
+		);
+
+		try {
+			Onboarding_Wizard::handle_save();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$this->assertStringContainsString( 'step=content', (string) $captured );
+		$this->assertStringContainsString( 'error=empty_post_types', (string) $captured );
+		$this->assertSame( array( 'post' ), get_option( 'activitypub_support_post_types' ) );
+	}
+
 	// --- handle_skip ---
 
 	/**
@@ -444,11 +538,11 @@ class Onboarding_WizardTest extends BaseTestCase {
 		$output = $this->render_wizard_step( '' );
 
 		$this->assertStringContainsString( 'Where should your WordPress posts appear?', $output );
-		$this->assertStringContainsString( 'Choose where FOSSE should share your posts. You can connect Bluesky or change these settings later in FOSSE Settings.', $output );
+		$this->assertStringContainsString( 'Fediverse sharing is enabled by default, so people can follow your site from Mastodon and similar apps. You can also connect Bluesky now or set it up later.', $output );
 		$this->assertStringContainsString( 'Fediverse + Bluesky', $output );
 		$this->assertStringContainsString( 'Fediverse only', $output );
 		$this->assertStringContainsString( 'Simple setup', $output );
-		$this->assertStringContainsString( 'Let people follow your site from Mastodon-compatible apps without setting up Bluesky in this wizard.', $output );
+		$this->assertStringContainsString( 'Let people follow your site from apps like Mastodon. You can connect Bluesky later.', $output );
 		$this->assertStringContainsString( 'name="fosse_onboarding_destination"', $output );
 		$this->assertStringNotContainsString( 'Welcome to FOSSE', $output );
 		$this->assertStringNotContainsString( '>Later<', $output );
@@ -827,8 +921,8 @@ class Onboarding_WizardTest extends BaseTestCase {
 		$this->assertStringContainsString( 'Connect Bluesky', $output );
 		$this->assertStringContainsString( 'Skip Bluesky for now', $output );
 		$this->assertStringContainsString( 'fosse-bluesky-form', $output );
-		$this->assertStringContainsString( 'Bluesky or AT Protocol handle', $output );
-		$this->assertStringContainsString( 'Use your Bluesky handle, or a custom domain handle if you have one.', $output );
+		$this->assertStringContainsString( 'Bluesky handle', $output );
+		$this->assertStringContainsString( 'Enter your Bluesky handle, such as yourname.bsky.social. If you use your own domain as your handle, enter that.', $output );
 		$this->assertStringNotContainsString( 'fosse-bluesky-placeholder', $output );
 		$this->assertStringNotContainsString( 'Coming Soon', $output );
 		$this->assertStringNotContainsString( 'Bluesky Handle', $output );
@@ -855,27 +949,13 @@ class Onboarding_WizardTest extends BaseTestCase {
 	/**
 	 * A fediverse-only destination does not render the Bluesky connect form.
 	 */
-	public function test_render_bluesky_step_fediverse_only_redirects_away(): void {
+	public function test_render_bluesky_step_fediverse_only_falls_back_to_content(): void {
 		update_option( Onboarding_Wizard::DESTINATION_OPTION, 'fediverse_only' );
 
-		$captured = null;
-		add_filter(
-			'wp_redirect',
-			static function ( $location ) use ( &$captured ) {
-				$captured = (string) $location;
-				throw new RedirectFired( 'redirect' );
-			},
-			9
-		);
+		$output = $this->render_wizard_step( 'bluesky' );
 
-		try {
-			$this->render_wizard_step( 'bluesky' );
-		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
-			unset( $e );
-		}
-
-		$this->assertNotNull( $captured );
-		$this->assertStringContainsString( 'step=content', $captured );
+		$this->assertStringContainsString( 'What do you want to share?', $output );
+		$this->assertStringNotContainsString( 'fosse_connect_bluesky', $output );
 	}
 
 	/**
@@ -1112,17 +1192,19 @@ class Onboarding_WizardTest extends BaseTestCase {
 		$output = $this->render_wizard_step( 'complete' );
 
 		$this->assertStringContainsString( 'As your site', $output );
-		// Long handles previously wrapped awkwardly mid-token; the label and
-		// handle now sit on separate lines with a `<br />` between them (#72).
-		$this->assertMatchesRegularExpression( '~As your site<br\s*/?>\s*<code>@[^<]+@[^<]+</code>~', $output );
+		$this->assertMatchesRegularExpression( '~As your site\s*<code>@[^<]+@[^<]+</code>~', $output );
+		// Mirror the actor-mode guard so a future revert of the inline-space
+		// change in `format_mode_label()` (back to `<br /><code>`) is caught
+		// for the blog branch too — the assertion above's `\s*` accepts both
+		// shapes and would not flag the regression on its own.
+		$this->assertDoesNotMatchRegularExpression( '~As your site<br\s*/?>~', $output );
 	}
 
 	/**
-	 * In `actor` mode the user handle drops to its own line (#72), so a long
-	 * `@user@host` token in a narrow summary cell can't push the row's
-	 * intrinsic width past the wizard column.
+	 * In `actor` mode the user handle stays with the "As you" label so the
+	 * single-value summary reads as one phrase.
 	 */
-	public function test_complete_summary_breaks_handle_to_new_line_in_actor_mode(): void {
+	public function test_complete_summary_keeps_handle_inline_in_actor_mode(): void {
 		Onboarding_Wizard::mark_complete();
 		update_option( 'activitypub_actor_mode', 'actor' );
 
@@ -1134,10 +1216,11 @@ class Onboarding_WizardTest extends BaseTestCase {
 		}
 
 		$this->assertStringContainsString( 'As you', $output );
-		$this->assertMatchesRegularExpression( '~As you<br\s*/?>\s*<code>@[^<]+@[^<]+</code>~', $output );
+		$this->assertMatchesRegularExpression( '~As you\s*<code>@[^<]+@[^<]+</code>~', $output );
 		// The pre-fix wrapper used parens around the handle on the same line;
 		// guard against the parenthesized shape regressing here.
 		$this->assertDoesNotMatchRegularExpression( '~As you \(<code>~', $output );
+		$this->assertDoesNotMatchRegularExpression( '~As you<br\s*/?>~', $output );
 	}
 
 	// --- Bluesky signup help (#58) ---
@@ -1152,9 +1235,9 @@ class Onboarding_WizardTest extends BaseTestCase {
 		$this->assertSame( 1, substr_count( $output, 'fosse-wizard__hint fosse-bluesky-signup' ) );
 		$this->assertStringContainsString( 'https://bsky.app/', $output );
 		$this->assertStringContainsString( 'https://bsky.social/about/blog/4-28-2023-domain-handle-tutorial', $output );
-		$this->assertStringContainsString( 'Need help getting started?', $output );
-		$this->assertStringContainsString( 'Create a Bluesky account', $output );
-		$this->assertStringContainsString( 'learn how to use your domain as your handle', $output );
+		$this->assertStringContainsString( 'Need a Bluesky account?', $output );
+		$this->assertStringContainsString( 'Create one', $output );
+		$this->assertStringContainsString( 'learn how to use your own domain as your handle', $output );
 		$this->assertStringNotContainsString( 'Want your domain as your handle?', $output );
 	}
 
@@ -1259,7 +1342,7 @@ class Onboarding_WizardTest extends BaseTestCase {
 			remove_filter( 'activitypub_user_can_activitypub', '__return_true' );
 		}
 
-		$this->assertStringContainsString( 'Your fediverse address', $output );
+		$this->assertStringContainsString( 'Your follow address', $output );
 		$this->assertMatchesRegularExpression( '/<code>@[^<]+@[^<]+<\/code>/', $output );
 	}
 
@@ -1271,11 +1354,54 @@ class Onboarding_WizardTest extends BaseTestCase {
 	public function test_render_bluesky_step_disconnected_omits_fediverse_identity(): void {
 		$output = $this->render_wizard_step( 'bluesky' );
 
-		$this->assertStringNotContainsString( 'Your fediverse address', $output );
-		$this->assertStringNotContainsString( 'Site fediverse address', $output );
+		$this->assertStringNotContainsString( 'Your follow address', $output );
+		$this->assertStringNotContainsString( 'Site follow address', $output );
 	}
 
 	// --- Publish CTA on completion step (#63) ---
+
+	/**
+	 * Direct GETs to the review step before completion fall back to the first
+	 * wizard step when no destination has been saved yet — a brand-new wizard
+	 * run shouldn't skip past the destination decision.
+	 */
+	public function test_render_complete_step_before_completion_falls_back_to_destinations(): void {
+		$output = $this->render_wizard_step( 'complete' );
+
+		$this->assertStringContainsString( 'Where should your WordPress posts appear?', $output );
+		$this->assertStringNotContainsString( 'You&#039;re all set!', $output );
+	}
+
+	/**
+	 * Direct GETs to the review step on an incomplete Fediverse + Bluesky
+	 * wizard land on the Bluesky step — the latest in-flow step before
+	 * completion — so a partially-finished run resumes near where the
+	 * user left off instead of restarting from step 1.
+	 */
+	public function test_render_complete_step_before_completion_routes_to_bluesky_for_saved_bluesky_destination(): void {
+		update_option( Onboarding_Wizard::DESTINATION_OPTION, 'fediverse_bluesky' );
+
+		$output = $this->render_wizard_step( 'complete' );
+
+		$this->assertStringContainsString( 'Connect to Bluesky', $output );
+		$this->assertStringNotContainsString( 'Where should your WordPress posts appear?', $output );
+		$this->assertStringNotContainsString( 'You&#039;re all set!', $output );
+	}
+
+	/**
+	 * Direct GETs to the review step on an incomplete Fediverse-only wizard
+	 * land on the Content step — the last step that submits and marks the
+	 * wizard complete on this destination path.
+	 */
+	public function test_render_complete_step_before_completion_routes_to_content_for_saved_fediverse_only(): void {
+		update_option( Onboarding_Wizard::DESTINATION_OPTION, 'fediverse_only' );
+
+		$output = $this->render_wizard_step( 'complete' );
+
+		$this->assertStringContainsString( 'What do you want to share?', $output );
+		$this->assertStringNotContainsString( 'Where should your WordPress posts appear?', $output );
+		$this->assertStringNotContainsString( 'You&#039;re all set!', $output );
+	}
 
 	/**
 	 * The completion step renders a primary CTA to publish the user's first
@@ -1307,7 +1433,7 @@ class Onboarding_WizardTest extends BaseTestCase {
 		$output = $this->render_wizard_step( 'complete' );
 
 		$this->assertMatchesRegularExpression(
-			'~<p[^>]*class="[^"]*fosse-wizard__cta-help[^"]*"[^>]*>[^<]*Mastodon-compatible apps and Bluesky~i',
+			'~<p[^>]*class="[^"]*fosse-wizard__cta-help[^"]*"[^>]*>[^<]*Fediverse apps like Mastodon.*Connect Bluesky~i',
 			$output,
 			'The publish CTA helper copy must describe the selected destinations.'
 		);
@@ -1325,7 +1451,7 @@ class Onboarding_WizardTest extends BaseTestCase {
 		$output = $this->render_wizard_step( 'complete' );
 
 		$this->assertMatchesRegularExpression(
-			'~<p[^>]*class="[^"]*fosse-wizard__cta-help[^"]*"[^>]*>[^<]*Mastodon-compatible apps and Bluesky\.~i',
+			'~<p[^>]*class="[^"]*fosse-wizard__cta-help[^"]*"[^>]*>[^<]*Fediverse apps like Mastodon and on Bluesky\\.~i',
 			$output,
 			'The publish CTA helper copy must mention Bluesky when existing settings will publish there.'
 		);
@@ -1344,11 +1470,11 @@ class Onboarding_WizardTest extends BaseTestCase {
 		$output = $this->render_wizard_step( 'complete' );
 
 		$this->assertMatchesRegularExpression(
-			'~<p[^>]*class="[^"]*fosse-wizard__cta-help[^"]*"[^>]*>[^<]*automatic publishing is off\.~i',
+			'~<p[^>]*class="[^"]*fosse-wizard__cta-help[^"]*"[^>]*>[^<]*automatic sharing is off\\.~i',
 			$output,
 			'The publish CTA helper copy must explain why a connected account will not receive the next post.'
 		);
-		$this->assertStringNotContainsString( 'Mastodon-compatible apps and Bluesky.', $output );
+		$this->assertStringNotContainsString( 'Fediverse apps like Mastodon and on Bluesky.', $output );
 	}
 
 	/**

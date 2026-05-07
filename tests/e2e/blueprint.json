@@ -31,7 +31,7 @@
 		{
 			"step": "setSiteOptions",
 			"options": {
-				"fosse_object_type": "note",
+				"activitypub_object_type": "note",
 				"activitypub_reader_ui": "1",
 				"fosse_activation_redirect": 0
 			}

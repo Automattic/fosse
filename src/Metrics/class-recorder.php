@@ -34,6 +34,14 @@ namespace Automattic\Fosse\Metrics;
 final class Recorder {
 
 	/**
+	 * Re-entrancy guard. A channel or enrichment callback that calls back
+	 * into `record()` / `bump()` would otherwise recurse without bound.
+	 *
+	 * @var bool
+	 */
+	private static bool $in_flight = false;
+
+	/**
 	 * Record a Tracks-style funnel event.
 	 *
 	 * Pipeline:
@@ -55,6 +63,10 @@ final class Recorder {
 	 * @return void
 	 */
 	public static function record( string $event, array $properties = array() ): void {
+		if ( self::$in_flight ) {
+			return;
+		}
+
 		if ( ! Schema::is_known( $event ) ) {
 			if ( self::is_debugging() ) {
 				// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_trigger_error -- intentional WP_DEBUG-only schema-drift surface.
@@ -69,28 +81,41 @@ final class Recorder {
 			return;
 		}
 
-		/**
-		 * Filters the property bag for a FOSSE metrics event before
-		 * allowlist validation.
-		 *
-		 * Hosts use this to attach cohort / population — see the
-		 * wpcom-loader's Phase 2 implementation. Filter callbacks MUST
-		 * NOT add keys that violate the privacy contract (no IPs, UAs,
-		 * URLs); the allowlist will drop them but `WP_DEBUG` will warn.
-		 *
-		 * @param array<string, mixed> $properties Properties bag.
-		 * @param string               $event      Event name.
-		 */
-		$properties = (array) \apply_filters( 'fosse_metrics_event_context', $properties, $event );
-
-		$properties = Schema::filter_properties( $event, $properties );
-
-		foreach ( self::tracks_channels() as $channel ) {
+		self::$in_flight = true;
+		try {
+			/**
+			 * Filters the property bag for a FOSSE metrics event before
+			 * allowlist validation.
+			 *
+			 * Hosts use this to attach cohort / population — see the
+			 * wpcom-loader's Phase 2 implementation. Filter callbacks MUST
+			 * NOT add keys that violate the privacy contract (no IPs, UAs,
+			 * URLs); the allowlist will drop them but `WP_DEBUG` will warn.
+			 *
+			 * A throwing callback is contained: the recorder logs and
+			 * proceeds with the un-enriched property bag rather than
+			 * letting a misbehaving filter break the user-facing flow.
+			 *
+			 * @param array<string, mixed> $properties Properties bag.
+			 * @param string               $event      Event name.
+			 */
 			try {
-				$channel->record( $event, $properties );
+				$properties = (array) \apply_filters( 'fosse_metrics_event_context', $properties, $event );
 			} catch ( \Throwable $e ) {
 				self::log_throwable( $e, $event );
 			}
+
+			$properties = Schema::filter_properties( $event, $properties );
+
+			foreach ( self::tracks_channels() as $channel ) {
+				try {
+					$channel->record( $event, $properties );
+				} catch ( \Throwable $e ) {
+					self::log_throwable( $e, $event );
+				}
+			}
+		} finally {
+			self::$in_flight = false;
 		}
 	}
 
@@ -104,12 +129,21 @@ final class Recorder {
 	 * @return void
 	 */
 	public static function bump( string $name ): void {
-		foreach ( self::mc_channels() as $channel ) {
-			try {
-				$channel->bump( $name );
-			} catch ( \Throwable $e ) {
-				self::log_throwable( $e, $name );
+		if ( self::$in_flight ) {
+			return;
+		}
+
+		self::$in_flight = true;
+		try {
+			foreach ( self::mc_channels() as $channel ) {
+				try {
+					$channel->bump( $name );
+				} catch ( \Throwable $e ) {
+					self::log_throwable( $e, $name );
+				}
 			}
+		} finally {
+			self::$in_flight = false;
 		}
 	}
 
@@ -128,7 +162,12 @@ final class Recorder {
 		 *
 		 * @param list<Tracks_Channel> $channels Channels to deliver every recorded event.
 		 */
-		$channels = (array) \apply_filters( 'fosse_metrics_tracks_channels', array() );
+		try {
+			$channels = (array) \apply_filters( 'fosse_metrics_tracks_channels', array() );
+		} catch ( \Throwable $e ) {
+			self::log_throwable( $e, 'fosse_metrics_tracks_channels' );
+			return array();
+		}
 
 		return \array_values(
 			\array_filter(
@@ -141,6 +180,9 @@ final class Recorder {
 	/**
 	 * Resolve the registered MC channels.
 	 *
+	 * Non-conforming entries are filtered out so a misbehaving filter
+	 * can't crash the recorder.
+	 *
 	 * @return list<Mc_Channel>
 	 */
 	private static function mc_channels(): array {
@@ -149,7 +191,12 @@ final class Recorder {
 		 *
 		 * @param list<Mc_Channel> $channels Channels to deliver every recorded bump.
 		 */
-		$channels = (array) \apply_filters( 'fosse_metrics_mc_channels', array() );
+		try {
+			$channels = (array) \apply_filters( 'fosse_metrics_mc_channels', array() );
+		} catch ( \Throwable $e ) {
+			self::log_throwable( $e, 'fosse_metrics_mc_channels' );
+			return array();
+		}
 
 		return \array_values(
 			\array_filter(

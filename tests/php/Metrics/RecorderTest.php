@@ -126,7 +126,13 @@ class RecorderTest extends BaseTestCase {
 
 		Recorder::record( 'fosse_wizard_started', array( 'entry' => 'auto' ) );
 
-		$this->assertTrue( true, 'Recorder must not raise when no channels are registered.' );
+		// The trait's in-memory channel was unregistered before the call;
+		// nothing should have been dispatched to it (and no fatal escaped).
+		$this->assertSame(
+			array(),
+			$this->tracks_channel()->events_for( 'fosse_wizard_started' ),
+			'Recorder must not dispatch events when no channels are registered.'
+		);
 	}
 
 	/**

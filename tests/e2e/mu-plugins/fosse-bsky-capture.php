@@ -7,7 +7,7 @@
  *   Publisher::publish would write in an atomic applyWrites call) to
  *   uploads/fosse-bsky-capture.json so Playwright can assert their
  *   shape without standing up a real PDS or OAuth connection. Also
- *   exposes a REST helper so specs can flip the fosse_object_type
+ *   exposes a REST helper so specs can flip the activitypub_object_type
  *   option between tests without re-booting Playground. Copied into
  *   wp-content/mu-plugins/ by blueprint.json.
  *
@@ -66,10 +66,14 @@ add_action(
 );
 
 /*
- * Test-only REST endpoint so specs can set/clear `fosse_object_type`
- * between tests without re-booting Playground. manage_options gate keeps
- * this inaccessible to unauthenticated requests; Playground's
- * `login: true` blueprint step admin-session satisfies it.
+ * Test-only REST endpoint so specs can set/clear the canonical
+ * `activitypub_object_type` option between tests without re-booting
+ * Playground. The Object_Type bridge reads this option directly post-
+ * canonicalization (`sdd/canonical-upstream-options/`); writing the
+ * legacy `fosse_object_type` instead would no-op against the bridge.
+ * manage_options gate keeps this inaccessible to unauthenticated
+ * requests; Playground's `login: true` blueprint step admin-session
+ * satisfies it.
  */
 add_action(
 	'rest_api_init',
@@ -92,14 +96,14 @@ add_action(
 					try {
 						$value = $request->get_param( 'value' );
 						if ( null === $value || '' === $value ) {
-							\delete_option( 'fosse_object_type' );
+							\delete_option( 'activitypub_object_type' );
 						} else {
-							\update_option( 'fosse_object_type', $value );
+							\update_option( 'activitypub_object_type', $value );
 						}
 						return \rest_ensure_response(
 							array(
 								'ok'      => true,
-								'current' => \get_option( 'fosse_object_type', null ),
+								'current' => \get_option( 'activitypub_object_type', null ),
 							)
 						);
 					} catch ( \Throwable $e ) {
