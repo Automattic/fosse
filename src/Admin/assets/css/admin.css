@@ -931,7 +931,8 @@
 	border-bottom: none;
 }
 
-.fosse-summary td {
+.fosse-summary td,
+.fosse-summary th {
 	padding: 14px 0;
 	font-size: 13px;
 	line-height: 1.5;
@@ -940,6 +941,11 @@
 .fosse-summary__label {
 	color: var(--fosse-wizard-muted);
 	width: 40%;
+	/* Reset the bold/centered defaults `<th>` carries so the row label
+	   reads at the same weight as a `<td>` would. The semantic upgrade
+	   to `<th scope="row">` is for assistive tech, not for visual style. */
+	font-weight: normal;
+	text-align: left;
 }
 
 .fosse-summary__value {

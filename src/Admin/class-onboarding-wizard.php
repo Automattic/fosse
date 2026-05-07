@@ -1344,25 +1344,25 @@ class Onboarding_Wizard {
 				<table class="fosse-summary">
 					<?php if ( $status['handle'] ) : ?>
 						<tr>
-							<td class="fosse-summary__label"><?php esc_html_e( 'Handle', 'fosse' ); ?></td>
+							<th scope="row" class="fosse-summary__label"><?php esc_html_e( 'Handle', 'fosse' ); ?></th>
 							<td class="fosse-summary__value"><?php echo esc_html( $status['handle'] ); ?></td>
 						</tr>
 					<?php endif; ?>
 					<?php if ( $status['did'] ) : ?>
 						<tr>
-							<td class="fosse-summary__label"><?php esc_html_e( 'Account ID', 'fosse' ); ?></td>
+							<th scope="row" class="fosse-summary__label"><?php esc_html_e( 'Account ID', 'fosse' ); ?></th>
 							<td class="fosse-summary__value"><code><?php echo esc_html( $status['did'] ); ?></code></td>
 						</tr>
 					<?php endif; ?>
 					<?php if ( ! empty( $handle_previews['user'] ) ) : ?>
 						<tr>
-							<td class="fosse-summary__label"><?php esc_html_e( 'Your follow address', 'fosse' ); ?></td>
+							<th scope="row" class="fosse-summary__label"><?php esc_html_e( 'Your follow address', 'fosse' ); ?></th>
 							<td class="fosse-summary__value"><code><?php echo esc_html( $handle_previews['user'] ); ?></code></td>
 						</tr>
 					<?php endif; ?>
 					<?php if ( ! empty( $handle_previews['blog'] ) ) : ?>
 						<tr>
-							<td class="fosse-summary__label"><?php esc_html_e( 'Site follow address', 'fosse' ); ?></td>
+							<th scope="row" class="fosse-summary__label"><?php esc_html_e( 'Site follow address', 'fosse' ); ?></th>
 							<td class="fosse-summary__value"><code><?php echo esc_html( $handle_previews['blog'] ); ?></code></td>
 						</tr>
 					<?php endif; ?>
@@ -1492,11 +1492,11 @@ class Onboarding_Wizard {
 		<div class="fosse-wizard__card">
 			<table class="fosse-summary">
 				<tr>
-					<td class="fosse-summary__label"><?php esc_html_e( 'Destinations', 'fosse' ); ?></td>
+					<th scope="row" class="fosse-summary__label"><?php esc_html_e( 'Destinations', 'fosse' ); ?></th>
 					<td class="fosse-summary__value"><?php echo esc_html( $destination_label ); ?></td>
 				</tr>
 				<tr>
-					<td class="fosse-summary__label"><?php esc_html_e( 'People follow', 'fosse' ); ?></td>
+					<th scope="row" class="fosse-summary__label"><?php esc_html_e( 'People follow', 'fosse' ); ?></th>
 					<td class="fosse-summary__value">
 						<?php
 						echo wp_kses(
@@ -1510,11 +1510,11 @@ class Onboarding_Wizard {
 					</td>
 				</tr>
 				<tr>
-					<td class="fosse-summary__label"><?php esc_html_e( 'Content shared', 'fosse' ); ?></td>
+					<th scope="row" class="fosse-summary__label"><?php esc_html_e( 'Content shared', 'fosse' ); ?></th>
 					<td class="fosse-summary__value"><?php echo esc_html( implode( ', ', $type_labels ) ); ?></td>
 				</tr>
 				<tr>
-					<td class="fosse-summary__label"><?php esc_html_e( 'Bluesky', 'fosse' ); ?></td>
+					<th scope="row" class="fosse-summary__label"><?php esc_html_e( 'Bluesky', 'fosse' ); ?></th>
 					<td class="fosse-summary__value<?php echo $bluesky['connected'] ? '' : ' fosse-summary__value--muted'; ?>"><?php echo esc_html( $bluesky_summary ); ?></td>
 				</tr>
 			</table>
