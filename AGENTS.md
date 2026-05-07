@@ -217,3 +217,10 @@ Worked example from the long-form Bluesky strategy ([DOTCOM-16810](https://linea
 -   **FOSSE** — `Automattic\Fosse\Canonical_Options_Migrator` seeds Atmosphere's `atmosphere_long_form_composition` with FOSSE's preferred default (`'teaser-thread'`) on first install when the option is unset. FOSSE no longer keeps a parallel `fosse_long_form_strategy` option — Atmosphere reads its own option directly. The original FOSSE-side projector was retired in `sdd/canonical-upstream-options/` for the same reason as the object-type projector.
 
 See `sdd/long-form-bluesky-strategy/` for the original strategy decision and `sdd/canonical-upstream-options/` for why the projector option was retired.
+
+### Migration observability hooks
+
+`Canonical_Options_Migrator` fires two action hooks operators can wire up for visibility into the one-time legacy-to-canonical migration:
+
+-   `fosse_canonical_migration_conflict` — fires when the legacy FOSSE option disagrees with an explicitly-set canonical option. The migration preserves the canonical (visible-UI) value and discards the legacy one; hook here to log, raise an admin notice, or page on disagreement. Args: `$key` (`'object_type'` or `'long_form_strategy'`), `$legacy`, `$existing`.
+-   `fosse_canonical_migration_failed` — fires when a canonical option write does not converge on the desired value (DB rejection, `pre_update_option_*` filter intercept, object-cache regression). The migrator preserves the legacy option and skips the completion flag so the next request retries indefinitely. Args: `$key`, `$attempted`, `$actual`.

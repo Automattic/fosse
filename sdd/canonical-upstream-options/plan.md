@@ -8,7 +8,7 @@ Ships in a single PR (`audit/canonical-upstream-options`) — the migrator and t
 
 - [x] Task 1 [FOSSE]: Replace `Object_Type` projector with an AP→Atmosphere bridge
 - [x] Task 2 [FOSSE]: Delete `Long_Form_Strategy` class, file, and tests
-- [x] Task 3 [FOSSE]: Add `Canonical_Options_Migrator` + `admin_init` registration
+- [x] Task 3 [FOSSE]: Add `Canonical_Options_Migrator` + `init` priority 5 hook
 - [x] Task 4 [FOSSE]: Update `fosse.php` registrations (drop Long_Form, add Migrator, refresh Object_Type comment)
 - [x] Task 5 [FOSSE]: Update `Object_TypeTest` for the new option, add `Canonical_Options_MigratorTest`
 - [x] Task 6 [FOSSE]: Update `AGENTS.md` upstream-policy worked examples
@@ -44,7 +44,7 @@ The FOSSE-default-different-from-upstream concern (`'teaser-thread'` vs Atmosphe
 - **Status**: ✅ Done (this PR)
 - **File**: `src/class-canonical-options-migrator.php` (new)
 
-`register()` hooks `maybe_migrate` onto `admin_init`. `maybe_migrate` short-circuits on the `fosse_canonical_options_migrated` flag, then runs `migrate_object_type()` and `migrate_long_form_strategy()` and sets the flag.
+`register()` hooks `maybe_migrate` onto `init` at priority 5 — earlier than the projector callbacks (priority 10) so the canonical option holds the migrated value before any post-publish path queries it. `admin_init` was the original instinct (avoids frontend writes) but the deleted projectors ran on every request, so deferring the migration to admin would leave a window where REST/cron/CLI/frontend publishes federate with stale defaults; see spec § "Why `init` priority 5 (not `admin_init`)". `maybe_migrate` short-circuits on the `fosse_canonical_options_migrated` flag, then runs `migrate_object_type()` and `migrate_long_form_strategy()` and sets the flag.
 
 Migration semantics per spec § Migration. The fresh-install seed only fires when both the legacy FOSSE option AND the canonical Atmosphere option are unset — a site that already configured Atmosphere standalone before installing FOSSE keeps its choice.
 
@@ -56,7 +56,7 @@ Migration semantics per spec § Migration. The fresh-install seed only fires whe
 Two registration blocks change:
 
 - Object_Type comment: reframes the block as a bridge driven by the canonical AP option, not a parallel FOSSE projector.
-- Long_Form_Strategy block → Canonical_Options_Migrator block: same `init`-hook pattern, `class_exists` guard, calls `register()`.
+- Long_Form_Strategy block → Canonical_Options_Migrator block: registered from `plugins_loaded` (not `init`) so the migrator's own `add_action( 'init', ..., 5 )` lands on the priority-5 slot of the same `init` cycle. Registering from inside an `init` default-priority callback (the pattern used for the surrounding registrations) would miss priority 5 in the active iteration and the migration would never run; see spec § "Why register from `plugins_loaded` (not from `init`)". Same `class_exists` guard pattern, calls `register()`.
 
 ### Task 5: Tests
 
