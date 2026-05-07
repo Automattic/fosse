@@ -152,88 +152,153 @@
    ============================================= */
 
 .fosse-wizard {
-	max-width: 700px;
+	--fosse-wizard-surface: #fff;
+	--fosse-wizard-surface-muted: #f6f7f7;
+	--fosse-wizard-border: #dcdcde;
+	--fosse-wizard-border-strong: #c3c4c7;
+	--fosse-wizard-border-soft: #e5e7eb;
+	--fosse-wizard-border-faint: #eef0f2;
+	--fosse-wizard-accent: #3858e9;
+	--fosse-wizard-accent-soft: #f3f6ff;
+	--fosse-wizard-accent-icon: #e6ecff;
+	--fosse-wizard-accent-soft-border: rgba(56, 88, 233, 0.38);
+	--fosse-wizard-success: #168a4a;
+	--fosse-wizard-success-soft: #edf8f1;
+	--fosse-wizard-text: #1d2327;
+	--fosse-wizard-muted: #646970;
+	--fosse-wizard-warm: #fff4cf;
+	--fosse-wizard-warm-text: #6f5700;
+
+	max-width: 860px;
 	margin: 0 auto;
+	padding-top: 32px;
+	color: var(--fosse-wizard-text);
 }
 
 /* Progress indicator */
 .fosse-wizard__progress {
 	display: flex;
 	align-items: center;
-	gap: 8px;
-	margin: 0 0 32px;
-	padding: 0;
+	gap: 10px;
+	margin: 0 0 42px;
+	padding: 8px 12px;
 	list-style: none;
+	background: rgba(255, 255, 255, 0.78);
+	border: 1px solid rgba(220, 220, 222, 0.82);
+	border-radius: 999px;
 }
 
 .fosse-wizard__progress-step {
-	display: flex;
+	display: inline-flex;
 	align-items: center;
-	gap: 4px;
+	gap: 6px;
+	height: 24px;
 	font-size: 12px;
-	color: #949494;
+	font-weight: 500;
+	line-height: 1;
+	color: var(--fosse-wizard-muted);
+	white-space: nowrap;
+}
+
+.fosse-wizard__progress-label {
+	display: block;
+	line-height: 1;
+	transform: translateY(1px);
 }
 
 .fosse-wizard__progress-step.is-active {
-	color: #3858e9;
-	font-weight: 500;
+	color: var(--fosse-wizard-text);
+	font-weight: 600;
 }
 
 .fosse-wizard__progress-step.is-complete {
-	color: #4ab866;
+	color: var(--fosse-wizard-success);
 }
 
 .fosse-wizard__progress-dot {
-	width: 8px;
-	height: 8px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 9px;
+	height: 9px;
 	border-radius: 50%;
-	background: #ddd;
+	background: var(--fosse-wizard-border-strong);
 	flex-shrink: 0;
+	transform: translateY(1px);
 }
 
 .fosse-wizard__progress-step.is-active .fosse-wizard__progress-dot {
-	background: #3858e9;
-	width: 10px;
-	height: 10px;
+	width: 11px;
+	height: 11px;
+	background: var(--fosse-wizard-accent);
+	box-shadow: 0 0 0 3px rgba(56, 88, 233, 0.12);
 }
 
 .fosse-wizard__progress-step.is-complete .fosse-wizard__progress-dot {
-	background: #4ab866;
+	width: 14px;
+	height: 14px;
+	background: var(--fosse-wizard-success);
+}
+
+.fosse-wizard__progress-step.is-complete .fosse-wizard__progress-dot::before {
+	content: "";
+	width: 4px;
+	height: 7px;
+	margin-top: -1px;
+	border: solid #fff;
+	border-width: 0 1.5px 1.5px 0;
+	transform: rotate(45deg);
 }
 
 .fosse-wizard__progress-line {
+	align-self: center;
 	flex: 1;
-	height: 2px;
-	background: #ddd;
+	min-width: 18px;
+	height: 1px;
+	background: var(--fosse-wizard-border);
+	transform: translateY(1px);
 }
 
 .fosse-wizard__progress-line.is-complete {
-	background: #4ab866;
+	background: var(--fosse-wizard-success);
 }
 
 /* Title and description */
-.fosse-wizard__title {
+.fosse-wizard .fosse-wizard__title {
+	max-width: 650px;
 	font-size: 32px;
-	font-weight: 500;
-	line-height: 1.2;
-	margin-bottom: 12px;
+	font-weight: 600;
+	line-height: 1.18;
+	letter-spacing: -0.01em;
+	text-align: center;
+	color: var(--fosse-wizard-text);
+	margin: 0 auto 20px;
 }
 
-.fosse-wizard__description {
+.fosse-wizard .fosse-wizard__description {
+	max-width: 590px;
 	font-size: 15px;
-	color: #757575;
-	line-height: 1.6;
-	margin-bottom: 32px;
-	max-width: 560px;
+	line-height: 1.65;
+	text-align: center;
+	color: var(--fosse-wizard-muted);
+	margin: 0 auto 50px;
 }
 
 /* Main content card */
 .fosse-wizard__card {
-	background: #fff;
-	border: 1px solid #c3c4c7;
-	border-radius: 8px;
-	padding: 32px;
-	margin-bottom: 24px;
+	background: var(--fosse-wizard-surface);
+	border: 1px solid var(--fosse-wizard-border);
+	border-radius: 14px;
+	box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+	padding: 36px;
+	margin-bottom: 0;
+}
+
+.fosse-wizard__card:has(.fosse-destination-cards) {
+	padding: 0;
+	background: transparent;
+	border: 0;
+	box-shadow: none;
 }
 
 /* Action bar */
@@ -241,12 +306,13 @@
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
-	padding-top: 16px;
+	gap: 16px;
+	margin-top: 32px;
+	padding-top: 0;
 }
 
 .fosse-wizard__actions--center {
 	justify-content: center;
-	gap: 12px;
 }
 
 .fosse-wizard__actions-primary {
@@ -259,17 +325,20 @@
 	display: flex;
 	flex-direction: column;
 	align-items: center;
-	gap: 12px;
+	gap: 10px;
 }
 
 .fosse-wizard__skip {
 	font-size: 12px;
-	color: #757575;
+	line-height: 1.4;
+	color: var(--fosse-wizard-muted);
 	text-decoration: none;
+	text-underline-offset: 3px;
 }
 
-.fosse-wizard__skip:hover {
-	color: #1e1e1e;
+.fosse-wizard__skip:hover,
+.fosse-wizard__skip:focus {
+	color: var(--fosse-wizard-text);
 	text-decoration: underline;
 }
 
@@ -277,13 +346,15 @@
 .fosse-wizard__hint {
 	margin-top: 16px;
 	padding: 12px 16px;
-	background: #f0f0f0;
-	border-radius: 4px;
+	background: var(--fosse-wizard-surface-muted);
+	border: 1px solid var(--fosse-wizard-border-soft);
+	border-radius: 8px;
 }
 
 .fosse-wizard__hint p {
 	font-size: 12px;
-	color: #757575;
+	line-height: 1.5;
+	color: var(--fosse-wizard-muted);
 	margin: 0;
 }
 
@@ -296,26 +367,31 @@
 .fosse-destination-cards {
 	display: grid;
 	grid-template-columns: repeat(2, minmax(0, 1fr));
-	gap: 16px;
+	gap: 18px;
 }
 
 .fosse-destination-card {
 	position: relative;
 	display: flex;
 	flex-direction: column;
-	min-height: 140px;
-	padding: 18px 20px;
-	border: 2px solid #dcdcde;
-	border-radius: 8px;
-	background: #fff;
+	min-height: 168px;
+	padding: 20px 22px 22px;
+	border: 1px solid var(--fosse-wizard-border);
+	border-radius: 12px;
+	background: var(--fosse-wizard-surface);
+	box-shadow: 0 1px 1px rgba(0, 0, 0, 0.025);
 	cursor: pointer;
 	transition:
 		border-color 0.15s ease,
-		background-color 0.15s ease;
+		background-color 0.15s ease,
+		box-shadow 0.15s ease,
+		transform 0.15s ease;
 }
 
 .fosse-destination-card:hover {
-	border-color: #a7aaad;
+	border-color: var(--fosse-wizard-border-strong);
+	box-shadow: 0 4px 10px rgba(0, 0, 0, 0.06);
+	transform: translateY(-1px);
 }
 
 .fosse-destination-card__input {
@@ -325,73 +401,163 @@
 }
 
 .fosse-destination-card:has(.fosse-destination-card__input:checked) {
-	border-color: #3858e9;
-	background: #f7f9ff;
+	border-color: var(--fosse-wizard-accent);
+	background: var(--fosse-wizard-accent-soft);
+	box-shadow: 0 3px 10px rgba(56, 88, 233, 0.07);
 }
 
-.fosse-destination-card:has(.fosse-destination-card__input:focus-visible),
 .fosse-destination-card:focus-within {
-	border-color: #3858e9;
-	outline: 2px solid #3858e9;
-	outline-offset: 2px;
+	border-color: var(--fosse-wizard-accent);
+	outline: 2px solid var(--fosse-wizard-accent);
+	outline-offset: 3px;
+}
+
+.fosse-destination-card:has(.fosse-destination-card__input:focus-visible) {
+	border-color: var(--fosse-wizard-accent);
+	outline: 2px solid var(--fosse-wizard-accent);
+	outline-offset: 3px;
+}
+
+.fosse-destination-card__header {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	margin-bottom: 16px;
+}
+
+.fosse-destination-card__icon {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 34px;
+	height: 34px;
+	border-radius: 50%;
+	background: var(--fosse-wizard-warm);
+	color: var(--fosse-wizard-warm-text);
+	flex-shrink: 0;
+}
+
+.fosse-destination-card--fediverse-only .fosse-destination-card__icon {
+	background: var(--fosse-wizard-success-soft);
+	color: var(--fosse-wizard-success);
+}
+
+.fosse-destination-card__icon .dashicons {
+	font-size: 18px;
+	width: 18px;
+	height: 18px;
+}
+
+.fosse-destination-card:has(.fosse-destination-card__input:checked)
+	.fosse-destination-card__icon {
+	background: var(--fosse-wizard-accent-icon);
+	color: var(--fosse-wizard-accent);
 }
 
 .fosse-destination-card__badge {
-	align-self: flex-start;
-	margin-bottom: 10px;
 	font-size: 11px;
 	font-weight: 600;
+	line-height: 1.3;
+	letter-spacing: 0.03em;
 	text-transform: uppercase;
-	color: #3858e9;
+	color: var(--fosse-wizard-muted);
+}
+
+.fosse-destination-card:has(.fosse-destination-card__input:checked)
+	.fosse-destination-card__badge {
+	color: var(--fosse-wizard-accent);
 }
 
 .fosse-destination-card__title {
-	margin-bottom: 6px;
-	font-size: 17px;
+	margin-bottom: 8px;
+	font-size: 18px;
 	font-weight: 600;
-	color: #1e1e1e;
+	line-height: 1.3;
+	color: var(--fosse-wizard-text);
 }
 
 .fosse-destination-card__desc {
 	font-size: 13px;
-	line-height: 1.5;
-	color: #646970;
+	line-height: 1.55;
+	color: var(--fosse-wizard-muted);
 }
 
 .fosse-destination-card__check {
 	position: absolute;
 	right: 14px;
 	top: 14px;
-	color: #dcdcde;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 22px;
+	height: 22px;
+	border-radius: 50%;
+	background: var(--fosse-wizard-accent);
+	color: #fff;
+	opacity: 0;
+	transform: scale(0.86);
+	transition:
+		opacity 0.15s ease,
+		transform 0.15s ease;
+}
+
+.fosse-destination-card__check .dashicons {
+	font-size: 18px;
+	width: 18px;
+	height: 18px;
 }
 
 .fosse-destination-card:has(.fosse-destination-card__input:checked)
 	.fosse-destination-card__check {
-	color: #3858e9;
+	opacity: 1;
+	transform: scale(1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.fosse-destination-card,
+	.fosse-destination-card__check,
+	.fosse-mode-card,
+	.fosse-mode-card__check,
+	.fosse-post-type-item {
+		transition: none;
+	}
+
+	.fosse-destination-card:hover,
+	.fosse-mode-card:hover {
+		transform: none;
+	}
 }
 
 /* Actor mode cards */
 .fosse-mode-cards {
 	display: flex;
 	flex-direction: column;
-	gap: 12px;
+	gap: 10px;
 	margin-bottom: 24px;
 }
 
 .fosse-mode-card {
+	position: relative;
 	display: flex;
 	align-items: flex-start;
 	gap: 16px;
-	padding: 16px 24px;
-	border: 2px solid #e0e0e0;
-	border-radius: 8px;
+	padding: 18px 22px;
+	border: 1px solid var(--fosse-wizard-border);
+	border-radius: 12px;
 	cursor: pointer;
-	transition: border-color 0.15s ease;
-	background: #fff;
+	background: var(--fosse-wizard-surface);
+	box-shadow: 0 1px 1px rgba(0, 0, 0, 0.025);
+	transition:
+		border-color 0.15s ease,
+		background-color 0.15s ease,
+		box-shadow 0.15s ease,
+		transform 0.15s ease;
 }
 
 .fosse-mode-card:hover {
-	border-color: #ccc;
+	border-color: var(--fosse-wizard-border-strong);
+	box-shadow: 0 4px 10px rgba(0, 0, 0, 0.05);
+	transform: translateY(-1px);
 }
 
 /* Hide the real radio input */
@@ -403,53 +569,48 @@
 
 /* Selected state via :has(:checked) */
 .fosse-mode-card:has(.fosse-mode-card__input:checked) {
-	border-color: #3858e9;
-	background: rgba(56, 88, 233, 0.02);
+	border-color: var(--fosse-wizard-accent);
+	background: var(--fosse-wizard-accent-soft);
+	box-shadow: 0 3px 10px rgba(56, 88, 233, 0.07);
 }
 
 /* Keyboard focus state — radio is visually hidden, so surface focus on the card. */
 .fosse-mode-card:has(.fosse-mode-card__input:focus-visible) {
-	border-color: #3858e9;
-	outline: 2px solid #3858e9;
-	outline-offset: 2px;
+	border-color: var(--fosse-wizard-accent);
+	outline: 2px solid var(--fosse-wizard-accent);
+	outline-offset: 3px;
 }
 
-/* :focus-within fallback for browsers without :focus-visible (older Safari, etc.).
-   Same outline treatment so keyboard navigation surfaces a focus ring on the
-   card even when :focus-visible isn't honored on the visually-hidden radio. */
+/* :focus-within keeps keyboard focus visible when :has() / :focus-visible
+   support is missing or inconsistent. */
 .fosse-mode-card:focus-within {
-	border-color: #3858e9;
-	outline: 2px solid #3858e9;
-	outline-offset: 2px;
+	border-color: var(--fosse-wizard-accent);
+	outline: 2px solid var(--fosse-wizard-accent);
+	outline-offset: 3px;
 }
 
 .fosse-mode-card__icon {
-	width: 40px;
-	height: 40px;
-	border-radius: 8px;
-	background: #f0f0f0;
 	display: flex;
 	align-items: center;
 	justify-content: center;
+	width: 34px;
+	height: 34px;
+	border-radius: 50%;
+	background: var(--fosse-wizard-surface-muted);
+	color: var(--fosse-wizard-muted);
 	flex-shrink: 0;
-	margin-top: 2px;
 }
 
 .fosse-mode-card:has(.fosse-mode-card__input:checked) .fosse-mode-card__icon {
-	background: rgba(56, 88, 233, 0.08);
+	background: var(--fosse-wizard-accent-icon);
+	color: var(--fosse-wizard-accent);
 }
 
 .fosse-mode-card__icon .dashicons {
-	font-size: 20px;
-	width: 20px;
-	height: 20px;
-	color: #757575;
-}
-
-.fosse-mode-card:has(.fosse-mode-card__input:checked)
-	.fosse-mode-card__icon
-	.dashicons {
-	color: #3858e9;
+	font-size: 18px;
+	width: 18px;
+	height: 18px;
+	color: currentColor;
 }
 
 .fosse-mode-card__content {
@@ -458,60 +619,76 @@
 
 .fosse-mode-card__title {
 	font-size: 15px;
-	font-weight: 500;
+	font-weight: 600;
+	line-height: 1.35;
 	margin-bottom: 4px;
+	color: var(--fosse-wizard-text);
 }
 
 .fosse-mode-card__desc {
 	font-size: 13px;
-	color: #757575;
 	line-height: 1.5;
+	color: var(--fosse-wizard-muted);
 }
 
 .fosse-mode-card__check {
-	width: 24px;
-	height: 24px;
-	flex-shrink: 0;
-	margin-top: 4px;
 	display: flex;
 	align-items: center;
 	justify-content: center;
+	width: 22px;
+	height: 22px;
+	border-radius: 50%;
+	background: var(--fosse-wizard-accent);
+	color: #fff;
+	flex-shrink: 0;
+	opacity: 0;
+	transform: scale(0.86);
+	transition:
+		opacity 0.15s ease,
+		transform 0.15s ease;
 }
 
 .fosse-mode-card__check .dashicons {
-	font-size: 24px;
-	width: 24px;
-	height: 24px;
-	color: #ddd;
+	font-size: 18px;
+	width: 18px;
+	height: 18px;
+	color: currentColor;
 }
 
-.fosse-mode-card:has(.fosse-mode-card__input:checked)
-	.fosse-mode-card__check
-	.dashicons {
-	color: #3858e9;
+.fosse-mode-card:has(.fosse-mode-card__input:checked) .fosse-mode-card__check {
+	opacity: 1;
+	transform: scale(1);
 }
 
 /* Fediverse address preview */
 .fosse-address-preview {
 	display: flex;
 	align-items: center;
-	gap: 8px;
-	background: #f0f0f0;
-	border-radius: 4px;
-	padding: 12px 16px;
+	flex-wrap: wrap;
+	gap: 10px 12px;
+	background: var(--fosse-wizard-surface-muted);
+	border: 1px solid var(--fosse-wizard-border-soft);
+	border-radius: 8px;
+	padding: 13px 16px;
 	font-size: 13px;
 }
 
+.fosse-address-preview__row {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
 .fosse-address-preview__label {
-	color: #757575;
+	color: var(--fosse-wizard-muted);
 }
 
 .fosse-address-preview__address {
 	font-size: 12px;
 	background: #fff;
 	padding: 4px 8px;
-	border-radius: 2px;
-	border: 1px solid #e0e0e0;
+	border-radius: 4px;
+	border: 1px solid var(--fosse-wizard-border);
 }
 
 /* Wizard Appearance step swaps which fediverse-address preview is visible
@@ -528,86 +705,119 @@
    page treatment but slimmer — sits inside the wizard card next to the
    address preview. */
 .fosse-wizard__blog-handle {
-	margin-top: 16px;
+	margin-top: 18px;
+	padding-top: 18px;
+	border-top: 1px solid var(--fosse-wizard-border-soft);
 }
 
 .fosse-wizard__blog-handle-label {
 	display: block;
 	font-size: 11px;
-	font-weight: 500;
+	font-weight: 600;
+	letter-spacing: 0.03em;
 	text-transform: uppercase;
-	color: #757575;
+	color: var(--fosse-wizard-muted);
 	margin-bottom: 8px;
+}
+
+.fosse-wizard__blog-handle .regular-text {
+	width: min(100%, 360px);
 }
 
 .fosse-wizard__blog-handle .description {
 	margin-top: 6px;
 	font-size: 12px;
-	color: #757575;
+	color: var(--fosse-wizard-muted);
 }
 
 /* Post type selection */
 .fosse-post-types {
 	display: flex;
 	flex-direction: column;
-	gap: 12px;
+	gap: 22px;
 }
 
 .fosse-post-types__group {
 	display: flex;
 	flex-direction: column;
-	gap: 12px;
+	gap: 10px;
 }
 
 .fosse-post-types__group + .fosse-post-types__group {
-	margin-top: 20px;
+	margin-top: 0;
 }
 
 .fosse-post-types__group-label {
 	font-size: 11px;
 	font-weight: 600;
+	line-height: 1.3;
+	letter-spacing: 0.03em;
 	text-transform: uppercase;
-	color: #646970;
+	color: var(--fosse-wizard-muted);
 }
 
 .fosse-post-type-item {
 	display: flex;
 	align-items: center;
 	gap: 12px;
-	padding: 12px 16px;
-	border: 1px solid #e0e0e0;
-	border-radius: 4px;
-	background: #fff;
+	padding: 13px 16px;
+	border: 1px solid var(--fosse-wizard-border);
+	border-radius: 8px;
+	background: var(--fosse-wizard-surface);
 	cursor: pointer;
+	transition:
+		border-color 0.15s ease,
+		background-color 0.15s ease,
+		box-shadow 0.15s ease;
+}
+
+.fosse-post-type-item:hover {
+	border-color: var(--fosse-wizard-border-strong);
+	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
 }
 
 .fosse-post-type-item:has(input:checked) {
-	border-color: rgba(56, 88, 233, 0.3);
-	background: rgba(56, 88, 233, 0.02);
+	border-color: var(--fosse-wizard-accent-soft-border);
+	background: var(--fosse-wizard-accent-soft);
 }
 
 .fosse-post-type-item input[type="checkbox"] {
 	margin: 0;
 }
 
+.fosse-post-type-item:has(input:focus-visible) {
+	outline: 2px solid var(--fosse-wizard-accent);
+	outline-offset: 2px;
+}
+
+/* `:focus-within` fallback for browsers without `:has()` / `:focus-visible`,
+   matching the destination-card and mode-card fallbacks above so keyboard
+   focus stays visible across all three interactive card types. */
+.fosse-post-type-item:focus-within {
+	outline: 2px solid var(--fosse-wizard-accent);
+	outline-offset: 2px;
+}
+
 .fosse-post-type-item__label {
 	font-size: 13px;
-	font-weight: 500;
-	color: #1e1e1e;
+	font-weight: 600;
+	color: var(--fosse-wizard-text);
 	flex: 1;
 }
 
 /* Bluesky wizard */
 .fosse-bluesky-form {
-	margin-top: 16px;
+	margin-top: 0;
 }
 
 .fosse-bluesky-form__label {
 	display: block;
 	font-size: 11px;
-	font-weight: 500;
+	font-weight: 600;
+	line-height: 1.3;
+	letter-spacing: 0.03em;
 	text-transform: uppercase;
-	color: #757575;
+	color: var(--fosse-wizard-muted);
 	margin-bottom: 8px;
 }
 
@@ -618,43 +828,58 @@
 
 .fosse-bluesky-form__controls .regular-text {
 	flex: 1;
+	width: 100%;
+	max-width: none;
+	min-height: 36px;
+	border-color: var(--fosse-wizard-border-strong);
+	border-radius: 4px;
+}
+
+.fosse-bluesky-form .description {
+	margin-top: 6px;
+	color: var(--fosse-wizard-muted);
 }
 
 /* Completion screen */
-.fosse-wizard__complete-header,
 .fosse-wizard__complete-header + .fosse-wizard__card {
 	text-align: left;
 }
 
 .fosse-wizard__complete-header {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
 	text-align: center;
-	margin-bottom: 16px;
+	margin-bottom: 28px;
 }
 
-/* On the Complete step, the description's narrower 560px max-width left it
-   visually offset from the title (700px) and summary card (also 700px).
-   Drop the narrower cap here so all three share the wizard's own
-   max-width and read as one centered column. */
+/* Keep the Complete step hero copy visually grouped under the success icon. */
+.fosse-wizard__complete-header .fosse-wizard__title,
 .fosse-wizard__complete-header .fosse-wizard__description {
-	max-width: none;
+	max-width: 620px;
 }
 
 .fosse-complete-icon {
 	width: 64px;
 	height: 64px;
 	border-radius: 50%;
-	background: #e6f6e9;
+	background: var(--fosse-wizard-success-soft);
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	margin: 0 auto 24px;
+	margin: 0 auto 34px;
+	box-shadow: 0 0 0 8px rgba(22, 138, 74, 0.06);
 }
 
 .fosse-complete-icon .dashicons {
+	display: flex;
+	align-items: center;
+	justify-content: center;
 	font-size: 32px;
 	width: 32px;
 	height: 32px;
-	color: #4ab866;
+	color: var(--fosse-wizard-success);
+	transform: translateY(1px);
 }
 
 /* Summary table */
@@ -665,7 +890,7 @@
 }
 
 .fosse-summary tr {
-	border-bottom: 1px solid #e0e0e0;
+	border-bottom: 1px solid var(--fosse-wizard-border-faint);
 }
 
 .fosse-summary tr:last-child {
@@ -673,22 +898,27 @@
 }
 
 .fosse-summary td {
-	padding: 12px 0;
+	padding: 14px 0;
 	font-size: 13px;
+	line-height: 1.5;
 }
 
 .fosse-summary__label {
-	color: #757575;
+	color: var(--fosse-wizard-muted);
 	width: 40%;
 }
 
 .fosse-summary__value {
-	font-weight: 500;
-	color: #1e1e1e;
+	font-weight: 600;
+	color: var(--fosse-wizard-text);
+}
+
+.fosse-summary__value code {
+	overflow-wrap: anywhere;
 }
 
 .fosse-summary__value--muted {
-	color: #757575;
+	color: var(--fosse-wizard-muted);
 	font-weight: 400;
 }
 
@@ -700,11 +930,12 @@
 }
 
 .fosse-wizard__reset a {
-	color: #757575;
+	color: var(--fosse-wizard-muted);
+	text-underline-offset: 3px;
 }
 
 .fosse-wizard__reset a:hover {
-	color: #1e1e1e;
+	color: var(--fosse-wizard-text);
 }
 
 /* WordPress's default `.button-hero` leaves anchor labels left-aligned, which
@@ -722,13 +953,14 @@
 
 .fosse-wizard__cta-help {
 	text-align: center;
-	margin: 8px 0 16px;
+	margin: 18px auto 0;
 	font-size: 13px;
-	color: #50575e;
+	color: var(--fosse-wizard-muted);
+	max-width: 590px;
 }
 
 .fosse-wizard__actions--secondary {
-	margin-top: 8px;
+	margin-top: 28px;
 }
 
 /* Bluesky signup affordance */
@@ -740,11 +972,18 @@
 	.fosse-wizard {
 		max-width: none;
 		margin: 0;
+		padding-top: 18px;
 	}
 
 	.fosse-wizard__progress {
+		align-items: flex-start;
 		flex-wrap: wrap;
-		row-gap: 10px;
+		gap: 8px 12px;
+		border-radius: 14px;
+	}
+
+	.fosse-wizard .fosse-wizard__title {
+		font-size: 26px;
 	}
 
 	.fosse-wizard__progress-line {
@@ -757,6 +996,24 @@
 
 	.fosse-destination-cards {
 		grid-template-columns: 1fr;
+	}
+
+	.fosse-destination-card {
+		min-height: auto;
+	}
+
+	.fosse-mode-card {
+		padding: 16px;
+	}
+
+	.fosse-address-preview,
+	.fosse-address-preview__row {
+		align-items: flex-start;
+		flex-direction: column;
+	}
+
+	.fosse-wizard__blog-handle .regular-text {
+		width: 100%;
 	}
 
 	.fosse-wizard__actions,

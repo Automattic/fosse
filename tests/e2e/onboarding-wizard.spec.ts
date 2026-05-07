@@ -341,8 +341,8 @@ test( 'Completion step shows summary', async ( { page } ) => {
 	await expect(
 		page.locator( '.fosse-summary__label', { hasText: 'Destinations' } )
 	).toBeVisible();
-	await expect( page.locator( 'text=Site appears as' ) ).toBeVisible();
-	await expect( page.locator( 'text=Sharing' ) ).toBeVisible();
+	await expect( page.locator( 'text=People follow' ) ).toBeVisible();
+	await expect( page.locator( 'text=Content shared' ) ).toBeVisible();
 	await expect(
 		page.locator( '.fosse-summary__label', { hasText: 'Bluesky' } )
 	).toBeVisible();
