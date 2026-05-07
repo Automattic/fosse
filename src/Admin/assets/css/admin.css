@@ -153,8 +153,11 @@
 
 .fosse-wizard {
 	--fosse-wizard-surface: #fff;
+	--fosse-wizard-surface-muted: #f6f7f7;
 	--fosse-wizard-border: #dcdcde;
 	--fosse-wizard-border-strong: #c3c4c7;
+	--fosse-wizard-border-soft: #e5e7eb;
+	--fosse-wizard-border-faint: #eef0f2;
 	--fosse-wizard-accent: #3858e9;
 	--fosse-wizard-accent-soft: #f3f6ff;
 	--fosse-wizard-accent-icon: #e6ecff;
@@ -343,8 +346,8 @@
 .fosse-wizard__hint {
 	margin-top: 16px;
 	padding: 12px 16px;
-	background: #f6f7f7;
-	border: 1px solid #e5e7eb;
+	background: var(--fosse-wizard-surface-muted);
+	border: 1px solid var(--fosse-wizard-border-soft);
 	border-radius: 8px;
 }
 
@@ -593,7 +596,7 @@
 	width: 34px;
 	height: 34px;
 	border-radius: 50%;
-	background: #f6f7f7;
+	background: var(--fosse-wizard-surface-muted);
 	color: var(--fosse-wizard-muted);
 	flex-shrink: 0;
 }
@@ -663,8 +666,8 @@
 	align-items: center;
 	flex-wrap: wrap;
 	gap: 10px 12px;
-	background: #f6f7f7;
-	border: 1px solid #e5e7eb;
+	background: var(--fosse-wizard-surface-muted);
+	border: 1px solid var(--fosse-wizard-border-soft);
 	border-radius: 8px;
 	padding: 13px 16px;
 	font-size: 13px;
@@ -704,7 +707,7 @@
 .fosse-wizard__blog-handle {
 	margin-top: 18px;
 	padding-top: 18px;
-	border-top: 1px solid #e5e7eb;
+	border-top: 1px solid var(--fosse-wizard-border-soft);
 }
 
 .fosse-wizard__blog-handle-label {
@@ -887,7 +890,7 @@
 }
 
 .fosse-summary tr {
-	border-bottom: 1px solid #eef0f2;
+	border-bottom: 1px solid var(--fosse-wizard-border-faint);
 }
 
 .fosse-summary tr:last-child {
