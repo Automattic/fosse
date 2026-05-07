@@ -41,7 +41,14 @@ defined( 'ABSPATH' ) || exit;
 
 	<?php if ( empty( $providers ) ) : ?>
 		<div class="notice notice-warning">
-			<p><?php esc_html_e( 'No federation providers are available. Ensure ActivityPub and Atmosphere are installed.', 'fosse' ); ?></p>
+			<p>
+				<?php
+				esc_html_e(
+					'FOSSE bundles ActivityPub and Atmosphere, so this state usually means one of the bundled backends failed to bootstrap (composer autoload missing, class-loading conflict with a manually installed copy, or a host-level disable). Check the PHP error log and FOSSE\'s plugin activation state.',
+					'fosse'
+				);
+				?>
+			</p>
 		</div>
 	<?php else : ?>
 		<div class="fosse-settings-panel" id="fosse-federation-settings">
