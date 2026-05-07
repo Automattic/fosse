@@ -96,6 +96,20 @@ class Canonical_Options_Migrator {
 	/**
 	 * Run the migration once if it hasn't completed yet.
 	 *
+	 * Each per-axis migration reports whether it converged on the desired
+	 * canonical state. If either reports failure (e.g. a `pre_update_option_*`
+	 * filter intercepted the write, or the DB silently rejected it) leave
+	 * the legacy option in place and skip the completion flag so the next
+	 * request retries — better to retry indefinitely than to mark the site
+	 * "migrated" with the canonical option missing/wrong AND the legacy
+	 * option deleted, which would lock the site in a half-migrated state
+	 * the migrator could never recover from.
+	 *
+	 * Operators that want a record of failures can hook
+	 * `fosse_canonical_migration_failed` (fires once per failed axis with
+	 * the migration key, the value the migrator tried to write, and the
+	 * canonical option's actual value after the write attempt).
+	 *
 	 * @return void
 	 */
 	public static function maybe_migrate(): void {
@@ -103,8 +117,12 @@ class Canonical_Options_Migrator {
 			return;
 		}
 
-		self::migrate_object_type();
-		self::migrate_long_form_strategy();
+		$object_type_ok = self::migrate_object_type();
+		$long_form_ok   = self::migrate_long_form_strategy();
+
+		if ( ! $object_type_ok || ! $long_form_ok ) {
+			return;
+		}
 
 		\update_option( self::MIGRATED_FLAG_OPTION, '1', false );
 	}
@@ -123,9 +141,13 @@ class Canonical_Options_Migrator {
 	 * authoritative. Other stored legacy values were pass-throughs in
 	 * the deleted projector and need no migration.
 	 *
-	 * @return void
+	 * @return bool True when the canonical option matches the desired
+	 *              value (and the legacy may safely be deleted); false
+	 *              when the canonical write did not converge so the
+	 *              caller must skip the legacy delete and the completion
+	 *              flag.
 	 */
-	private static function migrate_object_type(): void {
+	private static function migrate_object_type(): bool {
 		$stored = \get_option( 'fosse_object_type' );
 
 		if ( 'note' === $stored ) {
@@ -133,6 +155,29 @@ class Canonical_Options_Migrator {
 			$existing = \get_option( 'activitypub_object_type', $sentinel );
 			if ( $sentinel === $existing ) {
 				\update_option( 'activitypub_object_type', 'note' );
+				// `update_option` returns false for both DB failure and the
+				// "already equal" no-op. Re-read so the success check covers
+				// both: the value the bridge will see is what determines
+				// whether we may safely delete the legacy and flag-set.
+				if ( 'note' !== \get_option( 'activitypub_object_type' ) ) {
+					/**
+					 * Fires when a per-axis canonical option write did not
+					 * converge on the value the migrator wanted. The
+					 * migrator leaves the legacy option in place and does
+					 * not set the completion flag, so the next request
+					 * retries; operators can hook here to log, raise an
+					 * admin notice, or page on persistent failures.
+					 *
+					 * @param string $key       Migration key — `'object_type'`
+					 *                          or `'long_form_strategy'`.
+					 * @param mixed  $attempted Value the migrator tried to
+					 *                          write to the canonical option.
+					 * @param mixed  $actual    Canonical option's actual
+					 *                          value after the write attempt.
+					 */
+					\do_action( 'fosse_canonical_migration_failed', 'object_type', 'note', \get_option( 'activitypub_object_type' ) );
+					return false;
+				}
 			} elseif ( 'note' !== $existing ) {
 				/**
 				 * Fires once during migration when the legacy FOSSE option
@@ -155,6 +200,8 @@ class Canonical_Options_Migrator {
 		if ( false !== $stored ) {
 			\delete_option( 'fosse_object_type' );
 		}
+
+		return true;
 	}
 
 	/**
@@ -180,33 +227,52 @@ class Canonical_Options_Migrator {
 	 * option with FOSSE's preferred default so installing FOSSE keeps
 	 * opting users into the thread strategy without further configuration.
 	 *
-	 * @return void
+	 * @return bool True when the canonical option matches the desired
+	 *              value (and the legacy may safely be deleted); false
+	 *              when the canonical write did not converge so the
+	 *              caller must skip the legacy delete and the completion
+	 *              flag.
 	 */
-	private static function migrate_long_form_strategy(): void {
+	private static function migrate_long_form_strategy(): bool {
 		$stored        = \get_option( 'fosse_long_form_strategy' );
 		$sentinel      = '__fosse_unset__';
 		$canonical_set = $sentinel !== \get_option( 'atmosphere_long_form_composition', $sentinel );
 
 		if ( false !== $stored ) {
+			$resolved_legacy = self::resolve_legacy_long_form_strategy( $stored );
 			if ( ! $canonical_set ) {
-				\update_option( 'atmosphere_long_form_composition', self::resolve_legacy_long_form_strategy( $stored ) );
+				\update_option( 'atmosphere_long_form_composition', $resolved_legacy );
+				// Verify by re-read; `update_option` returns false on both
+				// DB failure and a no-op same-value write, so the return
+				// value alone can't distinguish success from rejection.
+				if ( $resolved_legacy !== \get_option( 'atmosphere_long_form_composition' ) ) {
+					/** This action is documented in {@see self::migrate_object_type()}. */
+					\do_action( 'fosse_canonical_migration_failed', 'long_form_strategy', $resolved_legacy, \get_option( 'atmosphere_long_form_composition' ) );
+					return false;
+				}
 			} else {
-				$resolved_legacy = self::resolve_legacy_long_form_strategy( $stored );
-				$canonical       = (string) \get_option( 'atmosphere_long_form_composition', '' );
+				$canonical = (string) \get_option( 'atmosphere_long_form_composition', '' );
 				if ( $resolved_legacy !== $canonical ) {
 					/** This action is documented in {@see self::migrate_object_type()}. */
 					\do_action( 'fosse_canonical_migration_conflict', 'long_form_strategy', $stored, $canonical );
 				}
 			}
 			\delete_option( 'fosse_long_form_strategy' );
-			return;
+			return true;
 		}
 
 		// Fresh install: seed the FOSSE default if and only if Atmosphere
 		// hasn't been configured.
 		if ( ! $canonical_set ) {
 			\update_option( 'atmosphere_long_form_composition', self::DEFAULT_LONG_FORM_STRATEGY );
+			if ( self::DEFAULT_LONG_FORM_STRATEGY !== \get_option( 'atmosphere_long_form_composition' ) ) {
+				/** This action is documented in {@see self::migrate_object_type()}. */
+				\do_action( 'fosse_canonical_migration_failed', 'long_form_strategy', self::DEFAULT_LONG_FORM_STRATEGY, \get_option( 'atmosphere_long_form_composition' ) );
+				return false;
+			}
 		}
+
+		return true;
 	}
 
 	/**

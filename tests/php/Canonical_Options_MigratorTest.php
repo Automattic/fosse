@@ -344,4 +344,128 @@ class Canonical_Options_MigratorTest extends BaseTestCase {
 		$this->assertFalse( get_option( 'fosse_long_form_strategy' ) );
 		$this->assertSame( '1', (string) get_option( Canonical_Options_Migrator::MIGRATED_FLAG_OPTION ) );
 	}
+
+	/**
+	 * If `update_option` for the canonical AP option fails to converge
+	 * (here forced via a `pre_update_option_*` filter that intercepts
+	 * the write), the migrator must NOT delete the legacy option and
+	 * MUST NOT set the completion flag — leaving the site in its
+	 * pre-migration state so the next request retries. The alternative
+	 * (delete legacy + set flag anyway) would lock the site in a
+	 * half-migrated state with neither option holding the right value
+	 * and the migrator never running again.
+	 */
+	public function test_migrate_object_type_failure_retries_on_next_request(): void {
+		update_option( 'fosse_object_type', 'note' );
+
+		// Block the canonical write by short-circuiting the update via the
+		// pre_update_option filter. Returning the existing (sentinel)
+		// value tells WordPress "no change" and the option stays unset.
+		$short_circuit = static function ( $value, $old_value ) {
+			return $old_value;
+		};
+		add_filter( 'pre_update_option_activitypub_object_type', $short_circuit, 10, 2 );
+
+		$failures = array();
+		add_action(
+			'fosse_canonical_migration_failed',
+			static function ( $key, $attempted, $actual ) use ( &$failures ): void {
+				$failures[] = compact( 'key', 'attempted', 'actual' );
+			},
+			10,
+			3
+		);
+
+		Canonical_Options_Migrator::maybe_migrate();
+
+		// Canonical write was rejected, so the legacy option is preserved
+		// and the completion flag is unset — first request retries on the
+		// next load.
+		$this->assertFalse( get_option( 'activitypub_object_type' ) );
+		$this->assertSame( 'note', get_option( 'fosse_object_type' ) );
+		$this->assertFalse( get_option( Canonical_Options_Migrator::MIGRATED_FLAG_OPTION ) );
+		$this->assertCount( 1, $failures );
+		$this->assertSame( 'object_type', $failures[0]['key'] );
+		$this->assertSame( 'note', $failures[0]['attempted'] );
+
+		remove_filter( 'pre_update_option_activitypub_object_type', $short_circuit, 10 );
+
+		// Second pass with the filter removed: migration converges and
+		// the flag finally lands.
+		Canonical_Options_Migrator::maybe_migrate();
+
+		$this->assertSame( 'note', get_option( 'activitypub_object_type' ) );
+		$this->assertFalse( get_option( 'fosse_object_type' ) );
+		$this->assertSame( '1', (string) get_option( Canonical_Options_Migrator::MIGRATED_FLAG_OPTION ) );
+	}
+
+	/**
+	 * Same retry contract for the long-form half: if the Atmosphere
+	 * canonical write is intercepted, the legacy option is preserved
+	 * and the completion flag stays unset so the migrator runs again
+	 * next request.
+	 */
+	public function test_migrate_long_form_failure_retries_on_next_request(): void {
+		update_option( 'fosse_long_form_strategy', 'truncate-link' );
+
+		$short_circuit = static function ( $value, $old_value ) {
+			return $old_value;
+		};
+		add_filter( 'pre_update_option_atmosphere_long_form_composition', $short_circuit, 10, 2 );
+
+		$failures = array();
+		add_action(
+			'fosse_canonical_migration_failed',
+			static function ( $key, $attempted, $actual ) use ( &$failures ): void {
+				$failures[] = compact( 'key', 'attempted', 'actual' );
+			},
+			10,
+			3
+		);
+
+		Canonical_Options_Migrator::maybe_migrate();
+
+		$this->assertFalse( get_option( 'atmosphere_long_form_composition' ) );
+		$this->assertSame( 'truncate-link', get_option( 'fosse_long_form_strategy' ) );
+		$this->assertFalse( get_option( Canonical_Options_Migrator::MIGRATED_FLAG_OPTION ) );
+		$this->assertCount( 1, $failures );
+		$this->assertSame( 'long_form_strategy', $failures[0]['key'] );
+		$this->assertSame( 'truncate-link', $failures[0]['attempted'] );
+
+		remove_filter( 'pre_update_option_atmosphere_long_form_composition', $short_circuit, 10 );
+
+		Canonical_Options_Migrator::maybe_migrate();
+
+		$this->assertSame( 'truncate-link', get_option( 'atmosphere_long_form_composition' ) );
+		$this->assertFalse( get_option( 'fosse_long_form_strategy' ) );
+		$this->assertSame( '1', (string) get_option( Canonical_Options_Migrator::MIGRATED_FLAG_OPTION ) );
+	}
+
+	/**
+	 * The fresh-install seed path must also report failure so the
+	 * completion flag stays unset and the seed retries on the next
+	 * request. Without the failure-aware return path the migrator would
+	 * mark itself complete with the canonical option stuck unset, and
+	 * Atmosphere would silently fall through to its `'link-card'`
+	 * default — opposite of the FOSSE preference the seed exists to
+	 * preserve.
+	 */
+	public function test_migrate_fresh_install_seed_failure_retries_on_next_request(): void {
+		$short_circuit = static function ( $value, $old_value ) {
+			return $old_value;
+		};
+		add_filter( 'pre_update_option_atmosphere_long_form_composition', $short_circuit, 10, 2 );
+
+		Canonical_Options_Migrator::maybe_migrate();
+
+		$this->assertFalse( get_option( 'atmosphere_long_form_composition' ) );
+		$this->assertFalse( get_option( Canonical_Options_Migrator::MIGRATED_FLAG_OPTION ) );
+
+		remove_filter( 'pre_update_option_atmosphere_long_form_composition', $short_circuit, 10 );
+
+		Canonical_Options_Migrator::maybe_migrate();
+
+		$this->assertSame( 'teaser-thread', get_option( 'atmosphere_long_form_composition' ) );
+		$this->assertSame( '1', (string) get_option( Canonical_Options_Migrator::MIGRATED_FLAG_OPTION ) );
+	}
 }
