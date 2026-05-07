@@ -26,7 +26,7 @@ namespace Automattic\Fosse\Metrics;
  *   than break a user-facing flow.
  *
  * The hardcoded `ALLOWED` map is the source of truth — updates must match
- * `implementation.md` § Event taxonomy. `Schema_Test::test_event_coverage`
+ * `implementation.md` § Event taxonomy. `SchemaTest::test_event_coverage`
  * iterates a parallel list to detect drift between docs and code.
  */
 final class Schema {
