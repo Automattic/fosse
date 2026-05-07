@@ -152,14 +152,13 @@
    ============================================= */
 
 .fosse-wizard {
-	--fosse-wizard-canvas: #f7faf9;
 	--fosse-wizard-surface: #fff;
 	--fosse-wizard-border: #dcdcde;
 	--fosse-wizard-border-strong: #c3c4c7;
 	--fosse-wizard-accent: #3858e9;
 	--fosse-wizard-accent-soft: #f3f6ff;
 	--fosse-wizard-accent-icon: #e6ecff;
-	--fosse-wizard-accent-border-soft: rgba(56, 88, 233, 0.38);
+	--fosse-wizard-accent-soft-border: rgba(56, 88, 233, 0.38);
 	--fosse-wizard-success: #168a4a;
 	--fosse-wizard-success-soft: #edf8f1;
 	--fosse-wizard-text: #1d2327;
@@ -775,7 +774,7 @@
 }
 
 .fosse-post-type-item:has(input:checked) {
-	border-color: var(--fosse-wizard-accent-border-soft);
+	border-color: var(--fosse-wizard-accent-soft-border);
 	background: var(--fosse-wizard-accent-soft);
 }
 

@@ -1099,6 +1099,11 @@ class Onboarding_WizardTest extends BaseTestCase {
 
 		$this->assertStringContainsString( 'As your site', $output );
 		$this->assertMatchesRegularExpression( '~As your site\s*<code>@[^<]+@[^<]+</code>~', $output );
+		// Mirror the actor-mode guard so a future revert of the inline-space
+		// change in `format_mode_label()` (back to `<br /><code>`) is caught
+		// for the blog branch too — the assertion above's `\s*` accepts both
+		// shapes and would not flag the regression on its own.
+		$this->assertDoesNotMatchRegularExpression( '~As your site<br\s*/?>~', $output );
 	}
 
 	/**

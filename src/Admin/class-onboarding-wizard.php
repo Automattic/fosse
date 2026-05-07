@@ -1276,15 +1276,6 @@ class Onboarding_Wizard {
 	 * @return void
 	 */
 	private static function render_step_bluesky(): void {
-		// Defense in depth: render() routes through get_render_step() before
-		// dispatching here, so the live admin path can't reach this branch
-		// with a fediverse-only destination. Kept as a guard against any
-		// future direct caller in this class.
-		if ( ! self::destination_includes_bluesky() ) {
-			self::render_step_content();
-			return;
-		}
-
 		self::render_progress( 'bluesky' );
 		$status = self::get_bluesky_status();
 
@@ -1444,17 +1435,6 @@ class Onboarding_Wizard {
 	 * @return void
 	 */
 	private static function render_step_complete(): void {
-		// Defense in depth: render() routes through get_render_step() before
-		// dispatching here, so the live admin path can't reach this branch
-		// with !is_complete(). Kept as a guard against any future direct
-		// caller in this class. Direct GET to ?step=complete on an incomplete
-		// wizard is the case get_render_step() handles by substituting a
-		// useful in-flow step.
-		if ( ! self::is_complete() ) {
-			self::render_step_destinations();
-			return;
-		}
-
 		self::render_progress( 'complete' );
 
 		$actor_mode        = get_option( 'activitypub_actor_mode', 'actor' );
