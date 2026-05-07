@@ -477,7 +477,7 @@ class Onboarding_Wizard {
 	 */
 	private static function get_render_step( string $step ): string {
 		if ( 'complete' === $step && ! self::is_complete() ) {
-			return 'destinations';
+			return self::resolve_pre_completion_step();
 		}
 
 		if ( 'bluesky' === $step && ! self::destination_includes_bluesky() ) {
@@ -485,6 +485,30 @@ class Onboarding_Wizard {
 		}
 
 		return $step;
+	}
+
+	/**
+	 * Pick the most useful step to substitute for a pre-completion `?step=complete` URL.
+	 *
+	 * A user who lands on `?step=complete` before `is_complete()` is true has
+	 * either crafted the URL by hand, hit browser-back from a fresh
+	 * `mark_complete()` -> `delete_option()` cycle, or bookmarked the link
+	 * after a wizard reset. Sending all of those cases back to step 1 throws
+	 * away whatever progress they had — pick the latest in-flow step instead
+	 * so a partially-finished run resumes near where it left off.
+	 *
+	 * Use the raw stored option (with `false` as the un-saved sentinel) rather
+	 * than `get_destination()`, which always returns the recommended default
+	 * and would mask a brand-new wizard run as Fediverse + Bluesky.
+	 *
+	 * @return string
+	 */
+	private static function resolve_pre_completion_step(): string {
+		if ( false === get_option( self::DESTINATION_OPTION, false ) ) {
+			return 'destinations';
+		}
+
+		return self::destination_includes_bluesky() ? 'bluesky' : 'content';
 	}
 
 	/**
@@ -594,8 +618,10 @@ class Onboarding_Wizard {
 	 * back gracefully when a handle is missing (AP not loaded, user
 	 * actor unavailable) — never shows an `@` with no local-part.
 	 *
-	 * Returns an HTML string; the consumer escapes via `wp_kses` with
-	 * `code` and `br` allowed.
+	 * Returns an HTML string. Single-identity branches inline the handle
+	 * after a space; the multi-identity `actor_blog` branch separates
+	 * label and handle with `<br />` and joins lines with `<br />`. The
+	 * consumer escapes via `wp_kses` with `code` and `br` allowed.
 	 *
 	 * @param string $mode        Actor mode value.
 	 * @param string $user_handle Normalized `@user@host` for the current user, or empty.
@@ -1250,6 +1276,10 @@ class Onboarding_Wizard {
 	 * @return void
 	 */
 	private static function render_step_bluesky(): void {
+		// Defense in depth: render() routes through get_render_step() before
+		// dispatching here, so the live admin path can't reach this branch
+		// with a fediverse-only destination. Kept as a guard against any
+		// future direct caller in this class.
 		if ( ! self::destination_includes_bluesky() ) {
 			self::render_step_content();
 			return;
@@ -1414,9 +1444,12 @@ class Onboarding_Wizard {
 	 * @return void
 	 */
 	private static function render_step_complete(): void {
-		// Direct GET to ?step=complete (URL crafting, browser back/forward) would
-		// otherwise render the success screen without ever marking the wizard
-		// complete via handle_complete(), leaving the Setup notice nagging.
+		// Defense in depth: render() routes through get_render_step() before
+		// dispatching here, so the live admin path can't reach this branch
+		// with !is_complete(). Kept as a guard against any future direct
+		// caller in this class. Direct GET to ?step=complete on an incomplete
+		// wizard is the case get_render_step() handles by substituting a
+		// useful in-flow step.
 		if ( ! self::is_complete() ) {
 			self::render_step_destinations();
 			return;

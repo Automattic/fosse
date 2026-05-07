@@ -1263,12 +1263,44 @@ class Onboarding_WizardTest extends BaseTestCase {
 
 	/**
 	 * Direct GETs to the review step before completion fall back to the first
-	 * wizard step instead of attempting a late admin-page redirect.
+	 * wizard step when no destination has been saved yet — a brand-new wizard
+	 * run shouldn't skip past the destination decision.
 	 */
 	public function test_render_complete_step_before_completion_falls_back_to_destinations(): void {
 		$output = $this->render_wizard_step( 'complete' );
 
 		$this->assertStringContainsString( 'Where should your WordPress posts appear?', $output );
+		$this->assertStringNotContainsString( 'You&#039;re all set!', $output );
+	}
+
+	/**
+	 * Direct GETs to the review step on an incomplete Fediverse + Bluesky
+	 * wizard land on the Bluesky step — the latest in-flow step before
+	 * completion — so a partially-finished run resumes near where the
+	 * user left off instead of restarting from step 1.
+	 */
+	public function test_render_complete_step_before_completion_routes_to_bluesky_for_saved_bluesky_destination(): void {
+		update_option( Onboarding_Wizard::DESTINATION_OPTION, 'fediverse_bluesky' );
+
+		$output = $this->render_wizard_step( 'complete' );
+
+		$this->assertStringContainsString( 'Connect to Bluesky', $output );
+		$this->assertStringNotContainsString( 'Where should your WordPress posts appear?', $output );
+		$this->assertStringNotContainsString( 'You&#039;re all set!', $output );
+	}
+
+	/**
+	 * Direct GETs to the review step on an incomplete Fediverse-only wizard
+	 * land on the Content step — the last step that submits and marks the
+	 * wizard complete on this destination path.
+	 */
+	public function test_render_complete_step_before_completion_routes_to_content_for_saved_fediverse_only(): void {
+		update_option( Onboarding_Wizard::DESTINATION_OPTION, 'fediverse_only' );
+
+		$output = $this->render_wizard_step( 'complete' );
+
+		$this->assertStringContainsString( 'What do you want to share?', $output );
+		$this->assertStringNotContainsString( 'Where should your WordPress posts appear?', $output );
 		$this->assertStringNotContainsString( 'You&#039;re all set!', $output );
 	}
 
