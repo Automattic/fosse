@@ -164,7 +164,7 @@ class Onboarding_Wizard {
 			return;
 		}
 
-		$step = self::get_current_step();
+		$step = self::get_render_step( self::get_current_step() );
 
 		switch ( $step ) {
 			case 'destinations':
@@ -465,6 +465,53 @@ class Onboarding_Wizard {
 	}
 
 	/**
+	 * Normalize the requested step for read-only rendering.
+	 *
+	 * Admin page callbacks run after WordPress has already printed part of the
+	 * admin shell, so render-only navigation cannot safely redirect. Keep
+	 * redirects in admin-post handlers and degrade crafted or stale wizard URLs
+	 * to the nearest useful step.
+	 *
+	 * @param string $step Requested step.
+	 * @return string
+	 */
+	private static function get_render_step( string $step ): string {
+		if ( 'complete' === $step && ! self::is_complete() ) {
+			return self::resolve_pre_completion_step();
+		}
+
+		if ( 'bluesky' === $step && ! self::destination_includes_bluesky() ) {
+			return 'content';
+		}
+
+		return $step;
+	}
+
+	/**
+	 * Pick the most useful step to substitute for a pre-completion `?step=complete` URL.
+	 *
+	 * A user who lands on `?step=complete` before `is_complete()` is true has
+	 * either crafted the URL by hand, hit browser-back from a fresh
+	 * `mark_complete()` -> `delete_option()` cycle, or bookmarked the link
+	 * after a wizard reset. Sending all of those cases back to step 1 throws
+	 * away whatever progress they had — pick the latest in-flow step instead
+	 * so a partially-finished run resumes near where it left off.
+	 *
+	 * Use the raw stored option (with `false` as the un-saved sentinel) rather
+	 * than `get_destination()`, which always returns the recommended default
+	 * and would mask a brand-new wizard run as Fediverse + Bluesky.
+	 *
+	 * @return string
+	 */
+	private static function resolve_pre_completion_step(): string {
+		if ( false === get_option( self::DESTINATION_OPTION, false ) ) {
+			return 'destinations';
+		}
+
+		return self::destination_includes_bluesky() ? 'bluesky' : 'content';
+	}
+
+	/**
 	 * Get the saved destination intent, falling back to the recommended path.
 	 *
 	 * @return string
@@ -564,15 +611,17 @@ class Onboarding_Wizard {
 	}
 
 	/**
-	 * Format the "Site appears as" summary label for the completion step.
+	 * Format the "People follow" summary value for the completion step.
 	 *
 	 * Embeds the resolved fediverse handle(s) so users see the actual
 	 * identity they just stood up rather than just the bare host. Falls
 	 * back gracefully when a handle is missing (AP not loaded, user
 	 * actor unavailable) — never shows an `@` with no local-part.
 	 *
-	 * Returns an HTML string; the consumer escapes via `wp_kses` with
-	 * `code` and `br` allowed.
+	 * Returns an HTML string. Single-identity branches inline the handle
+	 * after a space; the multi-identity `actor_blog` branch separates
+	 * label and handle with `<br />` and joins lines with `<br />`. The
+	 * consumer escapes via `wp_kses` with `code` and `br` allowed.
 	 *
 	 * @param string $mode        Actor mode value.
 	 * @param string $user_handle Normalized `@user@host` for the current user, or empty.
@@ -584,18 +633,18 @@ class Onboarding_Wizard {
 			case 'actor':
 				if ( '' !== $user_handle ) {
 					return esc_html__( 'As you', 'fosse' )
-						. '<br /><code>' . esc_html( $user_handle ) . '</code>';
+						. ' <code>' . esc_html( $user_handle ) . '</code>';
 				}
 				return esc_html__( 'As you (author profiles)', 'fosse' );
 
 			case 'blog':
 				if ( '' !== $blog_handle ) {
 					return esc_html__( 'As your site', 'fosse' )
-						. '<br /><code>' . esc_html( $blog_handle ) . '</code>';
+						. ' <code>' . esc_html( $blog_handle ) . '</code>';
 				}
 				$site_host = wp_parse_url( home_url(), PHP_URL_HOST );
 				return esc_html__( 'As your site', 'fosse' )
-					. '<br /><code>' . esc_html( $site_host ? $site_host : 'yoursite.com' ) . '</code>';
+					. ' <code>' . esc_html( $site_host ? $site_host : 'yoursite.com' ) . '</code>';
 
 			case 'actor_blog':
 				$lines = array( esc_html__( 'Both (site + authors)', 'fosse' ) );
@@ -818,7 +867,7 @@ class Onboarding_Wizard {
 				<?php endif; ?>
 				<li class="<?php echo esc_attr( $classes ); ?>"<?php echo $is_active ? ' aria-current="step"' : ''; ?>>
 					<span class="fosse-wizard__progress-dot" aria-hidden="true"></span>
-					<?php echo esc_html( $labels[ $key ] ); ?>
+					<span class="fosse-wizard__progress-label"><?php echo esc_html( $labels[ $key ] ); ?></span>
 				</li>
 			<?php endforeach; ?>
 		</ol>
@@ -838,20 +887,24 @@ class Onboarding_Wizard {
 
 		$destinations = array(
 			self::DESTINATION_FEDIVERSE_BLUESKY => array(
+				'class' => 'fosse-destination-card--fediverse-bluesky',
+				'icon'  => 'dashicons-star-filled',
 				'badge' => __( 'Recommended', 'fosse' ),
 				'title' => __( 'Fediverse + Bluesky', 'fosse' ),
-				'desc'  => __( 'Let people follow your site from Mastodon-compatible apps and publish eligible posts to Bluesky.', 'fosse' ),
+				'desc'  => __( 'Let people follow your site from apps like Mastodon, and share eligible posts to Bluesky.', 'fosse' ),
 			),
 			self::DESTINATION_FEDIVERSE_ONLY    => array(
+				'class' => 'fosse-destination-card--fediverse-only',
+				'icon'  => 'dashicons-networking',
 				'badge' => __( 'Simple setup', 'fosse' ),
 				'title' => __( 'Fediverse only', 'fosse' ),
-				'desc'  => __( 'Let people follow your site from Mastodon-compatible apps without setting up Bluesky in this wizard.', 'fosse' ),
+				'desc'  => __( 'Let people follow your site from apps like Mastodon. You can connect Bluesky later.', 'fosse' ),
 			),
 		);
 		?>
 		<h1 class="fosse-wizard__title"><?php esc_html_e( 'Where should your WordPress posts appear?', 'fosse' ); ?></h1>
 		<p class="fosse-wizard__description">
-			<?php esc_html_e( 'Choose where FOSSE should share your posts. You can connect Bluesky or change these settings later in FOSSE Settings.', 'fosse' ); ?>
+			<?php esc_html_e( 'Fediverse sharing is enabled by default, so people can follow your site from Mastodon and similar apps. You can also connect Bluesky now or set it up later.', 'fosse' ); ?>
 		</p>
 
 		<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
@@ -865,7 +918,7 @@ class Onboarding_Wizard {
 						<?php esc_html_e( 'Where to publish', 'fosse' ); ?>
 					</legend>
 					<?php foreach ( $destinations as $value => $destination ) : ?>
-						<label class="fosse-destination-card">
+						<label class="fosse-destination-card <?php echo esc_attr( $destination['class'] ); ?>">
 							<input
 								type="radio"
 								name="fosse_onboarding_destination"
@@ -873,11 +926,16 @@ class Onboarding_Wizard {
 								class="fosse-destination-card__input"
 								<?php checked( $value, $current_destination ); ?>
 							/>
-							<span class="fosse-destination-card__badge"><?php echo esc_html( $destination['badge'] ); ?></span>
+							<span class="fosse-destination-card__header">
+								<span class="fosse-destination-card__icon" aria-hidden="true">
+									<span class="dashicons <?php echo esc_attr( $destination['icon'] ); ?>"></span>
+								</span>
+								<span class="fosse-destination-card__badge"><?php echo esc_html( $destination['badge'] ); ?></span>
+							</span>
 							<span class="fosse-destination-card__title"><?php echo esc_html( $destination['title'] ); ?></span>
 							<span class="fosse-destination-card__desc"><?php echo esc_html( $destination['desc'] ); ?></span>
 							<span class="fosse-destination-card__check" aria-hidden="true">
-								<span class="dashicons dashicons-yes-alt"></span>
+								<span class="dashicons dashicons-yes"></span>
 							</span>
 						</label>
 					<?php endforeach; ?>
@@ -921,7 +979,7 @@ class Onboarding_Wizard {
 				'title' => __( 'As you', 'fosse' ),
 				'desc'  => sprintf(
 					/* translators: 1: opening <strong> tag, 2: closing </strong> tag */
-					__( 'People follow %1$syou%2$s personally. Posts appear under your author name. Best for personal sites.', 'fosse' ),
+					__( 'People follow %1$syou%2$s, and posts show your author name. Best for personal sites.', 'fosse' ),
 					'<strong>',
 					'</strong>'
 				),
@@ -932,19 +990,19 @@ class Onboarding_Wizard {
 				'desc'  => $site_host
 					? sprintf(
 						/* translators: 1: opening <strong> tag, 2: closing </strong> tag, 3: site domain. */
-						__( 'People follow %1$s%3$s%2$s. All posts appear from your site\'s name. Best for blogs and publications.', 'fosse' ),
+						__( 'People follow %1$s%3$s%2$s, and posts show your site name. Best for blogs and publications.', 'fosse' ),
 						'<strong>',
 						'</strong>',
 						esc_html( $site_host )
 					)
-					: __( 'People follow your site. All posts appear from your site\'s name. Best for blogs and publications.', 'fosse' ),
+					: __( 'People follow your site, and posts show your site name. Best for blogs and publications.', 'fosse' ),
 			),
 			'actor_blog' => array(
 				'icon'  => 'dashicons-groups',
 				'title' => __( 'Both', 'fosse' ),
 				'desc'  => sprintf(
 					/* translators: 1: opening <strong> tag, 2: closing </strong> tag */
-					__( 'People can follow your site %1$sor%2$s individual authors separately. Best for multi-author sites.', 'fosse' ),
+					__( 'People can follow your site %1$sor%2$s individual authors separately. Best for sites with several writers.', 'fosse' ),
 					'<strong>',
 					'</strong>'
 				),
@@ -972,7 +1030,7 @@ class Onboarding_Wizard {
 		?>
 		<h1 class="fosse-wizard__title"><?php esc_html_e( 'Who should people follow?', 'fosse' ); ?></h1>
 		<p class="fosse-wizard__description">
-			<?php esc_html_e( 'Choose the identity people follow from social apps. This affects who appears as the publisher when your selected content is shared.', 'fosse' ); ?>
+			<?php esc_html_e( 'Choose how your site appears in social apps. This controls the name people see when your posts are shared.', 'fosse' ); ?>
 		</p>
 
 		<?php settings_errors( 'fosse' ); ?>
@@ -1019,7 +1077,7 @@ class Onboarding_Wizard {
 									<div class="fosse-mode-card__desc"><?php echo wp_kses( $mode['desc'], array( 'strong' => array() ) ); ?></div>
 								</div>
 								<div class="fosse-mode-card__check" aria-hidden="true">
-									<span class="dashicons dashicons-yes-alt"></span>
+									<span class="dashicons dashicons-yes"></span>
 								</div>
 							</label>
 						<?php endforeach; ?>
@@ -1065,10 +1123,10 @@ class Onboarding_Wizard {
 								</div>
 							<?php endif; ?>
 						<?php elseif ( 'actor' === $preview_mode && '' !== $user_handle ) : ?>
-							<span class="fosse-address-preview__label"><?php esc_html_e( 'Your fediverse address:', 'fosse' ); ?></span>
+							<span class="fosse-address-preview__label"><?php esc_html_e( 'Your follow address:', 'fosse' ); ?></span>
 							<code class="fosse-address-preview__address"><?php echo esc_html( $user_handle ); ?></code>
 						<?php elseif ( 'blog' === $preview_mode && '' !== $blog_handle ) : ?>
-							<span class="fosse-address-preview__label"><?php esc_html_e( 'Site fediverse address:', 'fosse' ); ?></span>
+							<span class="fosse-address-preview__label"><?php esc_html_e( 'Site follow address:', 'fosse' ); ?></span>
 							<code class="fosse-address-preview__address"><?php echo esc_html( $blog_handle ); ?></code>
 						<?php endif; ?>
 					</div>
@@ -1082,7 +1140,7 @@ class Onboarding_Wizard {
 				?>
 				<div class="<?php echo esc_attr( $blog_handle_classes ); ?>" data-fosse-when="includes-blog">
 					<label for="fosse-wizard-blog-identifier" class="fosse-wizard__blog-handle-label">
-						<?php esc_html_e( 'Site Handle', 'fosse' ); ?>
+						<?php esc_html_e( 'Site handle', 'fosse' ); ?>
 					</label>
 					<input
 						type="text"
@@ -1094,7 +1152,7 @@ class Onboarding_Wizard {
 						aria-describedby="fosse-wizard-blog-identifier-desc"
 					/>
 					<p id="fosse-wizard-blog-identifier-desc" class="description">
-						<?php esc_html_e( 'The username people use to follow your site from the fediverse. Cannot match an existing author login or nicename.', 'fosse' ); ?>
+						<?php esc_html_e( 'The username people use to follow your site. It cannot match an existing author username.', 'fosse' ); ?>
 					</p>
 				</div>
 			</div>
@@ -1132,12 +1190,12 @@ class Onboarding_Wizard {
 		?>
 		<h1 class="fosse-wizard__title"><?php esc_html_e( 'What do you want to share?', 'fosse' ); ?></h1>
 		<p class="fosse-wizard__description">
-			<?php esc_html_e( 'Choose which types of content appear in people\'s feeds when they follow you. You can change this anytime.', 'fosse' ); ?>
+			<?php esc_html_e( 'Choose what to share with people who follow your site. You can change this anytime.', 'fosse' ); ?>
 		</p>
 
 		<?php if ( $has_empty_error ) : ?>
 			<div class="notice notice-error inline">
-				<p><?php esc_html_e( 'Pick at least one content type so federated followers have something to receive.', 'fosse' ); ?></p>
+				<p><?php esc_html_e( 'Pick at least one content type to share.', 'fosse' ); ?></p>
 			</div>
 		<?php endif; ?>
 
@@ -1194,7 +1252,7 @@ class Onboarding_Wizard {
 				</div>
 
 				<div class="fosse-wizard__hint">
-					<p><?php esc_html_e( 'Only future posts will be shared. Existing content won\'t be sent to anyone\'s feed retroactively.', 'fosse' ); ?></p>
+					<p><?php esc_html_e( 'Only new posts will be shared. Existing content will not be sent to followers.', 'fosse' ); ?></p>
 				</div>
 			</div>
 
@@ -1224,11 +1282,6 @@ class Onboarding_Wizard {
 	 * @return void
 	 */
 	private static function render_step_bluesky(): void {
-		if ( ! self::destination_includes_bluesky() ) {
-			self::redirect_to_step( 'content' );
-			return;
-		}
-
 		self::render_progress( 'bluesky' );
 		$status = self::get_bluesky_status();
 
@@ -1242,8 +1295,8 @@ class Onboarding_Wizard {
 			: __( 'Connect to Bluesky', 'fosse' );
 
 		$description = $is_connected
-			? __( 'Your posts will also appear on Bluesky. Review the details below before finishing setup.', 'fosse' )
-			: __( 'Link your Bluesky account so your posts also appear on Bluesky. This step is optional. You can always connect later from the FOSSE Settings page.', 'fosse' );
+			? __( 'Bluesky is connected. Review the details below before finishing setup.', 'fosse' )
+			: __( 'Connect your Bluesky account to share eligible WordPress posts there too. This is optional, and you can do it later in FOSSE Settings.', 'fosse' );
 		?>
 		<h1 class="fosse-wizard__title"><?php echo esc_html( $title ); ?></h1>
 		<p class="fosse-wizard__description">
@@ -1276,7 +1329,7 @@ class Onboarding_Wizard {
 				<div class="notice notice-info inline fosse-wizard__notice">
 					<p>
 						<strong><?php esc_html_e( 'Bluesky setup is unavailable.', 'fosse' ); ?></strong>
-						<?php esc_html_e( 'Skip this step for now and connect from the FOSSE Settings page once Bluesky support is available.', 'fosse' ); ?>
+						<?php esc_html_e( 'You can finish setup now and connect from FOSSE Settings later.', 'fosse' ); ?>
 					</p>
 				</div>
 			<?php elseif ( $is_connected ) : ?>
@@ -1284,7 +1337,7 @@ class Onboarding_Wizard {
 				<div class="notice notice-success inline fosse-wizard__notice">
 					<p>
 						<strong><?php esc_html_e( 'Bluesky is connected.', 'fosse' ); ?></strong>
-						<?php esc_html_e( 'FOSSE can publish eligible posts to this account.', 'fosse' ); ?>
+						<?php esc_html_e( 'FOSSE can share eligible posts with this account.', 'fosse' ); ?>
 					</p>
 				</div>
 
@@ -1297,19 +1350,19 @@ class Onboarding_Wizard {
 					<?php endif; ?>
 					<?php if ( $status['did'] ) : ?>
 						<tr>
-							<td class="fosse-summary__label"><?php esc_html_e( 'DID', 'fosse' ); ?></td>
+							<td class="fosse-summary__label"><?php esc_html_e( 'Account ID', 'fosse' ); ?></td>
 							<td class="fosse-summary__value"><code><?php echo esc_html( $status['did'] ); ?></code></td>
 						</tr>
 					<?php endif; ?>
 					<?php if ( ! empty( $handle_previews['user'] ) ) : ?>
 						<tr>
-							<td class="fosse-summary__label"><?php esc_html_e( 'Your fediverse address', 'fosse' ); ?></td>
+							<td class="fosse-summary__label"><?php esc_html_e( 'Your follow address', 'fosse' ); ?></td>
 							<td class="fosse-summary__value"><code><?php echo esc_html( $handle_previews['user'] ); ?></code></td>
 						</tr>
 					<?php endif; ?>
 					<?php if ( ! empty( $handle_previews['blog'] ) ) : ?>
 						<tr>
-							<td class="fosse-summary__label"><?php esc_html_e( 'Site fediverse address', 'fosse' ); ?></td>
+							<td class="fosse-summary__label"><?php esc_html_e( 'Site follow address', 'fosse' ); ?></td>
 							<td class="fosse-summary__value"><code><?php echo esc_html( $handle_previews['blog'] ); ?></code></td>
 						</tr>
 					<?php endif; ?>
@@ -1322,7 +1375,7 @@ class Onboarding_Wizard {
 
 					<div class="fosse-bluesky-form">
 						<label for="fosse-bsky-handle" class="fosse-bluesky-form__label">
-							<?php esc_html_e( 'Bluesky or AT Protocol handle', 'fosse' ); ?>
+							<?php esc_html_e( 'Bluesky handle', 'fosse' ); ?>
 						</label>
 						<div class="fosse-bluesky-form__controls">
 							<input
@@ -1335,7 +1388,7 @@ class Onboarding_Wizard {
 							/>
 						</div>
 						<p id="fosse-bsky-handle-description" class="description">
-							<?php esc_html_e( 'Use your Bluesky handle, or a custom domain handle if you have one.', 'fosse' ); ?>
+							<?php esc_html_e( 'Enter your Bluesky handle, such as yourname.bsky.social. If you use your own domain as your handle, enter that.', 'fosse' ); ?>
 						</p>
 					</div>
 				</form>
@@ -1346,7 +1399,7 @@ class Onboarding_Wizard {
 						echo wp_kses_post(
 							sprintf(
 								/* translators: 1: opening Bluesky signup anchor tag, 2: closing anchor tag, 3: opening domain-handle help anchor tag, 4: closing anchor tag. */
-								__( 'Need help getting started? %1$sCreate a Bluesky account%2$s, or %3$slearn how to use your domain as your handle%4$s.', 'fosse' ),
+								__( 'Need a Bluesky account? %1$sCreate one%2$s, or %3$slearn how to use your own domain as your handle%4$s.', 'fosse' ),
 								'<a href="' . esc_url( 'https://bsky.app/' ) . '" target="_blank" rel="noopener noreferrer" class="fosse-bluesky-signup__link">',
 								'</a>',
 								'<a href="' . esc_url( 'https://bsky.social/about/blog/4-28-2023-domain-handle-tutorial' ) . '" target="_blank" rel="noopener noreferrer">',
@@ -1388,14 +1441,6 @@ class Onboarding_Wizard {
 	 * @return void
 	 */
 	private static function render_step_complete(): void {
-		// Direct GET to ?step=complete (URL crafting, browser back/forward) would
-		// otherwise render the success screen without ever marking the wizard
-		// complete via handle_complete(), leaving the Setup notice nagging.
-		if ( ! self::is_complete() ) {
-			self::redirect_to_step( 'destinations' );
-			return;
-		}
-
 		self::render_progress( 'complete' );
 
 		$actor_mode        = get_option( 'activitypub_actor_mode', 'actor' );
@@ -1436,11 +1481,11 @@ class Onboarding_Wizard {
 		?>
 		<div class="fosse-wizard__complete-header">
 			<div class="fosse-complete-icon">
-				<span class="dashicons dashicons-yes-alt"></span>
+				<span class="dashicons dashicons-yes"></span>
 			</div>
 			<h1 class="fosse-wizard__title"><?php esc_html_e( 'You\'re all set!', 'fosse' ); ?></h1>
 			<p class="fosse-wizard__description">
-				<?php esc_html_e( 'Review your setup, then publish from WordPress when you are ready.', 'fosse' ); ?>
+				<?php esc_html_e( 'Your sharing setup is ready. Review it below, then publish from WordPress when you are ready.', 'fosse' ); ?>
 			</p>
 		</div>
 
@@ -1451,7 +1496,7 @@ class Onboarding_Wizard {
 					<td class="fosse-summary__value"><?php echo esc_html( $destination_label ); ?></td>
 				</tr>
 				<tr>
-					<td class="fosse-summary__label"><?php esc_html_e( 'Site appears as', 'fosse' ); ?></td>
+					<td class="fosse-summary__label"><?php esc_html_e( 'People follow', 'fosse' ); ?></td>
 					<td class="fosse-summary__value">
 						<?php
 						echo wp_kses(
@@ -1465,7 +1510,7 @@ class Onboarding_Wizard {
 					</td>
 				</tr>
 				<tr>
-					<td class="fosse-summary__label"><?php esc_html_e( 'Sharing', 'fosse' ); ?></td>
+					<td class="fosse-summary__label"><?php esc_html_e( 'Content shared', 'fosse' ); ?></td>
 					<td class="fosse-summary__value"><?php echo esc_html( implode( ', ', $type_labels ) ); ?></td>
 				</tr>
 				<tr>
@@ -1482,13 +1527,13 @@ class Onboarding_Wizard {
 		<?php
 		$cta = self::resolve_publish_cta( $post_types );
 		if ( $publishes_bluesky ) {
-			$cta_help = __( 'Your post will reach followers across Mastodon-compatible apps and Bluesky.', 'fosse' );
+			$cta_help = __( 'Your post can reach people on Fediverse apps like Mastodon and on Bluesky.', 'fosse' );
 		} elseif ( $bluesky['connected'] ) {
-			$cta_help = __( 'Your post will reach followers across Mastodon-compatible apps. Bluesky is connected, but automatic publishing is off.', 'fosse' );
+			$cta_help = __( 'Your post can reach people on Fediverse apps like Mastodon. Bluesky is connected, but automatic sharing is off.', 'fosse' );
 		} elseif ( $includes_bluesky ) {
-			$cta_help = __( 'Your post will reach followers across Mastodon-compatible apps and Bluesky if connected.', 'fosse' );
+			$cta_help = __( 'Your post can reach people on Fediverse apps like Mastodon. Connect Bluesky to share there too.', 'fosse' );
 		} else {
-			$cta_help = __( 'Your post will reach followers across Mastodon-compatible apps.', 'fosse' );
+			$cta_help = __( 'Your post can reach people on Fediverse apps like Mastodon.', 'fosse' );
 		}
 		?>
 		<div class="fosse-wizard__actions fosse-wizard__actions--center">
