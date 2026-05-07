@@ -314,6 +314,80 @@ class Bluesky_ProviderTest extends BaseTestCase {
 	}
 
 	/**
+	 * `redirect_with_notice()` escapes the message before storing it in the
+	 * `'atmosphere'` settings-error group. The audit's escaping finding turns
+	 * on this — `settings_errors()` (and WP's auto-render via `admin_notices`)
+	 * output the stored `message` field as raw HTML, so any `WP_Error` text
+	 * from upstream OAuth/PDS/`sync_publication()` paths must be neutralized
+	 * at storage so every render site is safe.
+	 *
+	 * Drives the helper through reflection (it's private and ends in `exit`,
+	 * which the redirect trap converts to a thrown exception) and inspects
+	 * the resulting global to assert escape happened.
+	 */
+	public function test_redirect_with_notice_escapes_message_at_storage(): void {
+		$this->arm_redirect_trap();
+
+		try {
+			$this->invoke_redirect_with_notice( '<img src=x onerror="alert(1)">', 'error' );
+			$this->fail( 'Expected redirect_with_notice to redirect.' );
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$errors = get_settings_errors( 'atmosphere' );
+		$this->assertNotEmpty( $errors );
+
+		$message = (string) ( $errors[0]['message'] ?? '' );
+		$this->assertStringNotContainsString( '<img', $message );
+		$this->assertStringContainsString( '&lt;img', $message );
+		$this->assertSame( 'error', $errors[0]['type'] ?? '' );
+	}
+
+	/**
+	 * The escape applies on every type, not just errors. A success notice
+	 * with HTML from an upstream payload (unlikely but conceivable) is also
+	 * neutralized.
+	 */
+	public function test_redirect_with_notice_escapes_message_on_success_type(): void {
+		$this->arm_redirect_trap();
+
+		try {
+			$this->invoke_redirect_with_notice( '<b>Connected</b>', 'success' );
+			$this->fail( 'Expected redirect_with_notice to redirect.' );
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$errors = get_settings_errors( 'atmosphere' );
+		$this->assertNotEmpty( $errors );
+
+		$message = (string) ( $errors[0]['message'] ?? '' );
+		$this->assertStringNotContainsString( '<b>', $message );
+		$this->assertStringContainsString( '&lt;b&gt;', $message );
+	}
+
+	/**
+	 * Plain ASCII messages survive the escape unchanged so the routine
+	 * notices ("Disconnected from Bluesky.", "Successfully connected to
+	 * Bluesky.") still read naturally.
+	 */
+	public function test_redirect_with_notice_passes_plain_text_through(): void {
+		$this->arm_redirect_trap();
+
+		try {
+			$this->invoke_redirect_with_notice( 'Disconnected from Bluesky.', 'info' );
+			$this->fail( 'Expected redirect_with_notice to redirect.' );
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$errors = get_settings_errors( 'atmosphere' );
+		$this->assertNotEmpty( $errors );
+		$this->assertSame( 'Disconnected from Bluesky.', $errors[0]['message'] ?? '' );
+	}
+
+	/**
 	 * Status card surfaces the reconnect UI and a details element with the
 	 * raw error when the stored access token can't be decrypted.
 	 */
@@ -1750,6 +1824,37 @@ class Bluesky_ProviderTest extends BaseTestCase {
 			2
 		);
 		return $capture;
+	}
+
+	/**
+	 * Install a `wp_redirect` filter that throws `RedirectFired` so a
+	 * helper that ends in `wp_safe_redirect( ... ); exit;` can be tested
+	 * without process-killing.
+	 *
+	 * @return void
+	 */
+	private function arm_redirect_trap(): void {
+		add_filter(
+			'wp_redirect',
+			static function () {
+				throw new RedirectFired( 'redirect' );
+			}
+		);
+	}
+
+	/**
+	 * Drive the private `redirect_with_notice( message, type )` helper for
+	 * tests that need to exercise the storage-side escape without going
+	 * through a full handler path. Reflection is appropriate here because
+	 * the callers in question are themselves private code paths.
+	 *
+	 * @param string $message Notice message.
+	 * @param string $type    Notice type.
+	 * @return void
+	 */
+	private function invoke_redirect_with_notice( string $message, string $type ): void {
+		( new ReflectionMethod( Bluesky_Provider::class, 'redirect_with_notice' ) )
+			->invoke( $this->provider, $message, $type );
 	}
 
 	/**
