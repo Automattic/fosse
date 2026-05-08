@@ -1,3 +1,7 @@
+---
+status: archived
+---
+
 # Spec: Bundled Backends
 
 ## Goal

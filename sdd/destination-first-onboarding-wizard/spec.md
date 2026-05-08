@@ -1,3 +1,7 @@
+---
+status: archived
+---
+
 # Spec: Destination-First Onboarding Wizard
 
 ## Goal

@@ -1,3 +1,7 @@
+---
+status: archived
+---
+
 # Spec: Admin UX & A11y Polish
 
 ## Problem

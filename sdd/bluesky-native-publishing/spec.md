@@ -1,3 +1,7 @@
+---
+status: shipped
+---
+
 # Spec: Bluesky Native Publishing
 
 ## Goal
