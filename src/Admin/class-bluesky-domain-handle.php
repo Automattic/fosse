@@ -693,7 +693,7 @@ class Bluesky_Domain_Handle {
 		}
 
 		$connection['handle'] = $handle;
-		$updated = update_option( 'atmosphere_connection', $connection );
+		$updated              = update_option( 'atmosphere_connection', $connection );
 		if ( false === $updated && defined( 'WP_DEBUG' ) && WP_DEBUG ) {
 			error_log( 'FOSSE: failed to sync local handle cache after updateHandle' ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
 		}
