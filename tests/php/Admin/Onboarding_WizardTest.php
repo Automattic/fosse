@@ -545,6 +545,8 @@ class Onboarding_WizardTest extends BaseTestCase {
 		$this->assertStringContainsString( 'Simple setup', $output );
 		$this->assertStringContainsString( 'Let people follow your site from apps like Mastodon. You can connect Bluesky later.', $output );
 		$this->assertStringContainsString( 'name="fosse_onboarding_destination"', $output );
+		$this->assertStringContainsString( 'data-fosse-lizard-toggle', $output );
+		$this->assertStringContainsString( '&#x1F98E;', $output );
 		$this->assertStringNotContainsString( 'Welcome to FOSSE', $output );
 		$this->assertStringNotContainsString( '>Later<', $output );
 	}

@@ -155,6 +155,7 @@ class Onboarding_Wizard {
 		?>
 		<div class="wrap fosse-wizard">
 		<?php
+		self::render_lizard_toggle();
 
 		if ( ! self::is_activitypub_available() ) {
 			self::render_unavailable_notice();
@@ -189,6 +190,25 @@ class Onboarding_Wizard {
 
 		?>
 		</div>
+		<?php
+	}
+
+	/**
+	 * Render the hidden Onboarding Lizard toggle.
+	 *
+	 * @return void
+	 */
+	private static function render_lizard_toggle(): void {
+		?>
+		<button
+			type="button"
+			class="fosse-wizard__lizard"
+			data-fosse-lizard-toggle
+			aria-label="<?php esc_attr_e( 'Onboarding Lizard', 'fosse' ); ?>"
+			aria-pressed="false"
+		>
+			<span aria-hidden="true">&#x1F98E;</span>
+		</button>
 		<?php
 	}
 
