@@ -41,6 +41,14 @@ class Bluesky_Domain_HandleTest extends BaseTestCase {
 		delete_option( 'home' );
 		delete_option( 'siteurl' );
 
+		// The class-level one-shot revert slot survives across tests within
+		// the same PHP process; reset it here so each test starts from a
+		// clean view of `get_last_reverted_snapshot()`.
+		$reflection = new ReflectionClass( Bluesky_Domain_Handle::class );
+		if ( $reflection->hasProperty( 'last_revert_snapshot' ) ) {
+			$reflection->getProperty( 'last_revert_snapshot' )->setValue( null, null );
+		}
+
 		global $wp_settings_errors;
 		$wp_settings_errors = array(); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited,WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedVariableFound -- core global reset for test isolation.
 		delete_transient( 'settings_errors' );
@@ -725,6 +733,148 @@ class Bluesky_Domain_HandleTest extends BaseTestCase {
 			),
 			get_option( Bluesky_Domain_Handle::OPTION_PREVIOUS_HANDLE )
 		);
+	}
+
+	// ---- restore_snapshot / get_last_reverted_snapshot ----
+
+	/**
+	 * Round-trips a snapshot through `restore_snapshot()` and confirms
+	 * `read_snapshot_for_current_did()` reads it back when the connection
+	 * matches. Validates the recovery path used after a disconnect failure
+	 * that follows a successful PDS revert.
+	 */
+	public function test_restore_snapshot_round_trips_to_read_snapshot(): void {
+		$this->seed_connection( 'example.com', 'did:plc:test123' );
+
+		$this->assertTrue(
+			Bluesky_Domain_Handle::restore_snapshot( 'did:plc:test123', 'alice.bsky.social' )
+		);
+
+		$this->assertSame(
+			array(
+				'did'    => 'did:plc:test123',
+				'handle' => 'alice.bsky.social',
+			),
+			get_option( Bluesky_Domain_Handle::OPTION_PREVIOUS_HANDLE )
+		);
+
+		// `get_pending_revert_handle()` is the public read wrapper for
+		// `read_snapshot_for_current_did()` — proves the persisted shape
+		// matches the read path's expectations.
+		$this->assertSame(
+			'alice.bsky.social',
+			Bluesky_Domain_Handle::get_pending_revert_handle()
+		);
+	}
+
+	/**
+	 * Empty inputs are refused — never write a sentinel snapshot that the
+	 * revert path would read as a no-op anyway, and never overwrite a real
+	 * snapshot with garbage.
+	 *
+	 * @return array<string, array{0:string,1:string}>
+	 */
+	public static function restore_snapshot_invalid_input_provider(): array {
+		return array(
+			'empty did'    => array( '', 'alice.bsky.social' ),
+			'empty handle' => array( 'did:plc:test123', '' ),
+			'both empty'   => array( '', '' ),
+		);
+	}
+
+	/**
+	 * Empty did/handle inputs return false and do not touch the option.
+	 *
+	 * @param string $did    DID input.
+	 * @param string $handle Handle input.
+	 * @dataProvider restore_snapshot_invalid_input_provider
+	 */
+	#[DataProvider( 'restore_snapshot_invalid_input_provider' )]
+	public function test_restore_snapshot_refuses_empty_input( string $did, string $handle ): void {
+		$this->assertFalse( Bluesky_Domain_Handle::restore_snapshot( $did, $handle ) );
+		$this->assertFalse( get_option( Bluesky_Domain_Handle::OPTION_PREVIOUS_HANDLE ) );
+	}
+
+	/**
+	 * Successful revert exposes the consumed snapshot via
+	 * `get_last_reverted_snapshot()` so the caller can re-persist on a
+	 * disconnect failure that follows. Captured BEFORE the option is
+	 * deleted so the caller doesn't have to re-read the (now-empty) option.
+	 */
+	public function test_get_last_reverted_snapshot_exposes_consumed_snapshot_after_success(): void {
+		$this->seed_connection( 'example.com' );
+		$this->seed_snapshot( 'did:plc:test123', 'alice.bsky.social' );
+
+		add_filter( Bluesky_Domain_Handle::FILTER_PRE_UPDATE, '__return_true' );
+
+		$this->assertTrue( Bluesky_Domain_Handle::maybe_revert_on_disconnect() );
+
+		$this->assertSame(
+			array(
+				'did'    => 'did:plc:test123',
+				'handle' => 'alice.bsky.social',
+			),
+			Bluesky_Domain_Handle::get_last_reverted_snapshot()
+		);
+	}
+
+	/**
+	 * The one-shot accessor returns null after `restore_snapshot()` consumes
+	 * the captured snapshot — protects against a follow-on read driving a
+	 * second restore call.
+	 */
+	public function test_get_last_reverted_snapshot_clears_after_restore(): void {
+		$this->seed_connection( 'example.com' );
+		$this->seed_snapshot( 'did:plc:test123', 'alice.bsky.social' );
+
+		add_filter( Bluesky_Domain_Handle::FILTER_PRE_UPDATE, '__return_true' );
+
+		Bluesky_Domain_Handle::maybe_revert_on_disconnect();
+		$snapshot = Bluesky_Domain_Handle::get_last_reverted_snapshot();
+		$this->assertNotNull( $snapshot );
+
+		Bluesky_Domain_Handle::restore_snapshot( $snapshot['did'], $snapshot['handle'] );
+
+		$this->assertNull( Bluesky_Domain_Handle::get_last_reverted_snapshot() );
+	}
+
+	/**
+	 * A no-op revert (failed call, missing snapshot, mismatched DID,
+	 * disabled feature) leaves nothing in the one-shot slot. The accessor
+	 * is a strict success-path hand-off, not a peek at the most recently
+	 * read option.
+	 */
+	public function test_get_last_reverted_snapshot_null_after_failed_revert(): void {
+		$this->seed_connection( 'example.com' );
+		$this->seed_snapshot( 'did:plc:test123', 'alice.bsky.social' );
+
+		add_filter(
+			Bluesky_Domain_Handle::FILTER_PRE_UPDATE,
+			static fn() => new \WP_Error( 'fake_pds', 'token revoked' )
+		);
+
+		$this->assertInstanceOf( \WP_Error::class, Bluesky_Domain_Handle::maybe_revert_on_disconnect() );
+		$this->assertNull( Bluesky_Domain_Handle::get_last_reverted_snapshot() );
+	}
+
+	/**
+	 * A subsequent `maybe_revert_on_disconnect()` invocation resets the
+	 * slot at the top of the call so a no-op second revert can't surface
+	 * stale data captured by a prior successful revert.
+	 */
+	public function test_get_last_reverted_snapshot_resets_on_subsequent_call(): void {
+		$this->seed_connection( 'example.com' );
+		$this->seed_snapshot( 'did:plc:test123', 'alice.bsky.social' );
+
+		add_filter( Bluesky_Domain_Handle::FILTER_PRE_UPDATE, '__return_true' );
+
+		Bluesky_Domain_Handle::maybe_revert_on_disconnect();
+		$this->assertNotNull( Bluesky_Domain_Handle::get_last_reverted_snapshot() );
+
+		// Second call: option is already cleared, so this is a no-op revert.
+		// The slot must reset so the caller doesn't see a ghost snapshot.
+		Bluesky_Domain_Handle::maybe_revert_on_disconnect();
+		$this->assertNull( Bluesky_Domain_Handle::get_last_reverted_snapshot() );
 	}
 
 	// ---- pre-update filter contract ----

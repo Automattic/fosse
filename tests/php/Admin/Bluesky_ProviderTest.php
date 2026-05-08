@@ -15,6 +15,7 @@ use Automattic\Fosse\Provider_Loader;
 use PHPUnit\Framework\Attributes\After;
 use PHPUnit\Framework\Attributes\Before;
 use PHPUnit\Framework\Attributes\DataProvider;
+use ReflectionClass;
 use ReflectionMethod;
 use WorDBless\BaseTestCase;
 
@@ -51,6 +52,13 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		delete_option( 'atmosphere_connection' );
 		delete_option( 'atmosphere_auto_publish' );
 		delete_option( Bluesky_Domain_Handle::OPTION_PREVIOUS_HANDLE );
+
+		// Reset the one-shot revert hand-off so a prior test's successful
+		// revert can't surface a ghost snapshot in this test's reads.
+		$reflection = new ReflectionClass( Bluesky_Domain_Handle::class );
+		if ( $reflection->hasProperty( 'last_revert_snapshot' ) ) {
+			$reflection->getProperty( 'last_revert_snapshot' )->setValue( null, null );
+		}
 
 		remove_all_filters( 'fosse_register_providers' );
 		remove_all_filters( 'atmosphere_oauth_redirect_uri' );
@@ -2127,6 +2135,35 @@ class Bluesky_ProviderTest extends BaseTestCase {
 	}
 
 	/**
+	 * Settings panel uses the empty-handle copy when the connection has no
+	 * handle yet (e.g. a freshly-completed OAuth round-trip where Atmosphere
+	 * hasn't populated the handle field). The panel still renders so the
+	 * confirm button surfaces; the alternate copy avoids fabricating a
+	 * "replace your current handle" sentence with no current handle to name.
+	 */
+	public function test_render_connection_actions_renders_domain_handle_panel_when_handle_empty(): void {
+		$this->force_home_url( 'https://example.com' );
+		update_option(
+			'atmosphere_connection',
+			array(
+				'did'          => 'did:plc:test123',
+				'handle'       => '',
+				'pds_endpoint' => 'https://bsky.social',
+				'access_token' => Encryption::encrypt( 'token' ),
+			)
+		);
+
+		ob_start();
+		$this->provider->render_connection_actions();
+		$output = ob_get_clean();
+
+		$this->assertStringContainsString( 'fosse_set_bluesky_domain_handle', $output );
+		$this->assertStringContainsString( 'Click the button below to set your Bluesky handle to example.com', $output );
+		$this->assertStringContainsString( 'Use example.com as my Bluesky handle', $output );
+		$this->assertStringContainsString( 'Heads up: replacing your handle is destructive', $output );
+	}
+
+	/**
 	 * Settings panel suppresses the confirm button when the feature is disabled.
 	 */
 	public function test_render_connection_actions_omits_panel_when_feature_disabled(): void {
@@ -2459,6 +2496,86 @@ class Bluesky_ProviderTest extends BaseTestCase {
 				static fn( $m ) => false !== strpos( $m, 'Disconnected from Bluesky' ) && false !== strpos( $m, 'token revoked' )
 			),
 			'The single warning notice must communicate both the disconnect and the failed revert.'
+		);
+	}
+
+	/**
+	 * Disconnect that fails AFTER a successful PDS revert must re-persist
+	 * the snapshot. Without this, the revert path cleared
+	 * OPTION_PREVIOUS_HANDLE and a future disconnect retry would have
+	 * nothing to revert to — leaving the user's now-domain handle stranded
+	 * on the PDS with no FOSSE-assisted recovery.
+	 */
+	public function test_handle_disconnect_restores_snapshot_when_disconnect_fails_after_revert(): void {
+		$this->seed_connected_atmosphere_connection();
+		update_option(
+			Bluesky_Domain_Handle::OPTION_PREVIOUS_HANDLE,
+			array(
+				'did'    => 'did:plc:test123',
+				'handle' => 'alice.bsky.social',
+			),
+			false
+		);
+
+		$this->become_admin();
+
+		// Simulate a successful PDS revert — the filter short-circuits the
+		// real updateHandle call.
+		add_filter( Bluesky_Domain_Handle::FILTER_PRE_UPDATE, '__return_true' );
+
+		// Pin the connection in place so Atmosphere's delete_option call
+		// can't make is_connected() flip to false. The pin must reflect the
+		// SYNCED handle (post-revert local cache update) so the test
+		// matches the production sequencing where the local handle is
+		// reverted before the disconnect attempt.
+		$pinned = array(
+			'did'          => 'did:plc:test123',
+			'handle'       => 'alice.bsky.social',
+			'pds_endpoint' => 'https://bsky.social',
+			'access_token' => Encryption::encrypt( 'token' ),
+		);
+		add_filter(
+			'pre_option_atmosphere_connection',
+			static function () use ( $pinned ) {
+				return $pinned;
+			}
+		);
+
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
+		$_POST    = array(
+			'_wpnonce' => wp_create_nonce( 'fosse_disconnect_bluesky' ),
+		);
+		$_REQUEST = $_POST;
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+
+		add_filter(
+			'wp_redirect',
+			static function () {
+				throw new RedirectFired( 'redirect' );
+			}
+		);
+
+		try {
+			$this->provider->handle_disconnect();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		// The disconnect surfaced an error notice — it really did fail.
+		$errors = get_settings_errors( 'atmosphere' );
+		$types  = array_column( $errors, 'type' );
+		$this->assertContains( 'error', $types, 'Disconnect-fail branch must surface an error notice.' );
+
+		// And critically: the snapshot is back, so a retry of disconnect
+		// later will still attempt the revert (now a no-op against an
+		// already-reverted handle, but the option is in the expected shape).
+		$this->assertSame(
+			array(
+				'did'    => 'did:plc:test123',
+				'handle' => 'alice.bsky.social',
+			),
+			get_option( Bluesky_Domain_Handle::OPTION_PREVIOUS_HANDLE ),
+			'Snapshot must be re-persisted when disconnect fails after a successful revert.'
 		);
 	}
 

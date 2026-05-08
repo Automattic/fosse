@@ -34,6 +34,22 @@ Task 1 is implemented on this branch: `/.well-known/atproto-did` is served from 
 - **Decision**: The UI checks `'' === trim( (string) wp_parse_url( home_url(), PHP_URL_PATH ), '/' )` before offering domain-handle setup.
 - **Reason**: ATProto handles are DNS names. A WordPress site at `example.com/blog` cannot use `example.com/blog` as a handle, and offering `example.com` would be misleading because FOSSE does not control that host root. Subdomain multisite remains eligible because each subsite still lives at a host root.
 
+## Design deviations from spec
+
+The implementation that actually shipped (Automattic/fosse#97 and follow-ups on this branch) deviates from the originally-scoped approach captured in the Design Decisions above. The decisions below override those where they conflict; cross-reference `sdd/bluesky-handle-setup/spec.md` and `sdd/bluesky-handle-setup/requirements.md` for the original framing.
+
+### Direct `com.atproto.identity.updateHandle` instead of bsky.app handoff
+- **Decision**: `Bluesky_Domain_Handle::set_handle()` calls `com.atproto.identity.updateHandle` directly through Atmosphere's DPoP-authenticated `\Atmosphere\API` client rather than deep-linking the user to `https://bsky.app/settings/account/handle` for a manual change.
+- **Reason**: Atmosphere already holds a valid OAuth token with `identity:handle` scope. Doing the call ourselves keeps the entire flow inside one click ("Use example.com as my Bluesky handle") instead of bouncing the user out to Bluesky and asking them to paste a handle. The "no automatic handle change on Bluesky" limitation noted above is no longer accurate for this branch — it applied when the design assumed third-party clients couldn't drive the change.
+
+### Prerequisite: PR 115 brought the `identity:handle` OAuth scope upstream
+- **Decision**: This branch depends on `bundled/wordpress-atmosphere/` already declaring `identity:handle` in its requested OAuth scopes. PR 115 (bundled plugin sync) merged in upstream wordpress-atmosphere PR #53 which added the scope; without that prerequisite, the `updateHandle` call would 401 even though FOSSE's code path is correct.
+- **Reason**: The OAuth client is bundled, not vendored. Scope changes flow through wordpress-atmosphere, then into FOSSE via the bundled-mirror sync. This dependency is invisible at the FOSSE call site, so it's worth documenting.
+
+### Snapshot-and-revert on disconnect (`OPTION_PREVIOUS_HANDLE`)
+- **Decision**: When `set_handle()` succeeds, FOSSE snapshots the previous handle to `OPTION_PREVIOUS_HANDLE`, keyed by the connected DID. On disconnect, `Bluesky_Domain_Handle::maybe_revert_on_disconnect()` runs BEFORE Atmosphere's OAuth revoke (so the access token is still valid) and restores the snapshotted handle when the snapshot's DID matches the currently-connected DID.
+- **Reason**: Setting a handle via `updateHandle` is destructive — the prior handle stops resolving immediately. Without revert, disconnecting from Bluesky would leave the user's Bluesky identity stuck on the FOSSE-set domain handle even after they've severed the integration. DID-binding the snapshot prevents two failure modes: (1) silently rewriting a different account's handle if the user reconnects to a different Bluesky account before disconnecting, and (2) reusing a stale snapshot from a prior account.
+
 ## Known Limitations (Expected)
 
 ### No automatic DNS configuration

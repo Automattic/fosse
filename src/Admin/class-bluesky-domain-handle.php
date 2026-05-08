@@ -94,6 +94,26 @@ class Bluesky_Domain_Handle {
 	public const OPTION_PREVIOUS_HANDLE = 'fosse_bluesky_previous_handle';
 
 	/**
+	 * One-shot record of the snapshot consumed by the most recent successful
+	 * {@see self::maybe_revert_on_disconnect()} call.
+	 *
+	 * Captured BEFORE the snapshot option is deleted so a caller (today
+	 * `Bluesky_Provider::handle_disconnect`) can re-persist the snapshot if
+	 * the subsequent OAuth disconnect fails. Without this hand-off, a
+	 * disconnect failure leaves the PDS reverted but the local snapshot
+	 * gone, so a retry of disconnect later has nothing to revert and the
+	 * pre-revert (now-domain) handle becomes effectively permanent.
+	 *
+	 * Shape: `array{ did: string, handle: string }`. Reset to null on every
+	 * `maybe_revert_on_disconnect()` invocation and on `restore_snapshot()`,
+	 * so callers must read it once immediately after a true return — it is
+	 * NOT durable cross-request state.
+	 *
+	 * @var array{did:string,handle:string}|null
+	 */
+	private static ?array $last_revert_snapshot = null;
+
+	/**
 	 * Whether the entire feature is enabled.
 	 *
 	 * @return bool
@@ -296,6 +316,24 @@ class Bluesky_Domain_Handle {
 	}
 
 	/**
+	 * Echo the "replacing your handle is destructive" advisory paragraph.
+	 *
+	 * Shared between the FOSSE Settings page and the wizard's Bluesky step
+	 * so the warning copy stays in lockstep across both surfaces. Renders
+	 * a `<p class="description">` block matching the existing markup at
+	 * each former call site.
+	 *
+	 * @return void
+	 */
+	public static function render_destructive_warning_notice(): void {
+		?>
+		<p class="description">
+			<?php esc_html_e( 'Heads up: replacing your handle is destructive. Your previous handle will stop resolving immediately, and links to it will break. Bluesky verifies the new handle through this site automatically.', 'fosse' ); ?>
+		</p>
+		<?php
+	}
+
+	/**
 	 * Replace the connected user's Bluesky handle with the site's hostname.
 	 *
 	 * Caller MUST have verified capability + nonce before invoking. This
@@ -352,6 +390,9 @@ class Bluesky_Domain_Handle {
 		}
 
 		if ( ! function_exists( '\Atmosphere\get_connection' ) || ! function_exists( '\Atmosphere\is_connected' ) ) {
+			if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+				error_log( 'FOSSE: set_handle: Atmosphere is not loaded.' ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+			}
 			self::add_settings_notice(
 				__( 'Cannot set the Bluesky handle: Atmosphere is not loaded.', 'fosse' ),
 				'error'
@@ -363,6 +404,9 @@ class Bluesky_Domain_Handle {
 		}
 
 		if ( ! \Atmosphere\is_connected() ) {
+			if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+				error_log( 'FOSSE: set_handle: not connected to Bluesky.' ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+			}
 			self::add_settings_notice(
 				__( 'Connect to Bluesky before setting your domain handle.', 'fosse' ),
 				'error'
@@ -393,6 +437,9 @@ class Bluesky_Domain_Handle {
 		$result = self::call_update_handle( $target );
 
 		if ( is_wp_error( $result ) ) {
+			if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+				error_log( 'FOSSE: set_handle: updateHandle failed: ' . $result->get_error_message() ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+			}
 			self::add_settings_notice(
 				sprintf(
 					/* translators: 1: target handle (the site domain); 2: error message from the PDS. */
@@ -462,9 +509,21 @@ class Bluesky_Domain_Handle {
 	 * @return true|\WP_Error|null Null when no revert was attempted.
 	 */
 	public static function maybe_revert_on_disconnect() {
+		// Reset the one-shot revert record at the top of every invocation so
+		// a caller reading `get_last_reverted_snapshot()` after a no-op call
+		// (feature disabled, no snapshot, mismatched DID, failure) doesn't
+		// see stale data from a prior request that handled the option-read
+		// path differently.
+		self::$last_revert_snapshot = null;
+
 		if ( ! self::is_enabled() ) {
 			return null;
 		}
+
+		// Read the raw snapshot (DID + handle) before checking DID match so
+		// we can stash it for the caller's recovery path on success without
+		// re-reading the option after deletion.
+		$stored = get_option( self::OPTION_PREVIOUS_HANDLE, '' );
 
 		$previous = self::read_snapshot_for_current_did();
 		if ( '' === $previous ) {
@@ -474,11 +533,29 @@ class Bluesky_Domain_Handle {
 		$result = self::call_update_handle( $previous );
 
 		if ( is_wp_error( $result ) ) {
+			if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+				error_log( 'FOSSE: maybe_revert_on_disconnect: revert failed: ' . $result->get_error_message() ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+			}
 			// Caller composes the unified post-disconnect message. The
 			// snapshot is intentionally preserved so a future disconnect
 			// retry (after the user sorts out token / network) can still
 			// attempt the revert.
 			return $result;
+		}
+
+		// Capture the snapshot for the caller's recovery path BEFORE we
+		// delete the option. If the OAuth disconnect that follows fails,
+		// the caller can re-persist via `restore_snapshot()` so the now-
+		// domain handle on the PDS isn't stranded with no revert path.
+		if ( is_array( $stored ) ) {
+			$snapshot_did    = isset( $stored['did'] ) ? (string) $stored['did'] : '';
+			$snapshot_handle = isset( $stored['handle'] ) ? (string) $stored['handle'] : '';
+			if ( '' !== $snapshot_did && '' !== $snapshot_handle ) {
+				self::$last_revert_snapshot = array(
+					'did'    => $snapshot_did,
+					'handle' => $snapshot_handle,
+				);
+			}
 		}
 
 		delete_option( self::OPTION_PREVIOUS_HANDLE );
@@ -494,6 +571,66 @@ class Bluesky_Domain_Handle {
 		);
 
 		return true;
+	}
+
+	/**
+	 * Re-persist a DID-bound snapshot of the previous handle.
+	 *
+	 * Used by `Bluesky_Provider::handle_disconnect()` to recover from a
+	 * disconnect failure that follows a successful PDS revert: the revert
+	 * has already cleared `OPTION_PREVIOUS_HANDLE`, so the next disconnect
+	 * attempt has nothing to revert to. This method writes the snapshot
+	 * back so the recovery path stays open.
+	 *
+	 * Resets the one-shot {@see self::get_last_reverted_snapshot()} hand-off
+	 * so a follow-on read can't accidentally trigger a second restore.
+	 *
+	 * @param string $did    The connection DID the snapshot is bound to.
+	 * @param string $handle The previous handle the snapshot should restore on revert.
+	 * @return bool True on persisted, false on invalid input or option write failure.
+	 */
+	public static function restore_snapshot( string $did, string $handle ): bool {
+		if ( '' === $did || '' === $handle ) {
+			return false;
+		}
+
+		$persisted = (bool) update_option(
+			self::OPTION_PREVIOUS_HANDLE,
+			array(
+				'did'    => $did,
+				'handle' => $handle,
+			),
+			false
+		);
+
+		// One-shot semantics: a successful re-persist consumes the captured
+		// snapshot so a follow-on read can't drive another restore.
+		if ( $persisted ) {
+			self::$last_revert_snapshot = null;
+		}
+
+		return $persisted;
+	}
+
+	/**
+	 * Read the snapshot consumed by the most recent successful revert.
+	 *
+	 * One-shot accessor: returns the `{ did, handle }` array captured by the
+	 * preceding `maybe_revert_on_disconnect()` call (immediately before that
+	 * method deleted the option), or null when no revert ran in the current
+	 * request, when the result was already consumed by `restore_snapshot()`,
+	 * or when a subsequent `maybe_revert_on_disconnect()` invocation reset
+	 * the slot.
+	 *
+	 * Intended for the disconnect-fail-after-revert recovery path in
+	 * `Bluesky_Provider::handle_disconnect()` — the caller reads this once
+	 * after `maybe_revert_on_disconnect()` returns true, then immediately
+	 * calls `restore_snapshot()` to put the option back.
+	 *
+	 * @return array{did:string,handle:string}|null
+	 */
+	public static function get_last_reverted_snapshot(): ?array {
+		return self::$last_revert_snapshot;
 	}
 
 	/**
@@ -556,7 +693,10 @@ class Bluesky_Domain_Handle {
 		}
 
 		$connection['handle'] = $handle;
-		update_option( 'atmosphere_connection', $connection );
+		$updated = update_option( 'atmosphere_connection', $connection );
+		if ( false === $updated && defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+			error_log( 'FOSSE: failed to sync local handle cache after updateHandle' ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+		}
 	}
 
 	/**
@@ -637,7 +777,7 @@ class Bluesky_Domain_Handle {
 	 * @return void
 	 */
 	private static function add_settings_notice( string $message, string $type ): void {
-		add_settings_error( self::NOTICE_SETTING, self::NOTICE_CODE, $message, $type );
+		add_settings_error( self::NOTICE_SETTING, self::NOTICE_CODE, esc_html( $message ), $type );
 		User_Notices::persist();
 	}
 }

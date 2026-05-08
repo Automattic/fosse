@@ -1405,9 +1405,7 @@ class Onboarding_Wizard {
 							);
 							?>
 						</p>
-						<p class="description">
-							<?php esc_html_e( 'Heads up: replacing your handle is destructive. Your previous handle will stop resolving immediately, and links to it will break. Bluesky verifies the new handle through this site automatically.', 'fosse' ); ?>
-						</p>
+						<?php Bluesky_Domain_Handle::render_destructive_warning_notice(); ?>
 						<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
 							<input type="hidden" name="action" value="fosse_set_bluesky_domain_handle" />
 							<input type="hidden" name="_wpnonce" value="<?php echo esc_attr( wp_create_nonce( 'fosse_set_bluesky_domain_handle' ) ); ?>" />

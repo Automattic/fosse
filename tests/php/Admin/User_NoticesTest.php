@@ -168,6 +168,37 @@ class User_NoticesTest extends BaseTestCase {
 	}
 
 	/**
+	 * Two persist() calls in the same request must not clobber each other.
+	 *
+	 * Pins the contract that persist() merges into the existing transient
+	 * (instead of overwriting) so a handler that emits two notices and
+	 * persists between them sees both messages survive into the next
+	 * request's consume().
+	 */
+	public function test_persist_twice_then_consume_preserves_both_notices(): void {
+		$user_id = $this->as_user();
+
+		add_settings_error( 'atmosphere', 'fosse_test_first', 'First message.', 'info' );
+		User_Notices::persist();
+
+		add_settings_error( 'atmosphere', 'fosse_test_second', 'Second message.', 'warning' );
+		User_Notices::persist();
+
+		// Simulate the redirect: clear the request-global, then consume.
+		global $wp_settings_errors;
+		$wp_settings_errors = array(); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited,WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedVariableFound -- simulating fresh request.
+
+		User_Notices::consume();
+
+		$messages = wp_list_pluck( get_settings_errors( 'atmosphere' ), 'message' );
+		$this->assertContains( 'First message.', $messages );
+		$this->assertContains( 'Second message.', $messages );
+
+		// Transient cleared after consume.
+		$this->assertFalse( get_transient( 'fosse_settings_errors_' . $user_id ) );
+	}
+
+	/**
 	 * The forget() helper drops a pending transient.
 	 *
 	 * Used when a handler decides mid-flight that it doesn't want to

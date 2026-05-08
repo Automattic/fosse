@@ -333,7 +333,7 @@ class Bluesky_Provider implements Connection_Provider {
 	 * @param array<string, mixed> $status Bluesky provider status snapshot.
 	 * @return void
 	 */
-	public function render_domain_handle_panel( array $status ): void {
+	private function render_domain_handle_panel( array $status ): void {
 		if ( ! Bluesky_Domain_Handle::should_offer( $status ) ) {
 			return;
 		}
@@ -365,9 +365,7 @@ class Bluesky_Provider implements Connection_Provider {
 				}
 				?>
 			</p>
-			<p class="description">
-				<?php esc_html_e( 'Heads up: replacing your handle is destructive. Your previous handle will stop resolving immediately, and links to it will break. Bluesky verifies the new handle through this site automatically.', 'fosse' ); ?>
-			</p>
+			<?php Bluesky_Domain_Handle::render_destructive_warning_notice(); ?>
 			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
 				<input type="hidden" name="action" value="fosse_set_bluesky_domain_handle" />
 				<input type="hidden" name="_wpnonce" value="<?php echo esc_attr( wp_create_nonce( 'fosse_set_bluesky_domain_handle' ) ); ?>" />
@@ -724,6 +722,31 @@ class Bluesky_Provider implements Connection_Provider {
 		// connection option. Verify the option actually went away so a DB
 		// or filter failure surfaces instead of falsely showing "Disconnected".
 		if ( \Atmosphere\is_connected() ) {
+			// Re-persist the snapshot when the revert succeeded but the
+			// disconnect did not. The successful revert already cleared
+			// OPTION_PREVIOUS_HANDLE, so a future disconnect retry would
+			// otherwise find nothing to revert to and the now-domain handle
+			// on the PDS would be stranded with no FOSSE-assisted recovery.
+			if ( true === $revert_result ) {
+				$snapshot = Bluesky_Domain_Handle::get_last_reverted_snapshot();
+				if ( null !== $snapshot ) {
+					$restored = Bluesky_Domain_Handle::restore_snapshot(
+						$snapshot['did'],
+						$snapshot['handle']
+					);
+					if ( ! $restored && defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+						error_log( 'FOSSE: handle_disconnect: failed to restore handle snapshot after disconnect failure.' ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+					}
+				}
+			}
+
+			// Drop any pending revert-success notice that
+			// maybe_revert_on_disconnect() queued before the disconnect
+			// failed. Surfacing both "Restored handle X" and "Could not
+			// disconnect" on the next page render confuses the user about
+			// the actual end state — disconnect didn't happen, so the
+			// revert-success message is misleading on its own.
+			User_Notices::forget();
 			$this->redirect_with_notice(
 				__( 'Could not disconnect from Bluesky. Please try again.', 'fosse' ),
 				'error'
