@@ -265,6 +265,100 @@ class Onboarding_WizardTest extends BaseTestCase {
 		$this->assertNotContains( 'faketype', $saved );
 	}
 
+	/**
+	 * Nested arrays inside the post-types payload (e.g. a crafted POST with
+	 * `activitypub_support_post_types[0][]=post`) are filtered out before
+	 * `sanitize_text_field()` runs, so the array-to-string warning that
+	 * `phpunit.xml.dist` promotes to a hard failure via `failOnWarning` does
+	 * not fire and the option is not overwritten with an invalid shape.
+	 *
+	 * Mirrors the Settings page's `test_handle_save_drops_nested_array_post_types`
+	 * coverage so the wizard path matches the hardened Settings path.
+	 */
+	public function test_handle_save_content_drops_nested_array_post_types(): void {
+		update_option( 'activitypub_support_post_types', array( 'post' ) );
+
+		$this->simulate_save_request(
+			'content',
+			array(
+				'activitypub_support_post_types' => array(
+					array( 'post' ),
+					'page',
+				),
+			)
+		);
+
+		try {
+			Onboarding_Wizard::handle_save();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$saved = get_option( 'activitypub_support_post_types' );
+		$this->assertNotContains( 'post', $saved, 'Nested-array element must not survive sanitization.' );
+		$this->assertContains( 'page', $saved, 'Sibling string element must still pass through.' );
+	}
+
+	/**
+	 * A scalar (non-array) post-types payload is coerced to an array
+	 * containing the scalar — the existing `(array) $value` cast handles
+	 * the shape, and `is_string` filtering keeps it sane. Locks in the
+	 * coercion so a future refactor can't quietly start rejecting scalars.
+	 */
+	public function test_handle_save_content_coerces_scalar_post_types(): void {
+		$this->simulate_save_request(
+			'content',
+			array( 'activitypub_support_post_types' => 'page' )
+		);
+
+		try {
+			Onboarding_Wizard::handle_save();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$saved = get_option( 'activitypub_support_post_types' );
+		$this->assertSame( array( 'page' ), $saved );
+	}
+
+	/**
+	 * A payload that is entirely nested arrays (no string elements) becomes
+	 * an empty selection after sanitization and triggers the
+	 * `empty_post_types` redirect rather than overwriting the option.
+	 */
+	public function test_handle_save_content_invalid_only_redirects_with_error(): void {
+		update_option( 'activitypub_support_post_types', array( 'post' ) );
+
+		$captured = null;
+		$this->simulate_save_request(
+			'content',
+			array(
+				'activitypub_support_post_types' => array(
+					array( 'post' ),
+					array( 'page' ),
+				),
+			)
+		);
+		add_filter(
+			'wp_redirect',
+			static function ( $location ) use ( &$captured ) {
+				$captured = (string) $location;
+				throw new RedirectFired( 'redirect' );
+			},
+			9
+		);
+
+		try {
+			Onboarding_Wizard::handle_save();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$this->assertStringContainsString( 'step=content', (string) $captured );
+		$this->assertStringContainsString( 'error=empty_post_types', (string) $captured );
+		$this->assertSame( array( 'post' ), get_option( 'activitypub_support_post_types' ) );
+	}
+
 	// --- handle_skip ---
 
 	/**
@@ -1165,7 +1259,7 @@ class Onboarding_WizardTest extends BaseTestCase {
 
 		$this->assertStringContainsString( 'Fediverse only', $output );
 		$this->assertMatchesRegularExpression(
-			'~<td class="fosse-summary__label">Bluesky</td>\s*<td class="fosse-summary__value">Connected as alice\.bsky\.social</td>~',
+			'~<th scope="row" class="fosse-summary__label">Bluesky</th>\s*<td class="fosse-summary__value">Connected as alice\.bsky\.social</td>~',
 			$output,
 			'Connected Bluesky accounts must not be visually muted even when the saved destination is Fediverse-only.'
 		);

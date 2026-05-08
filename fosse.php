@@ -137,15 +137,17 @@ if ( class_exists( \Automattic\Fosse\Admin\Actor_Mode_Lock::class ) ) {
 }
 
 /*
- * Cross-network object-type projector.
+ * Cross-network object-type bridge.
  *
- * Translates the single `fosse_object_type` option into per-network
- * filter answers so the Atmosphere short-form discriminator and the
- * ActivityPub object type stay aligned. Hooked at default priority 10
- * so the filter callbacks run before Atmosphere's transition_post_status
- * handler schedules its outbound work. Degrades cleanly if FOSSE's own
- * composer autoload is missing (bare clone, unpackaged release) — same
- * posture as the bundled-bootstrap shim above.
+ * Bridges ActivityPub's `activitypub_object_type` option onto Atmosphere's
+ * `atmosphere_is_short_form_post` filter so a `'note'` choice in AP's
+ * settings also forces Atmosphere short-form. The option is owned by
+ * ActivityPub end-to-end; FOSSE no longer keeps a parallel option (see
+ * `sdd/canonical-upstream-options/`). Registered on `init` so the filter
+ * is in place before Atmosphere queries it during `transition_post_status`
+ * later in the request lifecycle. Degrades cleanly if FOSSE's own
+ * composer autoload is missing — same posture as the bundled-bootstrap
+ * shim above.
  */
 add_action(
 	'init',
@@ -177,25 +179,33 @@ add_action(
 );
 
 /*
- * Long-form composition strategy projector.
+ * One-time migration of FOSSE-side projector options to canonical
+ * upstream options (`fosse_object_type` → `activitypub_object_type`,
+ * `fosse_long_form_strategy` → `atmosphere_long_form_composition`).
  *
- * Translates `fosse_long_form_strategy` into Atmosphere's
- * `atmosphere_long_form_composition` filter answer. Installing FOSSE
- * opts into the teaser-thread default by default (the projector
- * coerces unset/unknown to 'teaser-thread'), without requiring any
- * option to be set. Degrades cleanly in two distinct modes: if FOSSE's
- * own autoload is missing the projector class can't load and the
- * `class_exists` guard skips registration entirely; if Atmosphere is
- * absent the callback registers but `apply_filters` is never called,
- * so the callback simply never runs.
+ * Replaces the long-form `fosse_long_form_strategy` projector entirely
+ * and the AP-side half of the object-type projector. Runs at most once
+ * per site, gated on a flag option, on `init` priority 5 so the
+ * migration completes before the projector callbacks (priority 10) and
+ * before any post publish path queries the canonical option. Also
+ * seeds Atmosphere's long-form composition with FOSSE's preferred
+ * default (`'teaser-thread'`) for fresh installs that have neither
+ * option set, preserving today's behavior for new sites.
+ *
+ * Registration is deferred to `plugins_loaded` (not the surrounding
+ * `init` callback) so the migrator's own `add_action('init', ..., 5)`
+ * lands on the priority-5 slot of the same `init` cycle. Registering
+ * from inside an `init`-default-priority callback would miss the
+ * priority-5 slot in the active iteration and the migration would
+ * never run on first activation. See `sdd/canonical-upstream-options/`.
  */
 add_action(
-	'init',
+	'plugins_loaded',
 	static function () {
-		if ( ! class_exists( \Automattic\Fosse\Long_Form_Strategy::class ) ) {
+		if ( ! class_exists( \Automattic\Fosse\Canonical_Options_Migrator::class ) ) {
 			return;
 		}
-		\Automattic\Fosse\Long_Form_Strategy::register();
+		\Automattic\Fosse\Canonical_Options_Migrator::register();
 	}
 );
 

@@ -173,6 +173,64 @@ class Bluesky_ProviderTest extends BaseTestCase {
 	}
 
 	/**
+	 * `get_status()` re-reads the connection state after the token-health
+	 * probe so a refresh that deletes `atmosphere_connection` mid-call
+	 * (e.g. permanent OAuth failure: `invalid_grant`, `invalid_client`,
+	 * `unauthorized_client`) is reflected in the returned status, not
+	 * frozen as the pre-deletion view. Otherwise the memo would freeze
+	 * `connected=true` for the rest of the request and the admin would
+	 * see a green status at the exact moment publishing credentials were
+	 * invalidated.
+	 *
+	 * Simulates the deletion side-effect via a one-shot
+	 * `pre_option_atmosphere_connection` filter: first read sees the
+	 * connection (so `is_connected()` returns true and we enter the
+	 * token-probe branch), then the filter wipes the option and returns
+	 * `array()` thereafter. The implementation under test calls
+	 * `is_connected()` → probe → `get_connection()` / `is_connected()`
+	 * a second time, which now sees the deleted state.
+	 */
+	public function test_status_re_reads_connection_after_token_probe_deletion(): void {
+		update_option(
+			'atmosphere_connection',
+			array(
+				'did'          => 'did:plc:test123',
+				'handle'       => 'alice.bsky.social',
+				'pds_endpoint' => 'https://bsky.social',
+				'access_token' => Encryption::encrypt( 'token' ),
+			)
+		);
+
+		// Mimic Atmosphere's refresh path deleting the connection during
+		// `access_token()`. Reads 1-2 return the live connection (so
+		// `is_connected()` returns true and the implementation enters the
+		// token-probe branch). Reads 3+ return empty — Atmosphere's
+		// permanent-failure deletion is what the implementation under
+		// test must observe when it re-reads after the probe.
+		$connected_payload = array(
+			'did'          => 'did:plc:test123',
+			'handle'       => 'alice.bsky.social',
+			'pds_endpoint' => 'https://bsky.social',
+			'access_token' => Encryption::encrypt( 'token' ),
+		);
+		$reads             = 0;
+		add_filter(
+			'pre_option_atmosphere_connection',
+			static function () use ( &$reads, $connected_payload ) {
+				++$reads;
+				return $reads <= 2 ? $connected_payload : array();
+			}
+		);
+
+		$status = $this->provider->get_status();
+
+		$this->assertFalse(
+			$status['connected'],
+			'After the token probe deletes the connection, get_status() must reflect the deletion — not the pre-delete view.'
+		);
+	}
+
+	/**
 	 * Corrupt tokens surface as token health errors without dropping connection state.
 	 */
 	public function test_status_reports_token_error() {

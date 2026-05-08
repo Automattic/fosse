@@ -86,6 +86,10 @@ class AP_Provider implements Connection_Provider {
 	 * @return array<string, mixed>
 	 */
 	public function get_status(): array {
+		if ( null !== $this->status_cache ) {
+			return $this->status_cache;
+		}
+
 		$actor_mode = get_option( 'activitypub_actor_mode', 'actor' );
 		$post_types = get_option( 'activitypub_support_post_types', array( 'post' ) );
 		// Gate handle resolution by mode. Constructing AP's actor models is
@@ -96,7 +100,7 @@ class AP_Provider implements Connection_Provider {
 		$user_address = $this->mode_includes_user( $actor_mode ) ? $this->get_user_address() : '';
 		$blog_address = $this->mode_includes_blog( $actor_mode ) ? $this->get_blog_address() : '';
 
-		return array(
+		$this->status_cache = array(
 			'connected'    => true,
 			'actor_mode'   => $actor_mode,
 			'post_types'   => $post_types,
@@ -104,7 +108,22 @@ class AP_Provider implements Connection_Provider {
 			'blog_address' => $blog_address,
 			'address'      => $this->resolve_legacy_address( $actor_mode, $user_address, $blog_address ),
 		);
+
+		return $this->status_cache;
 	}
+
+	/**
+	 * Per-request memo for {@see self::get_status()}. The Status page
+	 * renders each provider's status twice in the same request — once
+	 * filtering on `connected`, once inside `render_status_card()` —
+	 * and AP's actor-handle resolution dispatches the
+	 * `activitypub_construct_model_actor` filter, which third-party
+	 * code can hang arbitrary work off of. Cache the result so the
+	 * second call is a free array return.
+	 *
+	 * @var array<string, mixed>|null
+	 */
+	private ?array $status_cache = null;
 
 	/**
 	 * Render the AP-specific fields inside the unified Settings form.
@@ -239,16 +258,16 @@ class AP_Provider implements Connection_Provider {
 			<table class="widefat striped fosse-status-card__table">
 				<tbody>
 					<tr>
-						<td class="fosse-status-card__label"><?php esc_html_e( 'Actor Mode', 'fosse' ); ?></td>
+						<th scope="row" class="fosse-status-card__label"><?php esc_html_e( 'Actor Mode', 'fosse' ); ?></th>
 						<td class="fosse-status-card__value"><?php echo esc_html( $mode_label ); ?></td>
 					</tr>
 					<tr>
-						<td class="fosse-status-card__label"><?php esc_html_e( 'Post Types', 'fosse' ); ?></td>
+						<th scope="row" class="fosse-status-card__label"><?php esc_html_e( 'Post Types', 'fosse' ); ?></th>
 						<td class="fosse-status-card__value"><?php echo esc_html( implode( ', ', $post_types ) ); ?></td>
 					</tr>
 					<?php if ( $this->mode_includes_user( $status['actor_mode'] ) && ! empty( $status['user_address'] ) ) : ?>
 						<tr>
-							<td class="fosse-status-card__label"><?php esc_html_e( 'Your fediverse address', 'fosse' ); ?></td>
+							<th scope="row" class="fosse-status-card__label"><?php esc_html_e( 'Your fediverse address', 'fosse' ); ?></th>
 							<td class="fosse-status-card__value">
 								<code class="fosse-status-card__token fosse-status-card__token--ap-address">
 									<?php
@@ -260,7 +279,7 @@ class AP_Provider implements Connection_Provider {
 					<?php endif; ?>
 					<?php if ( $this->mode_includes_blog( $status['actor_mode'] ) && ! empty( $status['blog_address'] ) ) : ?>
 						<tr>
-							<td class="fosse-status-card__label"><?php esc_html_e( 'Site fediverse address', 'fosse' ); ?></td>
+							<th scope="row" class="fosse-status-card__label"><?php esc_html_e( 'Site fediverse address', 'fosse' ); ?></th>
 							<td class="fosse-status-card__value">
 								<code class="fosse-status-card__token fosse-status-card__token--ap-address">
 									<?php
@@ -585,7 +604,7 @@ class AP_Provider implements Connection_Provider {
 			$count = \Activitypub\Collection\Followers::count( \Activitypub\Collection\Actors::BLOG_USER_ID );
 			?>
 			<tr>
-				<td class="fosse-status-card__label"><?php esc_html_e( 'Followers', 'fosse' ); ?></td>
+				<th scope="row" class="fosse-status-card__label"><?php esc_html_e( 'Followers', 'fosse' ); ?></th>
 				<td class="fosse-status-card__value"><?php echo esc_html( number_format_i18n( $count ) ); ?></td>
 			</tr>
 			<?php
@@ -594,7 +613,7 @@ class AP_Provider implements Connection_Provider {
 			$blog_count = \Activitypub\Collection\Followers::count( \Activitypub\Collection\Actors::BLOG_USER_ID );
 			?>
 			<tr>
-				<td class="fosse-status-card__label"><?php esc_html_e( 'Followers', 'fosse' ); ?></td>
+				<th scope="row" class="fosse-status-card__label"><?php esc_html_e( 'Followers', 'fosse' ); ?></th>
 				<td class="fosse-status-card__value">
 					<?php
 					printf(
@@ -611,7 +630,7 @@ class AP_Provider implements Connection_Provider {
 			$count = \Activitypub\Collection\Followers::count( get_current_user_id() );
 			?>
 			<tr>
-				<td class="fosse-status-card__label"><?php esc_html_e( 'Your Followers', 'fosse' ); ?></td>
+				<th scope="row" class="fosse-status-card__label"><?php esc_html_e( 'Your Followers', 'fosse' ); ?></th>
 				<td class="fosse-status-card__value"><?php echo esc_html( number_format_i18n( $count ) ); ?></td>
 			</tr>
 			<?php

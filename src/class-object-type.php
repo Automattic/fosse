@@ -1,6 +1,6 @@
 <?php
 /**
- * Cross-network object-type projector for FOSSE.
+ * Cross-network object-type bridge for FOSSE.
  *
  * @package Automattic\Fosse
  */
@@ -8,87 +8,91 @@
 namespace Automattic\Fosse;
 
 /**
- * Translates the single `fosse_object_type` option into per-network
- * filter answers so the Atmosphere and ActivityPub backends stay in
- * sync without FOSSE reaching into either plugin's composition logic.
+ * Bridges ActivityPub's `activitypub_object_type` option onto Atmosphere's
+ * `atmosphere_is_short_form_post` filter so a site that wants short-form /
+ * Note-style posts everywhere only has to set the canonical AP option in
+ * one place — both networks then agree on the shape.
  *
- * Current option values:
- * - `note`                    — force short-form / Note everywhere.
- * - `wordpress-post-format`   — defer to each network's own discriminator.
- * - unset                     — same as `wordpress-post-format`.
- * - anything else             — pass-through (treated as the default).
+ * The option is owned by ActivityPub: AP's own settings UI writes it, AP
+ * reads it directly when picking the outbound `Note`/`Article` type, and
+ * `Canonical_Options_Migrator` moved any pre-existing `fosse_object_type`
+ * value into it on first run. FOSSE no longer keeps a parallel option.
+ *
+ * Recognized AP option values (per upstream `activitypub_object_type`
+ * settings field): `note` and `wordpress-post-format`. The default
+ * (resolved by AP via the `option_activitypub_object_type` filter) is
+ * `wordpress-post-format`. Anything else is treated as pass-through —
+ * the bridge only forces Atmosphere short-form when the AP option is
+ * exactly `'note'`.
  */
 class Object_Type {
 
 	/**
-	 * Site option name holding the projected mode.
+	 * ActivityPub option whose value drives the bridge.
 	 *
 	 * @var string
 	 */
-	private const OPTION = 'fosse_object_type';
+	private const AP_OBJECT_TYPE_OPTION = 'activitypub_object_type';
 
 	/**
-	 * Option value that forces short-form everywhere.
+	 * AP option value that means "short-form / Note everywhere".
 	 *
 	 * @var string
 	 */
-	private const MODE_NOTE = 'note';
+	private const NOTE_VALUE = 'note';
 
 	/**
-	 * ActivityPub object type returned when forcing short-form.
-	 *
-	 * @var string
-	 */
-	private const AP_TYPE_NOTE = 'Note';
-
-	/**
-	 * Register the two pass-through/force filters. Safe to call more than once
-	 * per request — WordPress dedupes identical callable-as-array registrations.
+	 * Register the Atmosphere short-form bridge filter. Safe to call more
+	 * than once per request — WordPress dedupes identical
+	 * callable-as-array registrations.
 	 *
 	 * @return void
 	 */
 	public static function register(): void {
 		\add_filter( 'atmosphere_is_short_form_post', array( self::class, 'filter_atmosphere' ), 10, 2 );
-		\add_filter( 'activitypub_post_object_type', array( self::class, 'filter_ap' ), 10, 2 );
 	}
 
 	/**
-	 * Project the option onto Atmosphere's short-form discriminator.
+	 * Project ActivityPub's object-type option onto Atmosphere's short-form
+	 * discriminator.
+	 *
+	 * Falls back to the legacy `fosse_object_type` option when the
+	 * canonical-options migrator has not yet completed. The migrator
+	 * normally runs at `init` priority 5 (before this filter at priority 10),
+	 * so the fallback should be unreachable in practice — it exists as
+	 * defense in depth for the narrow window between FOSSE bootstrap
+	 * registering this filter and the migrator copying the legacy value
+	 * to the canonical option (e.g. an autoloader edge case where the
+	 * migrator class is missing but Object_Type loaded).
 	 *
 	 * $post type is loose on purpose — upstream callers always pass a WP_Post
-	 * in normal filter contexts, but loosening the hint keeps the projector
+	 * in normal filter contexts, but loosening the hint keeps the bridge
 	 * defensive if the upstream filter contract ever drifts.
 	 *
 	 * @param bool  $is_short Upstream-computed short-form default.
 	 * @param mixed $post     The post being transformed (unused).
-	 * @return bool Forced true when the FOSSE option is `note`, else input.
+	 * @return bool Forced true when AP says `'note'` (or, pre-migration,
+	 *              when the legacy FOSSE option says `'note'`), else input.
 	 */
 	public static function filter_atmosphere( bool $is_short, $post ): bool {
 		unset( $post );
 
-		if ( self::MODE_NOTE === \get_option( self::OPTION ) ) {
+		if ( self::NOTE_VALUE === \get_option( self::AP_OBJECT_TYPE_OPTION ) ) {
+			return true;
+		}
+
+		// Migration flag option name is duplicated as a literal string here
+		// (rather than referencing `Canonical_Options_Migrator::MIGRATED_FLAG_OPTION`)
+		// so this fallback path stays reachable even when the migrator
+		// class is the very thing missing from the autoloader — the case
+		// the fallback exists to handle. Keep in sync with
+		// `Canonical_Options_Migrator::MIGRATED_FLAG_OPTION`.
+		if ( '1' !== (string) \get_option( 'fosse_canonical_options_migrated', '' )
+			&& self::NOTE_VALUE === \get_option( 'fosse_object_type' )
+		) {
 			return true;
 		}
 
 		return $is_short;
-	}
-
-	/**
-	 * Project the option onto ActivityPub's object type.
-	 *
-	 * $post type is loose on purpose — see filter_atmosphere().
-	 *
-	 * @param string $type Upstream-computed object type (Note/Article/Page).
-	 * @param mixed  $post The post being transformed (unused).
-	 * @return string Forced `Note` when the FOSSE option is `note`, else input.
-	 */
-	public static function filter_ap( string $type, $post ): string {
-		unset( $post );
-
-		if ( self::MODE_NOTE === \get_option( self::OPTION ) ) {
-			return self::AP_TYPE_NOTE;
-		}
-
-		return $type;
 	}
 }

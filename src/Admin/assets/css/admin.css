@@ -56,6 +56,19 @@
 
 .fosse-status-card__label {
 	width: 40%;
+	/* Reset the bold/centered defaults `<th>` carries so the row label
+	   reads at the same weight as a `<td>` would. The semantic upgrade
+	   to `<th scope="row">` is for assistive tech, not for visual style. */
+	font-weight: normal;
+	text-align: left;
+}
+
+/* Bluesky auto-publish recovery notice form sits above its description
+   text by ~6px so the button doesn't crowd the next paragraph. Inline
+   on the form element previously; moved here so the FOSSE-screen
+   stylesheet (already enqueued) is the single source of truth. */
+.fosse-auto-publish-recover__form {
+	margin-bottom: 6px;
 }
 
 /* Defense in depth: token wrappers carry their own wrap rules, but if a
@@ -162,7 +175,7 @@
 	--fosse-wizard-accent-soft: #f3f6ff;
 	--fosse-wizard-accent-icon: #e6ecff;
 	--fosse-wizard-accent-soft-border: rgba(56, 88, 233, 0.38);
-	--fosse-wizard-success: #168a4a;
+	--fosse-wizard-success: #287340;
 	--fosse-wizard-success-soft: #edf8f1;
 	--fosse-wizard-text: #1d2327;
 	--fosse-wizard-muted: #646970;
@@ -196,6 +209,8 @@
 	font-size: 12px;
 	font-weight: 500;
 	line-height: 1;
+	/* var(--fosse-wizard-muted) is #646970 — 5.74:1 on white (WCAG AA
+	   for normal text). The earlier #949494 was ~3.0:1 (fail AA at 12px). */
 	color: var(--fosse-wizard-muted);
 	white-space: nowrap;
 }
@@ -212,6 +227,9 @@
 }
 
 .fosse-wizard__progress-step.is-complete {
+	/* var(--fosse-wizard-success) is #287340 — 5.81:1 on white,
+	   5.34:1 on var(--fosse-wizard-success-soft) #edf8f1 (both WCAG AA).
+	   The earlier #4ab866 was ~2.6:1 (fail AA at 12px). */
 	color: var(--fosse-wizard-success);
 }
 
@@ -354,6 +372,9 @@
 .fosse-wizard__hint p {
 	font-size: 12px;
 	line-height: 1.5;
+	/* var(--fosse-wizard-muted) is #646970 — ~5.4:1 on the
+	   var(--fosse-wizard-surface-muted) #f6f7f7 hint background
+	   (WCAG AA). The earlier #757575 was ~3.4:1 (fail AA at 12px). */
 	color: var(--fosse-wizard-muted);
 	margin: 0;
 }
@@ -361,6 +382,20 @@
 /* Notice within wizard card */
 .fosse-wizard__notice {
 	margin: 0 0 24px;
+}
+
+/* Reset native fieldset chrome on the wizard card wrappers — the
+   semantic upgrade from <div> to <fieldset> for radio/checkbox grouping
+   is for assistive tech only. Without these resets the browser default
+   border, padding, margin, and `min-inline-size: min-content` would
+   add visible chrome and force overflow on narrow admin viewports. */
+.fosse-destination-cards,
+.fosse-mode-cards,
+.fosse-post-types__group {
+	border: 0;
+	padding: 0;
+	margin: 0;
+	min-inline-size: 0;
 }
 
 /* Destination cards */
@@ -897,7 +932,8 @@
 	border-bottom: none;
 }
 
-.fosse-summary td {
+.fosse-summary td,
+.fosse-summary th {
 	padding: 14px 0;
 	font-size: 13px;
 	line-height: 1.5;
@@ -906,6 +942,11 @@
 .fosse-summary__label {
 	color: var(--fosse-wizard-muted);
 	width: 40%;
+	/* Reset the bold/centered defaults `<th>` carries so the row label
+	   reads at the same weight as a `<td>` would. The semantic upgrade
+	   to `<th scope="row">` is for assistive tech, not for visual style. */
+	font-weight: normal;
+	text-align: left;
 }
 
 .fosse-summary__value {

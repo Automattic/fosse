@@ -98,29 +98,66 @@ class Bluesky_Provider implements Connection_Provider {
 	}
 
 	/**
+	 * Per-request memo for {@see self::get_status()}.
+	 *
+	 * The Status page renders each provider's connection status twice in
+	 * the same request — once when filtering available providers down to
+	 * connected ones, and again inside `render_status_card()`. The
+	 * underlying call decrypts the access token (`Atmosphere\OAuth\Client::access_token`),
+	 * which is cheap individually but worth caching when render paths
+	 * multiply that work across providers and screens.
+	 *
+	 * No invalidation hook today: every connect/disconnect/auto-publish
+	 * mutator on this class ends in `wp_safe_redirect(); exit;`, so the
+	 * cache never has to survive an in-request mutation. If a future
+	 * caller needs to mutate the connection and re-render in the same
+	 * request, set this property back to null at the mutation site.
+	 *
+	 * @var array<string, mixed>|null
+	 */
+	private ?array $status_cache = null;
+
+	/**
 	 * Get current Bluesky connection status from Atmosphere.
+	 *
+	 * Memoized for the request — see {@see self::$status_cache}.
 	 *
 	 * @return array<string, mixed>
 	 */
 	public function get_status(): array {
-		$connection  = \Atmosphere\get_connection();
-		$connected   = \Atmosphere\is_connected();
-		$token_error = null;
+		if ( null !== $this->status_cache ) {
+			return $this->status_cache;
+		}
 
-		if ( $connected && method_exists( '\Atmosphere\OAuth\Client', 'access_token' ) ) {
+		// Run the token-health probe first because Atmosphere's
+		// `OAuth\Client::access_token()` is not read-only — on a permanent
+		// OAuth failure (`invalid_grant`, `invalid_client`,
+		// `unauthorized_client`) it deletes `atmosphere_connection` to
+		// prevent silent re-use of dead credentials. Reading the
+		// connection BEFORE that probe and caching the pre-deletion view
+		// would freeze the admin's status as connected for the rest of
+		// the request even after the underlying state was invalidated.
+		$token_error = null;
+		if ( \Atmosphere\is_connected() && method_exists( '\Atmosphere\OAuth\Client', 'access_token' ) ) {
 			$token = \Atmosphere\OAuth\Client::access_token();
 			if ( is_wp_error( $token ) ) {
 				$token_error = $token->get_error_message();
 			}
 		}
 
-		return array(
+		// Re-read after the probe so a deleted connection is reflected.
+		$connection = \Atmosphere\get_connection();
+		$connected  = \Atmosphere\is_connected();
+
+		$this->status_cache = array(
 			'connected'    => $connected,
 			'handle'       => $connection['handle'] ?? '',
 			'did'          => $connection['did'] ?? '',
 			'pds_endpoint' => $connection['pds_endpoint'] ?? '',
 			'token_error'  => $token_error,
 		);
+
+		return $this->status_cache;
 	}
 
 	/**
@@ -372,12 +409,12 @@ class Bluesky_Provider implements Connection_Provider {
 			<table class="widefat striped fosse-status-card__table">
 				<tbody>
 					<tr>
-						<td class="fosse-status-card__label"><?php esc_html_e( 'Connection', 'fosse' ); ?></td>
+						<th scope="row" class="fosse-status-card__label"><?php esc_html_e( 'Connection', 'fosse' ); ?></th>
 						<td class="fosse-status-card__value"><?php echo esc_html( $status['connected'] ? __( 'Connected', 'fosse' ) : __( 'Disconnected', 'fosse' ) ); ?></td>
 					</tr>
 					<?php if ( $status['handle'] ) : ?>
 						<tr>
-							<td class="fosse-status-card__label"><?php esc_html_e( 'Handle', 'fosse' ); ?></td>
+							<th scope="row" class="fosse-status-card__label"><?php esc_html_e( 'Handle', 'fosse' ); ?></th>
 							<td class="fosse-status-card__value">
 								<strong class="fosse-status-card__token fosse-status-card__token--handle">
 									<?php
@@ -389,7 +426,7 @@ class Bluesky_Provider implements Connection_Provider {
 					<?php endif; ?>
 					<?php if ( $status['did'] ) : ?>
 						<tr>
-							<td class="fosse-status-card__label"><?php esc_html_e( 'DID', 'fosse' ); ?></td>
+							<th scope="row" class="fosse-status-card__label"><?php esc_html_e( 'DID', 'fosse' ); ?></th>
 							<td class="fosse-status-card__value">
 								<code class="fosse-status-card__token fosse-status-card__token--did">
 									<?php
@@ -401,7 +438,7 @@ class Bluesky_Provider implements Connection_Provider {
 					<?php endif; ?>
 					<?php if ( $status['pds_endpoint'] ) : ?>
 						<tr>
-							<td class="fosse-status-card__label"><?php esc_html_e( 'PDS', 'fosse' ); ?></td>
+							<th scope="row" class="fosse-status-card__label"><?php esc_html_e( 'PDS', 'fosse' ); ?></th>
 							<td class="fosse-status-card__value">
 								<code class="fosse-status-card__token fosse-status-card__token--url">
 									<?php
@@ -412,7 +449,7 @@ class Bluesky_Provider implements Connection_Provider {
 						</tr>
 					<?php endif; ?>
 					<tr>
-						<td class="fosse-status-card__label"><?php esc_html_e( 'Token Health', 'fosse' ); ?></td>
+						<th scope="row" class="fosse-status-card__label"><?php esc_html_e( 'Token Health', 'fosse' ); ?></th>
 						<td class="fosse-status-card__value">
 							<?php if ( $status['token_error'] ) : ?>
 								<strong><?php esc_html_e( 'Reconnect required.', 'fosse' ); ?></strong>
@@ -823,7 +860,7 @@ class Bluesky_Provider implements Connection_Provider {
 				);
 				?>
 			</p>
-			<form method="post" action="<?php echo esc_url( $action_url ); ?>" style="margin-bottom: 6px;">
+			<form method="post" action="<?php echo esc_url( $action_url ); ?>" class="fosse-auto-publish-recover__form">
 				<input type="hidden" name="action" value="fosse_enable_bluesky_auto_publish" />
 				<?php wp_nonce_field( 'fosse_enable_bluesky_auto_publish' ); ?>
 				<?php submit_button( __( 'Turn auto-publishing back on', 'fosse' ), 'primary', 'submit', false ); ?>

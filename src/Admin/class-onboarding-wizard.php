@@ -301,7 +301,14 @@ class Onboarding_Wizard {
 		}
 
 		if ( 'content' === $step ) {
-			$submitted   = array_map( 'sanitize_text_field', wp_unslash( (array) ( $_POST['activitypub_support_post_types'] ?? array() ) ) );
+			// Filter to strings before `sanitize_text_field` so a crafted POST
+			// submitting nested arrays for an element can't trip the function's
+			// array-to-string warning (which `phpunit.xml.dist` promotes to a
+			// hard failure via `failOnWarning`, and which would otherwise emit
+			// a notice in production). Mirrors {@see Setup_Page::save_general_settings()}.
+			// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- sanitized via array_map below; sniffer does not recognize the wrapping pattern.
+			$raw         = wp_unslash( (array) ( $_POST['activitypub_support_post_types'] ?? array() ) );
+			$submitted   = array_map( 'sanitize_text_field', array_filter( $raw, 'is_string' ) );
 			$valid_types = get_post_types( array( 'public' => true ) );
 			$post_types  = array_values( array_intersect( $submitted, $valid_types ) );
 
@@ -913,7 +920,10 @@ class Onboarding_Wizard {
 			<input type="hidden" name="_wpnonce" value="<?php echo esc_attr( $nonce ); ?>" />
 
 			<div class="fosse-wizard__card">
-				<div class="fosse-destination-cards">
+				<fieldset class="fosse-destination-cards">
+					<legend class="screen-reader-text">
+						<?php esc_html_e( 'Where to publish', 'fosse' ); ?>
+					</legend>
 					<?php foreach ( $destinations as $value => $destination ) : ?>
 						<label class="fosse-destination-card <?php echo esc_attr( $destination['class'] ); ?>">
 							<input
@@ -936,7 +946,7 @@ class Onboarding_Wizard {
 							</span>
 						</label>
 					<?php endforeach; ?>
-				</div>
+				</fieldset>
 			</div>
 
 			<div class="fosse-wizard__actions fosse-wizard__actions--center">
@@ -1053,7 +1063,10 @@ class Onboarding_Wizard {
 					</div>
 					<input type="hidden" name="activitypub_actor_mode" value="<?php echo esc_attr( $forced_mode ); ?>" />
 				<?php else : ?>
-					<div class="fosse-mode-cards">
+					<fieldset class="fosse-mode-cards">
+						<legend class="screen-reader-text">
+							<?php esc_html_e( 'How posts appear', 'fosse' ); ?>
+						</legend>
 						<?php foreach ( $modes as $value => $mode ) : ?>
 							<label class="fosse-mode-card">
 								<input
@@ -1063,7 +1076,7 @@ class Onboarding_Wizard {
 									class="fosse-mode-card__input"
 									<?php checked( $value, $current_mode ); ?>
 								/>
-								<div class="fosse-mode-card__icon">
+								<div class="fosse-mode-card__icon" aria-hidden="true">
 									<span class="dashicons <?php echo esc_attr( $mode['icon'] ); ?>"></span>
 								</div>
 								<div class="fosse-mode-card__content">
@@ -1075,7 +1088,7 @@ class Onboarding_Wizard {
 								</div>
 							</label>
 						<?php endforeach; ?>
-					</div>
+					</fieldset>
 				<?php endif; ?>
 
 				<?php
@@ -1226,8 +1239,8 @@ class Onboarding_Wizard {
 							continue;
 						}
 						?>
-						<div class="fosse-post-types__group">
-							<div class="fosse-post-types__group-label"><?php echo esc_html( $group['label'] ); ?></div>
+						<fieldset class="fosse-post-types__group">
+							<legend class="fosse-post-types__group-label"><?php echo esc_html( $group['label'] ); ?></legend>
 							<?php foreach ( $group['types'] as $pt ) : ?>
 								<label class="fosse-post-type-item">
 									<input
@@ -1241,7 +1254,7 @@ class Onboarding_Wizard {
 									</span>
 								</label>
 							<?php endforeach; ?>
-						</div>
+						</fieldset>
 					<?php endforeach; ?>
 				</div>
 
@@ -1345,25 +1358,25 @@ class Onboarding_Wizard {
 				<table class="fosse-summary">
 					<?php if ( $status['handle'] ) : ?>
 						<tr>
-							<td class="fosse-summary__label"><?php esc_html_e( 'Handle', 'fosse' ); ?></td>
+							<th scope="row" class="fosse-summary__label"><?php esc_html_e( 'Handle', 'fosse' ); ?></th>
 							<td class="fosse-summary__value"><?php echo esc_html( $status['handle'] ); ?></td>
 						</tr>
 					<?php endif; ?>
 					<?php if ( $status['did'] ) : ?>
 						<tr>
-							<td class="fosse-summary__label"><?php esc_html_e( 'Account ID', 'fosse' ); ?></td>
+							<th scope="row" class="fosse-summary__label"><?php esc_html_e( 'Account ID', 'fosse' ); ?></th>
 							<td class="fosse-summary__value"><code><?php echo esc_html( $status['did'] ); ?></code></td>
 						</tr>
 					<?php endif; ?>
 					<?php if ( ! empty( $handle_previews['user'] ) ) : ?>
 						<tr>
-							<td class="fosse-summary__label"><?php esc_html_e( 'Your follow address', 'fosse' ); ?></td>
+							<th scope="row" class="fosse-summary__label"><?php esc_html_e( 'Your follow address', 'fosse' ); ?></th>
 							<td class="fosse-summary__value"><code><?php echo esc_html( $handle_previews['user'] ); ?></code></td>
 						</tr>
 					<?php endif; ?>
 					<?php if ( ! empty( $handle_previews['blog'] ) ) : ?>
 						<tr>
-							<td class="fosse-summary__label"><?php esc_html_e( 'Site follow address', 'fosse' ); ?></td>
+							<th scope="row" class="fosse-summary__label"><?php esc_html_e( 'Site follow address', 'fosse' ); ?></th>
 							<td class="fosse-summary__value"><code><?php echo esc_html( $handle_previews['blog'] ); ?></code></td>
 						</tr>
 					<?php endif; ?>
@@ -1539,11 +1552,11 @@ class Onboarding_Wizard {
 		<div class="fosse-wizard__card">
 			<table class="fosse-summary">
 				<tr>
-					<td class="fosse-summary__label"><?php esc_html_e( 'Destinations', 'fosse' ); ?></td>
+					<th scope="row" class="fosse-summary__label"><?php esc_html_e( 'Destinations', 'fosse' ); ?></th>
 					<td class="fosse-summary__value"><?php echo esc_html( $destination_label ); ?></td>
 				</tr>
 				<tr>
-					<td class="fosse-summary__label"><?php esc_html_e( 'People follow', 'fosse' ); ?></td>
+					<th scope="row" class="fosse-summary__label"><?php esc_html_e( 'People follow', 'fosse' ); ?></th>
 					<td class="fosse-summary__value">
 						<?php
 						echo wp_kses(
@@ -1557,11 +1570,11 @@ class Onboarding_Wizard {
 					</td>
 				</tr>
 				<tr>
-					<td class="fosse-summary__label"><?php esc_html_e( 'Content shared', 'fosse' ); ?></td>
+					<th scope="row" class="fosse-summary__label"><?php esc_html_e( 'Content shared', 'fosse' ); ?></th>
 					<td class="fosse-summary__value"><?php echo esc_html( implode( ', ', $type_labels ) ); ?></td>
 				</tr>
 				<tr>
-					<td class="fosse-summary__label"><?php esc_html_e( 'Bluesky', 'fosse' ); ?></td>
+					<th scope="row" class="fosse-summary__label"><?php esc_html_e( 'Bluesky', 'fosse' ); ?></th>
 					<td class="fosse-summary__value<?php echo $bluesky['connected'] ? '' : ' fosse-summary__value--muted'; ?>"><?php echo esc_html( $bluesky_summary ); ?></td>
 				</tr>
 			</table>
