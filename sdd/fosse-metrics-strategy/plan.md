@@ -38,19 +38,23 @@ Phase 0 must START as soon as the strategy spec is agreed — Cohort C-pre needs
 
 **Exit criterion:** Recorder lands on trunk, no channel registered, no production events emit. Tests green.
 
-## Phase 2 — wp.com Tracks channel + cohort enrichment
+## Phase 2 — wp.com Tracks channel + cohort enrichment ✅ landed
+
+**Status:** Landed in 215409-ghe-Automattic/wpcom (merged 2026-05-08). Linear: DOTCOM-17029.
 
 **Why:** The strategy's primary cohort. Lands the funnel-event path for Cohort A/B before instrumenting the call sites in Phase 3.
 
 **Tasks (wpcom side):**
-- Add `Wpcom_Tracks_Channel` in `wp-content/mu-plugins/fosse-loader.php`. Implements `Tracks_Channel`. `record()` calls `tracks_record_event()` from `tracks/client` lib (same as 215299-ghe-Automattic/wpcom).
+- Add the wpcom Tracks channel in `wp-content/mu-plugins/fosse-loader.php` (anonymous class declared inside the `fosse_metrics_tracks_channels` filter callback so a request where FOSSE never loaded never tries to resolve the interface). `record()` calls `tracks_record_event()` from `tracks/client` lib (mirrors the activation-event pattern PR 215299-ghe-Automattic/wpcom established for `wpcom_fosse_activate`).
 - Register via `add_filter( 'fosse_metrics_tracks_channels', ... )`.
-- Filter `fosse_metrics_event_context` to attach `cohort: 'A'|'B'|'C'`. Cohort A determined by auto-on rule; Cohort B by entry-page tag; Cohort C-post by FOSSE-eligible-but-off.
+- Filter `fosse_metrics_event_context` to attach `cohort: 'A' | 'C-post'`. Cohort A determined by `enable-fosse` + `fosse-auto-on` blog stickers (auto-on launch path; sticker not yet set anywhere, so A reads as null until that ships). Cohort C-post: Simple-eligible blog without FOSSE active. Cohort B (manually opted-in: `enable-fosse` sticker without auto-on, or Blurt theme via wordpress.com/social) deferred — TODO in `wpcom_fosse_determine_cohort()`.
 - Test (sandbox or unit): verify the outgoing Tracks payload doesn't include scrubbed-by-contract fields (no `_via_ip`, no `blog_url` post-decoration).
 
 **Cross-repo coordination:** Phase 1 lands first in fosse plugin; the wpcom-side Phase 2 PR depends on it.
 
 **Exit criterion:** wp.com sandbox emits a `fosse_*` Tracks event when Phase 1's recorder is called from a synthetic test endpoint.
+
+**Follow-up:** Cohort B detection (Blurt theme + sticker-without-auto-on signal) tracked alongside Phase 3.
 
 ## Phase 3 — Wizard / connection / handle / search-indexing instrumentation
 

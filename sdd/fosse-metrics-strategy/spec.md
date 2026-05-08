@@ -58,11 +58,15 @@ Federation auto-active from site launch. User can disable it (deferred — cover
 
 This is the "regular people" cohort. It's where the leading-indicator funnel runs.
 
-### Cohort B — "Intent play" (dedicated entry point)
+The "auto-on at launch" trigger may evolve into a "discovery in the wild" path (e.g. an in-admin prompt that lets existing eligible sites opt in via a single click) before this cohort meaningfully populates; the strategic intent — a low-friction default-flow cohort, distinguished from the deliberate Cohort B opt-in — stays the same regardless of which trigger ships. PR 215409-ghe-Automattic/wpcom keys detection on the `fosse-auto-on` sticker; whichever launch path adds that sticker becomes the de facto Cohort A entry point.
 
-Definition: visitors who arrive at a FOSSE-branded landing page (e.g. fosse.wordpress.com) and create a Simple site through that path. Site has FOSSE pre-configured.
+### Cohort B — "Intent play" (manually opted-in)
 
-Higher selection bias than Cohort A — these are people who explicitly came looking for federation. Useful for measuring intent-driven conversion separately from default-flow conversion. Won't see the larger Cohort A but should convert at higher rates.
+Definition: WordPress.com Simple plan sites that activated FOSSE intentionally — either via the `enable-fosse` blog sticker (ops-applied beta cohort, see `sdd/wpcom-simple-rollout/`) or by choosing the Blurt theme through the wordpress.com/social entry point (the more likely path at scale). The common factor is that the site owner deliberately picked a social-web-type site, rather than having FOSSE turn on by default.
+
+Higher selection bias than Cohort A — these are people who explicitly chose federation. Useful for measuring intent-driven conversion separately from default-flow conversion. Won't see the larger Cohort A but should convert at higher rates.
+
+Implementation status: not detected by the cohort enrichment helper as of PR 215409-ghe-Automattic/wpcom (events fire without a `cohort` tag); detection ships once the Blurt entry-point and the sticker-only path each have a stable signal to read.
 
 ### Cohort C — "Comparison" (FOSSE-off Simple sites)
 
@@ -155,7 +159,7 @@ The self-host signal piggybacks on what's free (WP.org, GitHub) from day 1; the 
 ## Distribution Plan
 
 - **Cohort A:** ships as part of the wp.com Simple integration. Wiring already exists for the bundled AP/Atmosphere on wp.com infrastructure; FOSSE adds the projector layer + the auto-on-when-search-indexed gate.
-- **Cohort B:** dedicated landing page on a wp.com subdomain. Feeds into the standard new-Simple-site flow with FOSSE pre-configured.
+- **Cohort B:** manually-opted-in beta (`enable-fosse` sticker, ops-applied) plus the Blurt theme's wordpress.com/social entry point. Both are intentional-opt paths; cohort detection is a follow-up to PR 215409-ghe-Automattic/wpcom.
 - **Self-host:** plugin distribution via WP.org and GitHub Releases. Tracking is public counts only.
 
 ## Implementation reference
@@ -202,7 +206,7 @@ An adversarial review of this doc on 2026-04-28 surfaced thirteen issues at qual
 13. **"Author engaged" (step 7) — RESOLVED for v1.** Definition locked: "replied to the inbound reaction OR clicked through from the inbound notification to the source post on the originating network." Captured in `implementation.md` as `fosse_author_engaged.kind ∈ {replied, clicked-through}`. Iterate the definition after seeing real data.
 
 ### Scope, Feasibility, Missing Sections (overflow — addressed in groups)
-- Cohort B (fosse.wordpress.com) understates the lift. Marketing site + landing page + new-Simple-site signup hook is multi-team work. Either confirm staffing or descope to "Phase 2."
+- Cohort B as originally framed (fosse.wordpress.com landing page) understated the lift — marketing site + landing page + new-Simple-site signup hook is multi-team work. **Resolved** by redefining Cohort B as "manually opted-in" (`enable-fosse` sticker plus the Blurt theme path on wordpress.com/social), which uses entry points already shipping rather than building a new landing surface.
 - Tier 3 oversells the causal claim with self-selected Cohort C. Either downgrade the framing or propose a small randomized hold-out within Cohort A (5–10%) for the first N weeks.
 - Cohort C-pre baseline window vs Radical Speed Month timing is a real conflict. Cohort C instrumentation must ship and accumulate ≥4 weeks of data before FOSSE-on. If that can't be guaranteed, Tier 3 is descoped to a delayed read.
 - Step 7 (author engaged) feasibility unverified. Confirm the bundled AP/Atmosphere round-trip surfaces inbound reactions in a place the author sees them.

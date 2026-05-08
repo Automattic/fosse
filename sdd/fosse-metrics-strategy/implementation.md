@@ -8,7 +8,7 @@ This doc covers architecture and event taxonomy. Strategy-level reviewer concern
 ## What this covers
 
 - Recorder + per-channel registration (Tracks channel + MC stat-bump channel as separate, independently-registered transports).
-- wp.com Tracks channel via wpcom-loader, mirroring 215299-ghe-Automattic/wpcom.
+- wp.com Tracks channel + cohort enrichment via wpcom-loader (landed in 215409-ghe-Automattic/wpcom), reusing the `tracks/client` lib pattern PR 215299-ghe-Automattic/wpcom established for `wpcom_fosse_activate`.
 - Jetpack-connected Tracks channel via `Automattic\Jetpack\Tracking` (FOSSE never bundles Tracks).
 - MC stat-bump channel as a small, confirmed counter set — not a zero-cost auto-companion to every Tracks event.
 - v1 event taxonomy mapped tightly to the strategy's 7-step funnel, with two diagnostic add-ons.
@@ -90,7 +90,7 @@ interface Mc_Channel {
 
 | Cohort | Tracks channel | MC channel | Lives in |
 |--------|----------------|------------|----------|
-| wp.com Simple (A, B, C) | `Wpcom_Tracks_Channel` (`tracks_record_event`) | `Wpcom_Mc_Channel` (`bump_stats_extras`) | wp-content/mu-plugins/fosse-loader.php |
+| wp.com Simple (A, B, C) | wpcom Tracks channel (anonymous class, `tracks_record_event`) — landed in 215409-ghe-Automattic/wpcom | `Wpcom_Mc_Channel` (`bump_stats_extras`) — pending Phase 7 | wp-content/mu-plugins/fosse-loader.php |
 | Jetpack-connected self-hosted | `Jetpack_Tracks_Channel` (lower-level Jetpack `Tracking::tracks_record_event` to preserve the `fosse_` prefix — see Open Question 1) | `Jetpack_Mc_Channel` (Jetpack stats bump path) | FOSSE plugin, gated on `class_exists( '\Automattic\Jetpack\Tracking' )` |
 | Pure self-hosted (no Jetpack) | none | none | n/a |
 | Tests | `In_Memory_Tracks_Channel` | `In_Memory_Mc_Channel` | FOSSE plugin (test-only autoload) |
@@ -120,7 +120,7 @@ Tracks events fire independently and aren't gated on this list shipping.
 
 ### Context enrichment
 
-Cohort/population is added at the enrichment layer, not at the channel. The wpcom-loader filters `fosse_metrics_event_context` to add `cohort: 'A'|'B'|'C'`. The Jetpack channel's host filter adds `population: 'jetpack-connected'`. Pure self-host (no channel registered, no enrichment fires) adds nothing.
+Cohort/population is added at the enrichment layer, not at the channel. The wpcom-loader filters `fosse_metrics_event_context` to add `cohort: 'A' | 'B' | 'C-post'` (215409-ghe-Automattic/wpcom ships A and C-post; B detection is a follow-up — see `spec.md` Cohort B implementation status). The Jetpack channel's host filter adds `population: 'jetpack-connected'`. Pure self-host (no channel registered, no enrichment fires) adds nothing.
 
 This means cohort/population is part of the event schema (subject to allowlist validation) and visible in tests. It does not silently differ across hosts.
 
@@ -205,7 +205,7 @@ The static allowlist is **not sufficient** by itself. Codex correctly pointed ou
 To prevent that:
 
 - The Jetpack channel uses the lower-level `Tracking::tracks_record_event()` (not `record_user_event()`), which does not add the IP/UA/URL decorations.
-- The wp.com channel uses `tracks_record_event()` from `tracks/client` directly — the same lib PR 215299-ghe-Automattic/wpcom uses — and verifies the request payload in tests doesn't include scrubbed-by-contract fields.
+- The wp.com channel uses `tracks_record_event()` from `tracks/client` directly (landed in 215409-ghe-Automattic/wpcom) — the same lib pattern PR 215299-ghe-Automattic/wpcom established for `wpcom_fosse_activate` — and verifies the request payload in tests doesn't include scrubbed-by-contract fields.
 - Both channels have a post-decoration "outgoing" property assertion in the test channel that traps any added property whose name starts with `_` or matches `blog_url|*_ip|*_ua` against the contract.
 
 Sink-decorated property handling is in scope for v1; this is the codex pushback that goes from "design issue" to "must enforce, structurally."
