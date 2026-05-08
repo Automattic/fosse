@@ -56,6 +56,19 @@
 
 .fosse-status-card__label {
 	width: 40%;
+	/* Reset the bold/centered defaults `<th>` carries so the row label
+	   reads at the same weight as a `<td>` would. The semantic upgrade
+	   to `<th scope="row">` is for assistive tech, not for visual style. */
+	font-weight: normal;
+	text-align: left;
+}
+
+/* Bluesky auto-publish recovery notice form sits above its description
+   text by ~6px so the button doesn't crowd the next paragraph. Inline
+   on the form element previously; moved here so the FOSSE-screen
+   stylesheet (already enqueued) is the single source of truth. */
+.fosse-auto-publish-recover__form {
+	margin-bottom: 6px;
 }
 
 /* Defense in depth: token wrappers carry their own wrap rules, but if a
@@ -162,17 +175,58 @@
 	--fosse-wizard-accent-soft: #f3f6ff;
 	--fosse-wizard-accent-icon: #e6ecff;
 	--fosse-wizard-accent-soft-border: rgba(56, 88, 233, 0.38);
-	--fosse-wizard-success: #168a4a;
+	--fosse-wizard-success: #287340;
 	--fosse-wizard-success-soft: #edf8f1;
 	--fosse-wizard-text: #1d2327;
 	--fosse-wizard-muted: #646970;
 	--fosse-wizard-warm: #fff4cf;
 	--fosse-wizard-warm-text: #6f5700;
 
+	position: relative;
 	max-width: 860px;
 	margin: 0 auto;
 	padding-top: 32px;
 	color: var(--fosse-wizard-text);
+}
+
+.fosse-wizard__lizard {
+	position: absolute;
+	top: 4px;
+	right: 4px;
+	z-index: 2;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 28px;
+	height: 28px;
+	padding: 0;
+	border: 0;
+	border-radius: 50%;
+	background: transparent;
+	cursor: pointer;
+	font-size: 14px;
+	line-height: 1;
+	opacity: 0.1;
+	filter: grayscale(1);
+	transform: rotate(10deg) scale(0.82);
+	transition:
+		background-color 0.18s ease,
+		filter 0.18s ease,
+		opacity 0.18s ease,
+		transform 0.18s ease;
+}
+
+.fosse-wizard__lizard:hover,
+.fosse-wizard__lizard:focus {
+	background: rgba(83, 120, 31, 0.08);
+	filter: none;
+	opacity: 0.78;
+	transform: rotate(-4deg) scale(1);
+}
+
+.fosse-wizard__lizard:focus-visible {
+	outline: 2px solid var(--fosse-wizard-accent);
+	outline-offset: 2px;
 }
 
 /* Progress indicator */
@@ -196,6 +250,8 @@
 	font-size: 12px;
 	font-weight: 500;
 	line-height: 1;
+	/* var(--fosse-wizard-muted) is #646970 — 5.74:1 on white (WCAG AA
+	   for normal text). The earlier #949494 was ~3.0:1 (fail AA at 12px). */
 	color: var(--fosse-wizard-muted);
 	white-space: nowrap;
 }
@@ -212,6 +268,9 @@
 }
 
 .fosse-wizard__progress-step.is-complete {
+	/* var(--fosse-wizard-success) is #287340 — 5.81:1 on white,
+	   5.34:1 on var(--fosse-wizard-success-soft) #edf8f1 (both WCAG AA).
+	   The earlier #4ab866 was ~2.6:1 (fail AA at 12px). */
 	color: var(--fosse-wizard-success);
 }
 
@@ -354,6 +413,9 @@
 .fosse-wizard__hint p {
 	font-size: 12px;
 	line-height: 1.5;
+	/* var(--fosse-wizard-muted) is #646970 — ~5.4:1 on the
+	   var(--fosse-wizard-surface-muted) #f6f7f7 hint background
+	   (WCAG AA). The earlier #757575 was ~3.4:1 (fail AA at 12px). */
 	color: var(--fosse-wizard-muted);
 	margin: 0;
 }
@@ -361,6 +423,20 @@
 /* Notice within wizard card */
 .fosse-wizard__notice {
 	margin: 0 0 24px;
+}
+
+/* Reset native fieldset chrome on the wizard card wrappers — the
+   semantic upgrade from <div> to <fieldset> for radio/checkbox grouping
+   is for assistive tech only. Without these resets the browser default
+   border, padding, margin, and `min-inline-size: min-content` would
+   add visible chrome and force overflow on narrow admin viewports. */
+.fosse-destination-cards,
+.fosse-mode-cards,
+.fosse-post-types__group {
+	border: 0;
+	padding: 0;
+	margin: 0;
+	min-inline-size: 0;
 }
 
 /* Destination cards */
@@ -518,7 +594,8 @@
 	.fosse-destination-card__check,
 	.fosse-mode-card,
 	.fosse-mode-card__check,
-	.fosse-post-type-item {
+	.fosse-post-type-item,
+	.fosse-wizard__lizard {
 		transition: none;
 	}
 
@@ -897,7 +974,8 @@
 	border-bottom: none;
 }
 
-.fosse-summary td {
+.fosse-summary td,
+.fosse-summary th {
 	padding: 14px 0;
 	font-size: 13px;
 	line-height: 1.5;
@@ -906,6 +984,11 @@
 .fosse-summary__label {
 	color: var(--fosse-wizard-muted);
 	width: 40%;
+	/* Reset the bold/centered defaults `<th>` carries so the row label
+	   reads at the same weight as a `<td>` would. The semantic upgrade
+	   to `<th scope="row">` is for assistive tech, not for visual style. */
+	font-weight: normal;
+	text-align: left;
 }
 
 .fosse-summary__value {
@@ -966,6 +1049,140 @@
 /* Bluesky signup affordance */
 .fosse-bluesky-signup__link {
 	font-weight: 500;
+}
+
+/* Onboarding Lizard easter egg theme */
+.fosse-wizard.is-lizard-themed {
+	--fosse-wizard-surface: #fbfff1;
+	--fosse-wizard-surface-muted: #f1f8df;
+	--fosse-wizard-border: #cadb9b;
+	--fosse-wizard-border-strong: #78983a;
+	--fosse-wizard-border-soft: #d9e8b8;
+	--fosse-wizard-border-faint: #e8f1cf;
+	--fosse-wizard-accent: #315d12;
+	--fosse-wizard-accent-soft: #eef7d6;
+	--fosse-wizard-accent-icon: #d9edab;
+	--fosse-wizard-accent-soft-border: rgba(49, 93, 18, 0.5);
+	--fosse-wizard-success: #2f6e21;
+	--fosse-wizard-success-soft: #e8f5d7;
+	--fosse-wizard-text: #13200b;
+	--fosse-wizard-muted: #405334;
+	--fosse-wizard-warm: #fff2b8;
+	--fosse-wizard-warm-text: #604d00;
+	isolation: isolate;
+}
+
+.fosse-wizard.is-lizard-themed::before {
+	position: absolute;
+	z-index: -1;
+	inset: -18px -22px -28px;
+	pointer-events: none;
+	content: "";
+	border: 1px solid rgba(137, 168, 75, 0.24);
+	border-radius: 24px;
+	background:
+		radial-gradient(
+				circle at 14px 12px,
+				rgba(49, 93, 18, 0.08) 0 4px,
+				transparent 5px
+			)
+			0 0 / 30px 26px,
+		linear-gradient(135deg, #f8fce8, #fff7ca);
+}
+
+.fosse-wizard.is-lizard-themed .fosse-wizard__progress {
+	background: rgba(251, 255, 241, 0.94);
+	border-color: rgba(120, 152, 58, 0.5);
+}
+
+.fosse-wizard.is-lizard-themed .fosse-wizard__progress-line {
+	height: 2px;
+	background: rgba(120, 152, 58, 0.3);
+}
+
+.fosse-wizard.is-lizard-themed .fosse-wizard__progress-line.is-complete {
+	background: rgba(47, 110, 33, 0.75);
+}
+
+.fosse-wizard.is-lizard-themed .fosse-wizard__progress-dot,
+.fosse-wizard.is-lizard-themed
+	.fosse-wizard__progress-step.is-active
+	.fosse-wizard__progress-dot,
+.fosse-wizard.is-lizard-themed
+	.fosse-wizard__progress-step.is-complete
+	.fosse-wizard__progress-dot {
+	width: 20px;
+	height: 20px;
+	background: transparent;
+	box-shadow: none;
+	transform: translateY(-1px);
+}
+
+.fosse-wizard.is-lizard-themed .fosse-wizard__progress-dot::before {
+	content: "\1F95A";
+	width: auto;
+	height: auto;
+	margin: 0;
+	border: 0;
+	font-size: 16px;
+	line-height: 1;
+	transform: none;
+}
+
+.fosse-wizard.is-lizard-themed
+	.fosse-wizard__progress-step.is-active
+	.fosse-wizard__progress-dot::before {
+	content: "\1F98E";
+	font-size: 20px;
+}
+
+.fosse-wizard.is-lizard-themed
+	.fosse-wizard__progress-step.is-complete
+	.fosse-wizard__progress-dot::before {
+	content: "\1F43E";
+	font-size: 18px;
+}
+
+.fosse-wizard.is-lizard-themed .fosse-complete-icon {
+	background: var(--fosse-wizard-accent-icon);
+	box-shadow: 0 0 0 8px rgba(49, 93, 18, 0.08);
+}
+
+.fosse-wizard.is-lizard-themed .fosse-complete-icon .dashicons {
+	font-size: 0;
+}
+
+.fosse-wizard.is-lizard-themed .fosse-complete-icon .dashicons::before {
+	content: "\1F98E";
+	font-family: initial;
+	font-size: 34px;
+	line-height: 1;
+}
+
+.fosse-wizard.is-lizard-themed .fosse-wizard__card,
+.fosse-wizard.is-lizard-themed .fosse-destination-card,
+.fosse-wizard.is-lizard-themed .fosse-mode-card,
+.fosse-wizard.is-lizard-themed .fosse-post-type-item {
+	box-shadow:
+		0 10px 24px rgba(63, 111, 29, 0.08),
+		inset 0 1px 0 rgba(255, 255, 255, 0.72);
+}
+
+.fosse-wizard.is-lizard-themed .button-primary {
+	background: var(--fosse-wizard-accent);
+	border-color: #315717;
+}
+
+.fosse-wizard.is-lizard-themed .button-primary:hover,
+.fosse-wizard.is-lizard-themed .button-primary:focus {
+	background: #335d18;
+	border-color: #264711;
+}
+
+.fosse-wizard.is-lizard-themed .fosse-wizard__lizard {
+	background: rgba(63, 111, 29, 0.1);
+	filter: none;
+	opacity: 0.82;
 }
 
 @media (max-width: 782px) {

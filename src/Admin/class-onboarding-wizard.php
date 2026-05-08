@@ -177,6 +177,7 @@ class Onboarding_Wizard {
 		?>
 		<div class="wrap fosse-wizard">
 		<?php
+		self::render_lizard_toggle();
 
 		if ( ! self::is_activitypub_available() ) {
 			self::render_unavailable_notice();
@@ -218,6 +219,25 @@ class Onboarding_Wizard {
 
 		?>
 		</div>
+		<?php
+	}
+
+	/**
+	 * Render the hidden Onboarding Lizard toggle.
+	 *
+	 * @return void
+	 */
+	private static function render_lizard_toggle(): void {
+		?>
+		<button
+			type="button"
+			class="fosse-wizard__lizard"
+			data-fosse-lizard-toggle
+			aria-label="<?php esc_attr_e( 'Onboarding Lizard', 'fosse' ); ?>"
+			aria-pressed="false"
+		>
+			<span aria-hidden="true">&#x1F98E;</span>
+		</button>
 		<?php
 	}
 
@@ -316,13 +336,13 @@ class Onboarding_Wizard {
 				}
 			}
 
-			// On rejection, persist the surfaced errors via the
-			// `settings_errors` transient and bounce back to the appearance
-			// step so the user can correct the input. Without this the wizard
-			// would silently advance to Content with no feedback and no way
-			// to fix the colliding handle.
+			// On rejection, persist the surfaced errors via the per-user
+			// notice transient and bounce back to the appearance step so the
+			// user can correct the input. Without this the wizard would
+			// silently advance to Content with no feedback and no way to fix
+			// the colliding handle.
 			if ( $blog_identifier_rejected ) {
-				set_transient( 'settings_errors', get_settings_errors(), 30 );
+				User_Notices::persist();
 				self::redirect_to_step( 'appearance', array( 'settings-updated' => 'true' ) );
 			}
 
@@ -969,7 +989,10 @@ class Onboarding_Wizard {
 			<input type="hidden" name="_wpnonce" value="<?php echo esc_attr( $nonce ); ?>" />
 
 			<div class="fosse-wizard__card">
-				<div class="fosse-destination-cards">
+				<fieldset class="fosse-destination-cards">
+					<legend class="screen-reader-text">
+						<?php esc_html_e( 'Where to publish', 'fosse' ); ?>
+					</legend>
 					<?php foreach ( $destinations as $value => $destination ) : ?>
 						<label class="fosse-destination-card <?php echo esc_attr( $destination['class'] ); ?>">
 							<input
@@ -992,7 +1015,7 @@ class Onboarding_Wizard {
 							</span>
 						</label>
 					<?php endforeach; ?>
-				</div>
+				</fieldset>
 			</div>
 
 			<div class="fosse-wizard__actions fosse-wizard__actions--center">
@@ -1109,7 +1132,10 @@ class Onboarding_Wizard {
 					</div>
 					<input type="hidden" name="activitypub_actor_mode" value="<?php echo esc_attr( $forced_mode ); ?>" />
 				<?php else : ?>
-					<div class="fosse-mode-cards">
+					<fieldset class="fosse-mode-cards">
+						<legend class="screen-reader-text">
+							<?php esc_html_e( 'How posts appear', 'fosse' ); ?>
+						</legend>
 						<?php foreach ( $modes as $value => $mode ) : ?>
 							<label class="fosse-mode-card">
 								<input
@@ -1119,7 +1145,7 @@ class Onboarding_Wizard {
 									class="fosse-mode-card__input"
 									<?php checked( $value, $current_mode ); ?>
 								/>
-								<div class="fosse-mode-card__icon">
+								<div class="fosse-mode-card__icon" aria-hidden="true">
 									<span class="dashicons <?php echo esc_attr( $mode['icon'] ); ?>"></span>
 								</div>
 								<div class="fosse-mode-card__content">
@@ -1131,7 +1157,7 @@ class Onboarding_Wizard {
 								</div>
 							</label>
 						<?php endforeach; ?>
-					</div>
+					</fieldset>
 				<?php endif; ?>
 
 				<?php
@@ -1282,8 +1308,8 @@ class Onboarding_Wizard {
 							continue;
 						}
 						?>
-						<div class="fosse-post-types__group">
-							<div class="fosse-post-types__group-label"><?php echo esc_html( $group['label'] ); ?></div>
+						<fieldset class="fosse-post-types__group">
+							<legend class="fosse-post-types__group-label"><?php echo esc_html( $group['label'] ); ?></legend>
 							<?php foreach ( $group['types'] as $pt ) : ?>
 								<label class="fosse-post-type-item">
 									<input
@@ -1297,7 +1323,7 @@ class Onboarding_Wizard {
 									</span>
 								</label>
 							<?php endforeach; ?>
-						</div>
+						</fieldset>
 					<?php endforeach; ?>
 				</div>
 
@@ -1359,10 +1385,17 @@ class Onboarding_Wizard {
 		// error notice on failure. The wizard's in-card connected state
 		// already speaks for the success case, so rendering the top success
 		// notice would double-up the confirmation. Surface only error/warning
-		// here so a failed connect doesn't go silent on the Bluesky step.
+		// here so a failed connect doesn't go silent on the Bluesky step —
+		// EXCEPT for FOSSE's own domain-handle notices, which describe a
+		// separate explicit action (the confirm button) and need their own
+		// confirmation/error feedback regardless of type.
 		foreach ( get_settings_errors( 'atmosphere' ) as $atmosphere_notice ) {
 			$notice_type = isset( $atmosphere_notice['type'] ) ? (string) $atmosphere_notice['type'] : 'error';
-			if ( in_array( $notice_type, array( 'success', 'updated', 'info' ), true ) ) {
+			$notice_code = isset( $atmosphere_notice['code'] ) ? (string) $atmosphere_notice['code'] : '';
+
+			$is_domain_handle_notice = Bluesky_Domain_Handle::NOTICE_CODE === $notice_code;
+
+			if ( ! $is_domain_handle_notice && in_array( $notice_type, array( 'success', 'updated', 'info' ), true ) ) {
 				continue;
 			}
 
@@ -1394,29 +1427,73 @@ class Onboarding_Wizard {
 				<table class="fosse-summary">
 					<?php if ( $status['handle'] ) : ?>
 						<tr>
-							<td class="fosse-summary__label"><?php esc_html_e( 'Handle', 'fosse' ); ?></td>
+							<th scope="row" class="fosse-summary__label"><?php esc_html_e( 'Handle', 'fosse' ); ?></th>
 							<td class="fosse-summary__value"><?php echo esc_html( $status['handle'] ); ?></td>
 						</tr>
 					<?php endif; ?>
 					<?php if ( $status['did'] ) : ?>
 						<tr>
-							<td class="fosse-summary__label"><?php esc_html_e( 'Account ID', 'fosse' ); ?></td>
+							<th scope="row" class="fosse-summary__label"><?php esc_html_e( 'Account ID', 'fosse' ); ?></th>
 							<td class="fosse-summary__value"><code><?php echo esc_html( $status['did'] ); ?></code></td>
 						</tr>
 					<?php endif; ?>
 					<?php if ( ! empty( $handle_previews['user'] ) ) : ?>
 						<tr>
-							<td class="fosse-summary__label"><?php esc_html_e( 'Your follow address', 'fosse' ); ?></td>
+							<th scope="row" class="fosse-summary__label"><?php esc_html_e( 'Your follow address', 'fosse' ); ?></th>
 							<td class="fosse-summary__value"><code><?php echo esc_html( $handle_previews['user'] ); ?></code></td>
 						</tr>
 					<?php endif; ?>
 					<?php if ( ! empty( $handle_previews['blog'] ) ) : ?>
 						<tr>
-							<td class="fosse-summary__label"><?php esc_html_e( 'Site follow address', 'fosse' ); ?></td>
+							<th scope="row" class="fosse-summary__label"><?php esc_html_e( 'Site follow address', 'fosse' ); ?></th>
 							<td class="fosse-summary__value"><code><?php echo esc_html( $handle_previews['blog'] ); ?></code></td>
 						</tr>
 					<?php endif; ?>
 				</table>
+
+				<?php
+				// Connected-state confirm button: replace the user's Bluesky
+				// handle with the site domain. Always requires this explicit
+				// click — Bluesky_Domain_Handle::should_offer() short-circuits
+				// when the handle already matches, when the install is in a
+				// subdirectory, or when the feature is disabled.
+				if ( Bluesky_Domain_Handle::should_offer( $status ) ) :
+					$target_host = Bluesky_Domain_Handle::get_target_handle();
+					?>
+					<div class="fosse-wizard__domain-handle">
+						<h3><?php esc_html_e( 'Use your domain as your Bluesky handle', 'fosse' ); ?></h3>
+						<p>
+							<?php
+							echo esc_html(
+								sprintf(
+									/* translators: 1: current Bluesky handle (e.g. alice.bsky.social); 2: target handle = site host (e.g. example.com). */
+									__( 'Your handle is currently %1$s. Replace it with %2$s so people can find you on Bluesky by your site\'s domain.', 'fosse' ),
+									(string) $status['handle'],
+									$target_host
+								)
+							);
+							?>
+						</p>
+						<?php Bluesky_Domain_Handle::render_destructive_warning_notice(); ?>
+						<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+							<input type="hidden" name="action" value="fosse_set_bluesky_domain_handle" />
+							<input type="hidden" name="_wpnonce" value="<?php echo esc_attr( wp_create_nonce( 'fosse_set_bluesky_domain_handle' ) ); ?>" />
+							<input type="hidden" name="<?php echo esc_attr( Bluesky_Provider::RETURN_CONTEXT_FIELD ); ?>" value="<?php echo esc_attr( Bluesky_Provider::RETURN_CONTEXT_WIZARD ); ?>" />
+							<?php
+							submit_button(
+								sprintf(
+									/* translators: %s: target handle = site host (e.g. example.com). */
+									__( 'Use %s as my Bluesky handle', 'fosse' ),
+									$target_host
+								),
+								'secondary',
+								'submit',
+								false
+							);
+							?>
+						</form>
+					</div>
+				<?php endif; ?>
 			<?php else : ?>
 				<form id="fosse-wizard-bluesky-connect-form" method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
 					<input type="hidden" name="action" value="fosse_connect_bluesky" />
@@ -1542,11 +1619,11 @@ class Onboarding_Wizard {
 		<div class="fosse-wizard__card">
 			<table class="fosse-summary">
 				<tr>
-					<td class="fosse-summary__label"><?php esc_html_e( 'Destinations', 'fosse' ); ?></td>
+					<th scope="row" class="fosse-summary__label"><?php esc_html_e( 'Destinations', 'fosse' ); ?></th>
 					<td class="fosse-summary__value"><?php echo esc_html( $destination_label ); ?></td>
 				</tr>
 				<tr>
-					<td class="fosse-summary__label"><?php esc_html_e( 'People follow', 'fosse' ); ?></td>
+					<th scope="row" class="fosse-summary__label"><?php esc_html_e( 'People follow', 'fosse' ); ?></th>
 					<td class="fosse-summary__value">
 						<?php
 						echo wp_kses(
@@ -1560,11 +1637,11 @@ class Onboarding_Wizard {
 					</td>
 				</tr>
 				<tr>
-					<td class="fosse-summary__label"><?php esc_html_e( 'Content shared', 'fosse' ); ?></td>
+					<th scope="row" class="fosse-summary__label"><?php esc_html_e( 'Content shared', 'fosse' ); ?></th>
 					<td class="fosse-summary__value"><?php echo esc_html( implode( ', ', $type_labels ) ); ?></td>
 				</tr>
 				<tr>
-					<td class="fosse-summary__label"><?php esc_html_e( 'Bluesky', 'fosse' ); ?></td>
+					<th scope="row" class="fosse-summary__label"><?php esc_html_e( 'Bluesky', 'fosse' ); ?></th>
 					<td class="fosse-summary__value<?php echo $bluesky['connected'] ? '' : ' fosse-summary__value--muted'; ?>"><?php echo esc_html( $bluesky_summary ); ?></td>
 				</tr>
 			</table>

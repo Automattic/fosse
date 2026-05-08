@@ -539,6 +539,53 @@ class AP_ProviderTest extends BaseTestCase {
 		$this->assertTrue( $this->provider->mode_includes_blog( 'actor_blog' ) );
 	}
 
+	/**
+	 * `get_status()` memoizes its return value within the request so the
+	 * Status page (which renders each provider's status twice — once to
+	 * filter on `connected`, once via `render_status_card()`) doesn't pay
+	 * AP's actor-handle resolution cost twice. The cache survives the
+	 * full request because every mutation handler ends in `wp_safe_redirect();exit`,
+	 * so re-reading after a setting change is a fresh-request concern,
+	 * not a same-request concern.
+	 *
+	 * Verifies the memo by counting `pre_option_activitypub_actor_mode`
+	 * fires: every `get_option( 'activitypub_actor_mode', ... )` call
+	 * dispatches that filter exactly once, and `get_status()` reads it
+	 * unconditionally on the uncached path. A working cache means the
+	 * second `get_status()` call must not trigger another fire.
+	 */
+	public function test_get_status_memoizes_within_request(): void {
+		update_option( 'activitypub_actor_mode', 'actor' );
+
+		$fires   = 0;
+		$counter = function ( $pre ) use ( &$fires ) {
+			++$fires;
+			return $pre;
+		};
+		add_filter( 'pre_option_activitypub_actor_mode', $counter );
+
+		try {
+			$first         = $this->provider->get_status();
+			$fires_after_1 = $fires;
+			$second        = $this->provider->get_status();
+			$fires_after_2 = $fires;
+		} finally {
+			remove_filter( 'pre_option_activitypub_actor_mode', $counter );
+		}
+
+		$this->assertSame( $first, $second, 'Cached status payload must be identical to the first call.' );
+		$this->assertGreaterThan(
+			0,
+			$fires_after_1,
+			'Sanity check: the first call should hit the activitypub_actor_mode filter at least once (uncached path).'
+		);
+		$this->assertSame(
+			$fires_after_1,
+			$fires_after_2,
+			'The second get_status() call must add zero activitypub_actor_mode reads; it should hit the in-memory cache and bail before any get_option() runs.'
+		);
+	}
+
 	// --- Site Handle persistence --------------------------------------------
 
 	/**

@@ -1,3 +1,7 @@
+---
+status: archived
+---
+
 # Post-type sync + AP-option ownership pivot
 
 Linear: [DOTCOM-16875](https://linear.app/a8c/issue/DOTCOM-16875)
@@ -40,16 +44,16 @@ Registered from `fosse.php` via the same `init`-time `class_exists` guard used f
 
 ## Tasks
 
-- [ ] Create `src/class-post-types.php` — `Automattic\Fosse\Post_Types` projector with `register()` and `filter_atmosphere()`. Docblock explains the deliberate asymmetry with `Object_Type`.
-- [ ] Register it in `fosse.php` alongside `Object_Type::register()` inside the existing `init` callback (same `class_exists` guard pattern).
-- [ ] Write `tests/php/Post_TypesTest.php` — cover: default (option unset → `['post']`), option set → value returned, empty array preserved (don't resurrect disabled federation), upstream default discarded, non-array option falls back to `['post']`, `register()` safe to call twice.
-- [ ] Amend `sdd/onboarding-setup-ux/spec.md` — rewrite the "Option projection pattern" section to describe direct writes to AP option keys. Remove the `pre_option_*` mechanism.
-- [ ] Amend `sdd/onboarding-setup-ux/plan.md` Task 3 — change `update_option()` target keys from `fosse_ap_*` to `activitypub_*`; delete the step that registers `pre_option_*` filters. Update Task 8's AP_Provider test description likewise.
-- [ ] Amend `sdd/onboarding-setup-ux/requirements.md` — update the "AP settings ownership" open-question record.
-- [ ] Amend `sdd/onboarding-setup-ux/planned-decisions.md` — replace the "FOSSE stores its own options" decision with the new "AP option is source of truth" direction, citing this SDD and DOTCOM-16875.
-- [ ] Run `composer run-script lint-php` and `composer run-script test-php`. Both clean.
-- [ ] Run `pnpm run format:check` (no JS changes expected, but required before push per AGENTS.md).
-- [ ] Open PR against `trunk`; branch name ends in `-DOTCOM-16875`. Body references DOTCOM-16875, the closed AP PR, and the onboarding SDD amendment.
+- [x] Create `src/class-post-types.php` — `Automattic\Fosse\Post_Types` projector with `register()` and `filter_atmosphere()`. Docblock explains the deliberate asymmetry with `Object_Type`.
+- [x] Register it in `fosse.php` alongside `Object_Type::register()` inside the existing `init` callback (same `class_exists` guard pattern).
+- [x] Write `tests/php/Post_TypesTest.php` — cover: default (option unset → `['post']`), option set → value returned, empty array preserved (don't resurrect disabled federation), upstream default discarded, non-array option falls back to `['post']`, `register()` safe to call twice.
+- [x] Amend `sdd/onboarding-setup-ux/spec.md` — rewrite the "Option projection pattern" section to describe direct writes to AP option keys. Remove the `pre_option_*` mechanism.
+- [x] Amend `sdd/onboarding-setup-ux/plan.md` Task 3 — change `update_option()` target keys from `fosse_ap_*` to `activitypub_*`; delete the step that registers `pre_option_*` filters. Update Task 8's AP_Provider test description likewise.
+- [x] Amend `sdd/onboarding-setup-ux/requirements.md` — update the "AP settings ownership" open-question record.
+- [x] Amend `sdd/onboarding-setup-ux/planned-decisions.md` — replace the "FOSSE stores its own options" decision with the new "AP option is source of truth" direction, citing this SDD and DOTCOM-16875.
+- [x] Run `composer run-script lint-php` and `composer run-script test-php`. Both clean.
+- [x] Run `pnpm run format:check` (no JS changes expected, but required before push per AGENTS.md).
+- [x] Open PR against `trunk`; branch name ends in `-DOTCOM-16875`. Body references DOTCOM-16875, the closed AP PR, and the onboarding SDD amendment.
 
 ## Implementation Notes
 
@@ -83,4 +87,4 @@ The projector itself is correct. The bug was in Atmosphere's gate conflation —
 - Upstream PR: [Automattic/wordpress-atmosphere#38](https://github.com/Automattic/wordpress-atmosphere/pull/38) — splits the gates so unpublish and permanent-delete defer to the post's publication metadata (`_atmosphere_bsky_tid` / `_atmosphere_doc_tid`) independently of the current allowlist. Three new PHPUnit cases.
 - Follow-up: [DOTCOM-16909](https://linear.app/a8c/issue/DOTCOM-16909) — after the upstream PR merges, re-sync `bundled/atmosphere/`, add a FOSSE-side regression test end-to-end through the projector, and take PR #31 out of draft.
 
-PR #31 is marked draft in the interim. FOSSE's `Post_Types` projector doesn't change; only the bundled Atmosphere code behind it needs to carry the fix before the projector is safe to enable on live sites.
+FOSSE's `Post_Types` projector doesn't change; only the bundled Atmosphere code behind it needed to carry the fix before the projector was safe to enable on live sites. Atmosphere PR [#38](https://github.com/Automattic/wordpress-atmosphere/pull/38) merged on 2026-04-30; FOSSE PR [#31](https://github.com/Automattic/fosse/pull/31) merged on 2026-04-28 (the cleanup-gate fix shipped via a subsequent bundled-plugin sync).

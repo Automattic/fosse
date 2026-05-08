@@ -1,3 +1,7 @@
+---
+status: archived
+---
+
 # Spec: Canonical Upstream Options
 
 ## Problem

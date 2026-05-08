@@ -73,11 +73,13 @@ final class Schema {
 			'cohort',
 			'population',
 		),
+		// Phase 3 (DOTCOM-17030) wires the call sites; the events sit in the allowlist now so recorder validation is in place when they ship.
 		'fosse_bluesky_handle_setup_started'         => array(
 			'eligibility',
 			'cohort',
 			'population',
 		),
+		// Phase 3 (DOTCOM-17030) wires the call sites; the events sit in the allowlist now so recorder validation is in place when they ship.
 		'fosse_bluesky_handle_active'                => array(
 			'cohort',
 			'population',

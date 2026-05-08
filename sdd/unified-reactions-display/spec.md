@@ -1,3 +1,7 @@
+---
+status: archived
+---
+
 # Spec: Unified Reactions Display
 
 ## Goal

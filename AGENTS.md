@@ -171,6 +171,25 @@ Status values:
 
 Deviations still go in `implementation-notes.md` (per the SDD workflow); Status is for "did this ship?", implementation-notes is for "what did we actually build vs. the spec?".
 
+### SDD lifecycle status (frontmatter)
+
+Each SDD's `spec.md` (or `plan.md` if there's no spec — e.g. `settings-page-scoped-actions/`, `post-type-sync/notes.md`) carries a YAML frontmatter `status:` field that mirrors the roadmap's status column. The frontmatter is the machine-readable truth; the roadmap is the human-readable index.
+
+```yaml
+---
+status: planning | in-progress | shipped | archived
+---
+```
+
+Values:
+
+-   `planning` — SDD doc itself isn't merged yet.
+-   `in-progress` — SDD merged; primary deliverables still landing.
+-   `shipped` — Implementation's primary deliverables are live on trunk; the SDD is still actively cross-referenced from sibling SDDs or in-flight work.
+-   `archived` — Shipped, complete, and historical reference. Listed in `sdd/roadmap.md`'s `## Archived` section. No follow-up work expected in this area.
+
+Flip both the frontmatter and the roadmap row at the same time. `archived` is a lightweight mark — the SDD stays in `sdd/<feature>/`, no files move, so cross-references from AGENTS.md and sibling SDDs keep working.
+
 ## Before Pushing
 
 Run the lint suite at minimum before pushing any branch or opening a PR:

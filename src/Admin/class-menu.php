@@ -249,16 +249,24 @@ class Menu {
 			filemtime( __DIR__ . '/assets/css/admin.css' )
 		);
 
-		// The wizard's Appearance step swaps the visible address preview
-		// when the actor-mode radio changes. Loaded only on the wizard
-		// hook to avoid shipping the script on the Setup/Status pages
-		// where the markup it targets isn't rendered.
+		// Wizard-only scripts: the Appearance step live preview and the
+		// hidden Onboarding Lizard easter egg. Loaded only on the wizard
+		// hook to avoid shipping scripts on Setup/Status pages where their
+		// target markup is not rendered.
 		if ( 'admin_page_fosse-wizard' === $hook_suffix ) {
 			wp_enqueue_script(
 				'fosse-wizard-appearance',
 				plugins_url( 'src/Admin/assets/js/wizard-appearance.js', dirname( __DIR__, 2 ) . '/fosse.php' ),
 				array(),
 				filemtime( __DIR__ . '/assets/js/wizard-appearance.js' ),
+				array( 'in_footer' => true )
+			);
+
+			wp_enqueue_script(
+				'fosse-wizard-lizard',
+				plugins_url( 'src/Admin/assets/js/wizard-lizard.js', dirname( __DIR__, 2 ) . '/fosse.php' ),
+				array(),
+				filemtime( __DIR__ . '/assets/js/wizard-lizard.js' ),
 				array( 'in_footer' => true )
 			);
 		}
