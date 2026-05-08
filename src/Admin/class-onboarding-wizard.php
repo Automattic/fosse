@@ -287,13 +287,13 @@ class Onboarding_Wizard {
 				}
 			}
 
-			// On rejection, persist the surfaced errors via the
-			// `settings_errors` transient and bounce back to the appearance
-			// step so the user can correct the input. Without this the wizard
-			// would silently advance to Content with no feedback and no way
-			// to fix the colliding handle.
+			// On rejection, persist the surfaced errors via the per-user
+			// notice transient and bounce back to the appearance step so the
+			// user can correct the input. Without this the wizard would
+			// silently advance to Content with no feedback and no way to fix
+			// the colliding handle.
 			if ( $blog_identifier_rejected ) {
-				set_transient( 'settings_errors', get_settings_errors(), 30 );
+				User_Notices::persist();
 				self::redirect_to_step( 'appearance', array( 'settings-updated' => 'true' ) );
 			}
 
@@ -1316,10 +1316,17 @@ class Onboarding_Wizard {
 		// error notice on failure. The wizard's in-card connected state
 		// already speaks for the success case, so rendering the top success
 		// notice would double-up the confirmation. Surface only error/warning
-		// here so a failed connect doesn't go silent on the Bluesky step.
+		// here so a failed connect doesn't go silent on the Bluesky step —
+		// EXCEPT for FOSSE's own domain-handle notices, which describe a
+		// separate explicit action (the confirm button) and need their own
+		// confirmation/error feedback regardless of type.
 		foreach ( get_settings_errors( 'atmosphere' ) as $atmosphere_notice ) {
 			$notice_type = isset( $atmosphere_notice['type'] ) ? (string) $atmosphere_notice['type'] : 'error';
-			if ( in_array( $notice_type, array( 'success', 'updated', 'info' ), true ) ) {
+			$notice_code = isset( $atmosphere_notice['code'] ) ? (string) $atmosphere_notice['code'] : '';
+
+			$is_domain_handle_notice = Bluesky_Domain_Handle::NOTICE_CODE === $notice_code;
+
+			if ( ! $is_domain_handle_notice && in_array( $notice_type, array( 'success', 'updated', 'info' ), true ) ) {
 				continue;
 			}
 
@@ -1374,6 +1381,50 @@ class Onboarding_Wizard {
 						</tr>
 					<?php endif; ?>
 				</table>
+
+				<?php
+				// Connected-state confirm button: replace the user's Bluesky
+				// handle with the site domain. Always requires this explicit
+				// click — Bluesky_Domain_Handle::should_offer() short-circuits
+				// when the handle already matches, when the install is in a
+				// subdirectory, or when the feature is disabled.
+				if ( Bluesky_Domain_Handle::should_offer( $status ) ) :
+					$target_host = Bluesky_Domain_Handle::get_target_handle();
+					?>
+					<div class="fosse-wizard__domain-handle">
+						<h3><?php esc_html_e( 'Use your domain as your Bluesky handle', 'fosse' ); ?></h3>
+						<p>
+							<?php
+							echo esc_html(
+								sprintf(
+									/* translators: 1: current Bluesky handle (e.g. alice.bsky.social); 2: target handle = site host (e.g. example.com). */
+									__( 'Your handle is currently %1$s. Replace it with %2$s so people can find you on Bluesky by your site\'s domain.', 'fosse' ),
+									(string) $status['handle'],
+									$target_host
+								)
+							);
+							?>
+						</p>
+						<?php Bluesky_Domain_Handle::render_destructive_warning_notice(); ?>
+						<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+							<input type="hidden" name="action" value="fosse_set_bluesky_domain_handle" />
+							<input type="hidden" name="_wpnonce" value="<?php echo esc_attr( wp_create_nonce( 'fosse_set_bluesky_domain_handle' ) ); ?>" />
+							<input type="hidden" name="<?php echo esc_attr( Bluesky_Provider::RETURN_CONTEXT_FIELD ); ?>" value="<?php echo esc_attr( Bluesky_Provider::RETURN_CONTEXT_WIZARD ); ?>" />
+							<?php
+							submit_button(
+								sprintf(
+									/* translators: %s: target handle = site host (e.g. example.com). */
+									__( 'Use %s as my Bluesky handle', 'fosse' ),
+									$target_host
+								),
+								'secondary',
+								'submit',
+								false
+							);
+							?>
+						</form>
+					</div>
+				<?php endif; ?>
 			<?php else : ?>
 				<form id="fosse-wizard-bluesky-connect-form" method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
 					<input type="hidden" name="action" value="fosse_connect_bluesky" />

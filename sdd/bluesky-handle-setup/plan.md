@@ -7,10 +7,10 @@ Based on: sdd/bluesky-handle-setup/spec.md
 - [x] Task 1: Add `/.well-known/atproto-did` route handler
 - [ ] Task 2: Add verification check method
 - [ ] Task 2.5: Add `fetch_current_handle($did)` helper
-- [ ] Task 3: Add domain-handle UI to Bluesky_Provider setup section
-- [ ] Task 4: Add admin-post handlers
+- [x] Task 3: Add domain-handle UI to Bluesky_Provider setup section
+- [x] Task 4: Add admin-post handlers
 - [ ] Task 5: Add DNS TXT fallback display
-- [ ] Task 6: Unit tests
+- [x] Task 6: Unit tests
 - [ ] Task 6.5: Add Playwright E2E test for well-known route
 - [ ] Task 7: Update SDD documentation
 
@@ -57,7 +57,7 @@ Based on: sdd/bluesky-handle-setup/spec.md
 - **Depends on**: none
 
 ### Task 3: Add domain-handle UI to Bluesky_Provider setup section
-- **Status**: Not started
+- **Status**: ✅ Done (Automattic/fosse#97)
 - **Files**: `src/Admin/class-bluesky-provider.php`
 - **Do**:
   1. Extract a `render_domain_handle_subsection()` method called from the existing `render_setup_section()` when connected.
@@ -71,7 +71,7 @@ Based on: sdd/bluesky-handle-setup/spec.md
 - **Depends on**: Task 1, Task 2, Task 2.5
 
 ### Task 4: Add admin-post handlers
-- **Status**: Not started
+- **Status**: ✅ Done (Automattic/fosse#97)
 - **Files**: `src/Admin/class-bluesky-provider.php`
 - **Do**:
   1. Add `admin_post_fosse_bluesky_start_handle_setup` handler. Verify nonce + capability. Set `fosse_bluesky_handle_setup_started` to `1` with autoload disabled (`add_option( ..., '', false )` on first write; `update_option()` afterward). Redirect back to FOSSE Setup with `settings-updated=true`.
@@ -95,7 +95,7 @@ Based on: sdd/bluesky-handle-setup/spec.md
 - **Depends on**: Task 3
 
 ### Task 6: Unit tests
-- **Status**: Not started
+- **Status**: ✅ Done (Automattic/fosse#97)
 - **Files**: `tests/php/Admin/Bluesky_Handle_SetupTest.php`
 - **Do**:
   1. Test `serve_atproto_did_well_known`: matches path, ignores other paths, respects filter, returns 404 when not connected.

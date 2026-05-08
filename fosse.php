@@ -279,3 +279,17 @@ register_activation_hook(
 if ( is_admin() && class_exists( \Automattic\Fosse\Admin\Menu::class ) ) {
 	\Automattic\Fosse\Admin\Menu::register();
 }
+
+/*
+ * Per-user settings-notice plumbing.
+ *
+ * Replaces WP core's site-global `settings_errors` transient with a
+ * per-user one so admin notices ("Your Bluesky handle is now …",
+ * connect/disconnect feedback, settings-saved banners) don't leak
+ * across users on multi-admin installs. Hooks `consume()` on
+ * `admin_init` priority 1 so the merge into `$wp_settings_errors`
+ * runs before any page calls `settings_errors()` to render.
+ */
+if ( is_admin() && class_exists( \Automattic\Fosse\Admin\User_Notices::class ) ) {
+	\Automattic\Fosse\Admin\User_Notices::register();
+}
