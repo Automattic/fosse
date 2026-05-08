@@ -182,7 +182,7 @@ Decision context:
 
 ### Task 3 [FOSSE]: `Long_Form_Strategy` projector + `fosse_long_form_strategy` option
 
-- **Status**: ✅ Done (#29)
+- **Status**: ✅ Done (#29). Later retired: [canonical-upstream-options](../canonical-upstream-options/) ([#109](https://github.com/Automattic/fosse/pull/109)) deleted `src/class-long-form-strategy.php` + `tests/php/Long_Form_StrategyTest.php` and replaced the projector with a one-time `Canonical_Options_Migrator` that seeds Atmosphere's canonical `atmosphere_long_form_composition` option (defaulting to `'teaser-thread'`) on first install. Atmosphere reads its own option directly thereafter.
 - **Repo**: `Automattic/fosse`
 - **Linear**: [DOTCOM-16810](https://linear.app/a8c/issue/DOTCOM-16810)
 - **Files**:
