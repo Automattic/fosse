@@ -23,14 +23,31 @@ describe( 'Wizard appearance step', () => {
 	}
 
 	function loadScript( readyState = 'complete' ) {
+		const originalReadyStateDescriptor = Object.getOwnPropertyDescriptor(
+			document,
+			'readyState'
+		);
+
 		Object.defineProperty( document, 'readyState', {
 			value: readyState,
 			configurable: true,
 		} );
 
-		jest.isolateModules( () => {
-			require( '../../src/Admin/assets/js/wizard-appearance.js' );
-		} );
+		try {
+			jest.isolateModules( () => {
+				require( '../../src/Admin/assets/js/wizard-appearance.js' );
+			} );
+		} finally {
+			if ( originalReadyStateDescriptor ) {
+				Object.defineProperty(
+					document,
+					'readyState',
+					originalReadyStateDescriptor
+				);
+			} else {
+				delete document.readyState;
+			}
+		}
 	}
 
 	function previewFor( mode ) {
