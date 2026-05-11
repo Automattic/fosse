@@ -262,15 +262,33 @@ class Bluesky_Provider implements Connection_Provider {
 				<table class="form-table">
 					<tr>
 						<th scope="row"><?php esc_html_e( 'Handle', 'fosse' ); ?></th>
-						<td><strong><?php echo esc_html( $status['handle'] ); ?></strong></td>
+						<td>
+							<strong class="fosse-admin-token fosse-admin-token--handle">
+								<?php
+								echo Status_Formatter::handle( $status['handle'] ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Status_Formatter::handle() escapes input and returns safe HTML with <wbr>.
+								?>
+							</strong>
+						</td>
 					</tr>
 					<tr>
 						<th scope="row"><?php esc_html_e( 'DID', 'fosse' ); ?></th>
-						<td><code><?php echo esc_html( $status['did'] ); ?></code></td>
+						<td>
+							<code class="fosse-admin-token fosse-admin-token--did">
+								<?php
+								echo Status_Formatter::did( $status['did'] ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Status_Formatter::did() escapes input and returns safe HTML with <wbr>.
+								?>
+							</code>
+						</td>
 					</tr>
 					<tr>
 						<th scope="row"><?php esc_html_e( 'PDS', 'fosse' ); ?></th>
-						<td><code><?php echo esc_html( $status['pds_endpoint'] ); ?></code></td>
+						<td>
+							<code class="fosse-admin-token fosse-admin-token--url">
+								<?php
+								echo Status_Formatter::url( $status['pds_endpoint'] ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Status_Formatter::url() escapes input and returns safe HTML with <wbr>.
+								?>
+							</code>
+						</td>
 					</tr>
 					<tr>
 						<th scope="row"><?php esc_html_e( 'Token Health', 'fosse' ); ?></th>
@@ -392,23 +410,27 @@ class Bluesky_Provider implements Connection_Provider {
 	 * @return void
 	 */
 	public function render_status_card(): void {
-		$status = $this->get_status();
+		$status       = $this->get_status();
+		$status_class = $status['connected'] ? 'connected' : 'disconnected';
+		$status_label = $status['connected'] ? __( 'Connected', 'fosse' ) : __( 'Disconnected', 'fosse' );
 		?>
 		<div class="fosse-status-card">
-			<h2>
-				<span
-					class="fosse-status-indicator <?php echo $status['connected'] ? 'connected' : 'disconnected'; ?>"
-					role="img"
-					aria-label="<?php echo esc_attr( $status['connected'] ? __( 'Connected', 'fosse' ) : __( 'Disconnected', 'fosse' ) ); ?>"
-				></span>
-				<?php esc_html_e( 'Bluesky', 'fosse' ); ?>
-			</h2>
+			<div class="fosse-status-card__header">
+				<h2 class="fosse-status-card__title">
+					<span
+						class="fosse-status-indicator <?php echo esc_attr( $status_class ); ?>"
+						aria-hidden="true"
+					></span>
+					<?php esc_html_e( 'Bluesky', 'fosse' ); ?>
+				</h2>
+				<span class="fosse-status-badge is-<?php echo esc_attr( $status_class ); ?>"><?php echo esc_html( $status_label ); ?></span>
+			</div>
 
 			<table class="widefat striped fosse-status-card__table">
 				<tbody>
 					<tr>
 						<th scope="row" class="fosse-status-card__label"><?php esc_html_e( 'Connection', 'fosse' ); ?></th>
-						<td class="fosse-status-card__value"><?php echo esc_html( $status['connected'] ? __( 'Connected', 'fosse' ) : __( 'Disconnected', 'fosse' ) ); ?></td>
+						<td class="fosse-status-card__value"><?php echo esc_html( $status_label ); ?></td>
 					</tr>
 					<?php if ( $status['handle'] ) : ?>
 						<tr>

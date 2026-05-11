@@ -185,14 +185,26 @@ class AP_Provider implements Connection_Provider {
 				<?php if ( $shows_user && $user_address ) : ?>
 					<tr>
 						<th scope="row"><?php esc_html_e( 'Your fediverse address', 'fosse' ); ?></th>
-						<td><code><?php echo esc_html( '@' . $user_address ); ?></code></td>
+						<td>
+							<code class="fosse-admin-token fosse-admin-token--ap-address">
+								<?php
+								echo Status_Formatter::ap_address( '@' . $user_address ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Status_Formatter::ap_address() escapes input and returns safe HTML with <wbr>.
+								?>
+							</code>
+						</td>
 					</tr>
 				<?php endif; ?>
 
 				<?php if ( $shows_blog && $blog_address ) : ?>
 					<tr>
 						<th scope="row"><?php esc_html_e( 'Site fediverse address', 'fosse' ); ?></th>
-						<td><code><?php echo esc_html( '@' . $blog_address ); ?></code></td>
+						<td>
+							<code class="fosse-admin-token fosse-admin-token--ap-address">
+								<?php
+								echo Status_Formatter::ap_address( '@' . $blog_address ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Status_Formatter::ap_address() escapes input and returns safe HTML with <wbr>.
+								?>
+							</code>
+						</td>
 					</tr>
 				<?php endif; ?>
 			</table>
@@ -235,9 +247,11 @@ class AP_Provider implements Connection_Provider {
 	 * @return void
 	 */
 	public function render_status_card(): void {
-		$status     = $this->get_status();
-		$mode_label = $this->get_actor_mode_label( $status['actor_mode'] );
-		$post_types = array_map(
+		$status       = $this->get_status();
+		$status_class = $status['connected'] ? 'connected' : 'disconnected';
+		$status_label = $status['connected'] ? __( 'Connected', 'fosse' ) : __( 'Disconnected', 'fosse' );
+		$mode_label   = $this->get_actor_mode_label( $status['actor_mode'] );
+		$post_types   = array_map(
 			static function ( $pt_name ) {
 				$pt = get_post_type_object( $pt_name );
 				return $pt ? $pt->label : $pt_name;
@@ -246,14 +260,16 @@ class AP_Provider implements Connection_Provider {
 		);
 		?>
 		<div class="fosse-status-card">
-			<h2>
-				<span
-					class="fosse-status-indicator <?php echo $status['connected'] ? 'connected' : 'disconnected'; ?>"
-					role="img"
-					aria-label="<?php echo esc_attr( $status['connected'] ? __( 'Connected', 'fosse' ) : __( 'Disconnected', 'fosse' ) ); ?>"
-				></span>
-				<?php esc_html_e( 'ActivityPub', 'fosse' ); ?>
-			</h2>
+			<div class="fosse-status-card__header">
+				<h2 class="fosse-status-card__title">
+					<span
+						class="fosse-status-indicator <?php echo esc_attr( $status_class ); ?>"
+						aria-hidden="true"
+					></span>
+					<?php esc_html_e( 'ActivityPub', 'fosse' ); ?>
+				</h2>
+				<span class="fosse-status-badge is-<?php echo esc_attr( $status_class ); ?>"><?php echo esc_html( $status_label ); ?></span>
+			</div>
 
 			<table class="widefat striped fosse-status-card__table">
 				<tbody>
@@ -266,7 +282,7 @@ class AP_Provider implements Connection_Provider {
 						<td class="fosse-status-card__value"><?php echo esc_html( implode( ', ', $post_types ) ); ?></td>
 					</tr>
 					<?php if ( $this->mode_includes_user( $status['actor_mode'] ) && ! empty( $status['user_address'] ) ) : ?>
-						<tr>
+						<tr class="fosse-status-card__row--stacked">
 							<th scope="row" class="fosse-status-card__label"><?php esc_html_e( 'Your fediverse address', 'fosse' ); ?></th>
 							<td class="fosse-status-card__value">
 								<code class="fosse-status-card__token fosse-status-card__token--ap-address">
@@ -278,7 +294,7 @@ class AP_Provider implements Connection_Provider {
 						</tr>
 					<?php endif; ?>
 					<?php if ( $this->mode_includes_blog( $status['actor_mode'] ) && ! empty( $status['blog_address'] ) ) : ?>
-						<tr>
+						<tr class="fosse-status-card__row--stacked">
 							<th scope="row" class="fosse-status-card__label"><?php esc_html_e( 'Site fediverse address', 'fosse' ); ?></th>
 							<td class="fosse-status-card__value">
 								<code class="fosse-status-card__token fosse-status-card__token--ap-address">
