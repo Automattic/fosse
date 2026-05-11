@@ -273,52 +273,44 @@
 	box-sizing: border-box;
 	width: 100%;
 	max-width: 100%;
-	table-layout: auto;
+	table-layout: fixed;
 	border-collapse: separate;
 	border-spacing: 0;
 }
 
-.fosse-status-card__table tbody {
-	display: block;
-	box-sizing: border-box;
-	width: 100%;
-	min-width: 0;
-}
-
 .fosse-status-card__table tr {
-	display: grid;
 	box-sizing: border-box;
 	width: 100%;
 	min-width: 0;
-	grid-template-columns: minmax(158px, 0.38fr) minmax(0, 1fr);
-	gap: 18px;
-	padding: 12px 0;
-	border-top: 1px solid var(--fosse-admin-border-faint);
 	background: transparent !important;
 }
 
-.fosse-status-card__table tr:first-child {
+.fosse-status-card__table tr:first-child th,
+.fosse-status-card__table tr:first-child td {
 	padding-top: 0;
 	border-top: 0;
 }
 
-.fosse-status-card__table tr:last-child {
+.fosse-status-card__table tr:last-child th,
+.fosse-status-card__table tr:last-child td {
 	padding-bottom: 0;
 }
 
 .fosse-status-card__table th,
 .fosse-status-card__table td {
-	display: block;
 	box-sizing: border-box;
 	min-width: 0;
-	padding: 0;
+	padding: 12px 0;
 	border: 0;
+	border-top: 1px solid var(--fosse-admin-border-faint);
 	background: transparent;
 	box-shadow: none;
+	vertical-align: top;
 }
 
 .fosse-status-card__label {
-	width: auto;
+	width: 38%;
+	padding-right: 18px;
 	font-size: 11px;
 	font-weight: 600;
 	line-height: 1.45;
@@ -329,11 +321,6 @@
 	color: var(--fosse-admin-muted);
 }
 
-.fosse-status-card__row--stacked {
-	grid-template-columns: 1fr;
-	gap: 6px;
-}
-
 .fosse-status-card__row--stacked .fosse-status-card__label {
 	white-space: normal;
 }
@@ -342,6 +329,7 @@
    future cell holds raw user input without going through Status_Formatter,
    this keeps the value column from inflating the card. */
 .fosse-status-card__value {
+	width: 62%;
 	min-width: 0;
 	font-size: 13px;
 	line-height: 1.5;
@@ -515,7 +503,22 @@
 }
 
 .fosse-settings-card-option {
-	padding: 14px 16px;
+	position: relative;
+	display: block;
+	cursor: pointer;
+}
+
+.fosse-settings-card-option__input {
+	position: absolute;
+	top: 17px;
+	left: 16px;
+	z-index: 1;
+	margin: 0;
+}
+
+.fosse-settings-card-option__body {
+	display: block;
+	padding: 14px 16px 14px 41px;
 	border: 1px solid var(--fosse-admin-border-soft);
 	border-radius: 10px;
 	background: var(--fosse-admin-surface);
@@ -525,31 +528,26 @@
 		box-shadow 0.15s ease;
 }
 
-.fosse-settings-card-option:has(input:checked) {
+.fosse-settings-card-option__input:checked + .fosse-settings-card-option__body {
 	border-color: var(--fosse-admin-accent-soft-border);
 	background: var(--fosse-admin-accent-soft);
 }
 
-.fosse-settings-card-option:focus-within,
-.fosse-settings-card-option:has(input:focus-visible) {
+.fosse-settings-card-option__input:focus-visible
+	+ .fosse-settings-card-option__body,
+.fosse-settings-card-option:focus-within .fosse-settings-card-option__body {
 	outline: 2px solid var(--fosse-admin-accent);
 	outline-offset: 2px;
 }
 
 .fosse-settings-card-option__label {
-	display: inline-flex;
-	align-items: center;
-	gap: 9px;
+	display: block;
 	font-weight: 600;
-	cursor: pointer;
 }
 
-.fosse-settings-card-option__label input {
-	margin: 0;
-}
-
-.fosse-settings-card-option .description {
-	margin: 7px 0 0 25px;
+.fosse-settings-card-option__body .description {
+	display: block;
+	margin: 7px 0 0;
 }
 
 .fosse-activitypub-actor-mode-note {
@@ -640,13 +638,14 @@
 		gap: 10px;
 	}
 
-	.fosse-status-card__table tr {
-		grid-template-columns: 1fr;
-		gap: 5px;
+	.fosse-status-card__label {
+		width: 42%;
+		padding-right: 12px;
+		white-space: normal;
 	}
 
-	.fosse-status-card__label {
-		white-space: normal;
+	.fosse-status-card__value {
+		width: 58%;
 	}
 
 	.fosse-admin-page .form-table,
@@ -681,7 +680,7 @@
 		border-top: 0;
 	}
 
-	.fosse-settings-card-option .description {
+	.fosse-settings-card-option__body .description {
 		margin-left: 0;
 	}
 }

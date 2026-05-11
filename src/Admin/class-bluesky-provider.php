@@ -220,7 +220,7 @@ class Bluesky_Provider implements Connection_Provider {
 			<?php settings_errors( 'atmosphere' ); ?>
 
 			<?php if ( ! $status['connected'] ) : ?>
-				<p><?php esc_html_e( 'Connect your Bluesky account to let FOSSE publish through Atmosphere.', 'fosse' ); ?></p>
+				<p><?php esc_html_e( 'Connect your Bluesky account so FOSSE can publish new posts there.', 'fosse' ); ?></p>
 
 				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
 					<input type="hidden" name="action" value="fosse_connect_bluesky" />
@@ -239,7 +239,7 @@ class Bluesky_Provider implements Connection_Provider {
 									id="fosse_bluesky_handle"
 									placeholder="alice.bsky.social"
 								/>
-								<p class="description"><?php esc_html_e( 'Your AT Protocol handle, e.g. alice.bsky.social or your own domain.', 'fosse' ); ?></p>
+								<p class="description"><?php esc_html_e( 'Your Bluesky/AT Protocol handle, for example alice.bsky.social or your own domain.', 'fosse' ); ?></p>
 								<p class="description fosse-bluesky-signup">
 									<?php
 									echo wp_kses_post(
@@ -281,7 +281,7 @@ class Bluesky_Provider implements Connection_Provider {
 						</td>
 					</tr>
 					<tr>
-						<th scope="row"><?php esc_html_e( 'PDS', 'fosse' ); ?></th>
+						<th scope="row"><?php esc_html_e( 'PDS endpoint', 'fosse' ); ?></th>
 						<td>
 							<code class="fosse-admin-token fosse-admin-token--url">
 								<?php
@@ -317,7 +317,7 @@ class Bluesky_Provider implements Connection_Provider {
 							echo esc_html(
 								sprintf(
 									/* translators: %s: previous Bluesky handle that disconnect will restore (e.g. alice.bsky.social). */
-									__( 'Disconnecting will also restore your previous Bluesky handle (%s) on the account.', 'fosse' ),
+									__( 'Disconnecting will also restore %s as this account\'s Bluesky handle.', 'fosse' ),
 									$pending_revert
 								)
 							);
@@ -367,7 +367,7 @@ class Bluesky_Provider implements Connection_Provider {
 					echo esc_html(
 						sprintf(
 							/* translators: 1: current Bluesky handle (e.g. alice.bsky.social); 2: target handle = site host (e.g. example.com). */
-							__( 'Your current Bluesky handle is %1$s. Click the button below to replace it with %2$s.', 'fosse' ),
+							__( 'Your current Bluesky handle is %1$s. You can replace it with %2$s.', 'fosse' ),
 							$current,
 							$target
 						)
@@ -376,7 +376,7 @@ class Bluesky_Provider implements Connection_Provider {
 					echo esc_html(
 						sprintf(
 							/* translators: %s: target handle = site host (e.g. example.com). */
-							__( 'Click the button below to set your Bluesky handle to %s.', 'fosse' ),
+							__( 'You can set your Bluesky handle to %s.', 'fosse' ),
 							$target
 						)
 					);
@@ -458,7 +458,7 @@ class Bluesky_Provider implements Connection_Provider {
 					<?php endif; ?>
 					<?php if ( $status['pds_endpoint'] ) : ?>
 						<tr>
-							<th scope="row" class="fosse-status-card__label"><?php esc_html_e( 'PDS', 'fosse' ); ?></th>
+							<th scope="row" class="fosse-status-card__label"><?php esc_html_e( 'PDS endpoint', 'fosse' ); ?></th>
 							<td class="fosse-status-card__value">
 								<code class="fosse-status-card__token fosse-status-card__token--url">
 									<?php
@@ -913,7 +913,7 @@ class Bluesky_Provider implements Connection_Provider {
 				<strong><?php esc_html_e( 'Bluesky auto-publishing is off.', 'fosse' ); ?></strong>
 				<?php
 				esc_html_e(
-					'New posts aren\'t being sent to Bluesky. The Settings toggle that controlled this was removed, so this notice is the only place to turn it back on. If leaving it off was intentional, no action is needed.',
+					'New posts aren\'t being sent to Bluesky. If this was intentional, no action is needed; otherwise, turn auto-publishing back on below.',
 					'fosse'
 				);
 				?>

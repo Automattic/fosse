@@ -235,7 +235,7 @@ class AP_Provider implements Connection_Provider {
 				<strong><?php esc_html_e( 'Connected automatically', 'fosse' ); ?></strong>
 			</p>
 			<p class="description">
-				<?php esc_html_e( 'ActivityPub is available because FOSSE loaded the ActivityPub backend for this site.', 'fosse' ); ?>
+				<?php esc_html_e( 'ActivityPub is active for this site, so no separate connection step is needed.', 'fosse' ); ?>
 			</p>
 		</div>
 		<?php
@@ -274,7 +274,7 @@ class AP_Provider implements Connection_Provider {
 			<table class="widefat striped fosse-status-card__table">
 				<tbody>
 					<tr>
-						<th scope="row" class="fosse-status-card__label"><?php esc_html_e( 'Actor Mode', 'fosse' ); ?></th>
+						<th scope="row" class="fosse-status-card__label"><?php esc_html_e( 'ActivityPub profile', 'fosse' ); ?></th>
 						<td class="fosse-status-card__value"><?php echo esc_html( $mode_label ); ?></td>
 					</tr>
 					<tr>
@@ -634,7 +634,7 @@ class AP_Provider implements Connection_Provider {
 					<?php
 					printf(
 						/* translators: 1: author follower count, 2: blog follower count */
-						esc_html__( 'Your followers: %1$s, Blog: %2$s', 'fosse' ),
+						esc_html__( 'Author followers: %1$s, site followers: %2$s', 'fosse' ),
 						esc_html( number_format_i18n( $user_count ) ),
 						esc_html( number_format_i18n( $blog_count ) )
 					);
