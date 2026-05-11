@@ -33,16 +33,16 @@ namespace Automattic\Fosse\Metrics;
 class Publish_Events {
 
 	/**
-	 * Per-request state of in-flight AP outbox dispatches.
+	 * Outbox-item post meta key for the per-dispatch aggregate.
 	 *
-	 * Keyed by outbox item id. Each entry tracks success count and
-	 * the WP_Error codes collected from per-inbox failures, so the
-	 * `activitypub_outbox_processing_complete` handler can emit a
-	 * single aggregated `fosse_publish_result` event.
-	 *
-	 * @var array<int, array{successes:int, failures:list<string>}>
+	 * Stores `array{successes:int, failures:list<string>}` keyed to the
+	 * outbox item id. Persisted (not in-memory) because AP dispatch
+	 * spans multiple cron requests when an outbox item has more
+	 * followers than the per-batch limit; the final batch fires
+	 * `activitypub_outbox_processing_complete` in a different PHP
+	 * process than the earlier `activitypub_sent_to_inbox` events.
 	 */
-	private static array $ap_dispatch_state = array();
+	private const AP_DISPATCH_STATE_META_KEY = '_fosse_metrics_ap_dispatch_state';
 
 	/**
 	 * Wire the subscriber to the publish hooks.
@@ -61,29 +61,39 @@ class Publish_Events {
 	/**
 	 * Accumulate per-inbox AP send results for later aggregation.
 	 *
+	 * State persists on the outbox item's post meta so multi-batch
+	 * dispatches that span cron requests stay coherent.
+	 *
 	 * @param array|\WP_Error $result         Result of the inbox send.
 	 * @param string          $inbox          Inbox URL (unused here).
 	 * @param string          $json           Activity JSON (unused here).
 	 * @param int             $actor_id       Sending actor (unused here).
-	 * @param int             $outbox_item_id Outbox item id — keys the per-dispatch aggregate.
+	 * @param int             $outbox_item_id Outbox item id — used as the post meta key.
 	 * @return void
 	 */
 	public static function on_ap_sent_to_inbox( $result, $inbox, $json, $actor_id, $outbox_item_id ) {
 		unset( $inbox, $json, $actor_id );
 
 		$outbox_item_id = (int) $outbox_item_id;
-		if ( ! isset( self::$ap_dispatch_state[ $outbox_item_id ] ) ) {
-			self::$ap_dispatch_state[ $outbox_item_id ] = array(
+		if ( $outbox_item_id <= 0 ) {
+			return;
+		}
+
+		$state = \get_post_meta( $outbox_item_id, self::AP_DISPATCH_STATE_META_KEY, true );
+		if ( ! \is_array( $state ) ) {
+			$state = array(
 				'successes' => 0,
 				'failures'  => array(),
 			);
 		}
 
 		if ( \is_wp_error( $result ) ) {
-			self::$ap_dispatch_state[ $outbox_item_id ]['failures'][] = $result->get_error_code();
+			$state['failures'][] = (string) $result->get_error_code();
 		} else {
-			++self::$ap_dispatch_state[ $outbox_item_id ]['successes'];
+			++$state['successes'];
 		}
+
+		\update_post_meta( $outbox_item_id, self::AP_DISPATCH_STATE_META_KEY, $state );
 	}
 
 	/**
@@ -107,10 +117,14 @@ class Publish_Events {
 		unset( $inboxes, $json, $actor_id, $batch_size, $offset );
 
 		$outbox_item_id = (int) $outbox_item_id;
-		$state          = self::$ap_dispatch_state[ $outbox_item_id ] ?? null;
-		unset( self::$ap_dispatch_state[ $outbox_item_id ] );
+		if ( $outbox_item_id <= 0 ) {
+			return;
+		}
 
-		if ( null === $state ) {
+		$state = \get_post_meta( $outbox_item_id, self::AP_DISPATCH_STATE_META_KEY, true );
+		\delete_post_meta( $outbox_item_id, self::AP_DISPATCH_STATE_META_KEY );
+
+		if ( ! \is_array( $state ) ) {
 			// No `activitypub_sent_to_inbox` ever fired for this id (zero-inbox publish).
 			// Don't emit — there is no signal to report.
 			return;
@@ -220,7 +234,7 @@ class Publish_Events {
 			return 'short-form-note';
 		}
 
-		$composition = (string) \apply_filters( 'atmosphere_long_form_composition', 'link-card' );
+		$composition = (string) \apply_filters( 'atmosphere_long_form_composition', 'link-card', $post );
 		return 'teaser-thread' === $composition ? 'long-form-teaser-thread' : 'link-card-fallback';
 	}
 
@@ -232,11 +246,20 @@ class Publish_Events {
 	 * rather than leaking raw codes into the Tracks payload (privacy
 	 * contract).
 	 *
+	 * AP's outbox dispatch surfaces remote-POST failures as `WP_Error`
+	 * codes carrying the raw HTTP status as an integer-shaped string
+	 * (e.g. `'401'`, `'429'`, `'504'`) — those are mapped into the
+	 * appropriate bucket alongside the named string codes Atmosphere
+	 * and the WP HTTP API emit. `0` covers a connection that never
+	 * opened.
+	 *
 	 * @param string $code WP_Error code.
 	 * @return string
 	 */
 	private static function classify_error( string $code ): string {
-		$auth_codes = array(
+		$numeric_code = \ctype_digit( $code ) ? (int) $code : null;
+
+		$auth_codes  = array(
 			'unauthorized',
 			'forbidden',
 			'oauth_failed',
@@ -244,7 +267,8 @@ class Publish_Events {
 			'token_expired',
 			'atmosphere_no_credentials',
 		);
-		if ( \in_array( $code, $auth_codes, true ) ) {
+		$auth_status = array( 401, 403, 407 );
+		if ( \in_array( $code, $auth_codes, true ) || ( null !== $numeric_code && \in_array( $numeric_code, $auth_status, true ) ) ) {
 			return 'auth_failed';
 		}
 
@@ -252,18 +276,19 @@ class Publish_Events {
 			'rate_limited',
 			'too_many_requests',
 		);
-		if ( \in_array( $code, $rate_codes, true ) ) {
+		if ( \in_array( $code, $rate_codes, true ) || 429 === $numeric_code ) {
 			return 'rate_limited';
 		}
 
-		$timeout_codes = array(
+		$timeout_codes  = array(
 			'http_request_failed',
 			'http_request_not_executed',
 			'curl_error',
 			'network_timeout',
 			'connection_timeout',
 		);
-		if ( \in_array( $code, $timeout_codes, true ) ) {
+		$timeout_status = array( 0, 408, 502, 503, 504 );
+		if ( \in_array( $code, $timeout_codes, true ) || ( null !== $numeric_code && \in_array( $numeric_code, $timeout_status, true ) ) ) {
 			return 'network_timeout';
 		}
 

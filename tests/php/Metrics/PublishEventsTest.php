@@ -122,12 +122,116 @@ class PublishEventsTest extends BaseTestCase {
 
 	/**
 	 * AP outbox-complete with no prior per-inbox events emits nothing
-	 * (zero-inbox dispatch).
+	 * (zero-inbox dispatch). Uses a real outbox post id so the post-meta
+	 * read path is exercised; the meta is just empty.
 	 */
 	public function test_ap_outbox_complete_without_sends_is_silent(): void {
-		\do_action( 'activitypub_outbox_processing_complete', array(), '{}', 1, 9999, 0, 0 );
+		$outbox_id = \wp_insert_post(
+			array(
+				'post_title'  => 'outbox item',
+				'post_status' => 'publish',
+				'post_type'   => 'post',
+			)
+		);
+
+		\do_action( 'activitypub_outbox_processing_complete', array(), '{}', 1, $outbox_id, 0, 0 );
 
 		$this->assertNoEventRecorded( 'fosse_publish_result' );
+	}
+
+	/**
+	 * Multi-batch AP dispatch — successes/failures accumulated across
+	 * separate `activitypub_sent_to_inbox` events still aggregate
+	 * correctly when the final `activitypub_outbox_processing_complete`
+	 * fires. State is persisted in post meta, so this works even when
+	 * batches run in different cron requests.
+	 */
+	public function test_ap_outbox_multi_batch_aggregation(): void {
+		$outbox_id = \wp_insert_post(
+			array(
+				'post_title'  => 'outbox item',
+				'post_status' => 'publish',
+				'post_type'   => 'post',
+			)
+		);
+
+		// First batch — 1 fail, 2 successes.
+		\do_action( 'activitypub_sent_to_inbox', new \WP_Error( '503', 'gateway' ), 'https://a.example/inbox', '{}', 1, $outbox_id );
+		\do_action( 'activitypub_sent_to_inbox', array( 'response' => array( 'code' => 202 ) ), 'https://b.example/inbox', '{}', 1, $outbox_id );
+		\do_action( 'activitypub_sent_to_inbox', array( 'response' => array( 'code' => 202 ) ), 'https://c.example/inbox', '{}', 1, $outbox_id );
+
+		// Second batch — 1 success, 1 fail.
+		\do_action( 'activitypub_sent_to_inbox', array( 'response' => array( 'code' => 202 ) ), 'https://d.example/inbox', '{}', 1, $outbox_id );
+		\do_action( 'activitypub_sent_to_inbox', new \WP_Error( '429', 'slow down' ), 'https://e.example/inbox', '{}', 1, $outbox_id );
+
+		// Final batch fires completion.
+		\do_action( 'activitypub_outbox_processing_complete', array(), '{}', 1, $outbox_id, 2, 3 );
+
+		// Cumulative: 3 successes → status = success.
+		$this->assertEventRecorded(
+			'fosse_publish_result',
+			array(
+				'network' => 'activitypub',
+				'status'  => 'success',
+			)
+		);
+
+		// Post meta cleaned up after the final emit.
+		$this->assertSame( '', \get_post_meta( $outbox_id, '_fosse_metrics_ap_dispatch_state', true ) );
+	}
+
+	/**
+	 * Numeric HTTP status codes from AP's remote-POST WP_Error path
+	 * classify into the documented `error_category` enum:
+	 *   401/403 → auth_failed, 429 → rate_limited,
+	 *   408/502/503/504 → network_timeout, others → other.
+	 *
+	 * AP wraps any HTTP `>= 400` response into a WP_Error keyed by the
+	 * status code (see `bundled/activitypub/includes/class-http.php`),
+	 * so these are the codes the subscriber actually sees in practice.
+	 * Code `0` is intentionally not tested here — `empty( '0' )` is
+	 * true in PHP and `WP_Error::__construct` drops it before
+	 * `get_error_code()` could ever return `'0'`. The numeric `0`
+	 * handling in `classify_error()` is defense-in-depth.
+	 */
+	public function test_ap_numeric_http_codes_classify_correctly(): void {
+		$cases = array(
+			array( '401', 'auth_failed' ),
+			array( '403', 'auth_failed' ),
+			array( '429', 'rate_limited' ),
+			array( '408', 'network_timeout' ),
+			array( '504', 'network_timeout' ),
+			array( '502', 'network_timeout' ),
+			array( '500', 'other' ),
+			array( '404', 'other' ),
+		);
+
+		foreach ( $cases as $i => $case ) {
+			[ $code, $expected ] = $case;
+
+			$outbox_id = \wp_insert_post(
+				array(
+					'post_title'  => 'outbox-' . $i,
+					'post_status' => 'publish',
+					'post_type'   => 'post',
+				)
+			);
+
+			\do_action( 'activitypub_sent_to_inbox', new \WP_Error( $code, $code ), 'https://x.example/inbox', '{}', 1, $outbox_id );
+			\do_action( 'activitypub_outbox_processing_complete', array( 'https://x.example/inbox' ), '{}', 1, $outbox_id, 1, 0 );
+		}
+
+		$publish_events = $this->tracks_channel()->events_for( 'fosse_publish_result' );
+		$this->assertCount( \count( $cases ), $publish_events );
+
+		foreach ( $cases as $i => $case ) {
+			[ $code, $expected ] = $case;
+			$this->assertSame(
+				$expected,
+				$publish_events[ $i ]['properties']['error_category'] ?? null,
+				\sprintf( 'HTTP code %s should classify as %s', $code, $expected )
+			);
+		}
 	}
 
 	/**
