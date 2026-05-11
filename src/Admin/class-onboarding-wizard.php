@@ -223,7 +223,7 @@ class Onboarding_Wizard {
 	}
 
 	/**
-	 * Render the hidden Onboarding Lizard toggle.
+	 * Render the hidden wizard style toggle.
 	 *
 	 * @return void
 	 */
@@ -233,7 +233,7 @@ class Onboarding_Wizard {
 			type="button"
 			class="fosse-wizard__lizard"
 			data-fosse-lizard-toggle
-			aria-label="<?php esc_attr_e( 'Onboarding Lizard', 'fosse' ); ?>"
+			aria-label="<?php esc_attr_e( 'Toggle wizard theme', 'fosse' ); ?>"
 			aria-pressed="false"
 		>
 			<span aria-hidden="true">&#x1F98E;</span>

@@ -1051,7 +1051,7 @@
 	font-weight: 500;
 }
 
-/* Onboarding Lizard easter egg theme */
+/* Hidden wizard style-toggle theme */
 .fosse-wizard.is-lizard-themed {
 	--fosse-wizard-surface: #fbfff1;
 	--fosse-wizard-surface-muted: #f1f8df;
@@ -1060,6 +1060,9 @@
 	--fosse-wizard-border-soft: #d9e8b8;
 	--fosse-wizard-border-faint: #e8f1cf;
 	--fosse-wizard-accent: #315d12;
+	--fosse-wizard-accent-button-border: #315717;
+	--fosse-wizard-accent-button-hover: #335d18;
+	--fosse-wizard-accent-button-hover-border: #264711;
 	--fosse-wizard-accent-soft: #eef7d6;
 	--fosse-wizard-accent-icon: #d9edab;
 	--fosse-wizard-accent-soft-border: rgba(49, 93, 18, 0.5);
@@ -1118,6 +1121,7 @@
 	transform: translateY(-1px);
 }
 
+/* Theme glyphs: U+1F95A egg, U+1F98E reptile, U+1F43E paw. */
 .fosse-wizard.is-lizard-themed .fosse-wizard__progress-dot::before {
 	content: "\1F95A";
 	width: auto;
@@ -1170,13 +1174,13 @@
 
 .fosse-wizard.is-lizard-themed .button-primary {
 	background: var(--fosse-wizard-accent);
-	border-color: #315717;
+	border-color: var(--fosse-wizard-accent-button-border);
 }
 
 .fosse-wizard.is-lizard-themed .button-primary:hover,
 .fosse-wizard.is-lizard-themed .button-primary:focus {
-	background: #335d18;
-	border-color: #264711;
+	background: var(--fosse-wizard-accent-button-hover);
+	border-color: var(--fosse-wizard-accent-button-hover-border);
 }
 
 .fosse-wizard.is-lizard-themed .fosse-wizard__lizard {

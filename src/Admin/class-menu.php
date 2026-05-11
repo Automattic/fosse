@@ -250,7 +250,7 @@ class Menu {
 		);
 
 		// Wizard-only scripts: the Appearance step live preview and the
-		// hidden Onboarding Lizard easter egg. Loaded only on the wizard
+		// hidden style toggle. Loaded only on the wizard
 		// hook to avoid shipping scripts on Setup/Status pages where their
 		// target markup is not rendered.
 		if ( 'admin_page_fosse-wizard' === $hook_suffix ) {

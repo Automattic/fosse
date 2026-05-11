@@ -528,6 +528,7 @@ class Onboarding_WizardTest extends BaseTestCase {
 
 		$this->assertStringContainsString( 'Setup is unavailable', $output );
 		$this->assertStringContainsString( 'ActivityPub', $output );
+		$this->assertStringContainsString( 'data-fosse-lizard-toggle', $output );
 	}
 
 	// --- Destinations step render ---
@@ -546,6 +547,8 @@ class Onboarding_WizardTest extends BaseTestCase {
 		$this->assertStringContainsString( 'Let people follow your site from apps like Mastodon. You can connect Bluesky later.', $output );
 		$this->assertStringContainsString( 'name="fosse_onboarding_destination"', $output );
 		$this->assertStringContainsString( 'data-fosse-lizard-toggle', $output );
+		$this->assertStringContainsString( 'aria-label="Toggle wizard theme"', $output );
+		$this->assertStringContainsString( 'aria-pressed="false"', $output );
 		$this->assertStringContainsString( '&#x1F98E;', $output );
 		$this->assertStringNotContainsString( 'Welcome to FOSSE', $output );
 		$this->assertStringNotContainsString( '>Later<', $output );

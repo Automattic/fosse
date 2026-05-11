@@ -1,8 +1,8 @@
 /**
- * Wizard lizard easter egg.
+ * Hidden wizard style toggle.
  *
- * Clicking the deliberately quiet lizard button adds a CSS class that
- * turns the setup flow into the Onboarding Lizard without changing any
+ * Clicking the deliberately quiet button adds a CSS class that
+ * turns the setup flow into a themed variant without changing any
  * form behavior. Session storage keeps the theme alive across wizard steps.
  */
 ( function () {
@@ -65,9 +65,13 @@
 	}
 
 	if ( document.readyState === 'loading' ) {
-		document.addEventListener( 'DOMContentLoaded', function () {
-			init();
-		} );
+		document.addEventListener(
+			'DOMContentLoaded',
+			function () {
+				init();
+			},
+			{ once: true }
+		);
 	} else {
 		init();
 	}
