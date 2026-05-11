@@ -19,10 +19,9 @@ describe( 'Wizard style toggle', () => {
 	}
 
 	function loadScript( readyState = 'complete' ) {
-		Object.defineProperty( document, 'readyState', {
-			value: readyState,
-			configurable: true,
-		} );
+		jest.spyOn( document, 'readyState', 'get' ).mockReturnValue(
+			readyState
+		);
 
 		jest.isolateModules( () => {
 			require( '../../src/Admin/assets/js/wizard-lizard.js' );
@@ -80,10 +79,12 @@ describe( 'Wizard style toggle', () => {
 		expect( toggle.getAttribute( 'aria-pressed' ) ).toBe( 'true' );
 	} );
 
-	test( 'ignores storage read failures', () => {
-		jest.spyOn( Storage.prototype, 'getItem' ).mockImplementation( () => {
-			throw new Error( 'storage unavailable' );
-		} );
+	test( 'ignores storage read failures and still attaches the click handler', () => {
+		const getItemSpy = jest
+			.spyOn( Storage.prototype, 'getItem' )
+			.mockImplementation( () => {
+				throw new Error( 'storage unavailable' );
+			} );
 
 		renderWizard();
 		loadScript();
@@ -92,6 +93,12 @@ describe( 'Wizard style toggle', () => {
 
 		expect( wizard.classList.contains( 'is-lizard-themed' ) ).toBe( false );
 		expect( toggle.getAttribute( 'aria-pressed' ) ).toBe( 'false' );
+
+		getItemSpy.mockRestore();
+		toggle.click();
+
+		expect( wizard.classList.contains( 'is-lizard-themed' ) ).toBe( true );
+		expect( toggle.getAttribute( 'aria-pressed' ) ).toBe( 'true' );
 	} );
 
 	test( 'keeps in-memory state when storage writes fail', () => {

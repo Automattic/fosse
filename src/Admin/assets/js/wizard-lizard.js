@@ -65,9 +65,13 @@
 	}
 
 	if ( document.readyState === 'loading' ) {
-		document.addEventListener( 'DOMContentLoaded', function () {
-			init();
-		} );
+		document.addEventListener(
+			'DOMContentLoaded',
+			function () {
+				init();
+			},
+			{ once: true }
+		);
 	} else {
 		init();
 	}
