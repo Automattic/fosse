@@ -18,6 +18,15 @@
 
 defined( 'ABSPATH' ) || exit;
 
+/*
+ * Load sentinel. Defined unconditionally so embedders (e.g. wp.com's
+ * `wp-content/mu-plugins/fosse-loader.php`) can detect that FOSSE has
+ * been required without probing internal classes. Mirrors the
+ * `ACTIVITYPUB_PLUGIN_VERSION` / `ATMOSPHERE_VERSION` pattern of the
+ * bundled backends. Keep in sync with the `Version:` header above.
+ */
+define( 'FOSSE_VERSION', '0.0.1' );
+
 if ( file_exists( __DIR__ . '/vendor/autoload_packages.php' ) ) {
 	require_once __DIR__ . '/vendor/autoload_packages.php';
 }
