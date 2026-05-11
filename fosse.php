@@ -188,6 +188,26 @@ add_action(
 );
 
 /*
+ * Async publish-path metrics subscriber.
+ *
+ * Listens to bundled ActivityPub's outbox dispatch hooks and bundled
+ * Atmosphere's `atmosphere_publish_post_result` hook (added upstream in
+ * wordpress-atmosphere PR 56; subscriber is dormant until that lands and
+ * gets resynced). Emits `fosse_post_published` + `fosse_publish_result`
+ * per the metrics SDD. See `sdd/fosse-metrics-strategy/` and
+ * `DOTCOM-17031`. Same degradation posture as the projectors above.
+ */
+add_action(
+	'init',
+	static function () {
+		if ( ! class_exists( \Automattic\Fosse\Metrics\Publish_Events::class ) ) {
+			return;
+		}
+		\Automattic\Fosse\Metrics\Publish_Events::register();
+	}
+);
+
+/*
  * One-time migration of FOSSE-side projector options to canonical
  * upstream options (`fosse_object_type` → `activitypub_object_type`,
  * `fosse_long_form_strategy` → `atmosphere_long_form_composition`).
