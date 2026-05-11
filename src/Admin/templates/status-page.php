@@ -54,7 +54,7 @@ if ( 0 === $connected_count ) {
 				<p class="fosse-status-summary__count">
 					<?php
 					printf(
-						/* translators: 1: number of active connections, 2: total available connections */
+						/* translators: 1: number of connected providers, 2: total available providers */
 						esc_html__( '%1$s of %2$s providers connected', 'fosse' ),
 						esc_html( number_format_i18n( $connected_count ) ),
 						esc_html( number_format_i18n( $available_count ) )
