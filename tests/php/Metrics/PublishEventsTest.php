@@ -35,7 +35,23 @@ class PublishEventsTest extends BaseTestCase {
 		\remove_all_actions( 'activitypub_outbox_processing_batch_complete' );
 		\remove_all_actions( 'activitypub_outbox_processing_complete' );
 		\remove_all_actions( 'atmosphere_publish_post_result' );
+		// register() is idempotent — guarded by a static flag so duplicate
+		// listeners can't be attached in production. Tests reset both
+		// statics so each case starts with a fully clean wiring.
+		$this->reset_publish_events_statics();
 		Publish_Events::register();
+	}
+
+	/**
+	 * Wipe both static properties on Publish_Events so each test starts
+	 * with no in-memory dispatch state AND with the idempotency guard
+	 * cleared (otherwise the second test's `register()` would early-return
+	 * after `set_up_state()` has removed all the actions).
+	 */
+	private function reset_publish_events_statics(): void {
+		$reflection = new \ReflectionClass( Publish_Events::class );
+		$reflection->getProperty( 'ap_dispatch_state' )->setValue( null, array() );
+		$reflection->getProperty( 'registered' )->setValue( null, false );
 	}
 
 	/**
@@ -170,7 +186,8 @@ class PublishEventsTest extends BaseTestCase {
 		$persisted = \get_post_meta( $outbox_id, '_fosse_metrics_ap_dispatch_state', true );
 		$this->assertIsArray( $persisted );
 		$this->assertSame( 2, $persisted['successes'] );
-		$this->assertSame( array( '503' ), $persisted['failures'] );
+		$this->assertSame( 1, $persisted['failures'] );
+		$this->assertSame( '503', $persisted['first_failure_code'] );
 
 		// Second batch — 1 success, 1 fail — then the FINAL batch fires processing_complete.
 		\do_action( 'activitypub_sent_to_inbox', array( 'response' => array( 'code' => 202 ) ), 'https://d.example/inbox', '{}', 1, $outbox_id );
@@ -228,6 +245,39 @@ class PublishEventsTest extends BaseTestCase {
 				'status'  => 'success',
 			)
 		);
+	}
+
+	/**
+	 * Repeated `register()` calls must not double-attach listeners.
+	 * `add_action()` does not dedupe identical callbacks, so without
+	 * the static guard a second call would cause every event to be
+	 * recorded twice and every MC bump to fire twice.
+	 */
+	public function test_register_is_idempotent(): void {
+		// setUp already called register() once. Call it twice more.
+		Publish_Events::register();
+		Publish_Events::register();
+
+		$post_id = \wp_insert_post(
+			array(
+				'post_title'  => 'Idempotency post',
+				'post_status' => 'publish',
+			)
+		);
+		$post    = \get_post( $post_id );
+
+		\add_filter( 'atmosphere_is_short_form_post', '__return_true' );
+		\do_action( 'atmosphere_publish_post_result', $post, array( 'commit' => array( 'cid' => 'baf' ) ) );
+
+		// Exactly one event each — not three.
+		$this->assertCount( 1, $this->tracks_channel()->events_for( 'fosse_post_published' ) );
+		$this->assertCount( 1, $this->tracks_channel()->events_for( 'fosse_publish_result' ) );
+
+		$bumps = array_filter(
+			$this->mc_channel()->bumps(),
+			static fn ( $name ) => 'fosse-publish-success-bluesky' === $name
+		);
+		$this->assertCount( 1, $bumps, 'success bump fires exactly once even after repeated register() calls' );
 	}
 
 	/**

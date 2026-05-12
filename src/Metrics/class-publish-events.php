@@ -47,8 +47,8 @@ class Publish_Events {
 	/**
 	 * Outbox-item post meta key for the cross-request dispatch aggregate.
 	 *
-	 * Stores `array{successes:int, failures:list<string>}` keyed to the
-	 * outbox item id. Flushed from `$ap_dispatch_state` on
+	 * Stores `array{successes:int, failures:int, first_failure_code:?string}`
+	 * keyed to the outbox item id. Flushed from `$ap_dispatch_state` on
 	 * `activitypub_outbox_processing_batch_complete`, then read and
 	 * deleted on `activitypub_outbox_processing_complete`.
 	 */
@@ -62,19 +62,41 @@ class Publish_Events {
 	 * `activitypub_outbox_processing_batch_complete`, and merged with the
 	 * persisted aggregate on `activitypub_outbox_processing_complete`.
 	 *
-	 * @var array<int, array{successes:int, failures:list<string>}>
+	 * Stores only counts plus the first failure code (rather than every
+	 * per-inbox failure entry) so the persisted post-meta payload stays
+	 * bounded even on sites with very large follower sets and high
+	 * failure rates. The emit only uses the first failure code anyway.
+	 *
+	 * @var array<int, array{successes:int, failures:int, first_failure_code:?string}>
 	 */
 	private static array $ap_dispatch_state = array();
 
 	/**
+	 * Cross-call guard against duplicate hook registration.
+	 *
+	 * `add_action()` does NOT dedupe identical callbacks — calling
+	 * `register()` twice without this guard would attach each listener
+	 * twice and double every event / bump.
+	 *
+	 * @var bool
+	 */
+	private static bool $registered = false;
+
+	/**
 	 * Wire the subscriber to the publish hooks.
 	 *
-	 * Idempotent — repeated calls re-add the same listeners but
-	 * WordPress dedupes them by callback identity.
+	 * Idempotent: the static `$registered` flag short-circuits repeat
+	 * calls so duplicate listeners can't be attached. `add_action()`
+	 * itself does not dedupe identical callbacks.
 	 *
 	 * @return void
 	 */
 	public static function register(): void {
+		if ( self::$registered ) {
+			return;
+		}
+		self::$registered = true;
+
 		\add_action( 'activitypub_sent_to_inbox', array( self::class, 'on_ap_sent_to_inbox' ), 10, 5 );
 		\add_action( 'activitypub_outbox_processing_batch_complete', array( self::class, 'on_ap_outbox_processing_batch_complete' ), 10, 6 );
 		\add_action( 'activitypub_outbox_processing_complete', array( self::class, 'on_ap_outbox_processing_complete' ), 10, 6 );
@@ -105,17 +127,30 @@ class Publish_Events {
 		}
 
 		if ( ! isset( self::$ap_dispatch_state[ $outbox_item_id ] ) ) {
-			self::$ap_dispatch_state[ $outbox_item_id ] = array(
-				'successes' => 0,
-				'failures'  => array(),
-			);
+			self::$ap_dispatch_state[ $outbox_item_id ] = self::empty_state();
 		}
 
 		if ( \is_wp_error( $result ) ) {
-			self::$ap_dispatch_state[ $outbox_item_id ]['failures'][] = (string) $result->get_error_code();
+			++self::$ap_dispatch_state[ $outbox_item_id ]['failures'];
+			if ( null === self::$ap_dispatch_state[ $outbox_item_id ]['first_failure_code'] ) {
+				self::$ap_dispatch_state[ $outbox_item_id ]['first_failure_code'] = (string) $result->get_error_code();
+			}
 		} else {
 			++self::$ap_dispatch_state[ $outbox_item_id ]['successes'];
 		}
+	}
+
+	/**
+	 * Empty dispatch-state record used as the initialization seed.
+	 *
+	 * @return array{successes:int, failures:int, first_failure_code:?string}
+	 */
+	private static function empty_state(): array {
+		return array(
+			'successes'          => 0,
+			'failures'           => 0,
+			'first_failure_code' => null,
+		);
 	}
 
 	/**
@@ -156,16 +191,31 @@ class Publish_Events {
 
 		$persisted = \get_post_meta( $outbox_item_id, self::AP_DISPATCH_STATE_META_KEY, true );
 		if ( ! \is_array( $persisted ) ) {
-			$persisted = array(
-				'successes' => 0,
-				'failures'  => array(),
-			);
+			$persisted = self::empty_state();
 		}
 
-		$persisted['successes'] += $in_memory['successes'];
-		$persisted['failures']   = \array_merge( $persisted['failures'], $in_memory['failures'] );
+		\update_post_meta(
+			$outbox_item_id,
+			self::AP_DISPATCH_STATE_META_KEY,
+			self::merge_states( $persisted, $in_memory )
+		);
+	}
 
-		\update_post_meta( $outbox_item_id, self::AP_DISPATCH_STATE_META_KEY, $persisted );
+	/**
+	 * Combine two dispatch-state records, preserving the earliest
+	 * `first_failure_code` (the persisted one wins when both have a
+	 * value, matching the "first failure across the dispatch" semantics
+	 * of the emit).
+	 *
+	 * @param array{successes:int, failures:int, first_failure_code:?string} $base    Existing state (e.g. persisted).
+	 * @param array{successes:int, failures:int, first_failure_code:?string} $overlay State to merge in (e.g. in-memory).
+	 * @return array{successes:int, failures:int, first_failure_code:?string}
+	 */
+	private static function merge_states( array $base, array $overlay ): array {
+		$base['successes']         += $overlay['successes'];
+		$base['failures']          += $overlay['failures'];
+		$base['first_failure_code'] = $base['first_failure_code'] ?? $overlay['first_failure_code'];
+		return $base;
 	}
 
 	/**
@@ -207,13 +257,9 @@ class Publish_Events {
 			return;
 		}
 
-		$state = \is_array( $persisted ) ? $persisted : array(
-			'successes' => 0,
-			'failures'  => array(),
-		);
+		$state = \is_array( $persisted ) ? $persisted : self::empty_state();
 		if ( null !== $in_memory ) {
-			$state['successes'] += $in_memory['successes'];
-			$state['failures']   = \array_merge( $state['failures'], $in_memory['failures'] );
+			$state = self::merge_states( $state, $in_memory );
 		}
 
 		$status = $state['successes'] > 0 ? 'success' : 'failure';
@@ -223,8 +269,8 @@ class Publish_Events {
 			'status'  => $status,
 		);
 
-		if ( 'failure' === $status && ! empty( $state['failures'] ) ) {
-			$properties['error_category'] = self::classify_error( $state['failures'][0] );
+		if ( 'failure' === $status && null !== $state['first_failure_code'] ) {
+			$properties['error_category'] = self::classify_error( $state['first_failure_code'] );
 		}
 
 		Recorder::record( 'fosse_publish_result', $properties );
