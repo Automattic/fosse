@@ -32,6 +32,7 @@ class PublishEventsTest extends BaseTestCase {
 		\remove_all_filters( 'atmosphere_is_short_form_post' );
 		\remove_all_filters( 'atmosphere_long_form_composition' );
 		\remove_all_actions( 'activitypub_sent_to_inbox' );
+		\remove_all_actions( 'activitypub_outbox_processing_batch_complete' );
 		\remove_all_actions( 'activitypub_outbox_processing_complete' );
 		\remove_all_actions( 'atmosphere_publish_post_result' );
 		Publish_Events::register();
@@ -140,11 +141,15 @@ class PublishEventsTest extends BaseTestCase {
 	}
 
 	/**
-	 * Multi-batch AP dispatch — successes/failures accumulated across
-	 * separate `activitypub_sent_to_inbox` events still aggregate
-	 * correctly when the final `activitypub_outbox_processing_complete`
-	 * fires. State is persisted in post meta, so this works even when
-	 * batches run in different cron requests.
+	 * Multi-batch AP dispatch — `activitypub_outbox_processing_batch_complete`
+	 * fires per intermediate batch (flushing in-memory state to post
+	 * meta), and `activitypub_outbox_processing_complete` fires for the
+	 * final batch. Aggregation merges everything correctly.
+	 *
+	 * Verifies that after each intermediate `batch_complete`:
+	 *   - persisted post meta carries the cumulative counts
+	 *   - the in-memory slot for the outbox id is cleared
+	 * so a re-fired batch in the same request can't double-count.
 	 */
 	public function test_ap_outbox_multi_batch_aggregation(): void {
 		$outbox_id = \wp_insert_post(
@@ -155,19 +160,24 @@ class PublishEventsTest extends BaseTestCase {
 			)
 		);
 
-		// First batch — 1 fail, 2 successes.
+		// First batch — 1 fail, 2 successes — then batch_complete (intermediate).
 		\do_action( 'activitypub_sent_to_inbox', new \WP_Error( '503', 'gateway' ), 'https://a.example/inbox', '{}', 1, $outbox_id );
 		\do_action( 'activitypub_sent_to_inbox', array( 'response' => array( 'code' => 202 ) ), 'https://b.example/inbox', '{}', 1, $outbox_id );
 		\do_action( 'activitypub_sent_to_inbox', array( 'response' => array( 'code' => 202 ) ), 'https://c.example/inbox', '{}', 1, $outbox_id );
+		\do_action( 'activitypub_outbox_processing_batch_complete', array(), '{}', 1, $outbox_id, 3, 0 );
 
-		// Second batch — 1 success, 1 fail.
+		// After the intermediate batch_complete, persisted meta carries the cumulative state.
+		$persisted = \get_post_meta( $outbox_id, '_fosse_metrics_ap_dispatch_state', true );
+		$this->assertIsArray( $persisted );
+		$this->assertSame( 2, $persisted['successes'] );
+		$this->assertSame( array( '503' ), $persisted['failures'] );
+
+		// Second batch — 1 success, 1 fail — then the FINAL batch fires processing_complete.
 		\do_action( 'activitypub_sent_to_inbox', array( 'response' => array( 'code' => 202 ) ), 'https://d.example/inbox', '{}', 1, $outbox_id );
 		\do_action( 'activitypub_sent_to_inbox', new \WP_Error( '429', 'slow down' ), 'https://e.example/inbox', '{}', 1, $outbox_id );
-
-		// Final batch fires completion.
 		\do_action( 'activitypub_outbox_processing_complete', array(), '{}', 1, $outbox_id, 2, 3 );
 
-		// Cumulative: 3 successes → status = success.
+		// Cumulative: 3 successes total → status = success.
 		$this->assertEventRecorded(
 			'fosse_publish_result',
 			array(
@@ -178,6 +188,46 @@ class PublishEventsTest extends BaseTestCase {
 
 		// Post meta cleaned up after the final emit.
 		$this->assertSame( '', \get_post_meta( $outbox_id, '_fosse_metrics_ap_dispatch_state', true ) );
+	}
+
+	/**
+	 * Cross-request persistence — between intermediate batches the
+	 * persisted state survives an in-memory reset (simulating the
+	 * second cron request starting fresh). Locks in the property the
+	 * post-meta flush is there to provide.
+	 */
+	public function test_ap_outbox_persisted_state_survives_request_boundary(): void {
+		$outbox_id = \wp_insert_post(
+			array(
+				'post_title'  => 'outbox item',
+				'post_status' => 'publish',
+				'post_type'   => 'post',
+			)
+		);
+
+		// Cron request 1: batch fires + batch_complete (state flushes to post meta).
+		\do_action( 'activitypub_sent_to_inbox', new \WP_Error( '401', 'unauthorized' ), 'https://x.example/inbox', '{}', 1, $outbox_id );
+		\do_action( 'activitypub_sent_to_inbox', array( 'response' => array( 'code' => 202 ) ), 'https://y.example/inbox', '{}', 1, $outbox_id );
+		\do_action( 'activitypub_outbox_processing_batch_complete', array(), '{}', 1, $outbox_id, 2, 0 );
+
+		// Simulate request boundary: a fresh PHP process has no in-memory state.
+		// (The subscriber's flush already clears the slot, but be explicit.)
+		$reflection = new \ReflectionClass( Publish_Events::class );
+		$prop       = $reflection->getProperty( 'ap_dispatch_state' );
+		$prop->setValue( null, array() );
+
+		// Cron request 2: more inbox events + final processing_complete.
+		\do_action( 'activitypub_sent_to_inbox', array( 'response' => array( 'code' => 202 ) ), 'https://z.example/inbox', '{}', 1, $outbox_id );
+		\do_action( 'activitypub_outbox_processing_complete', array(), '{}', 1, $outbox_id, 1, 2 );
+
+		// 2 cumulative successes (one from each request) + 1 failure across the boundary.
+		$this->assertEventRecorded(
+			'fosse_publish_result',
+			array(
+				'network' => 'activitypub',
+				'status'  => 'success',
+			)
+		);
 	}
 
 	/**
