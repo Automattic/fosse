@@ -1,0 +1,236 @@
+<?php
+/**
+ * Tests for the length-based Bluesky short-form bridge.
+ *
+ * @package Automattic\Fosse
+ */
+
+namespace Automattic\Fosse\Tests;
+
+use Automattic\Fosse\Bsky_Short_Form_Fit;
+use PHPUnit\Framework\Attributes\Before;
+use WorDBless\BaseTestCase;
+use WP_Post;
+
+/**
+ * Verifies the bridge promotes a long-form post to Atmosphere short-form
+ * when the rendered body fits in a single Bluesky record (300 chars),
+ * and that the `fosse_bsky_link_card_when_post_fits` filter is honored
+ * as the per-post / per-site opt-out.
+ */
+class Bsky_Short_Form_FitTest extends BaseTestCase {
+
+	/**
+	 * Clean hook state before each test and register the bridge.
+	 *
+	 * @before
+	 */
+	#[Before]
+	public function reset_state(): void {
+		remove_all_filters( 'atmosphere_is_short_form_post' );
+		remove_all_filters( 'fosse_bsky_link_card_when_post_fits' );
+		remove_all_filters( 'the_content' );
+
+		Bsky_Short_Form_Fit::register();
+	}
+
+	/**
+	 * Build a stub WP_Post with the given content. `wp_insert_post` would
+	 * also work but the bridge only touches `post_content` and the
+	 * filter's `WP_Post` type guard — a plain stub keeps tests fast and
+	 * isolates the unit under test from WP's post storage machinery.
+	 *
+	 * @param string $content Raw post content.
+	 * @return WP_Post
+	 */
+	private function make_post( string $content ): WP_Post {
+		return new WP_Post(
+			(object) array(
+				'ID'           => 1,
+				'post_content' => $content,
+			)
+		);
+	}
+
+	/**
+	 * When upstream already decided the post is short-form (post_format
+	 * set, empty title, etc.), the bridge must not re-evaluate — another
+	 * callback in the chain may have set $is_short=true for reasons that
+	 * length doesn't capture. Returning anything other than the input
+	 * here would risk silently flipping the decision back to long-form
+	 * for posts longer than 300 chars.
+	 */
+	public function test_passes_through_when_already_short_form(): void {
+		$this->assertTrue(
+			apply_filters( 'atmosphere_is_short_form_post', true, $this->make_post( str_repeat( 'a', 5000 ) ) ),
+			'A true input must stay true even when the body is way over the Bluesky limit.'
+		);
+	}
+
+	/**
+	 * Defensive guard: if the upstream filter contract ever drifts and
+	 * passes a non-`WP_Post`, the bridge must not crash on
+	 * `$post->post_content`. It should return the input unchanged.
+	 */
+	public function test_passes_through_on_non_wp_post(): void {
+		$this->assertFalse(
+			apply_filters( 'atmosphere_is_short_form_post', false, null )
+		);
+		$this->assertFalse(
+			apply_filters( 'atmosphere_is_short_form_post', false, 42 )
+		);
+		$this->assertFalse(
+			apply_filters( 'atmosphere_is_short_form_post', false, 'not-a-post' )
+		);
+	}
+
+	/**
+	 * Empty post bodies aren't candidates for short-form: forcing
+	 * Atmosphere onto the short-form path would publish a zero-length
+	 * Bluesky post. The long-form path at least carries title + permalink.
+	 */
+	public function test_passes_through_on_empty_body(): void {
+		$this->assertFalse(
+			apply_filters( 'atmosphere_is_short_form_post', false, $this->make_post( '' ) )
+		);
+		$this->assertFalse(
+			apply_filters( 'atmosphere_is_short_form_post', false, $this->make_post( "   \n   \t  " ) ),
+			'Whitespace-only content must count as empty after trim().'
+		);
+	}
+
+	/**
+	 * Core case: a microblog-length post body (well under 300 chars)
+	 * flips the filter to true so Atmosphere takes the short-form path.
+	 */
+	public function test_forces_short_form_when_body_fits(): void {
+		$this->assertTrue(
+			apply_filters( 'atmosphere_is_short_form_post', false, $this->make_post( 'Hello, Bluesky.' ) )
+		);
+	}
+
+	/**
+	 * Boundary: a body that is *exactly* 300 chars should still force
+	 * short-form, because Atmosphere's `build_short_form_text()` will
+	 * publish it verbatim without truncation. The bridge's check uses
+	 * `<=` precisely so the boundary post is the microblog case, not the
+	 * teaser-needs-truncation case.
+	 */
+	public function test_forces_short_form_at_exactly_300_chars(): void {
+		$body = str_repeat( 'x', 300 );
+		$this->assertSame( 300, mb_strlen( $body ) );
+
+		$this->assertTrue(
+			apply_filters( 'atmosphere_is_short_form_post', false, $this->make_post( $body ) )
+		);
+	}
+
+	/**
+	 * Boundary: 301 chars exceeds the limit, so the bridge must defer
+	 * to upstream's long-form decision (the teaser-thread/truncate-link
+	 * strategies exist precisely for the doesn't-fit case).
+	 */
+	public function test_passes_through_at_301_chars(): void {
+		$body = str_repeat( 'x', 301 );
+
+		$this->assertFalse(
+			apply_filters( 'atmosphere_is_short_form_post', false, $this->make_post( $body ) )
+		);
+	}
+
+	/**
+	 * The length measurement uses the post-`the_content` rendered text,
+	 * not the raw `post_content`. A raw body that's short but expands to
+	 * something long (e.g. via a shortcode) must not be misclassified as
+	 * microblog-length — Atmosphere will compose against the expanded
+	 * version too, and we'd otherwise force short-form onto a body that
+	 * Atmosphere then truncates.
+	 */
+	public function test_uses_the_content_filter_for_length(): void {
+		add_filter(
+			'the_content',
+			static function ( $content ) {
+				return str_replace( '[expand]', str_repeat( 'y', 400 ), $content );
+			}
+		);
+
+		$this->assertFalse(
+			apply_filters( 'atmosphere_is_short_form_post', false, $this->make_post( 'Intro [expand] outro.' ) ),
+			'A 21-char raw body that expands to 400+ chars must not be classified as fits-in-300.'
+		);
+	}
+
+	/**
+	 * HTML tags don't count toward the 300-char Bluesky budget — they're
+	 * stripped before publishing. The bridge mirrors that by stripping
+	 * tags before measurement, so a post wrapped in markup that fits in
+	 * 300 chars of visible text still flips to short-form.
+	 */
+	public function test_strips_html_before_measuring(): void {
+		$body = '<p><strong>Short post.</strong></p>';
+
+		$this->assertTrue(
+			apply_filters( 'atmosphere_is_short_form_post', false, $this->make_post( $body ) ),
+			'HTML tags surrounding short visible text must not push the post over the limit.'
+		);
+	}
+
+	/**
+	 * The opt-out filter must be honored when truthy: sites that want
+	 * the long-form-with-card behavior preserved for a given post
+	 * (per type / per author / per meta) can return true and the bridge
+	 * yields. The default (no callbacks) keeps the new short-form path
+	 * active — covered by every other test in this file.
+	 */
+	public function test_override_filter_keeps_long_form_when_truthy(): void {
+		add_filter( 'fosse_bsky_link_card_when_post_fits', '__return_true' );
+
+		$this->assertFalse(
+			apply_filters( 'atmosphere_is_short_form_post', false, $this->make_post( 'Short body.' ) ),
+			'A truthy override must keep Atmosphere on the long-form (link-card) path.'
+		);
+	}
+
+	/**
+	 * The override filter receives the `WP_Post` so callbacks can branch
+	 * per post (post type, author, taxonomy, meta, …). Without this,
+	 * site-wide is the only granularity, which defeats the purpose of an
+	 * override at all.
+	 */
+	public function test_override_filter_receives_post(): void {
+		$received = null;
+		add_filter(
+			'fosse_bsky_link_card_when_post_fits',
+			static function ( $keep, $post ) use ( &$received ) {
+				$received = $post;
+				return $keep;
+			},
+			10,
+			2
+		);
+
+		$post = $this->make_post( 'Short body.' );
+		apply_filters( 'atmosphere_is_short_form_post', false, $post );
+
+		$this->assertSame( $post, $received, 'Override filter must receive the WP_Post being evaluated.' );
+	}
+
+	/**
+	 * Falsy override returns from the filter (the default, `false`, or
+	 * `null`/`0`) must not block the short-form promotion. Anything
+	 * other than a truthy "keep the card" answer should fall through to
+	 * the new behavior.
+	 */
+	public function test_override_filter_falsy_returns_do_not_block(): void {
+		add_filter(
+			'fosse_bsky_link_card_when_post_fits',
+			static function () {
+				return 0;
+			}
+		);
+
+		$this->assertTrue(
+			apply_filters( 'atmosphere_is_short_form_post', false, $this->make_post( 'Short body.' ) )
+		);
+	}
+}

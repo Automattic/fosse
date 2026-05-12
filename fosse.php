@@ -169,6 +169,27 @@ add_action(
 );
 
 /*
+ * Length-based Bluesky short-form bridge.
+ *
+ * When a long-form post's rendered body fits inside a single Bluesky
+ * record (300 chars), force `atmosphere_is_short_form_post` to true so
+ * Atmosphere publishes the body natively (no title prefix, no permalink,
+ * no link-card embed) instead of attaching a card to a post whose URL is
+ * already in the visible text. Opt back into the long-form path via the
+ * `fosse_bsky_link_card_when_post_fits` filter. See `DOTCOM-17097`.
+ * Same registration posture as the `Object_Type` bridge above.
+ */
+add_action(
+	'init',
+	static function () {
+		if ( ! class_exists( \Automattic\Fosse\Bsky_Short_Form_Fit::class ) ) {
+			return;
+		}
+		\Automattic\Fosse\Bsky_Short_Form_Fit::register();
+	}
+);
+
+/*
  * Cross-network post-type projector.
  *
  * Feeds ActivityPub's stored `activitypub_support_post_types` option into
