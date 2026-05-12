@@ -8,6 +8,7 @@
 namespace Automattic\Fosse\Tests;
 
 use Automattic\Fosse\Bsky_Short_Form_Fit;
+use PHPUnit\Framework\Attributes\After;
 use PHPUnit\Framework\Attributes\Before;
 use WorDBless\BaseTestCase;
 use WP_Post;
@@ -25,17 +26,63 @@ class Bsky_Short_Form_FitTest extends BaseTestCase {
 	 *
 	 * @before
 	 */
+	/**
+	 * Callbacks this test file added to `the_content`, paired with the
+	 * priority they were registered at. Tracked so the after-hook can
+	 * remove each one precisely.
+	 *
+	 * `remove_all_filters( 'the_content' )` is unsafe here because it
+	 * also wipes WordPress core's default chain (wpautop, do_shortcode,
+	 * etc.) for the remainder of the process, which leaks into sibling
+	 * test classes that rely on the default chain.
+	 *
+	 * @var array<int, array{0:callable, 1:int}>
+	 */
+	private array $added_the_content_filters = array();
+
+	/**
+	 * Clean hook state before each test and register the bridge.
+	 *
+	 * @before
+	 */
 	#[Before]
 	public function reset_state(): void {
 		remove_all_filters( 'atmosphere_is_short_form_post' );
 		remove_all_filters( 'fosse_bsky_link_card_when_post_fits' );
-		remove_all_filters( 'the_content' );
 
 		// Memoization cache is per-process; reset it so each test starts
 		// fresh and doesn't see a cached decision from a sibling case.
 		Bsky_Short_Form_Fit::reset_cache_for_testing();
 
 		Bsky_Short_Form_Fit::register();
+	}
+
+	/**
+	 * Remove every `the_content` filter this test file added, by exact
+	 * callback identity + priority. Leaves WordPress core's default
+	 * chain intact.
+	 *
+	 * @after
+	 */
+	#[After]
+	public function remove_added_the_content_filters(): void {
+		foreach ( $this->added_the_content_filters as [ $cb, $priority ] ) {
+			remove_filter( 'the_content', $cb, $priority );
+		}
+		$this->added_the_content_filters = array();
+	}
+
+	/**
+	 * Register a `the_content` callback and stash it so the after-hook
+	 * can remove only what this test file added.
+	 *
+	 * @param callable $cb       Filter callback.
+	 * @param int      $priority Filter priority. Default 10.
+	 * @return void
+	 */
+	private function add_the_content_filter( callable $cb, int $priority = 10 ): void {
+		add_filter( 'the_content', $cb, $priority );
+		$this->added_the_content_filters[] = array( $cb, $priority );
 	}
 
 	/**
@@ -155,8 +202,7 @@ class Bsky_Short_Form_FitTest extends BaseTestCase {
 	 * Atmosphere then truncates.
 	 */
 	public function test_uses_the_content_filter_for_length(): void {
-		add_filter(
-			'the_content',
+		$this->add_the_content_filter(
 			static function ( $content ) {
 				return str_replace( '[expand]', str_repeat( 'y', 400 ), $content );
 			}
@@ -262,8 +308,7 @@ class Bsky_Short_Form_FitTest extends BaseTestCase {
 	 */
 	public function test_memoizes_per_post_id(): void {
 		$count = 0;
-		add_filter(
-			'the_content',
+		$this->add_the_content_filter(
 			static function ( $content ) use ( &$count ) {
 				++$count;
 				return $content;
