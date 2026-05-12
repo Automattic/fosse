@@ -370,7 +370,10 @@ class Onboarding_Wizard {
 			// the chooser-managed slice with []. Preserved upstream values
 			// (e.g. `attachment`) are not enough on their own — the wizard
 			// step is explicitly about picking content types to share.
-			$managed_selected = array_intersect( $post_types, Post_Type_Chooser::names() );
+			// Check the raw submission against the chooser's managed set
+			// directly rather than re-deriving from `$post_types`, which
+			// has already merged in preserved-non-managed values.
+			$managed_selected = array_intersect( $submitted, Post_Type_Chooser::names() );
 			if ( empty( $managed_selected ) ) {
 				self::redirect_to_step( 'content', array( 'error' => 'empty_post_types' ) );
 			}

@@ -55,11 +55,14 @@ final class Post_Type_Chooser {
 	/**
 	 * Post-type names FOSSE offers in its chooser UIs.
 	 *
+	 * Derives from `types()` so the exclusion logic has a single source
+	 * of truth — adding a new EXCLUDED entry, or any future runtime
+	 * filtering inside `types()`, automatically propagates here.
+	 *
 	 * @return array<string>
 	 */
 	public static function names(): array {
-		$names = get_post_types( array( 'public' => true ) );
-		return array_values( array_diff( $names, self::EXCLUDED ) );
+		return array_values( array_keys( self::types() ) );
 	}
 
 	/**
