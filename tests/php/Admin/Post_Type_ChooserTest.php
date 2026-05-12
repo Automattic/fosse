@@ -48,8 +48,11 @@ class Post_Type_ChooserTest extends BaseTestCase {
 	/**
 	 * Adding a runtime-registered public post type surfaces in BOTH
 	 * `types()` and `names()` without source-of-truth drift. Locks down
-	 * the invariant that the two methods stay in sync even when the
-	 * caller adds an exclusion or filter at runtime to `types()`.
+	 * the invariant that the two methods stay in sync against the only
+	 * runtime input `types()` reacts to today — `register_post_type()` —
+	 * so future internal changes to `types()` (additional EXCLUDED
+	 * entries, conditional filtering, etc.) propagate to `names()`
+	 * automatically.
 	 */
 	public function test_names_and_types_stay_in_sync_with_runtime_registration(): void {
 		register_post_type(
