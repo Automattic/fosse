@@ -213,10 +213,8 @@ add_action(
  *
  * Stops Atmosphere's `Reaction_Sync` from inserting our own teaser-thread
  * follow-up chunks as WordPress comments when the cron walks our own
- * `listRecords`. Registers a callback on the upstream
- * `atmosphere_should_sync_reply` filter (added in wordpress-atmosphere
- * PR 57; the callback is dormant until that lands and gets resynced).
- * See `DOTCOM-17098`.
+ * `listRecords`. Registers a callback on Atmosphere's
+ * `atmosphere_should_sync_reply` filter. See `DOTCOM-17098`.
  */
 add_action(
 	'init',
