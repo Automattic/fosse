@@ -22,11 +22,6 @@ use WP_Post;
 class Bsky_Short_Form_FitTest extends BaseTestCase {
 
 	/**
-	 * Clean hook state before each test and register the bridge.
-	 *
-	 * @before
-	 */
-	/**
 	 * Callbacks this test file added to `the_content`, paired with the
 	 * priority they were registered at. Tracked so the after-hook can
 	 * remove each one precisely.
