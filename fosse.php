@@ -209,6 +209,26 @@ add_action(
 );
 
 /*
+ * Self-thread comment suppressor.
+ *
+ * Stops Atmosphere's `Reaction_Sync` from inserting our own teaser-thread
+ * follow-up chunks as WordPress comments when the cron walks our own
+ * `listRecords`. Registers a callback on the upstream
+ * `atmosphere_should_sync_reply` filter (added in wordpress-atmosphere
+ * PR 57; the callback is dormant until that lands and gets resynced).
+ * See `DOTCOM-17098`.
+ */
+add_action(
+	'init',
+	static function () {
+		if ( ! class_exists( \Automattic\Fosse\Self_Thread_Comment_Filter::class ) ) {
+			return;
+		}
+		\Automattic\Fosse\Self_Thread_Comment_Filter::register();
+	}
+);
+
+/*
  * Async publish-path metrics subscriber.
  *
  * Listens to bundled ActivityPub's outbox dispatch hooks and bundled
