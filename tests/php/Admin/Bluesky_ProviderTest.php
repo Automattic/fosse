@@ -377,7 +377,7 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		$this->provider->render_connection_actions();
 		$output = ob_get_clean();
 
-		$this->assertStringContainsString( 'Re-align your Bluesky handle with this site', $output );
+		$this->assertStringContainsString( 'Realign your Bluesky handle with this site', $output );
 		$this->assertStringContainsString( 'FOSSE previously set your Bluesky handle', $output );
 		// First-time-setup copy must not also surface.
 		$this->assertStringNotContainsString( 'You can replace it with', $output );

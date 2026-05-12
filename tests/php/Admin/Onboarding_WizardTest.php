@@ -1255,7 +1255,7 @@ class Onboarding_WizardTest extends BaseTestCase {
 		$output = $this->render_wizard_step( 'bluesky' );
 
 		// Drift heading + drift copy present; first-time copy absent.
-		$this->assertStringContainsString( 'Re-align your Bluesky handle with this site', $output );
+		$this->assertStringContainsString( 'Realign your Bluesky handle with this site', $output );
 		$this->assertStringContainsString( 'FOSSE previously set your Bluesky handle', $output );
 		$this->assertStringNotContainsString( 'Replace it with', $output );
 

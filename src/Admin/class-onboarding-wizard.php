@@ -1476,7 +1476,7 @@ class Onboarding_Wizard {
 						<h3>
 							<?php
 							if ( $is_drift ) {
-								esc_html_e( 'Re-align your Bluesky handle with this site', 'fosse' );
+								esc_html_e( 'Realign your Bluesky handle with this site', 'fosse' );
 							} else {
 								esc_html_e( 'Use your domain as your Bluesky handle', 'fosse' );
 							}
@@ -1492,7 +1492,7 @@ class Onboarding_Wizard {
 								echo esc_html(
 									sprintf(
 										/* translators: 1: current Bluesky handle (e.g. example.com); 2: target handle = site host (e.g. newdomain.com). */
-										__( 'FOSSE previously set your Bluesky handle, but it no longer matches this site. Your handle on Bluesky is %1$s; this site is %2$s. Re-set to align them.', 'fosse' ),
+										__( 'FOSSE previously set your Bluesky handle, but it no longer matches this site. Your handle on Bluesky is %1$s; this site is %2$s. Set it again to align them.', 'fosse' ),
 										(string) $status['handle'],
 										$target_host
 									)
