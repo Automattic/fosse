@@ -273,6 +273,30 @@ class Bluesky_Domain_Handle {
 	}
 
 	/**
+	 * Whether the current state represents drift from a prior FOSSE-set handle.
+	 *
+	 * True when {@see self::should_offer()} is true AND a snapshot exists
+	 * for the connected DID. Catches both "user changed their site
+	 * domain after FOSSE set the handle" and "user changed their handle
+	 * on bsky.app after FOSSE set it" — the two are indistinguishable
+	 * from server state, and the caller renders neutral copy for both.
+	 *
+	 * Cheap drop-in for the wizard and Settings-page renders: when this
+	 * returns true, surface a contextual explanation instead of the
+	 * first-time-setup copy (the button does the same thing in both
+	 * cases — only the framing changes).
+	 *
+	 * @param array<string, mixed> $bluesky_status Bluesky provider status snapshot.
+	 * @return bool
+	 */
+	public static function is_drift( array $bluesky_status ): bool {
+		if ( ! self::should_offer( $bluesky_status ) ) {
+			return false;
+		}
+		return '' !== self::get_pending_revert_handle();
+	}
+
+	/**
 	 * Whether the confirm-handle UI should render for the given Bluesky status.
 	 *
 	 * Same gate for both the wizard step and the Settings page — both

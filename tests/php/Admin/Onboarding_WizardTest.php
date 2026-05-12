@@ -1236,6 +1236,34 @@ class Onboarding_WizardTest extends BaseTestCase {
 	}
 
 	/**
+	 * When FOSSE has previously set the handle and it no longer matches
+	 * the site (domain change, or user changed it on bsky.app), the
+	 * wizard panel surfaces the drift-specific copy instead of the
+	 * first-time-setup copy. Same CTA button — only the framing changes.
+	 */
+	public function test_render_bluesky_step_renders_drift_copy_when_snapshot_exists(): void {
+		$this->seed_bluesky_connection( 'oldhandle.example', 'did:plc:alice123' );
+		update_option(
+			\Automattic\Fosse\Admin\Bluesky_Domain_Handle::OPTION_PREVIOUS_HANDLE,
+			array(
+				'did'    => 'did:plc:alice123',
+				'handle' => 'alice.bsky.social',
+			),
+			false
+		);
+
+		$output = $this->render_wizard_step( 'bluesky' );
+
+		// Drift heading + drift copy present; first-time copy absent.
+		$this->assertStringContainsString( 'Re-align your Bluesky handle with this site', $output );
+		$this->assertStringContainsString( 'FOSSE previously set your Bluesky handle', $output );
+		$this->assertStringNotContainsString( 'Replace it with', $output );
+
+		// CTA button itself is unchanged.
+		$this->assertStringContainsString( 'fosse_set_bluesky_domain_handle', $output );
+	}
+
+	/**
 	 * The pre-OAuth connect form must NOT carry a domain-handle checkbox.
 	 *
 	 * The earlier design used a checkbox to opt into setting the handle
