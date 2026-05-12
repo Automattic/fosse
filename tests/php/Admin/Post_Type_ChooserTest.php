@@ -46,6 +46,36 @@ class Post_Type_ChooserTest extends BaseTestCase {
 	}
 
 	/**
+	 * Adding a runtime-registered public post type surfaces in BOTH
+	 * `types()` and `names()` without source-of-truth drift. Locks down
+	 * the invariant that the two methods stay in sync against the only
+	 * runtime input `types()` reacts to today — `register_post_type()` —
+	 * so future internal changes to `types()` (additional EXCLUDED
+	 * entries, conditional filtering, etc.) propagate to `names()`
+	 * automatically.
+	 */
+	public function test_names_and_types_stay_in_sync_with_runtime_registration(): void {
+		register_post_type(
+			'fosse_runtime_cpt',
+			array(
+				'public' => true,
+				'label'  => 'Runtime chooser type',
+			)
+		);
+
+		try {
+			$this->assertContains( 'fosse_runtime_cpt', Post_Type_Chooser::names() );
+			$this->assertArrayHasKey( 'fosse_runtime_cpt', Post_Type_Chooser::types() );
+			$this->assertSame(
+				array_values( array_keys( Post_Type_Chooser::types() ) ),
+				array_values( Post_Type_Chooser::names() )
+			);
+		} finally {
+			unregister_post_type( 'fosse_runtime_cpt' );
+		}
+	}
+
+	/**
 	 * The reconcile pattern intersects the submission with the managed
 	 * set so a submission missing valid types collapses cleanly to the
 	 * managed subset only.
