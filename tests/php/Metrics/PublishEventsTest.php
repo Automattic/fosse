@@ -139,7 +139,7 @@ class PublishEventsTest extends BaseTestCase {
 
 	/**
 	 * AP outbox-complete with no prior per-inbox events emits nothing
-	 * (zero-inbox dispatch). Uses a real outbox post id so the post-meta
+	 * (zero-inbox dispatch). Uses a real post id so the post-meta
 	 * read path is exercised; the meta is just empty.
 	 */
 	public function test_ap_outbox_complete_without_sends_is_silent(): void {
@@ -188,6 +188,11 @@ class PublishEventsTest extends BaseTestCase {
 		$this->assertSame( 2, $persisted['successes'] );
 		$this->assertSame( 1, $persisted['failures'] );
 		$this->assertSame( '503', $persisted['first_failure_code'] );
+
+		// And the in-memory slot for this outbox id is cleared, so a re-fired
+		// batch in the same request can't double-count.
+		$state_prop = ( new \ReflectionClass( Publish_Events::class ) )->getProperty( 'ap_dispatch_state' );
+		$this->assertArrayNotHasKey( $outbox_id, $state_prop->getValue() );
 
 		// Second batch — 1 success, 1 fail — then the FINAL batch fires processing_complete.
 		\do_action( 'activitypub_sent_to_inbox', array( 'response' => array( 'code' => 202 ) ), 'https://d.example/inbox', '{}', 1, $outbox_id );
