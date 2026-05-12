@@ -349,6 +349,43 @@ class Bluesky_ProviderTest extends BaseTestCase {
 	}
 
 	/**
+	 * When a snapshot exists for the connected DID and the current
+	 * handle no longer matches the site host, the Settings panel
+	 * surfaces drift-specific copy instead of the first-time setup
+	 * copy. Same CTA button — only the framing changes.
+	 */
+	public function test_render_connection_actions_renders_drift_copy_when_snapshot_exists() {
+		update_option(
+			'atmosphere_connection',
+			array(
+				'did'          => 'did:plc:test123',
+				'handle'       => 'oldhandle.example',
+				'pds_endpoint' => 'https://bsky.social',
+				'access_token' => Encryption::encrypt( 'token' ),
+			)
+		);
+		update_option(
+			Bluesky_Domain_Handle::OPTION_PREVIOUS_HANDLE,
+			array(
+				'did'    => 'did:plc:test123',
+				'handle' => 'alice.bsky.social',
+			),
+			false
+		);
+
+		ob_start();
+		$this->provider->render_connection_actions();
+		$output = ob_get_clean();
+
+		$this->assertStringContainsString( 'Realign your Bluesky handle with this site', $output );
+		$this->assertStringContainsString( 'FOSSE previously set your Bluesky handle', $output );
+		// First-time-setup copy must not also surface.
+		$this->assertStringNotContainsString( 'You can replace it with', $output );
+		// CTA button itself is unchanged.
+		$this->assertStringContainsString( 'fosse_set_bluesky_domain_handle', $output );
+	}
+
+	/**
 	 * Disconnected connection panel links out to bsky.app so users without
 	 * an account aren't dead-ended at the connect form.
 	 */

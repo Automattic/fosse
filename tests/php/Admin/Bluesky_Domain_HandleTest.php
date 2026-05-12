@@ -360,6 +360,89 @@ class Bluesky_Domain_HandleTest extends BaseTestCase {
 		);
 	}
 
+	// ---- is_drift ----
+
+	/**
+	 * A first-time connected user with no snapshot is NOT in drift —
+	 * the offer is a fresh setup, not a re-alignment.
+	 */
+	public function test_is_drift_false_when_no_snapshot(): void {
+		$this->force_home_url( 'https://example.com' );
+
+		$this->assertFalse(
+			Bluesky_Domain_Handle::is_drift(
+				array(
+					'connected' => true,
+					'handle'    => 'alice.bsky.social',
+				)
+			)
+		);
+	}
+
+	/**
+	 * A snapshot bound to the connected DID plus a current handle that
+	 * doesn't match the target IS drift — FOSSE set the handle before
+	 * and the two have since gone out of sync (either the site domain
+	 * changed or the user changed the handle on bsky.app directly).
+	 */
+	public function test_is_drift_true_when_snapshot_exists_for_current_did(): void {
+		$this->force_home_url( 'https://newdomain.example' );
+		$this->seed_connection( 'oldhandle.example', 'did:plc:test123' );
+		$this->seed_snapshot( 'did:plc:test123', 'alice.bsky.social' );
+
+		$this->assertTrue(
+			Bluesky_Domain_Handle::is_drift(
+				array(
+					'connected' => true,
+					'handle'    => 'oldhandle.example',
+				)
+			)
+		);
+	}
+
+	/**
+	 * `is_drift()` defers to `should_offer()` — when the offer wouldn't
+	 * surface at all (e.g. handle already matches), drift is irrelevant
+	 * and the answer is false even with a snapshot present.
+	 */
+	public function test_is_drift_false_when_offer_would_not_surface(): void {
+		$this->force_home_url( 'https://example.com' );
+		$this->seed_connection( 'example.com', 'did:plc:test123' );
+		$this->seed_snapshot( 'did:plc:test123', 'alice.bsky.social' );
+
+		// handle === target, so should_offer is false → is_drift cascades to false.
+		$this->assertFalse(
+			Bluesky_Domain_Handle::is_drift(
+				array(
+					'connected' => true,
+					'handle'    => 'example.com',
+				)
+			)
+		);
+	}
+
+	/**
+	 * A snapshot bound to a DIFFERENT DID than the currently-connected
+	 * account doesn't count as drift — the snapshot belongs to a prior
+	 * account FOSSE managed, not this one. Same guard `should_offer` +
+	 * the auto-revert path use to avoid touching identities FOSSE did
+	 * not previously set.
+	 */
+	public function test_is_drift_false_when_snapshot_bound_to_different_did(): void {
+		$this->force_home_url( 'https://newdomain.example' );
+		$this->seed_connection( 'oldhandle.example', 'did:plc:current' );
+		$this->seed_snapshot( 'did:plc:other', 'alice.bsky.social' );
+
+		$this->assertFalse(
+			Bluesky_Domain_Handle::is_drift(
+				array(
+					'connected' => true,
+					'handle'    => 'oldhandle.example',
+				)
+			)
+		);
+	}
+
 	// ---- set_handle ----
 
 	/**

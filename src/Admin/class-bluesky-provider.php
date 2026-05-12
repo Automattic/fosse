@@ -356,14 +356,36 @@ class Bluesky_Provider implements Connection_Provider {
 			return;
 		}
 
-		$current = isset( $status['handle'] ) ? (string) $status['handle'] : '';
-		$target  = Bluesky_Domain_Handle::get_target_handle();
+		$current  = isset( $status['handle'] ) ? (string) $status['handle'] : '';
+		$target   = Bluesky_Domain_Handle::get_target_handle();
+		$is_drift = Bluesky_Domain_Handle::is_drift( $status );
 		?>
 		<div class="fosse-domain-handle-panel">
-			<h4><?php esc_html_e( 'Use your domain as your Bluesky handle', 'fosse' ); ?></h4>
+			<h4>
+				<?php
+				if ( $is_drift ) {
+					esc_html_e( 'Realign your Bluesky handle with this site', 'fosse' );
+				} else {
+					esc_html_e( 'Use your domain as your Bluesky handle', 'fosse' );
+				}
+				?>
+			</h4>
 			<p>
 				<?php
-				if ( '' !== $current ) {
+				if ( $is_drift ) {
+					// Either the site domain changed since FOSSE set the
+					// handle, or the user changed their handle on bsky.app
+					// directly. Server-side we can't tell which, so the copy
+					// stays neutral.
+					echo esc_html(
+						sprintf(
+							/* translators: 1: current Bluesky handle (e.g. example.com); 2: target handle = site host (e.g. newdomain.com). */
+							__( 'FOSSE previously set your Bluesky handle, but it no longer matches this site. Your handle on Bluesky is %1$s; this site is %2$s. Set it again to align them.', 'fosse' ),
+							$current,
+							$target
+						)
+					);
+				} elseif ( '' !== $current ) {
 					echo esc_html(
 						sprintf(
 							/* translators: 1: current Bluesky handle (e.g. alice.bsky.social); 2: target handle = site host (e.g. example.com). */

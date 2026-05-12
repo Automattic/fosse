@@ -1470,19 +1470,43 @@ class Onboarding_Wizard {
 				// subdirectory, or when the feature is disabled.
 				if ( Bluesky_Domain_Handle::should_offer( $status ) ) :
 					$target_host = Bluesky_Domain_Handle::get_target_handle();
+					$is_drift    = Bluesky_Domain_Handle::is_drift( $status );
 					?>
 					<div class="fosse-wizard__domain-handle">
-						<h3><?php esc_html_e( 'Use your domain as your Bluesky handle', 'fosse' ); ?></h3>
+						<h3>
+							<?php
+							if ( $is_drift ) {
+								esc_html_e( 'Realign your Bluesky handle with this site', 'fosse' );
+							} else {
+								esc_html_e( 'Use your domain as your Bluesky handle', 'fosse' );
+							}
+							?>
+						</h3>
 						<p>
 							<?php
-							echo esc_html(
-								sprintf(
-									/* translators: 1: current Bluesky handle (e.g. alice.bsky.social); 2: target handle = site host (e.g. example.com). */
-									__( 'Your handle is currently %1$s. Replace it with %2$s so people can find you on Bluesky by your site\'s domain.', 'fosse' ),
-									(string) $status['handle'],
-									$target_host
-								)
-							);
+							if ( $is_drift ) {
+								// Either the site domain changed since FOSSE
+								// set the handle, or the user changed it on
+								// bsky.app directly. Server-side we can't
+								// tell which, so the copy stays neutral.
+								echo esc_html(
+									sprintf(
+										/* translators: 1: current Bluesky handle (e.g. example.com); 2: target handle = site host (e.g. newdomain.com). */
+										__( 'FOSSE previously set your Bluesky handle, but it no longer matches this site. Your handle on Bluesky is %1$s; this site is %2$s. Set it again to align them.', 'fosse' ),
+										(string) $status['handle'],
+										$target_host
+									)
+								);
+							} else {
+								echo esc_html(
+									sprintf(
+										/* translators: 1: current Bluesky handle (e.g. alice.bsky.social); 2: target handle = site host (e.g. example.com). */
+										__( 'Your handle is currently %1$s. Replace it with %2$s so people can find you on Bluesky by your site\'s domain.', 'fosse' ),
+										(string) $status['handle'],
+										$target_host
+									)
+								);
+							}
 							?>
 						</p>
 						<?php Bluesky_Domain_Handle::render_destructive_warning_notice(); ?>
