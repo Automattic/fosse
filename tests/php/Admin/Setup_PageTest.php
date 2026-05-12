@@ -568,6 +568,24 @@ class Setup_PageTest extends BaseTestCase {
 	}
 
 	/**
+	 * Actor-mode card highlighting follows the live checked radio state, not
+	 * a server-rendered saved-state class that would go stale before save.
+	 */
+	public function test_render_actor_mode_cards_style_from_checked_radio_state(): void {
+		$this->become_admin();
+
+		$output = $this->capture_render();
+
+		$this->assertStringNotContainsString( 'is-selected', $output );
+		$this->assertStringContainsString( 'class="fosse-settings-card-option__input"', $output );
+		$this->assertStringContainsString( 'class="fosse-settings-card-option__body"', $output );
+		$this->assertMatchesRegularExpression(
+			'/id="fosse-activitypub-actor-mode-actor"[\s\S]+?class="fosse-settings-card-option__body"/',
+			$output
+		);
+	}
+
+	/**
 	 * If `attachment` is already set in the stored option (the user
 	 * enabled it through bundled ActivityPub's settings), saving the
 	 * FOSSE Settings page must preserve that value rather than silently
