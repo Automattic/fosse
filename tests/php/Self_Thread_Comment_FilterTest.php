@@ -101,14 +101,33 @@ class Self_Thread_Comment_FilterTest extends BaseTestCase {
 	}
 
 	/**
-	 * If a prior callback already returned false, stay false. We never
-	 * resurrect a suppressed reply.
+	 * If a prior callback already returned false, stay false. Uses the
+	 * exact inputs that would otherwise be suppressed (own DID + URI in
+	 * thread index) to prove the early-return is what's keeping the
+	 * value false, not the suppression path coincidentally also
+	 * returning false.
 	 */
 	public function test_preserves_prior_false(): void {
-		$notification = $this->build_notification( 'did:plc:stranger', 'at://x/app.bsky.feed.post/y' );
+		$notification = $this->build_notification( self::OWN_DID, self::REPLY_URI );
 
 		$this->assertFalse(
 			apply_filters( 'atmosphere_should_sync_reply', false, $notification, self::POST_ID, 0 )
+		);
+	}
+
+	/**
+	 * Posts published via single-record paths (e.g. short-form, link-card,
+	 * truncate-link) never populate META_URI_INDEX. An inbound own-DID
+	 * reply targeting one of those posts must pass through and sync, not
+	 * be suppressed by an absent-but-empty-array check.
+	 */
+	public function test_allows_own_reply_when_post_has_no_thread_index(): void {
+		delete_post_meta( self::POST_ID, BskyPost::META_URI_INDEX );
+
+		$notification = $this->build_notification( self::OWN_DID, self::REPLY_URI );
+
+		$this->assertTrue(
+			apply_filters( 'atmosphere_should_sync_reply', true, $notification, self::POST_ID, 0 )
 		);
 	}
 

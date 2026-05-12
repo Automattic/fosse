@@ -58,10 +58,6 @@ class Self_Thread_Comment_Filter {
 			return false;
 		}
 
-		if ( ! \function_exists( 'Atmosphere\\get_did' ) ) {
-			return $should;
-		}
-
 		$own_did = \Atmosphere\get_did();
 		if ( '' === $own_did ) {
 			return $should;
