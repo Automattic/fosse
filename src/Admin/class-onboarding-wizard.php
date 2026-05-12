@@ -223,7 +223,7 @@ class Onboarding_Wizard {
 	}
 
 	/**
-	 * Render the hidden Onboarding Lizard toggle.
+	 * Render the hidden wizard style toggle.
 	 *
 	 * @return void
 	 */
@@ -233,7 +233,7 @@ class Onboarding_Wizard {
 			type="button"
 			class="fosse-wizard__lizard"
 			data-fosse-lizard-toggle
-			aria-label="<?php esc_attr_e( 'Onboarding Lizard', 'fosse' ); ?>"
+			aria-label="<?php esc_attr_e( 'Toggle wizard theme', 'fosse' ); ?>"
 			aria-pressed="false"
 		>
 			<span aria-hidden="true">&#x1F98E;</span>
@@ -356,14 +356,22 @@ class Onboarding_Wizard {
 			// hard failure via `failOnWarning`, and which would otherwise emit
 			// a notice in production). Mirrors {@see Setup_Page::save_general_settings()}.
 			// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- sanitized via array_map below; sniffer does not recognize the wrapping pattern.
-			$raw         = wp_unslash( (array) ( $_POST['activitypub_support_post_types'] ?? array() ) );
-			$submitted   = array_map( 'sanitize_text_field', array_filter( $raw, 'is_string' ) );
-			$valid_types = get_post_types( array( 'public' => true ) );
-			$post_types  = array_values( array_intersect( $submitted, $valid_types ) );
+			$raw       = wp_unslash( (array) ( $_POST['activitypub_support_post_types'] ?? array() ) );
+			$submitted = array_map( 'sanitize_text_field', array_filter( $raw, 'is_string' ) );
+			$existing  = (array) get_option( 'activitypub_support_post_types', array( 'post' ) );
 
-			// Empty selection would silently disable federation. Bounce back
-			// with an error rather than overwrite the option with [].
-			if ( empty( $post_types ) ) {
+			// Reconcile against the chooser's managed set so a user can't
+			// submit `attachment` (the chooser doesn't render it), and an
+			// upstream-enabled `attachment` survives a FOSSE save.
+			$post_types = Post_Type_Chooser::reconcile_submission( $submitted, $existing );
+
+			// Empty *managed* selection would silently disable post/page
+			// federation. Bounce back with an error rather than overwrite
+			// the chooser-managed slice with []. Preserved upstream values
+			// (e.g. `attachment`) are not enough on their own — the wizard
+			// step is explicitly about picking content types to share.
+			$managed_selected = array_intersect( $post_types, Post_Type_Chooser::names() );
+			if ( empty( $managed_selected ) ) {
 				self::redirect_to_step( 'content', array( 'error' => 'empty_post_types' ) );
 			}
 
@@ -1257,7 +1265,7 @@ class Onboarding_Wizard {
 		self::render_progress( 'content' );
 
 		$post_types     = get_option( 'activitypub_support_post_types', array( 'post' ) );
-		$all_post_types = get_post_types( array( 'public' => true ), 'objects' );
+		$all_post_types = Post_Type_Chooser::types();
 		$nonce          = wp_create_nonce( 'fosse_wizard' );
 
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only check on a redirect-back error code.

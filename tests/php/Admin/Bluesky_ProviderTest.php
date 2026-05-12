@@ -1526,13 +1526,13 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		// phpcs:enable WordPress.Security.NonceVerification.Missing
 
 		// Intercept the HTTP request that Client::authorize() makes to
-		// the handle's auth server, and capture the handle it resolved.
+		// the handle's auth server, and capture the normalized handle it resolved.
 		$captured_handle = null;
 		add_filter(
 			'pre_http_request',
 			static function ( $preempt, $args, $url ) use ( &$captured_handle ) {
 				// The first HTTP call from authorize() is handle resolution.
-				// Capture the URL to verify no leading @ was passed.
+				// Capture the URL to verify the normalized handle was passed.
 				$captured_handle = $url;
 				// Return an error to short-circuit the flow.
 				return new \WP_Error( 'fosse_test_intercept', 'intercepted' );
@@ -1559,7 +1559,9 @@ class Bluesky_ProviderTest extends BaseTestCase {
 			$captured_handle,
 			'Expected pre_http_request to fire from Client::authorize() — handle normalization could not be verified.'
 		);
+		$this->assertStringContainsString( 'alice.bsky.social', $captured_handle );
 		$this->assertStringNotContainsString( '@alice', $captured_handle );
+		$this->assertStringNotContainsString( '%40alice', $captured_handle );
 	}
 
 	/**
@@ -2158,7 +2160,7 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		$output = ob_get_clean();
 
 		$this->assertStringContainsString( 'fosse_set_bluesky_domain_handle', $output );
-		$this->assertStringContainsString( 'Click the button below to set your Bluesky handle to example.com', $output );
+		$this->assertStringContainsString( 'You can set your Bluesky handle to example.com', $output );
 		$this->assertStringContainsString( 'Use example.com as my Bluesky handle', $output );
 		$this->assertStringContainsString( 'Heads up: replacing your handle is destructive', $output );
 	}
@@ -2607,7 +2609,7 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		$this->provider->render_connection_actions();
 		$output = ob_get_clean();
 
-		$this->assertStringContainsString( 'Disconnecting will also restore your previous Bluesky handle', $output );
+		$this->assertStringContainsString( 'Disconnecting will also restore alice.bsky.social as this account\'s Bluesky handle', html_entity_decode( $output, ENT_QUOTES, 'UTF-8' ) );
 		$this->assertStringContainsString( 'alice.bsky.social', $output );
 	}
 

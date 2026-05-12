@@ -549,6 +549,103 @@ class Setup_PageTest extends BaseTestCase {
 	}
 
 	/**
+	 * The Settings post-types chooser deliberately hides `attachment`
+	 * (Media). DOTCOM-17047: enabling it federates every image upload
+	 * - including images attached to drafts - which doesn't match what
+	 * the chooser's label implies. Power users who want it can flip it
+	 * via bundled ActivityPub's own settings.
+	 */
+	public function test_render_general_section_omits_attachment_checkbox(): void {
+		$this->become_admin();
+
+		$output = $this->capture_render();
+
+		$this->assertStringNotContainsString(
+			'value="attachment"',
+			$output,
+			'Settings chooser should not render a Media (attachment) checkbox.'
+		);
+	}
+
+	/**
+	 * Actor-mode card highlighting follows the live checked radio state, not
+	 * a server-rendered saved-state class that would go stale before save.
+	 */
+	public function test_render_actor_mode_cards_style_from_checked_radio_state(): void {
+		$this->become_admin();
+
+		$output = $this->capture_render();
+
+		$this->assertStringNotContainsString( 'is-selected', $output );
+		$this->assertStringContainsString( 'class="fosse-settings-card-option__input"', $output );
+		$this->assertStringContainsString( 'class="fosse-settings-card-option__body"', $output );
+		$this->assertMatchesRegularExpression(
+			'/id="fosse-activitypub-actor-mode-actor"[\s\S]+?class="fosse-settings-card-option__body"/',
+			$output
+		);
+	}
+
+	/**
+	 * If `attachment` is already set in the stored option (the user
+	 * enabled it through bundled ActivityPub's settings), saving the
+	 * FOSSE Settings page must preserve that value rather than silently
+	 * stripping it.
+	 */
+	public function test_handle_save_preserves_existing_attachment_value(): void {
+		update_option( 'activitypub_support_post_types', array( 'post', 'attachment' ) );
+
+		$this->become_admin();
+
+		$this->simulate_post(
+			array(
+				'activitypub_actor_mode'         => 'blog',
+				'activitypub_support_post_types' => array( 'post', 'page' ),
+			)
+		);
+
+		$this->arm_redirect_trap();
+
+		try {
+			Setup_Page::handle_save();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$saved = (array) get_option( 'activitypub_support_post_types' );
+		$this->assertContains( 'post', $saved );
+		$this->assertContains( 'page', $saved );
+		$this->assertContains( 'attachment', $saved );
+	}
+
+	/**
+	 * A submission can't sneak `attachment` past the save handler even
+	 * if a crafted POST includes it. The chooser doesn't render the
+	 * checkbox and the save layer matches that intent.
+	 */
+	public function test_handle_save_rejects_attachment_in_submission(): void {
+		$this->become_admin();
+
+		$this->simulate_post(
+			array(
+				'activitypub_actor_mode'         => 'blog',
+				'activitypub_support_post_types' => array( 'post', 'attachment' ),
+			)
+		);
+
+		$this->arm_redirect_trap();
+
+		try {
+			Setup_Page::handle_save();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$saved = (array) get_option( 'activitypub_support_post_types' );
+		$this->assertContains( 'post', $saved );
+		$this->assertNotContains( 'attachment', $saved );
+	}
+
+	/**
 	 * When the actor mode is constant-locked, the radios are replaced
 	 * by a hidden input + locked notice. Regression guard against the
 	 * locked branch ever being deleted by accident.

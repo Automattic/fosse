@@ -232,6 +232,23 @@ class Onboarding_WizardTest extends BaseTestCase {
 	// --- handle_save: content step ---
 
 	/**
+	 * The wizard's "what do you want to share?" step deliberately omits
+	 * `attachment` from the rendered checkboxes (DOTCOM-17047). Power
+	 * users who want Media federation can still toggle it via bundled
+	 * ActivityPub's own settings.
+	 */
+	public function test_render_content_step_omits_attachment_checkbox(): void {
+		$output = $this->render_wizard_step( 'content' );
+
+		$this->assertStringContainsString( 'name="activitypub_support_post_types[]"', $output );
+		$this->assertStringNotContainsString(
+			'value="attachment"',
+			$output,
+			'Wizard content step should not render a Media (attachment) checkbox.'
+		);
+	}
+
+	/**
 	 * Saving the content step stores post types.
 	 */
 	public function test_handle_save_content_stores_post_types() {
@@ -263,6 +280,90 @@ class Onboarding_WizardTest extends BaseTestCase {
 		$saved = get_option( 'activitypub_support_post_types' );
 		$this->assertContains( 'post', $saved );
 		$this->assertNotContains( 'faketype', $saved );
+	}
+
+	/**
+	 * `attachment` is registered as a public post type but the chooser
+	 * deliberately hides it (DOTCOM-17047). A crafted POST that submits
+	 * `attachment` must not slip past the save handler.
+	 */
+	public function test_handle_save_content_rejects_attachment_in_submission() {
+		$this->simulate_save_request(
+			'content',
+			array( 'activitypub_support_post_types' => array( 'post', 'attachment' ) )
+		);
+
+		try {
+			Onboarding_Wizard::handle_save();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$saved = (array) get_option( 'activitypub_support_post_types' );
+		$this->assertContains( 'post', $saved );
+		$this->assertNotContains( 'attachment', $saved );
+	}
+
+	/**
+	 * If `attachment` is already set in the stored option (enabled via
+	 * bundled ActivityPub's own settings), the wizard's content step
+	 * must preserve that value rather than silently nuking the
+	 * upstream choice.
+	 */
+	public function test_handle_save_content_preserves_existing_attachment_value() {
+		update_option( 'activitypub_support_post_types', array( 'post', 'attachment' ) );
+
+		$this->simulate_save_request(
+			'content',
+			array( 'activitypub_support_post_types' => array( 'post', 'page' ) )
+		);
+
+		try {
+			Onboarding_Wizard::handle_save();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$saved = (array) get_option( 'activitypub_support_post_types' );
+		$this->assertContains( 'post', $saved );
+		$this->assertContains( 'page', $saved );
+		$this->assertContains( 'attachment', $saved );
+	}
+
+	/**
+	 * An empty managed selection still bounces back with the
+	 * `empty_post_types` error even when a preserved upstream value
+	 * (e.g. `attachment`) is present. The wizard step is explicitly
+	 * about picking content types to share, so a preserved Media-only
+	 * state isn't enough to satisfy the step.
+	 */
+	public function test_handle_save_content_empty_managed_with_preserved_attachment_redirects_with_error() {
+		update_option( 'activitypub_support_post_types', array( 'post', 'attachment' ) );
+
+		$captured = null;
+		$this->simulate_save_request(
+			'content',
+			array( 'activitypub_support_post_types' => array() )
+		);
+		add_filter(
+			'wp_redirect',
+			static function ( $location ) use ( &$captured ) {
+				$captured = (string) $location;
+				throw new RedirectFired( 'redirect' );
+			},
+			9
+		);
+
+		try {
+			Onboarding_Wizard::handle_save();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$this->assertStringContainsString( 'step=content', (string) $captured );
+		$this->assertStringContainsString( 'error=empty_post_types', (string) $captured );
+		// Stored option untouched on the error path.
+		$this->assertSame( array( 'post', 'attachment' ), get_option( 'activitypub_support_post_types' ) );
 	}
 
 	/**
@@ -528,6 +629,7 @@ class Onboarding_WizardTest extends BaseTestCase {
 
 		$this->assertStringContainsString( 'Setup is unavailable', $output );
 		$this->assertStringContainsString( 'ActivityPub', $output );
+		$this->assertStringContainsString( 'data-fosse-lizard-toggle', $output );
 	}
 
 	// --- Destinations step render ---
@@ -546,6 +648,8 @@ class Onboarding_WizardTest extends BaseTestCase {
 		$this->assertStringContainsString( 'Let people follow your site from apps like Mastodon. You can connect Bluesky later.', $output );
 		$this->assertStringContainsString( 'name="fosse_onboarding_destination"', $output );
 		$this->assertStringContainsString( 'data-fosse-lizard-toggle', $output );
+		$this->assertStringContainsString( 'aria-label="Toggle wizard theme"', $output );
+		$this->assertStringContainsString( 'aria-pressed="false"', $output );
 		$this->assertStringContainsString( '&#x1F98E;', $output );
 		$this->assertStringNotContainsString( 'Welcome to FOSSE', $output );
 		$this->assertStringNotContainsString( '>Later<', $output );

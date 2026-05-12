@@ -55,7 +55,7 @@ class Setup_Page {
 		$ap_available      = $ap_provider instanceof Connection_Provider && $ap_provider->is_available();
 		$post_types        = (array) get_option( 'activitypub_support_post_types', array( 'post' ) );
 		$actor_mode        = $ap_available ? (string) get_option( 'activitypub_actor_mode', 'actor' ) : 'actor';
-		$all_post_types    = get_post_types( array( 'public' => true ), 'objects' );
+		$all_post_types    = Post_Type_Chooser::types();
 		$save_nonce        = wp_create_nonce( self::SAVE_ACTION );
 		// phpcs:enable VariableAnalysis.CodeAnalysis.VariableAnalysis.UnusedVariable
 
@@ -138,12 +138,17 @@ class Setup_Page {
 		// hard failure via `failOnWarning`, and which would otherwise emit
 		// a notice in production). Mirrors the defensive guard in
 		// {@see AP_Provider::save_settings()} for `activitypub_blog_identifier`.
-		$raw         = isset( $post_data['activitypub_support_post_types'] )
+		$raw       = isset( $post_data['activitypub_support_post_types'] )
 			? wp_unslash( (array) $post_data['activitypub_support_post_types'] )
 			: array();
-		$submitted   = array_map( 'sanitize_text_field', array_filter( $raw, 'is_string' ) );
-		$valid_types = get_post_types( array( 'public' => true ) );
-		$post_types  = array_values( array_intersect( $submitted, $valid_types ) );
+		$submitted = array_map( 'sanitize_text_field', array_filter( $raw, 'is_string' ) );
+		$existing  = (array) get_option( 'activitypub_support_post_types', array( 'post' ) );
+
+		// Reconcile against the chooser's managed set so a user can't
+		// submit `attachment` (the Settings UI doesn't render it), and an
+		// upstream-enabled `attachment` survives a FOSSE save.
+		$post_types = Post_Type_Chooser::reconcile_submission( $submitted, $existing );
+
 		update_option( 'activitypub_support_post_types', $post_types );
 	}
 }
