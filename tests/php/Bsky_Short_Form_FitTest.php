@@ -31,22 +31,30 @@ class Bsky_Short_Form_FitTest extends BaseTestCase {
 		remove_all_filters( 'fosse_bsky_link_card_when_post_fits' );
 		remove_all_filters( 'the_content' );
 
+		// Memoization cache is per-process; reset it so each test starts
+		// fresh and doesn't see a cached decision from a sibling case.
+		Bsky_Short_Form_Fit::reset_cache_for_testing();
+
 		Bsky_Short_Form_Fit::register();
 	}
 
 	/**
 	 * Build a stub WP_Post with the given content. `wp_insert_post` would
-	 * also work but the bridge only touches `post_content` and the
-	 * filter's `WP_Post` type guard — a plain stub keeps tests fast and
-	 * isolates the unit under test from WP's post storage machinery.
+	 * also work but the bridge only touches `post_content` / `post_title`
+	 * and the filter's `WP_Post` type guard — a plain stub keeps tests
+	 * fast and isolates the unit under test from WP's post storage
+	 * machinery.
 	 *
 	 * @param string $content Raw post content.
+	 * @param string $title   Optional post title; default empty (the
+	 *                        common short-note shape this bridge targets).
 	 * @return WP_Post
 	 */
-	private function make_post( string $content ): WP_Post {
+	private function make_post( string $content, string $title = '' ): WP_Post {
 		return new WP_Post(
 			(object) array(
 				'ID'           => 1,
+				'post_title'   => $title,
 				'post_content' => $content,
 			)
 		);
@@ -213,6 +221,65 @@ class Bsky_Short_Form_FitTest extends BaseTestCase {
 		apply_filters( 'atmosphere_is_short_form_post', false, $post );
 
 		$this->assertSame( $post, $received, 'Override filter must receive the WP_Post being evaluated.' );
+	}
+
+	/**
+	 * A non-empty `post_title` is Atmosphere's long-form signal — the
+	 * link-card composition surfaces the title inside the embed. The
+	 * bridge therefore must NOT flip a titled-short post to short-form,
+	 * or the title silently disappears from Bluesky even though the
+	 * author wrote it. Locks the conflict pinned by the
+	 * `long-form-link-card.spec.ts` e2e test.
+	 */
+	public function test_passes_through_when_post_has_title(): void {
+		$post = $this->make_post( 'Body that easily fits in 300 chars.', 'A short article' );
+
+		$this->assertFalse(
+			apply_filters( 'atmosphere_is_short_form_post', false, $post ),
+			'A titled post must stay on the long-form path even when the body fits — the title would be lost on the short-form path.'
+		);
+	}
+
+	/**
+	 * Whitespace-only titles count as no title. A post that has a stray
+	 * spaces-only `post_title` (e.g. left over from the editor) should
+	 * still take the short-form path — there's no title to drop.
+	 */
+	public function test_treats_whitespace_only_title_as_empty(): void {
+		$post = $this->make_post( 'Body fits in 300 chars.', "  \n\t  " );
+
+		$this->assertTrue(
+			apply_filters( 'atmosphere_is_short_form_post', false, $post )
+		);
+	}
+
+	/**
+	 * The decision is memoized per post id so the filter doesn't re-run
+	 * `apply_filters( 'the_content', ... )` every time
+	 * `atmosphere_is_short_form_post` fires (which can be several times
+	 * per publish — Atmosphere's transformer + publisher + FOSSE's
+	 * metrics resolver all evaluate it).
+	 */
+	public function test_memoizes_per_post_id(): void {
+		$count = 0;
+		add_filter(
+			'the_content',
+			static function ( $content ) use ( &$count ) {
+				++$count;
+				return $content;
+			}
+		);
+
+		$post = $this->make_post( 'Hello, Bluesky.' );
+		apply_filters( 'atmosphere_is_short_form_post', false, $post );
+		apply_filters( 'atmosphere_is_short_form_post', false, $post );
+		apply_filters( 'atmosphere_is_short_form_post', false, $post );
+
+		$this->assertSame(
+			1,
+			$count,
+			'the_content must be applied exactly once per post id across repeated atmosphere_is_short_form_post evaluations.'
+		);
 	}
 
 	/**
