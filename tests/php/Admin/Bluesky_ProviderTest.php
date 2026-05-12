@@ -2160,7 +2160,7 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		$output = ob_get_clean();
 
 		$this->assertStringContainsString( 'fosse_set_bluesky_domain_handle', $output );
-		$this->assertStringContainsString( 'Click the button below to set your Bluesky handle to example.com', $output );
+		$this->assertStringContainsString( 'You can set your Bluesky handle to example.com', $output );
 		$this->assertStringContainsString( 'Use example.com as my Bluesky handle', $output );
 		$this->assertStringContainsString( 'Heads up: replacing your handle is destructive', $output );
 	}
@@ -2609,7 +2609,7 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		$this->provider->render_connection_actions();
 		$output = ob_get_clean();
 
-		$this->assertStringContainsString( 'Disconnecting will also restore your previous Bluesky handle', $output );
+		$this->assertStringContainsString( 'Disconnecting will also restore alice.bsky.social as this account\'s Bluesky handle', html_entity_decode( $output, ENT_QUOTES, 'UTF-8' ) );
 		$this->assertStringContainsString( 'alice.bsky.social', $output );
 	}
 
