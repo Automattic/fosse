@@ -49,6 +49,10 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		$this->provider = new Bluesky_Provider();
 
 		Connection_Provider_Registry::reset();
+		// Reset the loader's idempotency flag too — `test_registers_through_provider_loader`
+		// calls `Provider_Loader::boot()`, which would silently no-op on a second test
+		// invocation in the same PHP process if the static `$booted` flag leaked.
+		Provider_Loader::reset();
 		delete_option( 'atmosphere_connection' );
 		delete_option( 'atmosphere_auto_publish' );
 		delete_option( Bluesky_Domain_Handle::OPTION_PREVIOUS_HANDLE );

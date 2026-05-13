@@ -76,6 +76,54 @@ class Provider_LoaderTest extends BaseTestCase {
 	}
 
 	/**
+	 * The production bootstrap is wired to `plugins_loaded` priority 20
+	 * via the global `fosse_boot_providers()` callback. Asserts the
+	 * binding itself so a future refactor that drops the wrapper —
+	 * leaving the registry never booted in production — fails a test.
+	 */
+	public function test_boot_is_wired_to_plugins_loaded_priority_20() {
+		$this->assertSame( 20, has_action( 'plugins_loaded', 'fosse_boot_providers' ) );
+	}
+
+	/**
+	 * Calling `fosse_boot_providers()` directly drives the same code path
+	 * the `plugins_loaded` callback runs in production: AP and Bluesky
+	 * providers self-register, then `Provider_Loader::boot()` fires the
+	 * action and attaches their hooks. Asserts the bundled providers land
+	 * in the registry through that path — not by manually invoking each
+	 * provider's `init()`.
+	 */
+	public function test_production_callback_registers_bundled_providers() {
+		fosse_boot_providers();
+
+		$this->assertNotNull( Connection_Provider_Registry::get_provider( 'activitypub' ) );
+		$this->assertNotNull( Connection_Provider_Registry::get_provider( 'bluesky' ) );
+	}
+
+	/**
+	 * A provider whose `is_available()` returns false stays out of the
+	 * `register_hooks()` loop, matching the documented contract that
+	 * standalone provider plugins should return false when their SDK
+	 * isn't loaded so FOSSE skips hook registration cleanly.
+	 */
+	public function test_unavailable_provider_does_not_register_hooks() {
+		$unavailable                       = $this->make_counting_provider( 'unavailable' );
+		$unavailable->is_available_returns = false;
+
+		add_action(
+			'fosse_register_providers',
+			static function () use ( $unavailable ) {
+				Connection_Provider_Registry::register( $unavailable );
+			}
+		);
+
+		Provider_Loader::boot();
+
+		$this->assertSame( 0, $unavailable->register_hooks_calls, 'register_hooks() should not run when is_available() returns false.' );
+		$this->assertSame( $unavailable, Connection_Provider_Registry::get_provider( 'unavailable' ), 'Provider should still appear in the registry — `is_available()` only gates hook registration.' );
+	}
+
+	/**
 	 * Calling `boot()` twice in the same request fires the registration
 	 * action and `register_hooks()` exactly once, so defensive callers
 	 * (e.g. an add-on that boots its own copy on `plugins_loaded`) cannot
@@ -125,6 +173,14 @@ class Provider_LoaderTest extends BaseTestCase {
 			 */
 			public int $register_hooks_calls = 0;
 
+			/**
+			 * Value returned by is_available(); set to false to exercise
+			 * the loader's "skip register_hooks" branch.
+			 *
+			 * @var bool
+			 */
+			public bool $is_available_returns = true;
+
 			public function __construct( string $slug ) {
 				$this->slug = $slug;
 			}
@@ -135,7 +191,7 @@ class Provider_LoaderTest extends BaseTestCase {
 				return ucfirst( $this->slug );
 			}
 			public function is_available(): bool {
-				return true;
+				return $this->is_available_returns;
 			}
 			public function get_status(): array {
 				return array( 'connected' => true );
