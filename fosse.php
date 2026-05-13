@@ -321,16 +321,32 @@ add_action(
  * Provider bootstrap.
  *
  * Providers self-register on the 'fosse_register_providers' action fired
- * by Provider_Loader::boot(). This runs unconditionally so provider hooks
- * (option-projection filters, etc.) are active on every request — admin,
- * REST, WebFinger, cron.
+ * by Provider_Loader::boot(). Deferred to `plugins_loaded` priority 10 so
+ * standalone provider plugins can hook `fosse_register_providers` from
+ * their own plugin main file (or any earlier `plugins_loaded` priority)
+ * without depending on WordPress' alphabetical plugin load order.
+ *
+ * `plugins_loaded` (not `init`) because `Bluesky_Provider::register_hooks()`
+ * adds an `init` priority-1 callback for the well-known atproto-did route
+ * and an `admin_init` callback for the OAuth return — registering on `init`
+ * would miss those priorities. `plugins_loaded` still runs unconditionally
+ * (every request: admin, REST, WebFinger, cron) so projection filters and
+ * route handlers are in place before any consumer fires.
  */
-if ( class_exists( \Automattic\Fosse\Provider_Loader::class ) ) {
-	\Automattic\Fosse\Admin\AP_Provider::init();
-	\Automattic\Fosse\Admin\Bluesky_Provider::init();
+add_action(
+	'plugins_loaded',
+	static function () {
+		if ( ! class_exists( \Automattic\Fosse\Provider_Loader::class ) ) {
+			return;
+		}
 
-	\Automattic\Fosse\Provider_Loader::boot();
-}
+		\Automattic\Fosse\Admin\AP_Provider::init();
+		\Automattic\Fosse\Admin\Bluesky_Provider::init();
+
+		\Automattic\Fosse\Provider_Loader::boot();
+	},
+	10
+);
 
 /*
  * Activation redirect.
