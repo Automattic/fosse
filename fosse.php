@@ -320,17 +320,41 @@ add_action(
 /*
  * Provider bootstrap.
  *
- * Providers self-register on the 'fosse_register_providers' action fired
- * by Provider_Loader::boot(). This runs unconditionally so provider hooks
- * (option-projection filters, etc.) are active on every request — admin,
- * REST, WebFinger, cron.
+ * Providers self-register on the `fosse_register_providers` action fired
+ * by Provider_Loader::boot(). Deferred to `plugins_loaded` priority 20 so
+ * standalone provider plugins can hook the action from their plugin main
+ * file (cleanest) or any `plugins_loaded` priority < 20 without depending
+ * on WordPress' alphabetical plugin load order. Priority 20 (not 10)
+ * leaves a margin above WordPress' default `add_action` priority so an
+ * add-on that defers to `plugins_loaded` without specifying a priority
+ * still wins the race.
+ *
+ * The callback is a named global function (not an inline closure) so
+ * PHPUnit can drive the exact production code path — asserting the
+ * action binding and exercising the body — instead of testing a
+ * closure that the test can never reach by reference.
  */
-if ( class_exists( \Automattic\Fosse\Provider_Loader::class ) ) {
-	\Automattic\Fosse\Admin\AP_Provider::init();
-	\Automattic\Fosse\Admin\Bluesky_Provider::init();
+if ( ! function_exists( 'fosse_boot_providers' ) ) {
+	/**
+	 * Initialize bundled providers and run the registry boot.
+	 *
+	 * Wired to `plugins_loaded` priority 20 (see the docblock above).
+	 *
+	 * @return void
+	 */
+	function fosse_boot_providers(): void {
+		if ( ! class_exists( \Automattic\Fosse\Provider_Loader::class ) ) {
+			return;
+		}
 
-	\Automattic\Fosse\Provider_Loader::boot();
+		\Automattic\Fosse\Admin\AP_Provider::init();
+		\Automattic\Fosse\Admin\Bluesky_Provider::init();
+
+		\Automattic\Fosse\Provider_Loader::boot();
+	}
 }
+
+add_action( 'plugins_loaded', 'fosse_boot_providers', 20 );
 
 /*
  * Activation redirect.
