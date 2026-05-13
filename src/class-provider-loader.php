@@ -37,4 +37,15 @@ class Provider_Loader {
 			}
 		}
 	}
+
+	/**
+	 * Clear the per-request boot state. Intended for tests that need
+	 * to re-run {@see self::boot()} in the same PHP process.
+	 *
+	 * @return void
+	 */
+	public static function reset(): void {
+		// Placeholder until the idempotency flag lands. Letting tests call
+		// this now keeps the failing-tests commit runnable without a fatal.
+	}
 }
