@@ -12,8 +12,31 @@ namespace Automattic\Fosse\Admin;
  *
  * Each provider represents one federated protocol (ActivityPub, Bluesky, etc.)
  * and is responsible for rendering its own settings fields, connection actions,
- * and status card. Providers self-register via the 'fosse_register_providers'
+ * and status card. Providers self-register via the `fosse_register_providers`
  * action.
+ *
+ * ### Implementing a standalone provider
+ *
+ * Standalone provider plugins implement this interface and push an instance
+ * onto the registry from a `fosse_register_providers` callback:
+ *
+ * ```php
+ * add_action( 'fosse_register_providers', static function () {
+ *     \Automattic\Fosse\Admin\Connection_Provider_Registry::register(
+ *         new My_Plugin\My_Provider()
+ *     );
+ * } );
+ * ```
+ *
+ * `fosse_register_providers` fires from
+ * {@see \Automattic\Fosse\Provider_Loader::boot()} on `plugins_loaded`
+ * priority 10. The add-on's callback must be attached no later than
+ * `plugins_loaded` priority 9 — registering it from the plugin main file
+ * is the simplest path.
+ *
+ * Return `false` from {@see self::is_available()} when the provider's
+ * underlying SDK isn't loaded; FOSSE will skip {@see self::register_hooks()}
+ * cleanly instead of erroring out.
  */
 interface Connection_Provider {
 
