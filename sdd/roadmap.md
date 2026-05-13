@@ -27,7 +27,7 @@ Status legend (also stamped as `status:` frontmatter on each SDD's `spec.md` or 
 | `sdd/posting-ui/` | FOSSE-native posting UI (composer epic — defaults to `post_format = status`, enforces 300 graphemes). | [DOTCOM-16794](https://linear.app/a8c/issue/DOTCOM-16794) | [#90](https://github.com/Automattic/fosse/pull/90) |
 | `sdd/deactivation-lifecycle/` | What happens to FOSSE's menu state and bundled-plugin handoff on deactivate / delete / standalone-coexistence. | [DOTCOM-16865](https://linear.app/a8c/issue/DOTCOM-16865) | [#92](https://github.com/Automattic/fosse/pull/92) |
 | `sdd/bundled-backends-migration/` | Migration successor to `bundled-backends/`; replaces the bootstrap-shim with the next-gen loader. | [DOTCOM-16826](https://linear.app/a8c/issue/DOTCOM-16826) | [#93](https://github.com/Automattic/fosse/pull/93) |
-| [harden-provider-registration](./harden-provider-registration/) | Defer `Provider_Loader::boot()` to `plugins_loaded` and make it idempotent so standalone provider plugins can register on `fosse_register_providers` without depending on plugin-load order. | [DOTCOM-17104](https://linear.app/a8c/issue/DOTCOM-17104) | — |
+| [harden-provider-registration](./harden-provider-registration/) | Defer `Provider_Loader::boot()` to `plugins_loaded` and make it idempotent so standalone provider plugins can register on `fosse_register_providers` without depending on plugin-load order. | [DOTCOM-17104](https://linear.app/a8c/issue/DOTCOM-17104) | [#132](https://github.com/Automattic/fosse/pull/132) |
 
 ## Archived
 
