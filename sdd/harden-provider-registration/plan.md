@@ -53,11 +53,11 @@ The user's hunch was "hooked at `init` instead of on load." The codebase argues 
 - It still runs before `init`, `admin_init`, and `rest_api_init`, so providers can register hooks at any of those.
 - It is the WordPress-conventional "all plugins loaded; safe to wire cross-plugin things" hook.
 
-**Priority:** default (10). FOSSE itself is loaded by `wp-content/mu-plugins/fosse-loader.php` on `plugins_loaded` priority 8 on wpcom Simple. Booting at priority 10 still runs in the same `plugins_loaded` iteration, after the loader, and well before `init`.
+**Priority:** 20. Initially chose default (10) but bumped after PR review (codex + ce-adversarial) flagged that a third-party add-on deferring to `plugins_loaded` *without* specifying a priority would land at the same priority (10) as FOSSE's boot and lose the same-priority race if WP loads it after FOSSE. Priority 20 gives third parties a 19-priority window above `plugins_loaded`'s `add_action` default. FOSSE itself is loaded by `wp-content/mu-plugins/fosse-loader.php` on `plugins_loaded` priority 8 on wpcom Simple; booting at priority 20 still runs in the same `plugins_loaded` iteration, after the loader, and well before `init`.
 
 ### Angle 3 — wpcom Simple load contract
 
-`fosse.php` documents that on wpcom Simple, FOSSE is loaded inside `plugins_loaded` priority 8 by `fosse-loader.php`. Booting providers on `plugins_loaded` priority 10 fires inside the same action loop, one priority later. Third-party providers in mu-plugins or regular plugins have already run their main files and can have hooked `fosse_register_providers`. No new wpcom-specific work needed.
+`fosse.php` documents that on wpcom Simple, FOSSE is loaded inside `plugins_loaded` priority 8 by `fosse-loader.php`. Booting providers on `plugins_loaded` priority 20 fires inside the same action loop, 12 priorities later. Third-party providers in mu-plugins or regular plugins have already run their main files and can have hooked `fosse_register_providers`. No new wpcom-specific work needed.
 
 ### Angle 4 — Idempotency
 
@@ -132,7 +132,7 @@ Cuttable: README-level docs (we already publish enough of an entry point in the 
 
 What could a third-party plugin still get wrong after this lands?
 
-1. Hook `fosse_register_providers` from a callback that itself runs *after* `plugins_loaded` priority 10. E.g. registering inside `init` priority 5. → Document that the hook must be registered from the plugin's main file or no later than `plugins_loaded` priority 9.
+1. Hook `fosse_register_providers` from a callback that itself runs *after* `plugins_loaded` priority 20. E.g. registering inside `init` priority 5. → Document that the hook must be registered from the plugin's main file or no later than `plugins_loaded` priority 19.
 2. Register a provider whose `is_available()` returns true but whose dependencies aren't actually loaded. → That's the third-party's problem, and `is_available()` is already the contract for it.
 3. Register a provider that depends on a class autoloaded only on `init`. → Same as (1); document the timing contract.
 
@@ -142,9 +142,9 @@ The docblock recipe should call out (1) explicitly.
 
 ## Chosen approach
 
-1. **Defer the existing boot block to `plugins_loaded` priority 10.** Wrap the `AP_Provider::init() / Bluesky_Provider::init() / Provider_Loader::boot()` trio in `add_action( 'plugins_loaded', …, 10 )`.
+1. **Defer the existing boot block to `plugins_loaded` priority 20.** Wrap the `AP_Provider::init() / Bluesky_Provider::init() / Provider_Loader::boot()` trio in `add_action( 'plugins_loaded', …, 20 )`. Initial implementation used priority 10; PR review (codex + ce-adversarial) bumped it to 20 to clear WP's default `add_action` priority.
 2. **Make `Provider_Loader::boot()` idempotent** with a `$booted` flag and a `reset()` method for tests.
-3. **Document the hook** in `Provider_Loader::boot()`'s docblock and on the `Connection_Provider` interface — including the timing contract (register the callback from the plugin's main file or no later than `plugins_loaded` priority 9).
+3. **Document the hook** in `Provider_Loader::boot()`'s docblock and on the `Connection_Provider` interface — including the timing contract (register the callback from the plugin's main file or no later than `plugins_loaded` priority 19).
 4. **Add two tests** to `Provider_LoaderTest`: external-provider-via-hook registers and is bootable; double `boot()` does not double-register hooks.
 
 The existing `Connection_Provider_Registry::register()` "first-wins" behavior is unchanged. `AP_Provider` and `Bluesky_Provider` keep their `init()` methods, which still register on `fosse_register_providers` — they just fire one tick later in the request lifecycle.
@@ -174,8 +174,8 @@ Bluesky's `init` priority-1 well-known-route hook would silently fail to registe
 - **Files**:
   - Modify: `fosse.php`
 - **Do**:
-  1. Wrap the existing `if ( class_exists( … Provider_Loader … ) ) { … }` block in `add_action( 'plugins_loaded', static function () { … }, 10 );`.
-  2. Update the surrounding docblock to explain: providers self-register on `fosse_register_providers`, fired from `Provider_Loader::boot()` on `plugins_loaded` priority 10. Third parties hook from their plugin main file or no later than `plugins_loaded` priority 9.
+  1. Wrap the existing `if ( class_exists( … Provider_Loader … ) ) { … }` block in `add_action( 'plugins_loaded', 'fosse_boot_providers', 20 );` with `fosse_boot_providers()` defined as a global function in `fosse.php` (named, not inline closure, so tests can drive the production code path).
+  2. Update the surrounding docblock to explain: providers self-register on `fosse_register_providers`, fired from `Provider_Loader::boot()` on `plugins_loaded` priority 20. Third parties hook from their plugin main file or no later than `plugins_loaded` priority 19.
 - **Verify**: New tests still red (boot still not idempotent yet), but the external-provider test passes if you stub the idempotency assertion.
 
 ### Task 3 — Make `boot()` idempotent + add `reset()`
@@ -187,7 +187,7 @@ Bluesky's `init` priority-1 well-known-route hook would silently fail to registe
   1. Add `private static bool $booted = false;`.
   2. Top of `boot()`: early-return if `$booted`. Otherwise set `$booted = true` before firing the action.
   3. Add `public static function reset(): void { self::$booted = false; }` with a docblock noting it's for tests.
-  4. Expand the existing class-level docblock and `boot()` docblock to document `fosse_register_providers` for third-party providers: snippet showing `add_action( 'fosse_register_providers', fn() => Connection_Provider_Registry::register( new My_Provider() ) )`, callout that the callback must be registered from the plugin main file or no later than `plugins_loaded` priority 9, and a pointer to the `Connection_Provider` interface.
+  4. Expand the existing class-level docblock and `boot()` docblock to document `fosse_register_providers` for third-party providers. The canonical recipe (code snippet) lives on `Connection_Provider` after PR review (single source of truth); `Provider_Loader` carries a short `@see` pointer. Callout that the callback must be registered from the plugin main file or no later than `plugins_loaded` priority 19.
 - **Verify**: Both new tests green. Existing `test_providers_registered_after_boot` still green.
 
 ### Task 4 — Document the extension contract on the interface
@@ -211,8 +211,24 @@ Bluesky's `init` priority-1 well-known-route hook would silently fail to registe
 
 ---
 
+## Review feedback applied
+
+Post-PR-review changes folded back into the plan (PR #132 review by `/ce-code-review`, `/codex` challenge mode, and GitHub Copilot):
+
+- **Boot priority 10 → 20.** Codex + ce-adversarial: a third-party that deferred to `plugins_loaded` *without* specifying a priority would land at 10 (WP's `add_action` default) and lose the same-priority race if loaded after FOSSE. Priority 20 gives a 19-priority headroom for the documented "register no later than `plugins_loaded` priority 19" contract.
+- **Closure → named function `fosse_boot_providers()`.** ce-testing + ce-adversarial + codex (CONFIRMED) flagged that the previous test suite could not regress the headline change — reverting the `plugins_loaded` wrap would have left every test green. Extracting to a global named function in `fosse.php` lets tests drive the exact production code path and assert the action binding.
+- **Test fixture leak in `Bluesky_ProviderTest`.** ce-correctness + ce-adversarial: the suite called `Provider_Loader::boot()` without resetting the new `$booted` static. Added `Provider_Loader::reset()` to its `#[Before]`.
+- **`is_available()` false branch coverage.** ce-testing: the new docblock contract was untested. Added `test_unavailable_provider_does_not_register_hooks`.
+- **Idempotency `$booted` flag flipped before completion.** ce-reliability + ce-adversarial + codex: a `Throwable` mid-loop would have left `$booted = true` with only partial hook registration. Switched to try/finally so the flag only flips on successful completion.
+- **Extension-recipe docblock duplicated three places.** ce-maintainability: collapsed to a single canonical recipe on `Connection_Provider`; `Provider_Loader` and `fosse.php` carry short `@see` pointers.
+
+Explicitly *not* applied:
+- Move `reset()` to reflection-based access (codex suggestion) — disagrees with the existing `Connection_Provider_Registry::reset()` convention; staying consistent.
+- AP/Bluesky `init()` outside the idempotency guard (adversarial) — only matters under contrived test replay; static-method callbacks dedupe on `add_action`.
+- Multisite `switch_to_blog` (reliability) — pre-existing behavior, not a regression in this PR.
+
 ## Risks & follow-ups
 
-- **Hooks now fire one phase later.** AP's `activitypub_default_blog_username` filter and Bluesky's `init` priority-1 / `admin_init` / `admin_post_*` callbacks all register on `plugins_loaded` 10 instead of file-include time. None of those consumers fire before `plugins_loaded` 10, so no observed regression — but worth specifically eyeballing during PR review.
+- **Hooks now fire one phase later.** AP's `activitypub_default_blog_username` filter and Bluesky's `init` priority-1 / `admin_init` / `admin_post_*` callbacks all register on `plugins_loaded` 20 instead of file-include time. None of those consumers fire before `plugins_loaded` 20, so no observed regression — but worth specifically eyeballing during PR review.
 - **`wpcom-simple-rollout`** (untracked SDD directory in the working copy) may have load-ordering assumptions worth a glance before merging. Not a blocker.
 - **Follow-up if a standalone provider ships:** revisit whether the docblock recipe is enough or whether we want a `fosse_register_provider()` helper. Defer until n=1.
