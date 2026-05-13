@@ -11,6 +11,14 @@ status: planning
 
 **Out of scope:** Shipping a real standalone provider; adding helper APIs (`fosse_register_provider()` wrapper, auto-discovery from a folder, etc.); any UI changes. We only harden the seam.
 
+## Progress
+
+- [x] Task 1: Failing test coverage
+- [x] Task 2: Defer boot to `plugins_loaded`
+- [x] Task 3: Idempotent boot + docs
+- [x] Task 4: Connection_Provider interface docblock
+- [ ] Task 5: Lint, full test pass, commit (rolling — this branch)
+
 ---
 
 ## Multi-angle analysis
@@ -151,7 +159,7 @@ Bluesky's `init` priority-1 well-known-route hook would silently fail to registe
 
 ### Task 1 — Add failing test coverage
 
-- **Status**: Not started
+- **Status**: ✅ Done (3011461)
 - **Files**:
   - Modify: `tests/php/Provider_LoaderTest.php`
 - **Do**:
@@ -162,7 +170,7 @@ Bluesky's `init` priority-1 well-known-route hook would silently fail to registe
 
 ### Task 2 — Defer boot to `plugins_loaded`
 
-- **Status**: Not started
+- **Status**: ✅ Done (f430fb1)
 - **Files**:
   - Modify: `fosse.php`
 - **Do**:
@@ -172,7 +180,7 @@ Bluesky's `init` priority-1 well-known-route hook would silently fail to registe
 
 ### Task 3 — Make `boot()` idempotent + add `reset()`
 
-- **Status**: Not started
+- **Status**: ✅ Done (6390dfc)
 - **Files**:
   - Modify: `src/class-provider-loader.php`
 - **Do**:
@@ -184,7 +192,7 @@ Bluesky's `init` priority-1 well-known-route hook would silently fail to registe
 
 ### Task 4 — Document the extension contract on the interface
 
-- **Status**: Not started
+- **Status**: ✅ Done (af136bc)
 - **Files**:
   - Modify: `src/Admin/interface-connection-provider.php`
 - **Do**:
@@ -194,7 +202,7 @@ Bluesky's `init` priority-1 well-known-route hook would silently fail to registe
 
 ### Task 5 — Lint, full test pass, commit
 
-- **Status**: Not started
+- **Status**: In progress (verified locally on branch `harden-provider-registration-DOTCOM-17104`; awaiting PR)
 - **Do**:
   1. `composer run-script lint-php`
   2. `composer run-script test-php`
