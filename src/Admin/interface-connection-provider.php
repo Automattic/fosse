@@ -30,9 +30,12 @@ namespace Automattic\Fosse\Admin;
  *
  * `fosse_register_providers` fires from
  * {@see \Automattic\Fosse\Provider_Loader::boot()} on `plugins_loaded`
- * priority 10. The add-on's callback must be attached no later than
- * `plugins_loaded` priority 9 — registering it from the plugin main file
- * is the simplest path.
+ * priority 20. The add-on's callback must be attached no later than
+ * `plugins_loaded` priority 19 — registering it from the plugin main file
+ * is the simplest path and sidesteps the `plugins_loaded` race entirely.
+ * Priority 20 was chosen specifically so an add-on that defers to
+ * `plugins_loaded` without specifying a priority (WordPress' default is
+ * 10) still wins the race.
  *
  * Return `false` from {@see self::is_available()} when the provider's
  * underlying SDK isn't loaded; FOSSE will skip {@see self::register_hooks()}

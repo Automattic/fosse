@@ -320,22 +320,29 @@ add_action(
 /*
  * Provider bootstrap.
  *
- * Providers self-register on the 'fosse_register_providers' action fired
- * by Provider_Loader::boot(). Deferred to `plugins_loaded` priority 10 so
- * standalone provider plugins can hook `fosse_register_providers` from
- * their own plugin main file (or any earlier `plugins_loaded` priority)
- * without depending on WordPress' alphabetical plugin load order.
+ * Providers self-register on the `fosse_register_providers` action fired
+ * by Provider_Loader::boot(). Deferred to `plugins_loaded` priority 20 so
+ * standalone provider plugins can hook the action from their plugin main
+ * file (cleanest) or any `plugins_loaded` priority < 20 without depending
+ * on WordPress' alphabetical plugin load order. Priority 20 (not 10)
+ * leaves a margin above WordPress' default `add_action` priority so an
+ * add-on that defers to `plugins_loaded` without specifying a priority
+ * still wins the race.
  *
- * `plugins_loaded` (not `init`) because `Bluesky_Provider::register_hooks()`
- * adds an `init` priority-1 callback for the well-known atproto-did route
- * and an `admin_init` callback for the OAuth return — registering on `init`
- * would miss those priorities. `plugins_loaded` still runs unconditionally
- * (every request: admin, REST, WebFinger, cron) so projection filters and
- * route handlers are in place before any consumer fires.
+ * The callback is a named global function (not an inline closure) so
+ * PHPUnit can drive the exact production code path — asserting the
+ * action binding and exercising the body — instead of testing a
+ * closure that the test can never reach by reference.
  */
-add_action(
-	'plugins_loaded',
-	static function () {
+if ( ! function_exists( 'fosse_boot_providers' ) ) {
+	/**
+	 * Initialize bundled providers and run the registry boot.
+	 *
+	 * Wired to `plugins_loaded` priority 20 (see the docblock above).
+	 *
+	 * @return void
+	 */
+	function fosse_boot_providers(): void {
 		if ( ! class_exists( \Automattic\Fosse\Provider_Loader::class ) ) {
 			return;
 		}
@@ -344,9 +351,10 @@ add_action(
 		\Automattic\Fosse\Admin\Bluesky_Provider::init();
 
 		\Automattic\Fosse\Provider_Loader::boot();
-	},
-	10
-);
+	}
+}
+
+add_action( 'plugins_loaded', 'fosse_boot_providers', 20 );
 
 /*
  * Activation redirect.
