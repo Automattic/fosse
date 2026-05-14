@@ -262,12 +262,15 @@ class Menu {
 				array( 'in_footer' => true )
 			);
 
+			// Runs synchronously in the head so a stored lizard theme can mark
+			// the root element before the wizard body paints. Do not add a
+			// delayed strategy here; defer/async would reintroduce the flash.
 			wp_enqueue_script(
 				'fosse-wizard-lizard',
 				plugins_url( 'src/Admin/assets/js/wizard-lizard.js', dirname( __DIR__, 2 ) . '/fosse.php' ),
 				array(),
 				filemtime( __DIR__ . '/assets/js/wizard-lizard.js' ),
-				array( 'in_footer' => true )
+				array( 'in_footer' => false )
 			);
 		}
 	}
