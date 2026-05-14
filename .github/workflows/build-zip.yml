@@ -40,7 +40,7 @@ jobs:
                   if [ "$EVENT_NAME" = "release" ]; then
                       version="${RELEASE_TAG#v}"
                   else
-                      version="0.0.1-dev+${GITHUB_SHA::7}"
+                      version="0.1.0-dev+${GITHUB_SHA::7}"
                   fi
                   echo "FOSSE_VERSION=$version" >> "$GITHUB_ENV"
 
