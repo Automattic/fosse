@@ -641,11 +641,13 @@ class Onboarding_WizardTest extends BaseTestCase {
 		$output = $this->render_wizard_step( '' );
 
 		$this->assertStringContainsString( 'Where should your WordPress posts appear?', $output );
-		$this->assertStringContainsString( 'Fediverse sharing is enabled by default, so people can follow your site from Mastodon and similar apps. You can also connect Bluesky now or set it up later.', $output );
+		$this->assertStringContainsString( 'Fediverse sharing is enabled by default, so people can follow your site from Fediverse apps like Mastodon. You can also connect Bluesky now or set it up later.', $output );
 		$this->assertStringContainsString( 'Fediverse + Bluesky', $output );
 		$this->assertStringContainsString( 'Fediverse only', $output );
 		$this->assertStringContainsString( 'Simple setup', $output );
-		$this->assertStringContainsString( 'Let people follow your site from apps like Mastodon. You can connect Bluesky later.', $output );
+		$this->assertSame( 3, substr_count( $output, 'Fediverse apps like Mastodon' ) );
+		$this->assertStringContainsString( 'Let people follow your site from Fediverse apps like Mastodon. You can connect Bluesky later.', $output );
+		$this->assertStringNotContainsString( 'Mastodon and similar apps', $output );
 		$this->assertStringContainsString( 'name="fosse_onboarding_destination"', $output );
 		$this->assertStringContainsString( 'data-fosse-lizard-toggle', $output );
 		$this->assertStringContainsString( 'aria-label="Toggle wizard theme"', $output );
@@ -686,11 +688,33 @@ class Onboarding_WizardTest extends BaseTestCase {
 		$output = $this->render_wizard_step( 'appearance' );
 
 		$this->assertStringContainsString( 'Who should people follow?', $output );
+		$this->assertStringContainsString( 'Choose the fediverse identity people can follow when FOSSE shares your selected content types.', $output );
 		$this->assertMatchesRegularExpression(
 			'/fosse-mode-card__title">As you<.*fosse-mode-card__title">As your site</s',
 			$output,
 			'The default author-profile option should render before the site-profile option.'
 		);
+	}
+
+	/**
+	 * Local preview URLs should not make localhost read like a product identity.
+	 */
+	public function test_identity_step_uses_generic_site_copy_for_localhost_preview(): void {
+		$old_home    = get_option( 'home' );
+		$old_siteurl = get_option( 'siteurl' );
+
+		update_option( 'home', 'http://localhost:9400' );
+		update_option( 'siteurl', 'http://localhost:9400' );
+
+		try {
+			$output = $this->render_wizard_step( 'appearance' );
+		} finally {
+			update_option( 'home', $old_home );
+			update_option( 'siteurl', $old_siteurl );
+		}
+
+		$this->assertStringContainsString( 'People follow your site, and posts show your site name. Best for blogs and publications.', $output );
+		$this->assertStringNotContainsString( 'People follow <strong>localhost</strong>', $output );
 	}
 
 	// --- Appearance step render ---
@@ -728,6 +752,8 @@ class Onboarding_WizardTest extends BaseTestCase {
 			$output,
 			'Expected an actor_blog-mode preview container.'
 		);
+		$this->assertStringContainsString( 'Your fediverse address:', $output );
+		$this->assertStringContainsString( 'Site fediverse address:', $output );
 	}
 
 	/**
@@ -1207,7 +1233,8 @@ class Onboarding_WizardTest extends BaseTestCase {
 
 		$output = $this->render_wizard_step( 'bluesky' );
 
-		$this->assertStringContainsString( 'Bluesky is connected', $output );
+		$this->assertStringContainsString( 'Review Bluesky connection', $output );
+		$this->assertSame( 1, substr_count( $output, 'Bluesky is connected' ) );
 		$this->assertStringContainsString( 'alice.bsky.social', $output );
 		$this->assertStringContainsString( 'did:plc:alice123', $output );
 		$this->assertStringContainsString( 'Finish setup', $output );
@@ -1376,6 +1403,8 @@ class Onboarding_WizardTest extends BaseTestCase {
 		$output = $this->render_wizard_step( 'complete' );
 
 		$this->assertStringContainsString( 'Destinations', $output );
+		$this->assertStringContainsString( 'Fediverse identity', $output );
+		$this->assertStringContainsString( 'Content types', $output );
 		$this->assertStringContainsString( 'Fediverse only', $output );
 		$this->assertStringContainsString( 'Skipped', $output );
 	}
@@ -1567,7 +1596,7 @@ class Onboarding_WizardTest extends BaseTestCase {
 		$this->assertStringNotContainsString( 'connect later', $output );
 		$this->assertStringNotContainsString( 'This step is optional', $output );
 		$this->assertStringContainsString( 'Bluesky is connected', $output );
-		$this->assertStringContainsString( 'Review the details below', $output );
+		$this->assertStringContainsString( 'Review the connected account below', $output );
 	}
 
 	/**
@@ -1587,7 +1616,7 @@ class Onboarding_WizardTest extends BaseTestCase {
 			remove_filter( 'activitypub_user_can_activitypub', '__return_true' );
 		}
 
-		$this->assertStringContainsString( 'Your follow address', $output );
+		$this->assertStringContainsString( 'Your fediverse address', $output );
 		$this->assertMatchesRegularExpression( '/<code>@[^<]+@[^<]+<\/code>/', $output );
 	}
 
@@ -1599,8 +1628,8 @@ class Onboarding_WizardTest extends BaseTestCase {
 	public function test_render_bluesky_step_disconnected_omits_fediverse_identity(): void {
 		$output = $this->render_wizard_step( 'bluesky' );
 
-		$this->assertStringNotContainsString( 'Your follow address', $output );
-		$this->assertStringNotContainsString( 'Site follow address', $output );
+		$this->assertStringNotContainsString( 'Your fediverse address', $output );
+		$this->assertStringNotContainsString( 'Site fediverse address', $output );
 	}
 
 	// --- Publish CTA on completion step (#63) ---

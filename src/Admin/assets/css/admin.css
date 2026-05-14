@@ -1722,10 +1722,12 @@
 	}
 
 	.fosse-wizard__progress {
-		align-items: flex-start;
-		flex-wrap: wrap;
-		gap: 8px 12px;
-		border-radius: 14px;
+		align-items: center;
+		flex-wrap: nowrap;
+		gap: 6px;
+		margin-bottom: 28px;
+		padding: 8px 10px;
+		border-radius: 999px;
 	}
 
 	.fosse-wizard .fosse-wizard__title {
@@ -1733,7 +1735,36 @@
 	}
 
 	.fosse-wizard__progress-line {
-		display: none;
+		display: block;
+		flex: 1 1 10px;
+		min-width: 8px;
+	}
+
+	.fosse-wizard__progress-step {
+		position: relative;
+		flex: 0 0 auto;
+		gap: 0;
+	}
+
+	.fosse-wizard__progress-step:not(.is-active) .fosse-wizard__progress-label {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		padding: 0;
+		margin: -1px;
+		overflow: hidden;
+		clip: rect(0, 0, 0, 0);
+		clip-path: inset(50%);
+		white-space: nowrap;
+		border: 0;
+	}
+
+	.fosse-wizard__progress-step.is-active .fosse-wizard__progress-label {
+		max-width: 118px;
+		margin-left: 6px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
 	.fosse-wizard__card {
