@@ -8,13 +8,18 @@
 # into wp-content/plugins/.
 #
 # Environment:
-#   FOSSE_VERSION  If set, overrides BOTH the `Version:` plugin header
-#                  AND the `define( 'FOSSE_VERSION', '...' )` runtime
-#                  constant in the staged fosse.php (e.g. "0.1.0",
-#                  "0.1.0-dev+abc1234"). The two must stay aligned —
-#                  the constant is what runtime code reads, the header
-#                  is what the WP Plugins screen shows. Leave unset to
-#                  keep whatever is committed in fosse.php.
+#   FOSSE_VERSION    If set, stamps BOTH the `Version:` plugin header
+#                    AND the `define( 'FOSSE_VERSION', '...' )` runtime
+#                    constant in the staged fosse.php (e.g. "0.1.0",
+#                    "0.1.0-dev+abc1234"). The two must stay aligned —
+#                    the constant is what runtime code reads, the header
+#                    is what the WP Plugins screen shows.
+#   FOSSE_BUILD_DEV  If "1" and FOSSE_VERSION is unset, derive a dev
+#                    version "<base>-dev+<sha7>" from the committed
+#                    `Version:` header in fosse.php plus the short HEAD
+#                    SHA (GITHUB_SHA in CI, otherwise `git rev-parse`),
+#                    then stamp via the same path as FOSSE_VERSION.
+#   Neither set:     Leave the staged fosse.php as committed.
 #
 # Usage:
 #   bin/build-zip.sh
@@ -38,6 +43,24 @@ mkdir -p "$STAGE_DIR"
 # how everything else in this script reads from the worktree.
 git -C "$ROOT" archive --format=tar --worktree-attributes HEAD | tar -x -C "$STAGE_DIR"
 
+# Derive a dev-flavored FOSSE_VERSION when the caller asked for one
+# (FOSSE_BUILD_DEV=1) and did not pass an explicit FOSSE_VERSION.
+# The base comes from the committed `Version:` header so future bumps
+# don't need a parallel edit anywhere.
+if [ -z "${FOSSE_VERSION:-}" ] && [ "${FOSSE_BUILD_DEV:-}" = "1" ]; then
+	base=$(awk '/^[[:space:]]*\*[[:space:]]*Version:/ { print $NF; exit }' "$ROOT/fosse.php")
+	if [ -z "$base" ]; then
+		echo "error: could not extract Version: header from $ROOT/fosse.php" >&2
+		exit 1
+	fi
+	sha7="${GITHUB_SHA:0:7}"
+	if [ -z "$sha7" ]; then
+		sha7=$(git -C "$ROOT" rev-parse --short=7 HEAD 2>/dev/null || echo "unknown")
+	fi
+	FOSSE_VERSION="${base}-dev+${sha7}"
+	echo "Derived dev version: $FOSSE_VERSION"
+fi
+
 if [ -n "${FOSSE_VERSION:-}" ]; then
 	# sed -i with a backup suffix is portable across GNU and BSD sed.
 	# Rewrite both the plugin header `Version:` line and the
@@ -48,6 +71,19 @@ if [ -n "${FOSSE_VERSION:-}" ]; then
 		-e "s|(define\([[:space:]]*'FOSSE_VERSION',[[:space:]]*')[^']*(')|\1${FOSSE_VERSION}\2|" \
 		"$STAGE_DIR/fosse.php"
 	rm -f "$STAGE_DIR/fosse.php.bak"
+
+	# Belt-and-braces: assert the sed actually rewrote both spots.
+	# Catches silent no-ops if fosse.php is ever reformatted (e.g.
+	# `define()` split across lines, double-quoted FOSSE_VERSION).
+	header_value=$(awk '/^[[:space:]]*\*[[:space:]]*Version:/ { print $NF; exit }' "$STAGE_DIR/fosse.php")
+	if [ "$header_value" != "$FOSSE_VERSION" ]; then
+		echo "error: Version: header in staged fosse.php is '${header_value}', expected '${FOSSE_VERSION}'" >&2
+		exit 1
+	fi
+	if ! grep -qF "'FOSSE_VERSION', '${FOSSE_VERSION}'" "$STAGE_DIR/fosse.php"; then
+		echo "error: FOSSE_VERSION constant in staged fosse.php did not stamp to '${FOSSE_VERSION}'" >&2
+		exit 1
+	fi
 fi
 
 # Fail fast if composer.lock drifted from composer.json. Otherwise
