@@ -116,6 +116,61 @@ test.describe( 'Status page polish', () => {
 		);
 	} );
 
+	test( 'status labels do not overlap values at intermediate admin width', async ( {
+		page,
+	} ) => {
+		await page.setViewportSize( { width: 895, height: 720 } );
+		await setBlueskyState( page, {
+			connected: false,
+			auto_publish: true,
+		} );
+		await page.goto( '/wp-admin/admin.php?page=fosse-status' );
+
+		const activityPubCard = page.locator( '.fosse-status-card' ).filter( {
+			has: page.getByRole( 'heading', { name: 'ActivityPub' } ),
+		} );
+		await expect( activityPubCard ).toHaveCount( 1 );
+
+		const rows = activityPubCard.locator( '.fosse-status-card__table tr' );
+		const rowCount = await rows.count();
+		expect(
+			rowCount,
+			'ActivityPub status rows should be present'
+		).toBeGreaterThan( 0 );
+
+		const rowGaps = await rows.evaluateAll( ( statusRows ) =>
+			statusRows.map( ( row ) => {
+				const label = row.querySelector( '.fosse-status-card__label' );
+				const value = row.querySelector( '.fosse-status-card__value' );
+
+				if ( ! label || ! value ) {
+					return null;
+				}
+
+				const labelRange = document.createRange();
+				labelRange.selectNodeContents( label );
+
+				return {
+					label: label.textContent?.trim() ?? '',
+					gap:
+						value.getBoundingClientRect().left -
+						labelRange.getBoundingClientRect().right,
+				};
+			} )
+		);
+
+		for ( const [ i, rowGap ] of rowGaps.entries() ) {
+			if ( ! rowGap ) {
+				throw new Error( `row ${ i } missing label/value cells` );
+			}
+
+			expect(
+				rowGap.gap,
+				`${ rowGap.label } label should not paint into the value cell`
+			).toBeGreaterThanOrEqual( 0 );
+		}
+	} );
+
 	test( 'summary and cards use restrained visual tokens without page overflow', async ( {
 		page,
 	} ) => {
