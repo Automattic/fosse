@@ -1,6 +1,46 @@
 import { type Browser, expect, type Page } from '@playwright/test';
 
 /**
+ * Assert the current document is not wider than the viewport.
+ *
+ * @param {Page} page Playwright page.
+ * @return {Promise<void>} Resolves when the page has no horizontal overflow.
+ */
+export const expectNoHorizontalOverflow = async ( page: Page ) => {
+	const overflow = await page.evaluate( () => ( {
+		scrollWidth: document.documentElement.scrollWidth,
+		clientWidth: document.documentElement.clientWidth,
+	} ) );
+
+	expect( overflow.scrollWidth ).toBeLessThanOrEqual(
+		overflow.clientWidth + 1
+	);
+};
+
+/**
+ * Read a numeric CSS value from the first matching element.
+ *
+ * @param {Page}   page     Playwright page.
+ * @param {string} selector CSS selector.
+ * @param {string} prop     CSS property name.
+ * @return {Promise<number>} Parsed CSS value, with `normal` treated as 0.
+ */
+export const numericCssValue = async (
+	page: Page,
+	selector: string,
+	prop: string
+) =>
+	page
+		.locator( selector )
+		.first()
+		.evaluate( ( el, property ) => {
+			const value = window
+				.getComputedStyle( el )
+				.getPropertyValue( property );
+			return 'normal' === value ? 0 : Number.parseFloat( value );
+		}, prop );
+
+/**
  * Seed the Atmosphere connection state via the e2e REST helper.
  *
  * The mu-plugin under tests/e2e/mu-plugins/fosse-bsky-capture.php exposes

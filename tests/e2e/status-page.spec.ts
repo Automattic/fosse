@@ -1,5 +1,10 @@
 import { test, expect, type Page } from '@playwright/test';
-import { resetBlueskyState, setBlueskyState } from './test-helpers';
+import {
+	expectNoHorizontalOverflow,
+	numericCssValue,
+	resetBlueskyState,
+	setBlueskyState,
+} from './test-helpers';
 
 test.describe( 'Status page polish', () => {
 	// Connected-state writes leak across specs (the wizard's connect step
@@ -109,6 +114,56 @@ test.describe( 'Status page polish', () => {
 		expect( overflow!.tableScroll ).toBeLessThanOrEqual(
 			overflow!.tableClient + 1
 		);
+	} );
+
+	test( 'summary and cards use restrained visual tokens without page overflow', async ( {
+		page,
+	} ) => {
+		await setBlueskyState( page, {
+			connected: false,
+			auto_publish: true,
+		} );
+
+		await page.setViewportSize( { width: 1280, height: 720 } );
+		await page.goto( '/wp-admin/admin.php?page=fosse-status' );
+
+		await expectNoHorizontalOverflow( page );
+		await expect(
+			page.getByRole( 'link', { name: 'Manage connections' } )
+		).toBeVisible();
+
+		expect(
+			await numericCssValue(
+				page,
+				'.fosse-admin-page__title',
+				'letter-spacing'
+			)
+		).toBe( 0 );
+		expect(
+			await numericCssValue(
+				page,
+				'.fosse-status-summary__label',
+				'letter-spacing'
+			)
+		).toBe( 0 );
+		expect(
+			await numericCssValue(
+				page,
+				'.fosse-status-summary',
+				'border-radius'
+			)
+		).toBeLessThanOrEqual( 8 );
+		expect(
+			await numericCssValue( page, '.fosse-status-card', 'border-radius' )
+		).toBeLessThanOrEqual( 8 );
+		await expect( page.locator( '.fosse-status-summary' ) ).toHaveCSS(
+			'background-image',
+			'none'
+		);
+
+		await page.setViewportSize( { width: 390, height: 720 } );
+		await page.goto( '/wp-admin/admin.php?page=fosse-status' );
+		await expectNoHorizontalOverflow( page );
 	} );
 
 	test( 'partial-connected state links to connection management', async ( {
