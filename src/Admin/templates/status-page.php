@@ -63,10 +63,10 @@ if ( 0 === $connected_count ) {
 				</p>
 				<p class="fosse-status-summary__description"><?php echo esc_html( $summary_description ); ?></p>
 			</div>
-			<?php if ( empty( $connected ) ) : ?>
+			<?php if ( $connected_count < $available_count ) : ?>
 				<p class="fosse-status-summary__actions">
-					<a class="button button-primary" href="<?php echo esc_url( admin_url( 'admin.php?page=fosse' ) ); ?>">
-						<?php esc_html_e( 'Set up FOSSE', 'fosse' ); ?>
+					<a class="button button-primary" href="<?php echo esc_url( admin_url( 'admin.php?page=fosse#fosse-connections' ) ); ?>">
+						<?php esc_html_e( 'Manage connections', 'fosse' ); ?>
 					</a>
 				</p>
 			<?php endif; ?>

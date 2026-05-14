@@ -509,6 +509,14 @@ class Bluesky_Provider implements Connection_Provider {
 					</tr>
 				</tbody>
 			</table>
+
+			<?php if ( ! $status['connected'] && ! $status['token_error'] ) : ?>
+				<p class="fosse-status-card__actions">
+					<a class="button button-secondary" href="<?php echo esc_url( admin_url( 'admin.php?page=fosse#fosse-provider-bluesky' ) ); ?>">
+						<?php esc_html_e( 'Open Bluesky settings', 'fosse' ); ?>
+					</a>
+				</p>
+			<?php endif; ?>
 		</div>
 		<?php
 	}

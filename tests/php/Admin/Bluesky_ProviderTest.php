@@ -522,6 +522,7 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		$this->assertStringContainsString( 'Reconnect required', $output );
 		$this->assertStringContainsString( '#fosse-provider-bluesky', $output );
 		$this->assertStringContainsString( '<details', $output );
+		$this->assertStringNotContainsString( 'fosse-status-card__actions', $output );
 	}
 
 	/**
@@ -549,17 +550,38 @@ class Bluesky_ProviderTest extends BaseTestCase {
 	}
 
 	/**
-	 * Status card no longer carries a "Manage Bluesky settings" deep link
-	 * (issue #74) — the sidebar Settings menu entry replaces those per-card
-	 * navigation affordances.
+	 * Disconnected status card links directly to Bluesky connection settings.
 	 */
-	public function test_render_status_card_omits_manage_settings_link() {
+	public function test_render_status_card_disconnected_state_links_to_settings() {
 		ob_start();
 		$this->provider->render_status_card();
 		$output = ob_get_clean();
 
-		$this->assertStringNotContainsString( 'Manage Bluesky settings', $output );
-		$this->assertStringNotContainsString( 'fosse-status-card__manage', $output );
+		$this->assertStringContainsString( 'fosse-status-card__actions', $output );
+		$this->assertStringContainsString( 'Open Bluesky settings', $output );
+		$this->assertStringContainsString( 'admin.php?page=fosse#fosse-provider-bluesky', $output );
+	}
+
+	/**
+	 * Connected healthy status card keeps the settings link out of the card
+	 * action row; token-error recovery still renders inline with token health.
+	 */
+	public function test_render_status_card_connected_state_omits_settings_action_row() {
+		update_option(
+			'atmosphere_connection',
+			array(
+				'did'          => 'did:plc:test123',
+				'handle'       => 'alice.bsky.social',
+				'pds_endpoint' => 'https://bsky.social',
+				'access_token' => Encryption::encrypt( 'token' ),
+			)
+		);
+
+		ob_start();
+		$this->provider->render_status_card();
+		$output = ob_get_clean();
+
+		$this->assertStringNotContainsString( 'fosse-status-card__actions', $output );
 	}
 
 	/**
