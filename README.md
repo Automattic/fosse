@@ -6,6 +6,8 @@ It bundles [wordpress-activitypub](https://github.com/Automattic/wordpress-activ
 
 Repository: <https://github.com/Automattic/fosse>
 
+![FOSSE setup wizard in WordPress admin](docs/assets/fosse-wizard.png)
+
 ## Requirements
 
 -   PHP 8.2+
@@ -25,7 +27,7 @@ That creates `build/fosse.zip`, which can be uploaded or unpacked into `wp-conte
 
 After activation, go to **FOSSE** in wp-admin:
 
--   **Setup** configures ActivityPub actor mode, federated post types, and Bluesky connection.
+-   **Settings** configures ActivityPub actor mode, federated post types, and Bluesky connection.
 -   **Status** shows the available providers and connection health.
 -   The first-run wizard walks through the basic ActivityPub and Bluesky setup.
 
