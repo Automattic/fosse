@@ -1,5 +1,10 @@
 import { test, expect, type Page } from '@playwright/test';
-import { resetBlueskyState, setBlueskyState } from './test-helpers';
+import {
+	expectNoHorizontalOverflow,
+	numericCssValue,
+	resetBlueskyState,
+	setBlueskyState,
+} from './test-helpers';
 
 const selectDestination = async ( page: Page, destination: string ) => {
 	await page.goto( '/wp-admin/admin.php?page=fosse-wizard' );
@@ -19,17 +24,6 @@ const completeThroughBlueskySkip = async ( page: Page ) => {
 	await openBlueskyStep( page );
 	await page.getByRole( 'link', { name: 'Skip Bluesky for now' } ).click();
 	await expect( page ).toHaveURL( /step=complete/ );
-};
-
-const expectNoHorizontalOverflow = async ( page: Page ) => {
-	const overflow = await page.evaluate( () => ( {
-		scrollWidth: document.documentElement.scrollWidth,
-		clientWidth: document.documentElement.clientWidth,
-	} ) );
-
-	expect( overflow.scrollWidth ).toBeLessThanOrEqual(
-		overflow.clientWidth + 1
-	);
 };
 
 test( 'Wizard page loads without errors', async ( { page } ) => {
@@ -125,6 +119,53 @@ test( 'Wizard progress stays compact and keeps step labels available on mobile',
 
 	expect( progressMetrics.height ).toBeLessThanOrEqual( 48 );
 	expect( progressMetrics.unavailableLabels ).toBe( 0 );
+} );
+
+test( 'Wizard surfaces use restrained visual tokens without page overflow', async ( {
+	page,
+} ) => {
+	await page.setViewportSize( { width: 1280, height: 720 } );
+	await page.goto( '/wp-admin/admin.php?page=fosse-wizard' );
+
+	await expectNoHorizontalOverflow( page );
+
+	expect(
+		await numericCssValue( page, '.fosse-wizard__title', 'letter-spacing' )
+	).toBe( 0 );
+	expect(
+		await numericCssValue(
+			page,
+			'.fosse-destination-card__badge',
+			'letter-spacing'
+		)
+	).toBe( 0 );
+	expect(
+		await numericCssValue(
+			page,
+			'.fosse-destination-card',
+			'border-radius'
+		)
+	).toBeLessThanOrEqual( 8 );
+
+	await page.goto( '/wp-admin/admin.php?page=fosse-wizard&step=content' );
+	await expectNoHorizontalOverflow( page );
+	expect(
+		await numericCssValue( page, '.fosse-wizard__card', 'border-radius' )
+	).toBeLessThanOrEqual( 8 );
+	expect(
+		await numericCssValue(
+			page,
+			'.fosse-post-types__group-label',
+			'letter-spacing'
+		)
+	).toBe( 0 );
+
+	await page.setViewportSize( { width: 390, height: 720 } );
+	await page.goto( '/wp-admin/admin.php?page=fosse-wizard&step=content' );
+	await expectNoHorizontalOverflow( page );
+	await expect(
+		page.getByRole( 'button', { name: 'Continue' } )
+	).toBeVisible();
 } );
 
 test( 'Destination selection navigates to identity step', async ( {

@@ -1,5 +1,10 @@
 import { test, expect, type Page } from '@playwright/test';
-import { resetBlueskyState, setBlueskyState } from './test-helpers';
+import {
+	expectNoHorizontalOverflow,
+	numericCssValue,
+	resetBlueskyState,
+	setBlueskyState,
+} from './test-helpers';
 
 test.describe( 'Bluesky provider UI', () => {
 	// The connected-state test below leaves atmosphere_connection set,
@@ -142,5 +147,62 @@ test.describe( 'Bluesky provider UI', () => {
 		// Auto-publish row was removed from the status card alongside the
 		// Settings toggle.
 		await expect( blueskyCard ).not.toContainText( 'Auto Publish' );
+	} );
+
+	test( 'settings page uses restrained visual tokens without page overflow', async ( {
+		page,
+	} ) => {
+		await setBlueskyState( page, {
+			connected: true,
+			handle: 'someone.with.an.unreasonably.long.handle.example.org',
+			did: 'did:plc:abcdefghijklmnopqrstuvwxyz0123456789longidentifier',
+			pds_endpoint: 'https://bsky.social',
+		} );
+
+		await page.setViewportSize( { width: 1280, height: 720 } );
+		await page.goto( '/wp-admin/admin.php?page=fosse' );
+		await expectNoCriticalText( page );
+		await expectNoHorizontalOverflow( page );
+
+		await expect(
+			page.getByRole( 'button', { name: 'Save settings' } )
+		).toBeVisible();
+
+		expect(
+			await numericCssValue(
+				page,
+				'.fosse-admin-page__title',
+				'letter-spacing'
+			)
+		).toBe( 0 );
+		expect(
+			await numericCssValue(
+				page,
+				'.fosse-settings-section h3',
+				'letter-spacing'
+			)
+		).toBe( 0 );
+		expect(
+			await numericCssValue(
+				page,
+				'.fosse-settings-panel',
+				'border-radius'
+			)
+		).toBeLessThanOrEqual( 8 );
+		expect(
+			await numericCssValue(
+				page,
+				'.fosse-settings-card-option__body',
+				'border-radius'
+			)
+		).toBeLessThanOrEqual( 8 );
+
+		await page.setViewportSize( { width: 390, height: 720 } );
+		await page.goto( '/wp-admin/admin.php?page=fosse' );
+		await expectNoCriticalText( page );
+		await expectNoHorizontalOverflow( page );
+		await expect(
+			page.getByRole( 'button', { name: 'Save settings' } )
+		).toBeVisible();
 	} );
 } );
