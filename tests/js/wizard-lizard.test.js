@@ -1,4 +1,5 @@
 describe( 'Wizard style toggle', () => {
+	const ROOT_THEME_CLASS = 'has-fosse-wizard-lizard-theme';
 	const STORAGE_KEY = 'fosseWizardLizardTheme';
 
 	function renderWizard() {
@@ -30,6 +31,7 @@ describe( 'Wizard style toggle', () => {
 
 	beforeEach( () => {
 		document.body.innerHTML = '';
+		document.documentElement.classList.remove( ROOT_THEME_CLASS );
 		window.sessionStorage.clear();
 		jest.restoreAllMocks();
 	} );
@@ -59,6 +61,30 @@ describe( 'Wizard style toggle', () => {
 		loadScript();
 
 		const { wizard, toggle } = getElements();
+
+		expect( wizard.classList.contains( 'is-lizard-themed' ) ).toBe( true );
+		expect( toggle.getAttribute( 'aria-pressed' ) ).toBe( 'true' );
+		expect(
+			document.documentElement.classList.contains( ROOT_THEME_CLASS )
+		).toBe( true );
+	} );
+
+	test( 'marks the document before DOMContentLoaded when the stored theme is enabled', () => {
+		window.sessionStorage.setItem( STORAGE_KEY, '1' );
+		loadScript( 'loading' );
+
+		expect(
+			document.documentElement.classList.contains( ROOT_THEME_CLASS )
+		).toBe( true );
+
+		renderWizard();
+
+		const { wizard, toggle } = getElements();
+
+		expect( wizard.classList.contains( 'is-lizard-themed' ) ).toBe( false );
+		expect( toggle.getAttribute( 'aria-pressed' ) ).toBe( 'false' );
+
+		document.dispatchEvent( new Event( 'DOMContentLoaded' ) );
 
 		expect( wizard.classList.contains( 'is-lizard-themed' ) ).toBe( true );
 		expect( toggle.getAttribute( 'aria-pressed' ) ).toBe( 'true' );

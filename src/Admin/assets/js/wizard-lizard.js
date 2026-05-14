@@ -8,6 +8,7 @@
 ( function () {
 	'use strict';
 
+	const ROOT_THEME_CLASS = 'has-fosse-wizard-lizard-theme';
 	const THEME_CLASS = 'is-lizard-themed';
 	const STORAGE_KEY = 'fosseWizardLizardTheme';
 	const TOGGLE_SELECTOR = '[data-fosse-lizard-toggle]';
@@ -33,10 +34,20 @@
 		}
 	}
 
+	function applyRootTheme( enabled ) {
+		document.documentElement.classList.toggle( ROOT_THEME_CLASS, enabled );
+	}
+
 	function applyTheme( wizard, toggle, enabled ) {
+		applyRootTheme( enabled );
 		wizard.classList.toggle( THEME_CLASS, enabled );
 		toggle.setAttribute( 'aria-pressed', enabled ? 'true' : 'false' );
 	}
+
+	const storedThemeEnabled = readStoredTheme();
+
+	// FOUC guard: this must run synchronously from the head before body paint.
+	applyRootTheme( storedThemeEnabled );
 
 	function init( root ) {
 		const scope = root || document;
@@ -52,7 +63,7 @@
 			return;
 		}
 
-		if ( readStoredTheme() ) {
+		if ( storedThemeEnabled ) {
 			applyTheme( wizard, toggle, true );
 		}
 

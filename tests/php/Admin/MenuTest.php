@@ -395,6 +395,32 @@ class MenuTest extends BaseTestCase {
 	}
 
 	/**
+	 * The lizard theme script must run from the document head so a stored
+	 * theme can mark the root element before the wizard paints.
+	 */
+	public function test_lizard_theme_script_is_enqueued_in_head_on_wizard_screen(): void {
+		wp_dequeue_script( 'fosse-wizard-lizard' );
+		wp_deregister_script( 'fosse-wizard-lizard' );
+
+		try {
+			Menu::enqueue_assets( 'admin_page_fosse-wizard' );
+
+			$this->assertTrue( wp_script_is( 'fosse-wizard-lizard', 'enqueued' ) );
+			$this->assertFalse(
+				wp_scripts()->get_data( 'fosse-wizard-lizard', 'group' ),
+				'Lizard theme script must stay in the head to prevent a stored-theme flash.'
+			);
+			$this->assertFalse(
+				wp_scripts()->get_data( 'fosse-wizard-lizard', 'strategy' ),
+				'Lizard theme script must execute synchronously; defer/async would reintroduce the flash.'
+			);
+		} finally {
+			wp_dequeue_script( 'fosse-wizard-lizard' );
+			wp_deregister_script( 'fosse-wizard-lizard' );
+		}
+	}
+
+	/**
 	 * Late-stage suppression strips notices that other plugins added
 	 * between `current_screen` and the actual notice hooks (e.g. via
 	 * `admin_head` or `admin_enqueue_scripts`). Mirrors the

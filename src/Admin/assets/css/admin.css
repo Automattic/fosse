@@ -1563,7 +1563,8 @@
 }
 
 /* Hidden wizard style-toggle theme */
-.fosse-wizard.is-lizard-themed {
+.fosse-wizard.is-lizard-themed,
+.has-fosse-wizard-lizard-theme .fosse-wizard {
 	--fosse-ui-surface: #fbfff1;
 	--fosse-ui-surface-muted: #f1f8df;
 	--fosse-ui-border: #cadb9b;
@@ -1586,7 +1587,8 @@
 	isolation: isolate;
 }
 
-.fosse-wizard.is-lizard-themed::before {
+.fosse-wizard.is-lizard-themed::before,
+.has-fosse-wizard-lizard-theme .fosse-wizard::before {
 	position: absolute;
 	z-index: -1;
 	inset: -18px -22px -28px;
@@ -1597,25 +1599,39 @@
 	background: #f8fce8;
 }
 
-.fosse-wizard.is-lizard-themed .fosse-wizard__progress {
+.fosse-wizard.is-lizard-themed .fosse-wizard__progress,
+.has-fosse-wizard-lizard-theme .fosse-wizard .fosse-wizard__progress {
 	background: rgba(251, 255, 241, 0.94);
 	border-color: rgba(120, 152, 58, 0.5);
 }
 
-.fosse-wizard.is-lizard-themed .fosse-wizard__progress-line {
+.fosse-wizard.is-lizard-themed .fosse-wizard__progress-line,
+.has-fosse-wizard-lizard-theme .fosse-wizard .fosse-wizard__progress-line {
 	height: 2px;
 	background: rgba(120, 152, 58, 0.3);
 }
 
-.fosse-wizard.is-lizard-themed .fosse-wizard__progress-line.is-complete {
+.fosse-wizard.is-lizard-themed .fosse-wizard__progress-line.is-complete,
+.has-fosse-wizard-lizard-theme
+	.fosse-wizard
+	.fosse-wizard__progress-line.is-complete {
 	background: rgba(47, 110, 33, 0.75);
 }
 
 .fosse-wizard.is-lizard-themed .fosse-wizard__progress-dot,
+.has-fosse-wizard-lizard-theme .fosse-wizard .fosse-wizard__progress-dot,
 .fosse-wizard.is-lizard-themed
 	.fosse-wizard__progress-step.is-active
 	.fosse-wizard__progress-dot,
+.has-fosse-wizard-lizard-theme
+	.fosse-wizard
+	.fosse-wizard__progress-step.is-active
+	.fosse-wizard__progress-dot,
 .fosse-wizard.is-lizard-themed
+	.fosse-wizard__progress-step.is-complete
+	.fosse-wizard__progress-dot,
+.has-fosse-wizard-lizard-theme
+	.fosse-wizard
 	.fosse-wizard__progress-step.is-complete
 	.fosse-wizard__progress-dot {
 	width: 20px;
@@ -1626,7 +1642,10 @@
 }
 
 /* Theme glyphs: U+1F95A egg, U+1F98E reptile, U+1F43E paw. */
-.fosse-wizard.is-lizard-themed .fosse-wizard__progress-dot::before {
+.fosse-wizard.is-lizard-themed .fosse-wizard__progress-dot::before,
+.has-fosse-wizard-lizard-theme
+	.fosse-wizard
+	.fosse-wizard__progress-dot::before {
 	content: "\1F95A";
 	width: auto;
 	height: auto;
@@ -1639,6 +1658,10 @@
 
 .fosse-wizard.is-lizard-themed
 	.fosse-wizard__progress-step.is-active
+	.fosse-wizard__progress-dot::before,
+.has-fosse-wizard-lizard-theme
+	.fosse-wizard
+	.fosse-wizard__progress-step.is-active
 	.fosse-wizard__progress-dot::before {
 	content: "\1F98E";
 	font-size: 20px;
@@ -1646,21 +1669,31 @@
 
 .fosse-wizard.is-lizard-themed
 	.fosse-wizard__progress-step.is-complete
+	.fosse-wizard__progress-dot::before,
+.has-fosse-wizard-lizard-theme
+	.fosse-wizard
+	.fosse-wizard__progress-step.is-complete
 	.fosse-wizard__progress-dot::before {
 	content: "\1F43E";
 	font-size: 18px;
 }
 
-.fosse-wizard.is-lizard-themed .fosse-complete-icon {
+.fosse-wizard.is-lizard-themed .fosse-complete-icon,
+.has-fosse-wizard-lizard-theme .fosse-wizard .fosse-complete-icon {
 	background: var(--fosse-wizard-accent-icon);
 	box-shadow: 0 0 0 8px rgba(49, 93, 18, 0.08);
 }
 
-.fosse-wizard.is-lizard-themed .fosse-complete-icon .dashicons {
+.fosse-wizard.is-lizard-themed .fosse-complete-icon .dashicons,
+.has-fosse-wizard-lizard-theme .fosse-wizard .fosse-complete-icon .dashicons {
 	font-size: 0;
 }
 
-.fosse-wizard.is-lizard-themed .fosse-complete-icon .dashicons::before {
+.fosse-wizard.is-lizard-themed .fosse-complete-icon .dashicons::before,
+.has-fosse-wizard-lizard-theme
+	.fosse-wizard
+	.fosse-complete-icon
+	.dashicons::before {
 	content: "\1F98E";
 	font-family: initial;
 	font-size: 34px;
@@ -1668,26 +1701,34 @@
 }
 
 .fosse-wizard.is-lizard-themed .fosse-wizard__card,
+.has-fosse-wizard-lizard-theme .fosse-wizard .fosse-wizard__card,
 .fosse-wizard.is-lizard-themed .fosse-destination-card,
+.has-fosse-wizard-lizard-theme .fosse-wizard .fosse-destination-card,
 .fosse-wizard.is-lizard-themed .fosse-mode-card,
-.fosse-wizard.is-lizard-themed .fosse-post-type-item {
+.has-fosse-wizard-lizard-theme .fosse-wizard .fosse-mode-card,
+.fosse-wizard.is-lizard-themed .fosse-post-type-item,
+.has-fosse-wizard-lizard-theme .fosse-wizard .fosse-post-type-item {
 	box-shadow:
 		0 10px 24px rgba(63, 111, 29, 0.08),
 		inset 0 1px 0 rgba(255, 255, 255, 0.72);
 }
 
-.fosse-wizard.is-lizard-themed .button-primary {
+.fosse-wizard.is-lizard-themed .button-primary,
+.has-fosse-wizard-lizard-theme .fosse-wizard .button-primary {
 	background: var(--fosse-ui-accent);
 	border-color: var(--fosse-wizard-accent-button-border);
 }
 
 .fosse-wizard.is-lizard-themed .button-primary:hover,
-.fosse-wizard.is-lizard-themed .button-primary:focus {
+.has-fosse-wizard-lizard-theme .fosse-wizard .button-primary:hover,
+.fosse-wizard.is-lizard-themed .button-primary:focus,
+.has-fosse-wizard-lizard-theme .fosse-wizard .button-primary:focus {
 	background: var(--fosse-wizard-accent-button-hover);
 	border-color: var(--fosse-wizard-accent-button-hover-border);
 }
 
-.fosse-wizard.is-lizard-themed .fosse-wizard__lizard {
+.fosse-wizard.is-lizard-themed .fosse-wizard__lizard,
+.has-fosse-wizard-lizard-theme .fosse-wizard .fosse-wizard__lizard {
 	background: rgba(63, 111, 29, 0.1);
 	filter: none;
 	opacity: 0.82;
