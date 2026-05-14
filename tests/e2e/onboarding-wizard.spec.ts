@@ -21,6 +21,17 @@ const completeThroughBlueskySkip = async ( page: Page ) => {
 	await expect( page ).toHaveURL( /step=complete/ );
 };
 
+const expectNoHorizontalOverflow = async ( page: Page ) => {
+	const overflow = await page.evaluate( () => ( {
+		scrollWidth: document.documentElement.scrollWidth,
+		clientWidth: document.documentElement.clientWidth,
+	} ) );
+
+	expect( overflow.scrollWidth ).toBeLessThanOrEqual(
+		overflow.clientWidth + 1
+	);
+};
+
 test( 'Wizard page loads without errors', async ( { page } ) => {
 	const response = await page.goto( '/wp-admin/admin.php?page=fosse-wizard' );
 	expect( response?.status() ).toBeLessThan( 400 );
@@ -53,7 +64,15 @@ test( 'Wizard shows progress indicator on destination step', async ( {
 test( 'Destination step shows two destination cards', async ( { page } ) => {
 	await page.goto( '/wp-admin/admin.php?page=fosse-wizard' );
 
+	await expect( page.locator( '.fosse-wizard__description' ) ).toContainText(
+		'Fediverse apps like Mastodon'
+	);
 	await expect( page.locator( '.fosse-destination-card' ) ).toHaveCount( 2 );
+	await expect(
+		page.locator( '.fosse-destination-card', {
+			hasText: 'Fediverse apps like Mastodon',
+		} )
+	).toHaveCount( 2 );
 	await expect(
 		page.locator( '.fosse-destination-card', {
 			hasText: 'Fediverse + Bluesky',
@@ -64,6 +83,48 @@ test( 'Destination step shows two destination cards', async ( { page } ) => {
 			hasText: 'Fediverse only',
 		} )
 	).toBeVisible();
+	await expect( page.getByText( 'Mastodon and similar apps' ) ).toHaveCount(
+		0
+	);
+} );
+
+test( 'Wizard progress stays compact and keeps step labels available on mobile', async ( {
+	page,
+} ) => {
+	await page.setViewportSize( { width: 390, height: 720 } );
+	await page.goto( '/wp-admin/admin.php?page=fosse-wizard' );
+
+	await expectNoHorizontalOverflow( page );
+	await expect(
+		page.getByRole( 'button', { name: 'Continue' } )
+	).toBeVisible();
+	await expect(
+		page.locator(
+			'.fosse-wizard__progress-step.is-active .fosse-wizard__progress-label',
+			{ hasText: 'Destinations' }
+		)
+	).toBeVisible();
+
+	const progressMetrics = await page
+		.locator( '.fosse-wizard__progress' )
+		.evaluate( ( el ) => {
+			const unavailableLabels = Array.from(
+				el.querySelectorAll( '.fosse-wizard__progress-label' )
+			).filter( ( label ) => {
+				const style = window.getComputedStyle( label );
+				return (
+					'hidden' === style.visibility || 'none' === style.display
+				);
+			} ).length;
+
+			return {
+				height: ( el as HTMLElement ).offsetHeight,
+				unavailableLabels,
+			};
+		} );
+
+	expect( progressMetrics.height ).toBeLessThanOrEqual( 48 );
+	expect( progressMetrics.unavailableLabels ).toBe( 0 );
 } );
 
 test( 'Destination selection navigates to identity step', async ( {
@@ -97,6 +158,9 @@ test( 'Appearance step swaps the visible address preview when the actor mode cha
 	await expect(
 		page.locator( '.fosse-address-preview[data-fosse-mode]' )
 	).toHaveCount( 3 );
+	await expect(
+		page.locator( '.fosse-address-preview[data-fosse-mode="actor"]' )
+	).toContainText( 'Your fediverse address:' );
 
 	// Selecting "As your site" exposes the blog preview and the inline
 	// Site Handle row, and hides the personal address preview.
@@ -111,6 +175,9 @@ test( 'Appearance step swaps the visible address preview when the actor mode cha
 	await expect(
 		page.locator( '.fosse-address-preview[data-fosse-mode="blog"]' )
 	).toBeVisible();
+	await expect(
+		page.locator( '.fosse-address-preview[data-fosse-mode="blog"]' )
+	).toContainText( 'Site fediverse address:' );
 	await expect(
 		page.locator( '.fosse-address-preview[data-fosse-mode="actor"]' )
 	).toBeHidden();
@@ -271,12 +338,15 @@ test.describe( 'Bluesky step — connected (post-OAuth completion)', () => {
 
 		await expect(
 			page.locator( '.fosse-wizard__title', {
-				hasText: 'Bluesky is connected',
+				hasText: 'Review Bluesky connection',
 			} )
 		).toBeVisible();
 		await expect(
 			page.locator( '.fosse-wizard__description' )
 		).not.toContainText( 'connect later' );
+		await expect(
+			page.locator( 'text=/Bluesky is connected/i' )
+		).toHaveCount( 1 );
 		await expect( page.locator( '.fosse-summary' ) ).toContainText(
 			'alice.bsky.social'
 		);
@@ -341,8 +411,8 @@ test( 'Completion step shows summary', async ( { page } ) => {
 	await expect(
 		page.locator( '.fosse-summary__label', { hasText: 'Destinations' } )
 	).toBeVisible();
-	await expect( page.locator( 'text=People follow' ) ).toBeVisible();
-	await expect( page.locator( 'text=Content shared' ) ).toBeVisible();
+	await expect( page.locator( 'text=Fediverse identity' ) ).toBeVisible();
+	await expect( page.locator( 'text=Content types' ) ).toBeVisible();
 	await expect(
 		page.locator( '.fosse-summary__label', { hasText: 'Bluesky' } )
 	).toBeVisible();

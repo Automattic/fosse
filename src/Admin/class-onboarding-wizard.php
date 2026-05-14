@@ -698,7 +698,7 @@ class Onboarding_Wizard {
 	}
 
 	/**
-	 * Format the "People follow" summary value for the completion step.
+	 * Format the fediverse identity summary value for the completion step.
 	 *
 	 * Embeds the resolved fediverse handle(s) so users see the actual
 	 * identity they just stood up rather than just the bare host. Falls
@@ -978,20 +978,20 @@ class Onboarding_Wizard {
 				'icon'  => 'dashicons-star-filled',
 				'badge' => __( 'Recommended', 'fosse' ),
 				'title' => __( 'Fediverse + Bluesky', 'fosse' ),
-				'desc'  => __( 'Let people follow your site from apps like Mastodon, and share eligible posts to Bluesky.', 'fosse' ),
+				'desc'  => __( 'Let people follow your site from Fediverse apps like Mastodon, and share eligible posts to Bluesky.', 'fosse' ),
 			),
 			self::DESTINATION_FEDIVERSE_ONLY    => array(
 				'class' => 'fosse-destination-card--fediverse-only',
 				'icon'  => 'dashicons-networking',
 				'badge' => __( 'Simple setup', 'fosse' ),
 				'title' => __( 'Fediverse only', 'fosse' ),
-				'desc'  => __( 'Let people follow your site from apps like Mastodon. You can connect Bluesky later.', 'fosse' ),
+				'desc'  => __( 'Let people follow your site from Fediverse apps like Mastodon. You can connect Bluesky later.', 'fosse' ),
 			),
 		);
 		?>
 		<h1 class="fosse-wizard__title"><?php esc_html_e( 'Where should your WordPress posts appear?', 'fosse' ); ?></h1>
 		<p class="fosse-wizard__description">
-			<?php esc_html_e( 'Fediverse sharing is enabled by default, so people can follow your site from Mastodon and similar apps. You can also connect Bluesky now or set it up later.', 'fosse' ); ?>
+			<?php esc_html_e( 'Fediverse sharing is enabled by default, so people can follow your site from Fediverse apps like Mastodon. You can also connect Bluesky now or set it up later.', 'fosse' ); ?>
 		</p>
 
 		<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
@@ -1058,7 +1058,10 @@ class Onboarding_Wizard {
 			$current_mode = Actor_Mode_Lock::forced_mode();
 		}
 		$site_host = wp_parse_url( home_url(), PHP_URL_HOST );
-		$nonce     = wp_create_nonce( 'fosse_wizard' );
+		if ( in_array( $site_host, array( 'localhost', '127.0.0.1', '::1', '0.0.0.0' ), true ) ) {
+			$site_host = '';
+		}
+		$nonce = wp_create_nonce( 'fosse_wizard' );
 
 		$modes = array(
 			'actor'      => array(
@@ -1117,7 +1120,7 @@ class Onboarding_Wizard {
 		?>
 		<h1 class="fosse-wizard__title"><?php esc_html_e( 'Who should people follow?', 'fosse' ); ?></h1>
 		<p class="fosse-wizard__description">
-			<?php esc_html_e( 'Choose how your site appears in social apps. This controls the name people see when your posts are shared.', 'fosse' ); ?>
+			<?php esc_html_e( 'Choose the fediverse identity people can follow when FOSSE shares your selected content types.', 'fosse' ); ?>
 		</p>
 
 		<?php settings_errors( 'fosse' ); ?>
@@ -1210,10 +1213,10 @@ class Onboarding_Wizard {
 								</div>
 							<?php endif; ?>
 						<?php elseif ( 'actor' === $preview_mode && '' !== $user_handle ) : ?>
-							<span class="fosse-address-preview__label"><?php esc_html_e( 'Your follow address:', 'fosse' ); ?></span>
+							<span class="fosse-address-preview__label"><?php esc_html_e( 'Your fediverse address:', 'fosse' ); ?></span>
 							<code class="fosse-address-preview__address"><?php echo esc_html( $user_handle ); ?></code>
 						<?php elseif ( 'blog' === $preview_mode && '' !== $blog_handle ) : ?>
-							<span class="fosse-address-preview__label"><?php esc_html_e( 'Site follow address:', 'fosse' ); ?></span>
+							<span class="fosse-address-preview__label"><?php esc_html_e( 'Site fediverse address:', 'fosse' ); ?></span>
 							<code class="fosse-address-preview__address"><?php echo esc_html( $blog_handle ); ?></code>
 						<?php endif; ?>
 					</div>
@@ -1239,7 +1242,7 @@ class Onboarding_Wizard {
 						aria-describedby="fosse-wizard-blog-identifier-desc"
 					/>
 					<p id="fosse-wizard-blog-identifier-desc" class="description">
-						<?php esc_html_e( 'The username people use to follow your site. It cannot match an existing author username.', 'fosse' ); ?>
+						<?php esc_html_e( 'The username people use to follow your site in fediverse apps. It cannot match an existing author login or nicename.', 'fosse' ); ?>
 					</p>
 				</div>
 			</div>
@@ -1378,11 +1381,11 @@ class Onboarding_Wizard {
 		$is_connected = (bool) $status['connected'];
 
 		$title = $is_connected
-			? __( 'Bluesky is connected', 'fosse' )
+			? __( 'Review Bluesky connection', 'fosse' )
 			: __( 'Connect to Bluesky', 'fosse' );
 
 		$description = $is_connected
-			? __( 'Bluesky is connected. Review the details below before finishing setup.', 'fosse' )
+			? __( 'Review the connected account below before finishing setup.', 'fosse' )
 			: __( 'Connect your Bluesky account to share eligible WordPress posts there too. This is optional, and you can do it later in FOSSE Settings.', 'fosse' );
 		?>
 		<h1 class="fosse-wizard__title"><?php echo esc_html( $title ); ?></h1>
@@ -1450,13 +1453,13 @@ class Onboarding_Wizard {
 					<?php endif; ?>
 					<?php if ( ! empty( $handle_previews['user'] ) ) : ?>
 						<tr>
-							<th scope="row" class="fosse-summary__label"><?php esc_html_e( 'Your follow address', 'fosse' ); ?></th>
+							<th scope="row" class="fosse-summary__label"><?php esc_html_e( 'Your fediverse address', 'fosse' ); ?></th>
 							<td class="fosse-summary__value"><code><?php echo esc_html( $handle_previews['user'] ); ?></code></td>
 						</tr>
 					<?php endif; ?>
 					<?php if ( ! empty( $handle_previews['blog'] ) ) : ?>
 						<tr>
-							<th scope="row" class="fosse-summary__label"><?php esc_html_e( 'Site follow address', 'fosse' ); ?></th>
+							<th scope="row" class="fosse-summary__label"><?php esc_html_e( 'Site fediverse address', 'fosse' ); ?></th>
 							<td class="fosse-summary__value"><code><?php echo esc_html( $handle_previews['blog'] ); ?></code></td>
 						</tr>
 					<?php endif; ?>
@@ -1658,7 +1661,7 @@ class Onboarding_Wizard {
 					<td class="fosse-summary__value"><?php echo esc_html( $destination_label ); ?></td>
 				</tr>
 				<tr>
-					<th scope="row" class="fosse-summary__label"><?php esc_html_e( 'People follow', 'fosse' ); ?></th>
+					<th scope="row" class="fosse-summary__label"><?php esc_html_e( 'Fediverse identity', 'fosse' ); ?></th>
 					<td class="fosse-summary__value">
 						<?php
 						echo wp_kses(
@@ -1672,7 +1675,7 @@ class Onboarding_Wizard {
 					</td>
 				</tr>
 				<tr>
-					<th scope="row" class="fosse-summary__label"><?php esc_html_e( 'Content shared', 'fosse' ); ?></th>
+					<th scope="row" class="fosse-summary__label"><?php esc_html_e( 'Content types', 'fosse' ); ?></th>
 					<td class="fosse-summary__value"><?php echo esc_html( implode( ', ', $type_labels ) ); ?></td>
 				</tr>
 				<tr>
