@@ -159,13 +159,11 @@ class AP_Provider implements Connection_Provider {
 		<div class="fosse-settings-section" id="fosse-provider-activitypub">
 			<h3><?php esc_html_e( 'ActivityPub', 'fosse' ); ?></h3>
 
-			<table class="form-table">
+			<div class="fosse-field-stack">
 				<?php if ( $shows_blog ) : ?>
-					<tr>
-						<th scope="row">
-							<label for="fosse-activitypub-blog-identifier"><?php esc_html_e( 'Site handle', 'fosse' ); ?></label>
-						</th>
-						<td>
+					<div class="fosse-field">
+						<label class="fosse-field__label" for="fosse-activitypub-blog-identifier"><?php esc_html_e( 'Site handle', 'fosse' ); ?></label>
+						<div class="fosse-field__control">
 							<input
 								type="text"
 								id="fosse-activitypub-blog-identifier"
@@ -178,38 +176,38 @@ class AP_Provider implements Connection_Provider {
 							<p id="fosse-activitypub-blog-identifier-desc" class="description">
 								<?php esc_html_e( 'The username people use to follow your site in fediverse apps. It cannot match an existing author login or nicename.', 'fosse' ); ?>
 							</p>
-						</td>
-					</tr>
+						</div>
+					</div>
 				<?php endif; ?>
 
-				<?php if ( $shows_user && $user_address ) : ?>
-					<tr>
-						<th scope="row"><?php esc_html_e( 'Your fediverse address', 'fosse' ); ?></th>
-						<td>
-							<code class="fosse-admin-token fosse-admin-token--ap-address">
-								<?php
-								echo Status_Formatter::ap_address( '@' . $user_address ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Status_Formatter::ap_address() escapes input and returns safe HTML with <wbr>.
-								?>
-							</code>
-						</td>
-					</tr>
-				<?php endif; ?>
+				<?php if ( ( $shows_user && $user_address ) || ( $shows_blog && $blog_address ) ) : ?>
+					<dl class="fosse-detail-list">
+						<?php if ( $shows_user && $user_address ) : ?>
+							<dt class="fosse-detail-list__term"><?php esc_html_e( 'Your fediverse address', 'fosse' ); ?></dt>
+							<dd class="fosse-detail-list__description">
+								<code class="fosse-token fosse-admin-token fosse-token--ap-address fosse-admin-token--ap-address">
+									<?php
+									echo Status_Formatter::ap_address( '@' . $user_address ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Status_Formatter::ap_address() escapes input and returns safe HTML with <wbr>.
+									?>
+								</code>
+							</dd>
+						<?php endif; ?>
 
-				<?php if ( $shows_blog && $blog_address ) : ?>
-					<tr>
-						<th scope="row"><?php esc_html_e( 'Site fediverse address', 'fosse' ); ?></th>
-						<td>
-							<code class="fosse-admin-token fosse-admin-token--ap-address">
-								<?php
-								echo Status_Formatter::ap_address( '@' . $blog_address ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Status_Formatter::ap_address() escapes input and returns safe HTML with <wbr>.
-								?>
-							</code>
-						</td>
-					</tr>
+						<?php if ( $shows_blog && $blog_address ) : ?>
+							<dt class="fosse-detail-list__term"><?php esc_html_e( 'Site fediverse address', 'fosse' ); ?></dt>
+							<dd class="fosse-detail-list__description">
+								<code class="fosse-token fosse-admin-token fosse-token--ap-address fosse-admin-token--ap-address">
+									<?php
+									echo Status_Formatter::ap_address( '@' . $blog_address ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Status_Formatter::ap_address() escapes input and returns safe HTML with <wbr>.
+									?>
+								</code>
+							</dd>
+						<?php endif; ?>
+					</dl>
 				<?php endif; ?>
-			</table>
+			</div>
 
-			<p>
+			<p class="fosse-action-bar">
 				<a class="fosse-settings-secondary-link" href="<?php echo esc_url( admin_url( 'options-general.php?page=activitypub' ) ); ?>">
 					<?php esc_html_e( 'Advanced ActivityPub settings', 'fosse' ); ?>
 				</a>
@@ -229,14 +227,19 @@ class AP_Provider implements Connection_Provider {
 	 */
 	public function render_connection_actions(): void {
 		?>
-		<div class="fosse-connection-section" id="fosse-provider-activitypub-connection">
-			<h3><?php esc_html_e( 'ActivityPub', 'fosse' ); ?></h3>
-			<p>
-				<strong><?php esc_html_e( 'Connected automatically', 'fosse' ); ?></strong>
-			</p>
-			<p class="description">
-				<?php esc_html_e( 'ActivityPub is active for this site, so no separate connection step is needed.', 'fosse' ); ?>
-			</p>
+		<div class="fosse-connection-section fosse-admin-card" id="fosse-provider-activitypub-connection">
+			<div class="fosse-card-header">
+				<h3><?php esc_html_e( 'ActivityPub', 'fosse' ); ?></h3>
+				<span class="fosse-status-badge is-connected"><?php esc_html_e( 'Connected', 'fosse' ); ?></span>
+			</div>
+			<div class="fosse-card-body">
+				<p>
+					<strong><?php esc_html_e( 'Connected automatically', 'fosse' ); ?></strong>
+				</p>
+				<p class="description">
+					<?php esc_html_e( 'ActivityPub is active for this site, so no separate connection step is needed.', 'fosse' ); ?>
+				</p>
+			</div>
 		</div>
 		<?php
 	}
@@ -259,8 +262,8 @@ class AP_Provider implements Connection_Provider {
 			$status['post_types']
 		);
 		?>
-		<div class="fosse-status-card">
-			<div class="fosse-status-card__header">
+		<div class="fosse-status-card fosse-admin-card">
+			<div class="fosse-status-card__header fosse-card-header">
 				<h2 class="fosse-status-card__title">
 					<span
 						class="fosse-status-indicator <?php echo esc_attr( $status_class ); ?>"
@@ -271,43 +274,35 @@ class AP_Provider implements Connection_Provider {
 				<span class="fosse-status-badge is-<?php echo esc_attr( $status_class ); ?>"><?php echo esc_html( $status_label ); ?></span>
 			</div>
 
-			<table class="widefat striped fosse-status-card__table">
-				<tbody>
-					<tr>
-						<th scope="row" class="fosse-status-card__label"><?php esc_html_e( 'ActivityPub profile', 'fosse' ); ?></th>
-						<td class="fosse-status-card__value"><?php echo esc_html( $mode_label ); ?></td>
-					</tr>
-					<tr>
-						<th scope="row" class="fosse-status-card__label"><?php esc_html_e( 'Content types', 'fosse' ); ?></th>
-						<td class="fosse-status-card__value"><?php echo esc_html( implode( ', ', $post_types ) ); ?></td>
-					</tr>
+			<div class="fosse-card-body">
+				<dl class="fosse-detail-list">
+					<dt class="fosse-detail-list__term"><?php esc_html_e( 'ActivityPub profile', 'fosse' ); ?></dt>
+					<dd class="fosse-detail-list__description"><?php echo esc_html( $mode_label ); ?></dd>
+					<dt class="fosse-detail-list__term"><?php esc_html_e( 'Content types', 'fosse' ); ?></dt>
+					<dd class="fosse-detail-list__description"><?php echo esc_html( implode( ', ', $post_types ) ); ?></dd>
 					<?php if ( $this->mode_includes_user( $status['actor_mode'] ) && ! empty( $status['user_address'] ) ) : ?>
-						<tr class="fosse-status-card__row--stacked">
-							<th scope="row" class="fosse-status-card__label"><?php esc_html_e( 'Your fediverse address', 'fosse' ); ?></th>
-							<td class="fosse-status-card__value">
-								<code class="fosse-status-card__token fosse-status-card__token--ap-address">
+						<dt class="fosse-detail-list__term"><?php esc_html_e( 'Your fediverse address', 'fosse' ); ?></dt>
+						<dd class="fosse-detail-list__description">
+								<code class="fosse-token fosse-status-card__token fosse-token--ap-address fosse-status-card__token--ap-address">
 									<?php
 									echo Status_Formatter::ap_address( '@' . $status['user_address'] ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Status_Formatter::ap_address() escapes input and returns safe HTML with <wbr>.
 									?>
 								</code>
-							</td>
-						</tr>
+						</dd>
 					<?php endif; ?>
 					<?php if ( $this->mode_includes_blog( $status['actor_mode'] ) && ! empty( $status['blog_address'] ) ) : ?>
-						<tr class="fosse-status-card__row--stacked">
-							<th scope="row" class="fosse-status-card__label"><?php esc_html_e( 'Site fediverse address', 'fosse' ); ?></th>
-							<td class="fosse-status-card__value">
-								<code class="fosse-status-card__token fosse-status-card__token--ap-address">
+						<dt class="fosse-detail-list__term"><?php esc_html_e( 'Site fediverse address', 'fosse' ); ?></dt>
+						<dd class="fosse-detail-list__description">
+								<code class="fosse-token fosse-status-card__token fosse-token--ap-address fosse-status-card__token--ap-address">
 									<?php
 									echo Status_Formatter::ap_address( '@' . $status['blog_address'] ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Status_Formatter::ap_address() escapes input and returns safe HTML with <wbr>.
 									?>
 								</code>
-							</td>
-						</tr>
+						</dd>
 					<?php endif; ?>
 					<?php $this->render_follower_count_row(); ?>
-				</tbody>
-			</table>
+				</dl>
+			</div>
 		</div>
 		<?php
 	}
@@ -619,18 +614,15 @@ class AP_Provider implements Connection_Provider {
 			}
 			$count = \Activitypub\Collection\Followers::count( \Activitypub\Collection\Actors::BLOG_USER_ID );
 			?>
-			<tr>
-				<th scope="row" class="fosse-status-card__label"><?php esc_html_e( 'Followers', 'fosse' ); ?></th>
-				<td class="fosse-status-card__value"><?php echo esc_html( number_format_i18n( $count ) ); ?></td>
-			</tr>
+			<dt class="fosse-detail-list__term"><?php esc_html_e( 'Followers', 'fosse' ); ?></dt>
+			<dd class="fosse-detail-list__description"><?php echo esc_html( number_format_i18n( $count ) ); ?></dd>
 			<?php
 		} elseif ( 'actor_blog' === $mode && $has_blog_id ) {
 			$user_count = \Activitypub\Collection\Followers::count( get_current_user_id() );
 			$blog_count = \Activitypub\Collection\Followers::count( \Activitypub\Collection\Actors::BLOG_USER_ID );
 			?>
-			<tr>
-				<th scope="row" class="fosse-status-card__label"><?php esc_html_e( 'Followers', 'fosse' ); ?></th>
-				<td class="fosse-status-card__value">
+			<dt class="fosse-detail-list__term"><?php esc_html_e( 'Followers', 'fosse' ); ?></dt>
+			<dd class="fosse-detail-list__description">
 					<?php
 					printf(
 						/* translators: 1: author follower count, 2: blog follower count */
@@ -639,16 +631,13 @@ class AP_Provider implements Connection_Provider {
 						esc_html( number_format_i18n( $blog_count ) )
 					);
 					?>
-				</td>
-			</tr>
+			</dd>
 			<?php
 		} else {
 			$count = \Activitypub\Collection\Followers::count( get_current_user_id() );
 			?>
-			<tr>
-				<th scope="row" class="fosse-status-card__label"><?php esc_html_e( 'Your Followers', 'fosse' ); ?></th>
-				<td class="fosse-status-card__value"><?php echo esc_html( number_format_i18n( $count ) ); ?></td>
-			</tr>
+			<dt class="fosse-detail-list__term"><?php esc_html_e( 'Your Followers', 'fosse' ); ?></dt>
+			<dd class="fosse-detail-list__description"><?php echo esc_html( number_format_i18n( $count ) ); ?></dd>
 			<?php
 		}
 	}

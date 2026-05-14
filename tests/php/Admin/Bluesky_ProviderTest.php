@@ -313,7 +313,10 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		$output = ob_get_clean();
 
 		$this->assertStringContainsString( 'id="fosse-provider-bluesky"', $output );
-		$this->assertStringContainsString( 'class="fosse-connection-section"', $output );
+		$this->assertStringContainsString( 'fosse-connection-section', $output );
+		$this->assertStringContainsString( 'fosse-admin-card', $output );
+		$this->assertStringContainsString( 'fosse-card-header', $output );
+		$this->assertStringContainsString( 'fosse-card-body', $output );
 		$this->assertStringContainsString( '<h3>Bluesky</h3>', $output );
 	}
 
@@ -327,6 +330,10 @@ class Bluesky_ProviderTest extends BaseTestCase {
 
 		$this->assertStringContainsString( 'fosse_connect_bluesky', $output );
 		$this->assertStringContainsString( 'bluesky_handle', $output );
+		$this->assertStringContainsString( 'fosse-field', $output );
+		$this->assertStringContainsString( 'fosse-card-footer', $output );
+		$this->assertStringContainsString( 'fosse-action-bar', $output );
+		$this->assertStringNotContainsString( 'class="form-table"', $output );
 	}
 
 	/**
@@ -350,6 +357,10 @@ class Bluesky_ProviderTest extends BaseTestCase {
 
 		$this->assertStringContainsString( 'fosse_disconnect_bluesky', $output );
 		$this->assertStringContainsString( 'alice.bsky.social', $output );
+		$this->assertStringContainsString( 'fosse-detail-list', $output );
+		$this->assertStringContainsString( 'fosse-detail-list__term', $output );
+		$this->assertStringContainsString( 'fosse-detail-list__description', $output );
+		$this->assertStringNotContainsString( 'class="form-table"', $output );
 	}
 
 	/**
@@ -522,7 +533,7 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		$this->assertStringContainsString( 'Reconnect required', $output );
 		$this->assertStringContainsString( '#fosse-provider-bluesky', $output );
 		$this->assertStringContainsString( '<details', $output );
-		$this->assertStringNotContainsString( 'fosse-status-card__actions', $output );
+		$this->assertStringNotContainsString( 'fosse-action-bar', $output );
 	}
 
 	/**
@@ -544,7 +555,7 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		$this->provider->render_status_card();
 		$output = ob_get_clean();
 
-		$this->assertMatchesRegularExpression( '/<td[^>]*>\s*OK\s*<\/td>/', $output );
+		$this->assertMatchesRegularExpression( '/<dd[^>]*class="[^"]*fosse-detail-list__description[^"]*"[^>]*>\s*OK\s*<\/dd>/', $output );
 		$this->assertStringNotContainsString( 'Reconnect required', $output );
 		$this->assertStringNotContainsString( '<details', $output );
 	}
@@ -557,7 +568,8 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		$this->provider->render_status_card();
 		$output = ob_get_clean();
 
-		$this->assertStringContainsString( 'fosse-status-card__actions', $output );
+		$this->assertStringContainsString( 'fosse-card-footer', $output );
+		$this->assertStringContainsString( 'fosse-action-bar', $output );
 		$this->assertStringContainsString( 'Open Bluesky settings', $output );
 		$this->assertStringContainsString( 'admin.php?page=fosse#fosse-provider-bluesky', $output );
 	}
@@ -581,7 +593,7 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		$this->provider->render_status_card();
 		$output = ob_get_clean();
 
-		$this->assertStringNotContainsString( 'fosse-status-card__actions', $output );
+		$this->assertStringNotContainsString( 'fosse-action-bar', $output );
 	}
 
 	/**
@@ -605,13 +617,14 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		$this->provider->render_status_card();
 		$output = ob_get_clean();
 
-		$this->assertStringContainsString( 'fosse-status-card__table', $output );
-		$this->assertStringContainsString( 'fosse-status-card__label', $output );
-		$this->assertStringContainsString( 'fosse-status-card__value', $output );
+		$this->assertStringContainsString( 'fosse-detail-list', $output );
+		$this->assertStringContainsString( 'fosse-detail-list__term', $output );
+		$this->assertStringContainsString( 'fosse-detail-list__description', $output );
 
-		$this->assertStringContainsString( 'fosse-status-card__token--did', $output );
-		$this->assertStringContainsString( 'fosse-status-card__token--handle', $output );
-		$this->assertStringContainsString( 'fosse-status-card__token--url', $output );
+		$this->assertStringContainsString( 'fosse-token--did', $output );
+		$this->assertStringContainsString( 'fosse-token--handle', $output );
+		$this->assertStringContainsString( 'fosse-token--url', $output );
+		$this->assertStringNotContainsString( 'widefat striped', $output );
 
 		// DID renders with <wbr> after each `:` separator.
 		$this->assertStringContainsString( 'did:<wbr>plc:<wbr>longidentifier', $output );
@@ -2672,8 +2685,14 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		$this->provider->render_connection_actions();
 		$output = ob_get_clean();
 
+		$note_position   = strpos( $output, 'fosse-domain-handle-revert-note' );
+		$footer_position = strpos( $output, 'fosse-card-footer fosse-action-bar' );
+
 		$this->assertStringContainsString( 'Disconnecting will also restore alice.bsky.social as this account\'s Bluesky handle', html_entity_decode( $output, ENT_QUOTES, 'UTF-8' ) );
 		$this->assertStringContainsString( 'alice.bsky.social', $output );
+		$this->assertIsInt( $note_position );
+		$this->assertIsInt( $footer_position );
+		$this->assertLessThan( $footer_position, $note_position );
 	}
 
 	/**

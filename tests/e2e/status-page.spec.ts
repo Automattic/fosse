@@ -43,17 +43,17 @@ test.describe( 'Status page polish', () => {
 			.filter( { hasText: 'Bluesky' } );
 		await expect( card ).toBeVisible();
 		return card.evaluate( ( el ) => {
-			const table = el.querySelector(
-				'.fosse-status-card__table'
+			const detailList = el.querySelector(
+				'.fosse-detail-list'
 			) as HTMLElement | null;
-			if ( ! table || ! ( el instanceof HTMLElement ) ) {
+			if ( ! detailList || ! ( el instanceof HTMLElement ) ) {
 				return null;
 			}
 			return {
 				cardScroll: el.scrollWidth,
 				cardClient: el.clientWidth,
-				tableScroll: table.scrollWidth,
-				tableClient: table.clientWidth,
+				detailListScroll: detailList.scrollWidth,
+				detailListClient: detailList.clientWidth,
 			};
 		} );
 	};
@@ -68,17 +68,26 @@ test.describe( 'Status page polish', () => {
 			.locator( '.fosse-status-card' )
 			.filter( { hasText: 'Bluesky' } );
 
-		// The value cells should carry the BEM classes the polish CSS
-		// targets, and the token wrappers should carry the token-shape
-		// modifier so `overflow-wrap: anywhere` is scoped correctly.
+		// The value pairs should carry the shared detail-list classes the
+		// polish CSS targets, and token wrappers should carry token-shape
+		// modifiers so `overflow-wrap: anywhere` is scoped correctly.
 		await expect(
-			blueskyCard.locator( '.fosse-status-card__token--did' )
+			blueskyCard.locator( '.fosse-detail-list' )
 		).toBeVisible();
 		await expect(
-			blueskyCard.locator( '.fosse-status-card__token--url' )
+			blueskyCard.locator( '.fosse-detail-list__term' )
+		).not.toHaveCount( 0 );
+		await expect(
+			blueskyCard.locator( '.fosse-detail-list__description' )
+		).not.toHaveCount( 0 );
+		await expect(
+			blueskyCard.locator( '.fosse-token--did' )
 		).toBeVisible();
 		await expect(
-			blueskyCard.locator( '.fosse-status-card__token--handle' )
+			blueskyCard.locator( '.fosse-token--url' )
+		).toBeVisible();
+		await expect(
+			blueskyCard.locator( '.fosse-token--handle' )
 		).toBeVisible();
 
 		const overflow = await measureCardOverflow( page );
@@ -88,8 +97,8 @@ test.describe( 'Status page polish', () => {
 		expect( overflow!.cardScroll ).toBeLessThanOrEqual(
 			overflow!.cardClient + 1
 		);
-		expect( overflow!.tableScroll ).toBeLessThanOrEqual(
-			overflow!.tableClient + 1
+		expect( overflow!.detailListScroll ).toBeLessThanOrEqual(
+			overflow!.detailListClient + 1
 		);
 	} );
 
@@ -111,8 +120,8 @@ test.describe( 'Status page polish', () => {
 		expect( overflow!.cardScroll ).toBeLessThanOrEqual(
 			overflow!.cardClient + 1
 		);
-		expect( overflow!.tableScroll ).toBeLessThanOrEqual(
-			overflow!.tableClient + 1
+		expect( overflow!.detailListScroll ).toBeLessThanOrEqual(
+			overflow!.detailListClient + 1
 		);
 	} );
 
@@ -131,19 +140,23 @@ test.describe( 'Status page polish', () => {
 		} );
 		await expect( activityPubCard ).toHaveCount( 1 );
 
-		const rows = activityPubCard.locator( '.fosse-status-card__table tr' );
+		const rows = activityPubCard.locator( '.fosse-detail-list__term' );
 		const rowCount = await rows.count();
 		expect(
 			rowCount,
 			'ActivityPub status rows should be present'
 		).toBeGreaterThan( 0 );
 
-		const rowGaps = await rows.evaluateAll( ( statusRows ) =>
-			statusRows.map( ( row ) => {
-				const label = row.querySelector( '.fosse-status-card__label' );
-				const value = row.querySelector( '.fosse-status-card__value' );
+		const rowGaps = await rows.evaluateAll( ( terms ) =>
+			terms.map( ( label ) => {
+				const value = label.nextElementSibling;
 
-				if ( ! label || ! value ) {
+				if (
+					! value ||
+					! value.classList.contains(
+						'fosse-detail-list__description'
+					)
+				) {
 					return null;
 				}
 
@@ -186,6 +199,28 @@ test.describe( 'Status page polish', () => {
 		await expect(
 			page.getByRole( 'link', { name: 'Manage connections' } )
 		).toBeVisible();
+		await expect(
+			page.getByRole( 'link', { name: 'Run the wizard' } )
+		).toHaveAttribute( 'href', /page=fosse-wizard/ );
+		const wizardLinkPlacement = await page.evaluate( () => {
+			const statusCards = document.querySelector( '.fosse-status-cards' );
+			const link = document.querySelector(
+				'.fosse-admin-page__footer-action a'
+			);
+
+			if ( ! statusCards || ! link ) {
+				return null;
+			}
+
+			return {
+				statusCardsBottom: statusCards.getBoundingClientRect().bottom,
+				linkTop: link.getBoundingClientRect().top,
+			};
+		} );
+		expect( wizardLinkPlacement ).not.toBeNull();
+		expect( wizardLinkPlacement!.linkTop ).toBeGreaterThan(
+			wizardLinkPlacement!.statusCardsBottom
+		);
 
 		expect(
 			await numericCssValue(

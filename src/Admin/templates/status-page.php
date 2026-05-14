@@ -38,7 +38,7 @@ if ( 0 === $connected_count ) {
 	$summary_description = __( 'All available providers are connected and ready to publish.', 'fosse' );
 }
 ?>
-<div class="wrap fosse-admin-page fosse-admin-page--status">
+<div class="wrap fosse-admin-page fosse-admin-shell fosse-admin-page--status">
 	<header class="fosse-admin-page__header">
 		<p class="fosse-admin-page__eyebrow"><?php esc_html_e( 'Social web', 'fosse' ); ?></p>
 		<h1 class="fosse-admin-page__title"><?php esc_html_e( 'FOSSE Status', 'fosse' ); ?></h1>
@@ -48,8 +48,8 @@ if ( 0 === $connected_count ) {
 	</header>
 
 	<?php if ( ! empty( $available ) ) : ?>
-		<div class="fosse-status-summary<?php echo esc_attr( $connected_count < $available_count ? ' has-attention' : '' ); ?>">
-			<div class="fosse-status-summary__body">
+		<div class="fosse-status-summary fosse-admin-card<?php echo esc_attr( $connected_count < $available_count ? ' has-attention' : '' ); ?>">
+			<div class="fosse-status-summary__body fosse-card-body">
 				<p class="fosse-status-summary__label"><?php esc_html_e( 'Provider status', 'fosse' ); ?></p>
 				<p class="fosse-status-summary__count">
 					<?php
@@ -64,7 +64,7 @@ if ( 0 === $connected_count ) {
 				<p class="fosse-status-summary__description"><?php echo esc_html( $summary_description ); ?></p>
 			</div>
 			<?php if ( $connected_count < $available_count ) : ?>
-				<p class="fosse-status-summary__actions">
+				<p class="fosse-status-summary__actions fosse-card-footer fosse-action-bar">
 					<a class="button button-primary" href="<?php echo esc_url( admin_url( 'admin.php?page=fosse#fosse-connections' ) ); ?>">
 						<?php esc_html_e( 'Manage connections', 'fosse' ); ?>
 					</a>
@@ -91,4 +91,10 @@ if ( 0 === $connected_count ) {
 			</p>
 		</div>
 	<?php endif; ?>
+
+	<p class="fosse-admin-page__footer-action">
+		<a class="fosse-admin-page__secondary-link" href="<?php echo esc_url( admin_url( 'admin.php?page=fosse-wizard' ) ); ?>">
+			<?php esc_html_e( 'Run the wizard', 'fosse' ); ?>
+		</a>
+	</p>
 </div>

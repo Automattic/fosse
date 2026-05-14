@@ -175,7 +175,7 @@ class Onboarding_Wizard {
 		);
 
 		?>
-		<div class="wrap fosse-wizard">
+		<div class="wrap fosse-wizard fosse-admin-shell">
 		<?php
 		self::render_lizard_toggle();
 
@@ -962,6 +962,26 @@ class Onboarding_Wizard {
 	}
 
 	/**
+	 * Render a wizard card header.
+	 *
+	 * @param string $title       Header title.
+	 * @param string $description Header description.
+	 * @return void
+	 */
+	private static function render_step_card_header( string $title, string $description ): void {
+		?>
+		<div class="fosse-card-header fosse-wizard__card-header">
+			<div class="fosse-wizard__card-heading">
+				<h1 class="fosse-wizard__title"><?php echo esc_html( $title ); ?></h1>
+				<p class="fosse-wizard__description">
+					<?php echo esc_html( $description ); ?>
+				</p>
+			</div>
+		</div>
+		<?php
+	}
+
+	/**
 	 * Render Step 1: Destinations.
 	 *
 	 * @return void
@@ -989,23 +1009,25 @@ class Onboarding_Wizard {
 			),
 		);
 		?>
-		<h1 class="fosse-wizard__title"><?php esc_html_e( 'Where should your WordPress posts appear?', 'fosse' ); ?></h1>
-		<p class="fosse-wizard__description">
-			<?php esc_html_e( 'Fediverse sharing is enabled by default, so people can follow your site from Fediverse apps like Mastodon. You can also connect Bluesky now or set it up later.', 'fosse' ); ?>
-		</p>
-
-		<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+		<form class="fosse-wizard__form" method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
 			<input type="hidden" name="action" value="fosse_wizard_save" />
 			<input type="hidden" name="fosse_wizard_step" value="destinations" />
 			<input type="hidden" name="_wpnonce" value="<?php echo esc_attr( $nonce ); ?>" />
 
-			<div class="fosse-wizard__card">
+			<div class="fosse-wizard__card fosse-admin-card">
+				<?php
+				self::render_step_card_header(
+					__( 'Where should your WordPress posts appear?', 'fosse' ),
+					__( 'Fediverse sharing is enabled by default, so people can follow your site from Fediverse apps like Mastodon. You can also connect Bluesky now or set it up later.', 'fosse' )
+				);
+				?>
+				<div class="fosse-card-body">
 				<fieldset class="fosse-destination-cards">
 					<legend class="screen-reader-text">
 						<?php esc_html_e( 'Where to publish', 'fosse' ); ?>
 					</legend>
 					<?php foreach ( $destinations as $value => $destination ) : ?>
-						<label class="fosse-destination-card <?php echo esc_attr( $destination['class'] ); ?>">
+						<label class="fosse-choice-card fosse-destination-card <?php echo esc_attr( $destination['class'] ); ?>">
 							<input
 								type="radio"
 								name="fosse_onboarding_destination"
@@ -1027,14 +1049,17 @@ class Onboarding_Wizard {
 						</label>
 					<?php endforeach; ?>
 				</fieldset>
-			</div>
+				</div>
 
-			<div class="fosse-wizard__actions fosse-wizard__actions--center">
-				<div class="fosse-wizard__actions-column">
-					<?php submit_button( __( 'Continue', 'fosse' ), 'primary large', 'submit', false ); ?>
-					<a href="<?php echo esc_url( self::get_skip_url() ); ?>" class="fosse-wizard__skip">
-						<?php esc_html_e( 'Skip setup', 'fosse' ); ?>
-					</a>
+				<div class="fosse-card-footer">
+					<div class="fosse-wizard__actions fosse-wizard__actions--center">
+						<div class="fosse-wizard__actions-primary">
+							<a href="<?php echo esc_url( self::get_skip_url() ); ?>" class="fosse-wizard__skip">
+								<?php esc_html_e( 'Skip setup', 'fosse' ); ?>
+							</a>
+							<?php submit_button( __( 'Continue', 'fosse' ), 'primary large', 'submit', false ); ?>
+						</div>
+					</div>
 				</div>
 			</div>
 		</form>
@@ -1118,19 +1143,20 @@ class Onboarding_Wizard {
 		}
 
 		?>
-		<h1 class="fosse-wizard__title"><?php esc_html_e( 'Who should people follow?', 'fosse' ); ?></h1>
-		<p class="fosse-wizard__description">
-			<?php esc_html_e( 'Choose the fediverse identity people can follow when FOSSE shares your selected content types.', 'fosse' ); ?>
-		</p>
-
-		<?php settings_errors( 'fosse' ); ?>
-
-		<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+		<form class="fosse-wizard__form" method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
 			<input type="hidden" name="action" value="fosse_wizard_save" />
 			<input type="hidden" name="fosse_wizard_step" value="appearance" />
 			<input type="hidden" name="_wpnonce" value="<?php echo esc_attr( $nonce ); ?>" />
 
-			<div class="fosse-wizard__card">
+			<div class="fosse-wizard__card fosse-admin-card">
+				<?php
+				self::render_step_card_header(
+					__( 'Who should people follow?', 'fosse' ),
+					__( 'Choose the fediverse identity people can follow when FOSSE shares your selected content types.', 'fosse' )
+				);
+				?>
+				<div class="fosse-card-body">
+				<?php settings_errors( 'fosse' ); ?>
 				<?php if ( Actor_Mode_Lock::is_locked() ) : ?>
 					<?php $forced_mode = Actor_Mode_Lock::forced_mode(); ?>
 					<div class="fosse-wizard__locked-mode">
@@ -1151,7 +1177,7 @@ class Onboarding_Wizard {
 							<?php esc_html_e( 'How posts appear', 'fosse' ); ?>
 						</legend>
 						<?php foreach ( $modes as $value => $mode ) : ?>
-							<label class="fosse-mode-card">
+							<label class="fosse-choice-card fosse-mode-card">
 								<input
 									type="radio"
 									name="activitypub_actor_mode"
@@ -1245,17 +1271,20 @@ class Onboarding_Wizard {
 						<?php esc_html_e( 'The username people use to follow your site in fediverse apps. It cannot match an existing author login or nicename.', 'fosse' ); ?>
 					</p>
 				</div>
-			</div>
+				</div>
 
-			<div class="fosse-wizard__actions">
-				<a href="<?php echo esc_url( admin_url( 'admin.php?page=fosse-wizard&step=destinations' ) ); ?>" class="button">
-					&larr; <?php esc_html_e( 'Back', 'fosse' ); ?>
-				</a>
-				<div class="fosse-wizard__actions-primary">
-					<a href="<?php echo esc_url( self::get_skip_url() ); ?>" class="fosse-wizard__skip">
-						<?php esc_html_e( 'Skip setup', 'fosse' ); ?>
-					</a>
-					<?php submit_button( __( 'Continue', 'fosse' ), 'primary', 'submit', false ); ?>
+				<div class="fosse-card-footer">
+					<div class="fosse-wizard__actions">
+						<a href="<?php echo esc_url( admin_url( 'admin.php?page=fosse-wizard&step=destinations' ) ); ?>" class="button">
+							&larr; <?php esc_html_e( 'Back', 'fosse' ); ?>
+						</a>
+						<div class="fosse-wizard__actions-primary">
+							<a href="<?php echo esc_url( self::get_skip_url() ); ?>" class="fosse-wizard__skip">
+								<?php esc_html_e( 'Skip setup', 'fosse' ); ?>
+							</a>
+							<?php submit_button( __( 'Continue', 'fosse' ), 'primary', 'submit', false ); ?>
+						</div>
+					</div>
 				</div>
 			</div>
 		</form>
@@ -1278,23 +1307,24 @@ class Onboarding_Wizard {
 		$has_empty_error = isset( $_GET['error'] ) && 'empty_post_types' === $_GET['error'];
 
 		?>
-		<h1 class="fosse-wizard__title"><?php esc_html_e( 'What do you want to share?', 'fosse' ); ?></h1>
-		<p class="fosse-wizard__description">
-			<?php esc_html_e( 'Choose what to share with people who follow your site. You can change this anytime.', 'fosse' ); ?>
-		</p>
-
-		<?php if ( $has_empty_error ) : ?>
-			<div class="notice notice-error inline">
-				<p><?php esc_html_e( 'Pick at least one content type to share.', 'fosse' ); ?></p>
-			</div>
-		<?php endif; ?>
-
-		<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+		<form class="fosse-wizard__form" method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
 			<input type="hidden" name="action" value="fosse_wizard_save" />
 			<input type="hidden" name="fosse_wizard_step" value="content" />
 			<input type="hidden" name="_wpnonce" value="<?php echo esc_attr( $nonce ); ?>" />
 
-			<div class="fosse-wizard__card">
+			<div class="fosse-wizard__card fosse-admin-card">
+				<?php
+				self::render_step_card_header(
+					__( 'What do you want to share?', 'fosse' ),
+					__( 'Choose what to share with people who follow your site. You can change this anytime.', 'fosse' )
+				);
+				?>
+				<div class="fosse-card-body">
+				<?php if ( $has_empty_error ) : ?>
+					<div class="notice notice-error inline">
+						<p><?php esc_html_e( 'Pick at least one content type to share.', 'fosse' ); ?></p>
+					</div>
+				<?php endif; ?>
 				<div class="fosse-post-types">
 					<?php
 					$primary_order = array( 'post', 'page' );
@@ -1325,7 +1355,7 @@ class Onboarding_Wizard {
 						<fieldset class="fosse-post-types__group">
 							<legend class="fosse-post-types__group-label"><?php echo esc_html( $group['label'] ); ?></legend>
 							<?php foreach ( $group['types'] as $pt ) : ?>
-								<label class="fosse-post-type-item">
+								<label class="fosse-choice-card fosse-post-type-item">
 									<input
 										type="checkbox"
 										name="activitypub_support_post_types[]"
@@ -1344,17 +1374,20 @@ class Onboarding_Wizard {
 				<div class="fosse-wizard__hint">
 					<p><?php esc_html_e( 'Only new posts will be shared. Existing content will not be sent to followers.', 'fosse' ); ?></p>
 				</div>
-			</div>
+				</div>
 
-			<div class="fosse-wizard__actions">
-				<a href="<?php echo esc_url( admin_url( 'admin.php?page=fosse-wizard&step=appearance' ) ); ?>" class="button">
-					&larr; <?php esc_html_e( 'Back', 'fosse' ); ?>
-				</a>
-				<div class="fosse-wizard__actions-primary">
-					<a href="<?php echo esc_url( self::get_skip_url() ); ?>" class="fosse-wizard__skip">
-						<?php esc_html_e( 'Skip setup', 'fosse' ); ?>
-					</a>
-					<?php submit_button( __( 'Continue', 'fosse' ), 'primary', 'submit', false ); ?>
+				<div class="fosse-card-footer">
+					<div class="fosse-wizard__actions">
+						<a href="<?php echo esc_url( admin_url( 'admin.php?page=fosse-wizard&step=appearance' ) ); ?>" class="button">
+							&larr; <?php esc_html_e( 'Back', 'fosse' ); ?>
+						</a>
+						<div class="fosse-wizard__actions-primary">
+							<a href="<?php echo esc_url( self::get_skip_url() ); ?>" class="fosse-wizard__skip">
+								<?php esc_html_e( 'Skip setup', 'fosse' ); ?>
+							</a>
+							<?php submit_button( __( 'Continue', 'fosse' ), 'primary', 'submit', false ); ?>
+						</div>
+					</div>
 				</div>
 			</div>
 		</form>
@@ -1388,11 +1421,9 @@ class Onboarding_Wizard {
 			? __( 'Review the connected account below before finishing setup.', 'fosse' )
 			: __( 'Connect your Bluesky account to share eligible WordPress posts there too. This is optional, and you can do it later in FOSSE Settings.', 'fosse' );
 		?>
-		<h1 class="fosse-wizard__title"><?php echo esc_html( $title ); ?></h1>
-		<p class="fosse-wizard__description">
-			<?php echo esc_html( $description ); ?>
-		</p>
-
+		<div class="fosse-wizard__card fosse-admin-card">
+			<?php self::render_step_card_header( $title, $description ); ?>
+			<div class="fosse-card-body">
 		<?php
 		// Atmosphere posts a settings_error after every OAuth round-trip — a
 		// "Successfully connected" success notice on the happy path, and an
@@ -1421,7 +1452,6 @@ class Onboarding_Wizard {
 		}
 		?>
 
-		<div class="fosse-wizard__card">
 			<?php if ( ! $status['available'] ) : ?>
 				<div class="notice notice-info inline fosse-wizard__notice">
 					<p>
@@ -1438,32 +1468,24 @@ class Onboarding_Wizard {
 					</p>
 				</div>
 
-				<table class="fosse-summary">
+				<dl class="fosse-detail-list">
 					<?php if ( $status['handle'] ) : ?>
-						<tr>
-							<th scope="row" class="fosse-summary__label"><?php esc_html_e( 'Handle', 'fosse' ); ?></th>
-							<td class="fosse-summary__value"><?php echo esc_html( $status['handle'] ); ?></td>
-						</tr>
+						<dt class="fosse-detail-list__term"><?php esc_html_e( 'Handle', 'fosse' ); ?></dt>
+						<dd class="fosse-detail-list__description"><?php echo esc_html( $status['handle'] ); ?></dd>
 					<?php endif; ?>
 					<?php if ( $status['did'] ) : ?>
-						<tr>
-							<th scope="row" class="fosse-summary__label"><?php esc_html_e( 'Account ID', 'fosse' ); ?></th>
-							<td class="fosse-summary__value"><code><?php echo esc_html( $status['did'] ); ?></code></td>
-						</tr>
+						<dt class="fosse-detail-list__term"><?php esc_html_e( 'Account ID', 'fosse' ); ?></dt>
+						<dd class="fosse-detail-list__description"><code><?php echo esc_html( $status['did'] ); ?></code></dd>
 					<?php endif; ?>
 					<?php if ( ! empty( $handle_previews['user'] ) ) : ?>
-						<tr>
-							<th scope="row" class="fosse-summary__label"><?php esc_html_e( 'Your fediverse address', 'fosse' ); ?></th>
-							<td class="fosse-summary__value"><code><?php echo esc_html( $handle_previews['user'] ); ?></code></td>
-						</tr>
+						<dt class="fosse-detail-list__term"><?php esc_html_e( 'Your fediverse address', 'fosse' ); ?></dt>
+						<dd class="fosse-detail-list__description"><code><?php echo esc_html( $handle_previews['user'] ); ?></code></dd>
 					<?php endif; ?>
 					<?php if ( ! empty( $handle_previews['blog'] ) ) : ?>
-						<tr>
-							<th scope="row" class="fosse-summary__label"><?php esc_html_e( 'Site fediverse address', 'fosse' ); ?></th>
-							<td class="fosse-summary__value"><code><?php echo esc_html( $handle_previews['blog'] ); ?></code></td>
-						</tr>
+						<dt class="fosse-detail-list__term"><?php esc_html_e( 'Site fediverse address', 'fosse' ); ?></dt>
+						<dd class="fosse-detail-list__description"><code><?php echo esc_html( $handle_previews['blog'] ); ?></code></dd>
 					<?php endif; ?>
-				</table>
+				</dl>
 
 				<?php
 				// Connected-state confirm button: replace the user's Bluesky
@@ -1575,26 +1597,29 @@ class Onboarding_Wizard {
 					</p>
 				</div>
 			<?php endif; ?>
-		</div>
+			</div>
 
 		<?php $complete_url = wp_nonce_url( admin_url( 'admin-post.php?action=fosse_wizard_complete' ), 'fosse_wizard_complete' ); ?>
-		<div class="fosse-wizard__actions">
-			<a href="<?php echo esc_url( admin_url( 'admin.php?page=fosse-wizard&step=content' ) ); ?>" class="button">
-				&larr; <?php esc_html_e( 'Back', 'fosse' ); ?>
-			</a>
-			<div class="fosse-wizard__actions-primary">
-				<?php if ( $status['available'] && ! $is_connected ) : ?>
-					<a href="<?php echo esc_url( $complete_url ); ?>" class="button">
-						<?php esc_html_e( 'Skip Bluesky for now', 'fosse' ); ?>
+			<div class="fosse-card-footer">
+				<div class="fosse-wizard__actions">
+					<a href="<?php echo esc_url( admin_url( 'admin.php?page=fosse-wizard&step=content' ) ); ?>" class="button">
+						&larr; <?php esc_html_e( 'Back', 'fosse' ); ?>
 					</a>
-					<button type="submit" form="fosse-wizard-bluesky-connect-form" class="button button-primary">
-						<?php esc_html_e( 'Connect Bluesky', 'fosse' ); ?>
-					</button>
-				<?php else : ?>
-					<a href="<?php echo esc_url( $complete_url ); ?>" class="button button-primary">
-						<?php echo esc_html( $is_connected ? __( 'Finish setup', 'fosse' ) : __( 'Skip for now', 'fosse' ) ); ?>
-					</a>
-				<?php endif; ?>
+					<div class="fosse-wizard__actions-primary">
+						<?php if ( $status['available'] && ! $is_connected ) : ?>
+							<a href="<?php echo esc_url( $complete_url ); ?>" class="button">
+								<?php esc_html_e( 'Skip Bluesky for now', 'fosse' ); ?>
+							</a>
+							<button type="submit" form="fosse-wizard-bluesky-connect-form" class="button button-primary">
+								<?php esc_html_e( 'Connect Bluesky', 'fosse' ); ?>
+							</button>
+						<?php else : ?>
+							<a href="<?php echo esc_url( $complete_url ); ?>" class="button button-primary">
+								<?php echo esc_html( $is_connected ? __( 'Finish setup', 'fosse' ) : __( 'Skip for now', 'fosse' ) ); ?>
+							</a>
+						<?php endif; ?>
+					</div>
+				</div>
 			</div>
 		</div>
 		<?php
@@ -1643,26 +1668,41 @@ class Onboarding_Wizard {
 			$bluesky_summary = $includes_bluesky ? __( 'Not connected', 'fosse' ) : __( 'Skipped', 'fosse' );
 		}
 
-		?>
-		<div class="fosse-wizard__complete-header">
-			<div class="fosse-complete-icon">
-				<span class="dashicons dashicons-yes"></span>
-			</div>
-			<h1 class="fosse-wizard__title"><?php esc_html_e( 'You\'re all set!', 'fosse' ); ?></h1>
-			<p class="fosse-wizard__description">
-				<?php esc_html_e( 'Your sharing setup is ready. Review it below, then publish from WordPress when you are ready.', 'fosse' ); ?>
-			</p>
-		</div>
+		$cta = self::resolve_publish_cta( $post_types );
+		if ( $publishes_bluesky ) {
+			$cta_help = __( 'Bluesky sharing is ready too.', 'fosse' );
+		} elseif ( $bluesky['connected'] ) {
+			$cta_help = __( 'Bluesky is connected, but automatic sharing is off.', 'fosse' );
+		} elseif ( $includes_bluesky ) {
+			$cta_help = __( 'Connect Bluesky to share there too.', 'fosse' );
+		} else {
+			$cta_help = '';
+		}
 
-		<div class="fosse-wizard__card">
-			<table class="fosse-summary">
-				<tr>
-					<th scope="row" class="fosse-summary__label"><?php esc_html_e( 'Destinations', 'fosse' ); ?></th>
-					<td class="fosse-summary__value"><?php echo esc_html( $destination_label ); ?></td>
-				</tr>
-				<tr>
-					<th scope="row" class="fosse-summary__label"><?php esc_html_e( 'Fediverse identity', 'fosse' ); ?></th>
-					<td class="fosse-summary__value">
+		?>
+		<div class="fosse-wizard__card fosse-admin-card fosse-wizard__complete-card">
+			<div class="fosse-card-header fosse-wizard__complete-header">
+				<div class="fosse-complete-icon">
+					<span class="dashicons dashicons-yes"></span>
+				</div>
+				<div class="fosse-wizard__complete-message">
+					<h1 class="fosse-wizard__title"><?php esc_html_e( 'You\'re all set!', 'fosse' ); ?></h1>
+					<p class="fosse-wizard__description">
+						<strong><?php esc_html_e( 'Your sharing setup is ready.', 'fosse' ); ?></strong>
+						<?php esc_html_e( 'Review it below, then publish from WordPress when you are ready.', 'fosse' ); ?>
+						<?php if ( '' !== $cta_help ) : ?>
+							<span class="fosse-wizard__cta-help"><?php echo esc_html( $cta_help ); ?></span>
+						<?php endif; ?>
+					</p>
+				</div>
+			</div>
+
+			<div class="fosse-card-body">
+				<dl class="fosse-detail-list">
+					<dt class="fosse-detail-list__term"><?php esc_html_e( 'Destinations', 'fosse' ); ?></dt>
+					<dd class="fosse-detail-list__description"><?php echo esc_html( $destination_label ); ?></dd>
+					<dt class="fosse-detail-list__term"><?php esc_html_e( 'Fediverse identity', 'fosse' ); ?></dt>
+					<dd class="fosse-detail-list__description">
 						<?php
 						echo wp_kses(
 							$mode_label,
@@ -1672,54 +1712,33 @@ class Onboarding_Wizard {
 							)
 						);
 						?>
-					</td>
-				</tr>
-				<tr>
-					<th scope="row" class="fosse-summary__label"><?php esc_html_e( 'Content types', 'fosse' ); ?></th>
-					<td class="fosse-summary__value"><?php echo esc_html( implode( ', ', $type_labels ) ); ?></td>
-				</tr>
-				<tr>
-					<th scope="row" class="fosse-summary__label"><?php esc_html_e( 'Bluesky', 'fosse' ); ?></th>
-					<td class="fosse-summary__value<?php echo $bluesky['connected'] ? '' : ' fosse-summary__value--muted'; ?>"><?php echo esc_html( $bluesky_summary ); ?></td>
-				</tr>
-			</table>
+					</dd>
+					<dt class="fosse-detail-list__term"><?php esc_html_e( 'Content types', 'fosse' ); ?></dt>
+					<dd class="fosse-detail-list__description"><?php echo esc_html( implode( ', ', $type_labels ) ); ?></dd>
+					<dt class="fosse-detail-list__term"><?php esc_html_e( 'Bluesky', 'fosse' ); ?></dt>
+					<dd class="fosse-detail-list__description<?php echo $bluesky['connected'] ? '' : ' fosse-detail-list__description--muted'; ?>"><?php echo esc_html( $bluesky_summary ); ?></dd>
+				</dl>
 
-			<div class="fosse-wizard__hint">
-				<p><?php esc_html_e( 'You can change any of these settings from the FOSSE Settings page at any time.', 'fosse' ); ?></p>
+				<div class="fosse-wizard__hint">
+					<p><?php esc_html_e( 'You can change any of these settings from the FOSSE Settings page at any time.', 'fosse' ); ?></p>
+				</div>
+			</div>
+			<div class="fosse-card-footer fosse-wizard__completion-footer">
+				<div class="fosse-wizard__completion-actions">
+					<div class="fosse-wizard__completion-secondary">
+						<a href="<?php echo esc_url( admin_url( 'admin.php?page=fosse-status' ) ); ?>" class="button">
+							<?php esc_html_e( 'View Status Dashboard', 'fosse' ); ?>
+						</a>
+						<a href="<?php echo esc_url( admin_url( 'admin.php?page=fosse' ) ); ?>" class="button">
+							<?php esc_html_e( 'Go to Settings', 'fosse' ); ?>
+						</a>
+					</div>
+					<a href="<?php echo esc_url( $cta['url'] ); ?>" class="button button-primary fosse-wizard__cta-publish">
+						<?php echo esc_html( $cta['label'] ); ?>
+					</a>
+				</div>
 			</div>
 		</div>
-
-		<?php
-		$cta = self::resolve_publish_cta( $post_types );
-		if ( $publishes_bluesky ) {
-			$cta_help = __( 'Your post can reach people on Fediverse apps like Mastodon and on Bluesky.', 'fosse' );
-		} elseif ( $bluesky['connected'] ) {
-			$cta_help = __( 'Your post can reach people on Fediverse apps like Mastodon. Bluesky is connected, but automatic sharing is off.', 'fosse' );
-		} elseif ( $includes_bluesky ) {
-			$cta_help = __( 'Your post can reach people on Fediverse apps like Mastodon. Connect Bluesky to share there too.', 'fosse' );
-		} else {
-			$cta_help = __( 'Your post can reach people on Fediverse apps like Mastodon.', 'fosse' );
-		}
-		?>
-		<div class="fosse-wizard__actions fosse-wizard__actions--center">
-			<a href="<?php echo esc_url( $cta['url'] ); ?>" class="button button-primary button-hero fosse-wizard__cta-publish">
-				<?php echo esc_html( $cta['label'] ); ?>
-			</a>
-		</div>
-
-		<p class="fosse-wizard__cta-help">
-			<?php echo esc_html( $cta_help ); ?>
-		</p>
-
-		<div class="fosse-wizard__actions fosse-wizard__actions--center fosse-wizard__actions--secondary">
-			<a href="<?php echo esc_url( admin_url( 'admin.php?page=fosse-status' ) ); ?>" class="button">
-				<?php esc_html_e( 'View Status Dashboard', 'fosse' ); ?>
-			</a>
-			<a href="<?php echo esc_url( admin_url( 'admin.php?page=fosse' ) ); ?>" class="button">
-				<?php esc_html_e( 'Go to Settings', 'fosse' ); ?>
-			</a>
-		</div>
-
 		<p class="fosse-wizard__reset">
 			<a href="<?php echo esc_url( wp_nonce_url( admin_url( 'admin-post.php?action=fosse_wizard_reset' ), 'fosse_wizard_reset' ) ); ?>">
 				<?php esc_html_e( 'Run wizard again', 'fosse' ); ?>

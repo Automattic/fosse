@@ -64,7 +64,17 @@ test( 'Destination step shows two destination cards', async ( { page } ) => {
 	await expect( page.locator( '.fosse-wizard__description' ) ).toContainText(
 		'Fediverse apps like Mastodon'
 	);
+	const wizardCard = page.locator( '.fosse-wizard__card.fosse-admin-card' );
+	await expect( wizardCard ).toBeVisible();
+	await expect(
+		wizardCard.locator( '.fosse-card-header .fosse-wizard__title' )
+	).toContainText( 'Where should your WordPress posts appear?' );
+	await expect( wizardCard.locator( '.fosse-card-body' ) ).toBeVisible();
+	await expect(
+		wizardCard.locator( '.fosse-card-footer .fosse-wizard__actions' )
+	).toBeVisible();
 	await expect( page.locator( '.fosse-destination-card' ) ).toHaveCount( 2 );
+	await expect( page.locator( '.fosse-choice-card' ) ).toHaveCount( 2 );
 	await expect(
 		page.locator( '.fosse-destination-card', {
 			hasText: 'Fediverse apps like Mastodon',
@@ -83,6 +93,40 @@ test( 'Destination step shows two destination cards', async ( { page } ) => {
 	await expect( page.getByText( 'Mastodon and similar apps' ) ).toHaveCount(
 		0
 	);
+} );
+
+test( 'Destination step keeps skip and continue actions on one desktop row', async ( {
+	page,
+} ) => {
+	await page.setViewportSize( { width: 1280, height: 900 } );
+	await page.goto( '/wp-admin/admin.php?page=fosse-wizard' );
+
+	const metrics = await page.evaluate( () => {
+		const skip = document.querySelector( '.fosse-wizard__skip' );
+		const submit = document.querySelector(
+			'.fosse-wizard__actions input[type="submit"]'
+		);
+
+		if ( ! skip || ! submit ) {
+			return null;
+		}
+
+		const skipRect = skip.getBoundingClientRect();
+		const submitRect = submit.getBoundingClientRect();
+
+		return {
+			centerDelta: Math.abs(
+				skipRect.top +
+					skipRect.height / 2 -
+					( submitRect.top + submitRect.height / 2 )
+			),
+			skipBeforeSubmit: skipRect.right <= submitRect.left,
+		};
+	} );
+
+	expect( metrics ).not.toBeNull();
+	expect( metrics!.centerDelta ).toBeLessThanOrEqual( 4 );
+	expect( metrics!.skipBeforeSubmit ).toBe( true );
 } );
 
 test( 'Wizard progress stays compact and keeps step labels available on mobile', async ( {
@@ -143,11 +187,7 @@ test( 'Wizard surfaces use restrained visual tokens without page overflow', asyn
 		)
 	).toBe( 0 );
 	expect(
-		await numericCssValue(
-			page,
-			'.fosse-destination-card',
-			'border-radius'
-		)
+		await numericCssValue( page, '.fosse-choice-card', 'border-radius' )
 	).toBeLessThanOrEqual( 8 );
 
 	await page.goto( '/wp-admin/admin.php?page=fosse-wizard&step=content' );
@@ -426,7 +466,7 @@ test.describe( 'Bluesky step — connected (post-OAuth completion)', () => {
 		await expect(
 			page.locator( 'text=/Bluesky is connected/i' )
 		).toHaveCount( 1 );
-		await expect( page.locator( '.fosse-summary' ) ).toContainText(
+		await expect( page.locator( '.fosse-detail-list' ) ).toContainText(
 			'alice.bsky.social'
 		);
 		await expect( page.locator( '.fosse-bluesky-signup' ) ).toHaveCount(
@@ -463,12 +503,14 @@ test( 'Fediverse-only path skips the Bluesky connect step', async ( {
 
 	await expect( page ).toHaveURL( /step=complete/ );
 	await expect(
-		page.locator( '.fosse-summary__label', { hasText: 'Destinations' } )
+		page.locator( '.fosse-detail-list__term', { hasText: 'Destinations' } )
 	).toBeVisible();
-	await expect( page.locator( '.fosse-summary' ) ).toContainText(
+	await expect( page.locator( '.fosse-detail-list' ) ).toContainText(
 		'Fediverse only'
 	);
-	await expect( page.locator( '.fosse-summary' ) ).toContainText( 'Skipped' );
+	await expect( page.locator( '.fosse-detail-list' ) ).toContainText(
+		'Skipped'
+	);
 } );
 
 test( 'Skip Bluesky for now goes to completion', async ( { page } ) => {
@@ -486,14 +528,14 @@ test( 'Skip Bluesky for now goes to completion', async ( { page } ) => {
 test( 'Completion step shows summary', async ( { page } ) => {
 	await completeThroughBlueskySkip( page );
 
-	await expect( page.locator( '.fosse-summary' ) ).toBeVisible();
+	await expect( page.locator( '.fosse-detail-list' ) ).toBeVisible();
 	await expect(
-		page.locator( '.fosse-summary__label', { hasText: 'Destinations' } )
+		page.locator( '.fosse-detail-list__term', { hasText: 'Destinations' } )
 	).toBeVisible();
 	await expect( page.locator( 'text=Fediverse identity' ) ).toBeVisible();
 	await expect( page.locator( 'text=Content types' ) ).toBeVisible();
 	await expect(
-		page.locator( '.fosse-summary__label', { hasText: 'Bluesky' } )
+		page.locator( '.fosse-detail-list__term', { hasText: 'Bluesky' } )
 	).toBeVisible();
 } );
 
@@ -509,6 +551,129 @@ test( 'Completion step exposes "Publish your first Post" CTA to post-new.php', a
 	// `test_render_complete_step_renders_publish_cta`.
 	await expect( publishCta ).toContainText( 'Publish your first Post' );
 	await expect( publishCta ).toHaveAttribute( 'href', /post-new\.php$/ );
+} );
+
+test( 'Completion step keeps success header and actions aligned inside the card', async ( {
+	page,
+} ) => {
+	await completeThroughBlueskySkip( page );
+	await expect(
+		page.locator(
+			'.fosse-wizard__complete-card .fosse-wizard__completion-footer .fosse-wizard__cta-publish'
+		)
+	).toBeVisible();
+
+	const metrics = await page.evaluate( () => {
+		const card = document.querySelector( '.fosse-wizard__complete-card' );
+		const header = card?.querySelector( '.fosse-wizard__complete-header' );
+		const message = card?.querySelector(
+			'.fosse-wizard__complete-message'
+		);
+		const icon = card?.querySelector( '.fosse-complete-icon' );
+		const title = card?.querySelector( '.fosse-wizard__title' );
+		const description = card?.querySelector(
+			'.fosse-wizard__complete-message .fosse-wizard__description'
+		);
+		const help = card?.querySelector( '.fosse-wizard__cta-help' );
+		const oldTitleRow = card?.querySelector(
+			'.fosse-wizard__complete-title-row'
+		);
+		const footer = card?.querySelector(
+			'.fosse-wizard__completion-footer'
+		);
+		const cta = card?.querySelector( '.fosse-wizard__cta-publish' );
+		const reset = document.querySelector( '.fosse-wizard__reset' );
+
+		if (
+			! card ||
+			! header ||
+			! message ||
+			! icon ||
+			! title ||
+			! description ||
+			! help ||
+			! footer ||
+			! cta ||
+			! reset
+		) {
+			return null;
+		}
+
+		const cardRect = card.getBoundingClientRect();
+		const headerRect = header.getBoundingClientRect();
+		const iconRect = icon.getBoundingClientRect();
+		const messageRect = message.getBoundingClientRect();
+		const titleRect = title.getBoundingClientRect();
+		const descriptionRect = description.getBoundingClientRect();
+		const footerRect = footer.getBoundingClientRect();
+		const ctaRect = cta.getBoundingClientRect();
+		const resetRect = reset.getBoundingClientRect();
+
+		return {
+			cardBottom: cardRect.bottom,
+			ctaBottom: ctaRect.bottom,
+			ctaInsideFooter: footer.contains( cta ),
+			ctaStartsInFooter: ctaRect.top >= footerRect.top,
+			descriptionContainsSetup:
+				description.textContent?.includes(
+					'Your sharing setup is ready'
+				) ?? false,
+			descriptionContainsReach:
+				description.textContent?.includes(
+					'Your post can reach people'
+				) ?? false,
+			descriptionContainsBluesky:
+				description.textContent?.includes(
+					'Connect Bluesky to share there too.'
+				) ?? false,
+			descriptionTopGap: descriptionRect.top - titleRect.bottom,
+			headerHeight: headerRect.height,
+			helpInsideHeader: header.contains( help ),
+			helpInsideDescription: description.contains( help ),
+			helpOutsideFooter: ! footer.contains( help ),
+			iconAboveTitle: iconRect.bottom <= titleRect.top - 8,
+			iconCenterDelta: Math.abs(
+				iconRect.left +
+					iconRect.width / 2 -
+					( headerRect.left + headerRect.width / 2 )
+			),
+			messageCenterDelta: Math.abs(
+				messageRect.left +
+					messageRect.width / 2 -
+					( headerRect.left + headerRect.width / 2 )
+			),
+			oldTitleRowRemoved: ! oldTitleRow,
+			iconHeight: iconRect.height,
+			resetBelowCard: resetRect.top >= cardRect.bottom + 12,
+			resetOutsideCard: ! card.contains( reset ),
+			descriptionTextAlign: getComputedStyle( description ).textAlign,
+			titleTextAlign: getComputedStyle( title ).textAlign,
+		};
+	} );
+
+	expect( metrics ).not.toBeNull();
+	expect( metrics!.ctaInsideFooter ).toBe( true );
+	expect( metrics!.ctaStartsInFooter ).toBe( true );
+	expect( metrics!.ctaBottom ).toBeLessThanOrEqual( metrics!.cardBottom + 1 );
+	expect( metrics!.descriptionContainsSetup ).toBe( true );
+	expect( metrics!.descriptionContainsReach ).toBe( false );
+	expect( metrics!.descriptionContainsBluesky ).toBe( true );
+	expect( metrics!.descriptionTopGap ).toBeGreaterThanOrEqual( 6 );
+	expect( metrics!.descriptionTopGap ).toBeLessThanOrEqual( 14 );
+	expect( metrics!.headerHeight ).toBeLessThanOrEqual( 210 );
+	expect( metrics!.helpInsideHeader ).toBe( true );
+	expect( metrics!.helpInsideDescription ).toBe( true );
+	expect( metrics!.helpOutsideFooter ).toBe( true );
+	expect( metrics!.iconAboveTitle ).toBe( true );
+	expect( metrics!.iconCenterDelta ).toBeLessThanOrEqual( 2 );
+	expect( metrics!.messageCenterDelta ).toBeLessThanOrEqual( 2 );
+	expect( metrics!.oldTitleRowRemoved ).toBe( true );
+	expect( metrics!.iconHeight ).toBeGreaterThanOrEqual( 52 );
+	expect( metrics!.iconHeight ).toBeLessThanOrEqual( 64 );
+	expect( metrics!.descriptionTextAlign ).toBe( 'center' );
+	expect( metrics!.titleTextAlign ).toBe( 'center' );
+	expect( metrics!.resetOutsideCard ).toBe( true );
+	expect( metrics!.resetBelowCard ).toBe( true );
 } );
 
 // Activation-redirect coverage lives in PHPUnit (MenuTest). The E2E
