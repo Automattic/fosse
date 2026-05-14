@@ -110,4 +110,40 @@ test.describe( 'Status page polish', () => {
 			overflow!.tableClient + 1
 		);
 	} );
+
+	test( 'partial-connected state links to connection management', async ( {
+		page,
+	} ) => {
+		await setBlueskyState( page, {
+			connected: false,
+			auto_publish: true,
+		} );
+
+		await page.goto( '/wp-admin/admin.php?page=fosse-status' );
+
+		await expect(
+			page.locator( '.fosse-status-summary__count' )
+		).toContainText( '1 of 2 providers connected' );
+
+		const manageConnections = page.getByRole( 'link', {
+			name: 'Manage connections',
+		} );
+		await expect( manageConnections ).toBeVisible();
+		await expect( manageConnections ).toHaveAttribute(
+			'href',
+			/admin\.php\?page=fosse#fosse-connections$/
+		);
+
+		const blueskyCard = page
+			.locator( '.fosse-status-card' )
+			.filter( { hasText: 'Bluesky' } );
+		const openBlueskySettings = blueskyCard.getByRole( 'link', {
+			name: 'Open Bluesky settings',
+		} );
+		await expect( openBlueskySettings ).toBeVisible();
+		await expect( openBlueskySettings ).toHaveAttribute(
+			'href',
+			/admin\.php\?page=fosse#fosse-provider-bluesky$/
+		);
+	} );
 } );
