@@ -183,8 +183,8 @@ class AP_ProviderTest extends BaseTestCase {
 	}
 
 	/**
-	 * AP's render_setup_section preserves the Site Handle field in
-	 * `blog` mode and the "Show advanced ActivityPub settings" link.
+	 * AP's render_setup_section preserves the Site handle field in
+	 * `blog` mode and the secondary ActivityPub settings link.
 	 */
 	public function test_render_setup_section_renders_blog_mode_fields() {
 		update_option( 'activitypub_actor_mode', 'blog' );
@@ -196,7 +196,8 @@ class AP_ProviderTest extends BaseTestCase {
 
 		$this->assertStringContainsString( 'name="activitypub_blog_identifier"', $output );
 		$this->assertStringContainsString( 'value="my-site"', $output );
-		$this->assertStringContainsString( 'Show advanced ActivityPub settings', $output );
+		$this->assertStringContainsString( 'Advanced ActivityPub settings', $output );
+		$this->assertStringContainsString( 'fosse-settings-secondary-link', $output );
 	}
 
 	/**
@@ -212,6 +213,7 @@ class AP_ProviderTest extends BaseTestCase {
 		$this->assertStringContainsString( 'fosse-status-card__table', $output );
 		$this->assertStringContainsString( 'fosse-status-card__label', $output );
 		$this->assertStringContainsString( 'fosse-status-card__value', $output );
+		$this->assertStringContainsString( 'Content types', $output );
 		$this->assertStringNotContainsString( 'Manage ActivityPub settings', $output );
 		$this->assertStringNotContainsString( 'fosse-status-card__manage', $output );
 	}
@@ -790,7 +792,7 @@ class AP_ProviderTest extends BaseTestCase {
 	}
 
 	/**
-	 * The Site Handle field renders in `blog` mode with the current saved
+	 * The Site handle field renders in `blog` mode with the current saved
 	 * value pre-filled so site owners can edit it from FOSSE's surface.
 	 */
 	public function test_render_setup_section_shows_site_handle_field_in_blog_mode() {
@@ -803,7 +805,7 @@ class AP_ProviderTest extends BaseTestCase {
 
 		$this->assertStringContainsString( 'name="activitypub_blog_identifier"', $output );
 		$this->assertStringContainsString( 'value="my-site"', $output );
-		$this->assertStringContainsString( 'Site Handle', $output );
+		$this->assertStringContainsString( 'Site handle', $output );
 	}
 
 	/**
