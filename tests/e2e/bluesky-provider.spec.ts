@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import { resetBlueskyState, setBlueskyState } from './test-helpers';
 
 test.describe( 'Bluesky provider UI', () => {
@@ -24,6 +24,15 @@ test.describe( 'Bluesky provider UI', () => {
 		);
 	} );
 
+	const expectNoCriticalText = async ( page: Page ) => {
+		await expect(
+			page.locator(
+				'text=/Fatal error|Parse error|Uncaught .*Error|critical error/i'
+			)
+		).toHaveCount( 0 );
+		await expect( page.locator( '#error-page' ) ).toHaveCount( 0 );
+	};
+
 	test( 'setup and status pages show Bluesky disconnected by default', async ( {
 		page,
 	} ) => {
@@ -33,6 +42,7 @@ test.describe( 'Bluesky provider UI', () => {
 		} );
 
 		await page.goto( '/wp-admin/admin.php?page=fosse' );
+		await expectNoCriticalText( page );
 
 		const federationSettings = page.locator( '#fosse-federation-settings' );
 		const connections = page.locator( '#fosse-connections' );
@@ -42,7 +52,13 @@ test.describe( 'Bluesky provider UI', () => {
 
 		await expect(
 			federationSettings.getByRole( 'heading', {
-				name: 'Federation settings',
+				name: 'Publishing settings',
+			} )
+		).toBeVisible();
+		await expect( federationSettings ).toContainText( 'Content types' );
+		await expect(
+			federationSettings.getByRole( 'link', {
+				name: 'Advanced ActivityPub settings',
 			} )
 		).toBeVisible();
 		await expect(
@@ -55,7 +71,7 @@ test.describe( 'Bluesky provider UI', () => {
 			connections.locator( '#fosse-provider-activitypub-connection' )
 		).toContainText( 'Connected automatically' );
 		await expect(
-			blueskyConnection.locator( '#fosse_bluesky_handle' )
+			blueskyConnection.getByLabel( 'Bluesky handle' )
 		).toBeVisible();
 		await expect(
 			blueskyConnection.getByRole( 'button', { name: 'Connect Bluesky' } )
@@ -87,6 +103,7 @@ test.describe( 'Bluesky provider UI', () => {
 		} );
 
 		await page.goto( '/wp-admin/admin.php?page=fosse' );
+		await expectNoCriticalText( page );
 
 		const connections = page.locator( '#fosse-connections' );
 		const blueskyConnection = connections.locator(
@@ -98,6 +115,9 @@ test.describe( 'Bluesky provider UI', () => {
 				name: 'Disconnect Bluesky',
 			} )
 		).toBeVisible();
+		await expect( blueskyConnection ).toContainText( 'Connected account' );
+		await expect( blueskyConnection ).toContainText( 'Bluesky handle' );
+		await expect( blueskyConnection ).toContainText( 'Account ID' );
 		await expect( blueskyConnection ).toContainText( 'alice.bsky.social' );
 		await expect( blueskyConnection ).toContainText( 'did:plc:alice123' );
 

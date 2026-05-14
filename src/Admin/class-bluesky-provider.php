@@ -220,7 +220,7 @@ class Bluesky_Provider implements Connection_Provider {
 			<?php settings_errors( 'atmosphere' ); ?>
 
 			<?php if ( ! $status['connected'] ) : ?>
-				<p><?php esc_html_e( 'Connect your Bluesky account so FOSSE can publish new posts there.', 'fosse' ); ?></p>
+				<p><?php esc_html_e( 'Connect a Bluesky account to share eligible WordPress posts there too. You can disconnect it here later.', 'fosse' ); ?></p>
 
 				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
 					<input type="hidden" name="action" value="fosse_connect_bluesky" />
@@ -229,7 +229,7 @@ class Bluesky_Provider implements Connection_Provider {
 					<table class="form-table">
 						<tr>
 							<th scope="row">
-								<label for="fosse_bluesky_handle"><?php esc_html_e( 'Handle', 'fosse' ); ?></label>
+								<label for="fosse_bluesky_handle"><?php esc_html_e( 'Bluesky handle', 'fosse' ); ?></label>
 							</th>
 							<td>
 								<input
@@ -239,7 +239,7 @@ class Bluesky_Provider implements Connection_Provider {
 									id="fosse_bluesky_handle"
 									placeholder="alice.bsky.social"
 								/>
-								<p class="description"><?php esc_html_e( 'Your Bluesky/AT Protocol handle, for example alice.bsky.social or your own domain.', 'fosse' ); ?></p>
+								<p class="description"><?php esc_html_e( 'Enter your Bluesky handle, such as alice.bsky.social. If you use your own domain as your handle, enter that.', 'fosse' ); ?></p>
 								<p class="description fosse-bluesky-signup">
 									<?php
 									echo wp_kses_post(
@@ -259,9 +259,15 @@ class Bluesky_Provider implements Connection_Provider {
 					<?php submit_button( __( 'Connect Bluesky', 'fosse' ) ); ?>
 				</form>
 			<?php else : ?>
+				<p>
+					<strong><?php esc_html_e( 'Connected account', 'fosse' ); ?></strong>
+				</p>
+				<p class="description">
+					<?php esc_html_e( 'FOSSE can share eligible WordPress posts with this Bluesky account.', 'fosse' ); ?>
+				</p>
 				<table class="form-table">
 					<tr>
-						<th scope="row"><?php esc_html_e( 'Handle', 'fosse' ); ?></th>
+						<th scope="row"><?php esc_html_e( 'Bluesky handle', 'fosse' ); ?></th>
 						<td>
 							<strong class="fosse-admin-token fosse-admin-token--handle">
 								<?php
@@ -271,7 +277,7 @@ class Bluesky_Provider implements Connection_Provider {
 						</td>
 					</tr>
 					<tr>
-						<th scope="row"><?php esc_html_e( 'DID', 'fosse' ); ?></th>
+						<th scope="row"><?php esc_html_e( 'Account ID', 'fosse' ); ?></th>
 						<td>
 							<code class="fosse-admin-token fosse-admin-token--did">
 								<?php
@@ -291,7 +297,7 @@ class Bluesky_Provider implements Connection_Provider {
 						</td>
 					</tr>
 					<tr>
-						<th scope="row"><?php esc_html_e( 'Token Health', 'fosse' ); ?></th>
+						<th scope="row"><?php esc_html_e( 'Token health', 'fosse' ); ?></th>
 						<td><?php echo esc_html( $status['token_error'] ? $status['token_error'] : __( 'OK', 'fosse' ) ); ?></td>
 					</tr>
 				</table>
@@ -312,17 +318,20 @@ class Bluesky_Provider implements Connection_Provider {
 					$pending_revert = Bluesky_Domain_Handle::get_pending_revert_handle();
 					if ( '' !== $pending_revert ) :
 						?>
-						<p class="description fosse-domain-handle-revert-note">
-							<?php
-							echo esc_html(
-								sprintf(
-									/* translators: %s: previous Bluesky handle that disconnect will restore (e.g. alice.bsky.social). */
-									__( 'Disconnecting will also restore %s as this account\'s Bluesky handle.', 'fosse' ),
-									$pending_revert
-								)
-							);
-							?>
-						</p>
+						<div class="notice notice-warning inline fosse-domain-handle-revert-note">
+							<p>
+								<strong><?php esc_html_e( 'Disconnect note:', 'fosse' ); ?></strong>
+								<?php
+								echo esc_html(
+									sprintf(
+										/* translators: %s: previous Bluesky handle that disconnect will restore (e.g. alice.bsky.social). */
+										__( 'Disconnecting will also restore %s as this account\'s Bluesky handle.', 'fosse' ),
+										$pending_revert
+									)
+								);
+								?>
+							</p>
+						</div>
 						<?php
 					endif;
 					submit_button( __( 'Disconnect Bluesky', 'fosse' ), 'secondary' );

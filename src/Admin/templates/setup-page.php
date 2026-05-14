@@ -22,7 +22,7 @@ defined( 'ABSPATH' ) || exit;
 		<p class="fosse-admin-page__eyebrow"><?php esc_html_e( 'Social web', 'fosse' ); ?></p>
 		<h1 class="fosse-admin-page__title"><?php esc_html_e( 'FOSSE Settings', 'fosse' ); ?></h1>
 		<p class="fosse-admin-page__description">
-			<?php esc_html_e( 'Choose which content FOSSE publishes, how your site appears on ActivityPub, and which network accounts are connected.', 'fosse' ); ?>
+			<?php esc_html_e( 'Control which content types FOSSE can share, how people follow your fediverse identity, and which network accounts are connected.', 'fosse' ); ?>
 		</p>
 	</header>
 
@@ -35,7 +35,7 @@ defined( 'ABSPATH' ) || exit;
 				echo wp_kses_post(
 					sprintf(
 						/* translators: 1: opening anchor tag to setup wizard, 2: closing anchor tag */
-						__( 'First time here? %1$sRun the setup wizard%2$s to set up social web publishing in a few steps.', 'fosse' ),
+						__( 'Need a guided setup? %1$sRun the setup wizard%2$s to configure social web publishing in a few steps.', 'fosse' ),
 						'<a href="' . esc_url( admin_url( 'admin.php?page=fosse-wizard' ) ) . '">',
 						'</a>'
 					)
@@ -63,21 +63,21 @@ defined( 'ABSPATH' ) || exit;
 				<input type="hidden" name="_wpnonce" value="<?php echo esc_attr( $save_nonce ); ?>" />
 
 				<div class="fosse-settings-panel__header">
-					<h2><?php esc_html_e( 'Federation settings', 'fosse' ); ?></h2>
+					<h2><?php esc_html_e( 'Publishing settings', 'fosse' ); ?></h2>
 					<p class="fosse-settings-panel__description">
-						<?php esc_html_e( 'Choose which post types FOSSE publishes and which ActivityPub profile publishes them.', 'fosse' ); ?>
+						<?php esc_html_e( 'Choose the content types FOSSE publishes and the fediverse identity people can follow.', 'fosse' ); ?>
 					</p>
 				</div>
 
 				<div class="fosse-settings-section" id="fosse-section-general">
-					<h3><?php esc_html_e( 'General', 'fosse' ); ?></h3>
+					<h3><?php esc_html_e( 'Content and identity', 'fosse' ); ?></h3>
 
 					<table class="form-table">
 						<tr>
-							<th scope="row"><?php esc_html_e( 'Post Types', 'fosse' ); ?></th>
+							<th scope="row"><?php esc_html_e( 'Content types', 'fosse' ); ?></th>
 							<td>
 								<fieldset class="fosse-settings-choice-grid">
-									<legend class="screen-reader-text"><?php esc_html_e( 'Post Types', 'fosse' ); ?></legend>
+									<legend class="screen-reader-text"><?php esc_html_e( 'Content types', 'fosse' ); ?></legend>
 									<?php foreach ( $all_post_types as $pt ) : ?>
 										<label class="fosse-settings-choice-label">
 											<input
@@ -90,7 +90,7 @@ defined( 'ABSPATH' ) || exit;
 										</label>
 									<?php endforeach; ?>
 									<p class="description">
-										<?php esc_html_e( 'Selected post types can be published to your connected social web providers.', 'fosse' ); ?>
+										<?php esc_html_e( 'Selected content types can be published to your connected social web providers.', 'fosse' ); ?>
 									</p>
 								</fieldset>
 							</td>
@@ -221,7 +221,7 @@ defined( 'ABSPATH' ) || exit;
 			<div class="fosse-settings-panel__header">
 				<h2><?php esc_html_e( 'Connections', 'fosse' ); ?></h2>
 				<p class="fosse-settings-panel__description">
-					<?php esc_html_e( 'Review connection details and connect or disconnect network accounts.', 'fosse' ); ?>
+					<?php esc_html_e( 'Review connected accounts and connect or disconnect the networks FOSSE can publish to.', 'fosse' ); ?>
 				</p>
 			</div>
 

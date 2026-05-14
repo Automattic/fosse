@@ -163,7 +163,7 @@ class AP_Provider implements Connection_Provider {
 				<?php if ( $shows_blog ) : ?>
 					<tr>
 						<th scope="row">
-							<label for="fosse-activitypub-blog-identifier"><?php esc_html_e( 'Site Handle', 'fosse' ); ?></label>
+							<label for="fosse-activitypub-blog-identifier"><?php esc_html_e( 'Site handle', 'fosse' ); ?></label>
 						</th>
 						<td>
 							<input
@@ -176,7 +176,7 @@ class AP_Provider implements Connection_Provider {
 								aria-describedby="fosse-activitypub-blog-identifier-desc"
 							/>
 							<p id="fosse-activitypub-blog-identifier-desc" class="description">
-								<?php esc_html_e( 'The username people use to follow your site from the fediverse. Cannot match an existing author login or nicename.', 'fosse' ); ?>
+								<?php esc_html_e( 'The username people use to follow your site in fediverse apps. It cannot match an existing author login or nicename.', 'fosse' ); ?>
 							</p>
 						</td>
 					</tr>
@@ -210,8 +210,8 @@ class AP_Provider implements Connection_Provider {
 			</table>
 
 			<p>
-				<a href="<?php echo esc_url( admin_url( 'options-general.php?page=activitypub' ) ); ?>">
-					<?php esc_html_e( 'Show advanced ActivityPub settings', 'fosse' ); ?>
+				<a class="fosse-settings-secondary-link" href="<?php echo esc_url( admin_url( 'options-general.php?page=activitypub' ) ); ?>">
+					<?php esc_html_e( 'Advanced ActivityPub settings', 'fosse' ); ?>
 				</a>
 			</p>
 		</div>
@@ -278,7 +278,7 @@ class AP_Provider implements Connection_Provider {
 						<td class="fosse-status-card__value"><?php echo esc_html( $mode_label ); ?></td>
 					</tr>
 					<tr>
-						<th scope="row" class="fosse-status-card__label"><?php esc_html_e( 'Post Types', 'fosse' ); ?></th>
+						<th scope="row" class="fosse-status-card__label"><?php esc_html_e( 'Content types', 'fosse' ); ?></th>
 						<td class="fosse-status-card__value"><?php echo esc_html( implode( ', ', $post_types ) ); ?></td>
 					</tr>
 					<?php if ( $this->mode_includes_user( $status['actor_mode'] ) && ! empty( $status['user_address'] ) ) : ?>
