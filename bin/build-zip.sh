@@ -8,9 +8,13 @@
 # into wp-content/plugins/.
 #
 # Environment:
-#   FOSSE_VERSION  If set, overrides the `Version:` header in the staged
-#                  fosse.php (e.g. "0.1.0", "0.0.1-dev+abc1234"). Leave
-#                  unset to keep whatever is committed in fosse.php.
+#   FOSSE_VERSION  If set, overrides BOTH the `Version:` plugin header
+#                  AND the `define( 'FOSSE_VERSION', '...' )` runtime
+#                  constant in the staged fosse.php (e.g. "0.1.0",
+#                  "0.1.0-dev+abc1234"). The two must stay aligned —
+#                  the constant is what runtime code reads, the header
+#                  is what the WP Plugins screen shows. Leave unset to
+#                  keep whatever is committed in fosse.php.
 #
 # Usage:
 #   bin/build-zip.sh
@@ -36,7 +40,13 @@ git -C "$ROOT" archive --format=tar --worktree-attributes HEAD | tar -x -C "$STA
 
 if [ -n "${FOSSE_VERSION:-}" ]; then
 	# sed -i with a backup suffix is portable across GNU and BSD sed.
-	sed -i.bak -E "s|^([[:space:]]*\*[[:space:]]*Version:[[:space:]]*).+$|\1${FOSSE_VERSION}|" "$STAGE_DIR/fosse.php"
+	# Rewrite both the plugin header `Version:` line and the
+	# `define( 'FOSSE_VERSION', '...' )` constant so the WP Plugins
+	# screen and runtime constant agree.
+	sed -i.bak -E \
+		-e "s|^([[:space:]]*\*[[:space:]]*Version:[[:space:]]*).+$|\1${FOSSE_VERSION}|" \
+		-e "s|(define\([[:space:]]*'FOSSE_VERSION',[[:space:]]*')[^']*(')|\1${FOSSE_VERSION}\2|" \
+		"$STAGE_DIR/fosse.php"
 	rm -f "$STAGE_DIR/fosse.php.bak"
 fi
 

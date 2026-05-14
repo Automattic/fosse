@@ -40,7 +40,14 @@ jobs:
                   if [ "$EVENT_NAME" = "release" ]; then
                       version="${RELEASE_TAG#v}"
                   else
-                      version="0.0.1-dev+${GITHUB_SHA::7}"
+                      # Derive the dev base from fosse.php so future version
+                      # bumps don't need a parallel edit in this workflow.
+                      base=$(awk '/^[[:space:]]*\*[[:space:]]*Version:/ { print $NF; exit }' fosse.php)
+                      if [ -z "$base" ]; then
+                          echo "error: could not extract Version: header from fosse.php" >&2
+                          exit 1
+                      fi
+                      version="${base}-dev+${GITHUB_SHA::7}"
                   fi
                   echo "FOSSE_VERSION=$version" >> "$GITHUB_ENV"
 
