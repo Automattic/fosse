@@ -6,30 +6,34 @@
  * wp-admin forms and notices.
  */
 
+.fosse-admin-page,
+.fosse-wizard {
+	--fosse-ui-surface: #fff;
+	--fosse-ui-surface-muted: #f6f7f7;
+	--fosse-ui-border: #dcdcde;
+	--fosse-ui-border-strong: #c3c4c7;
+	--fosse-ui-border-soft: #e5e7eb;
+	--fosse-ui-border-faint: #eef0f2;
+	--fosse-ui-accent: #3858e9;
+	--fosse-ui-accent-soft: #f3f6ff;
+	--fosse-ui-accent-soft-border: rgba(56, 88, 233, 0.38);
+	--fosse-ui-success: #287340;
+	--fosse-ui-success-soft: #edf8f1;
+	--fosse-ui-text: #1d2327;
+	--fosse-ui-muted: #646970;
+	--fosse-ui-radius: 8px;
+	--fosse-ui-radius-small: 6px;
+	--fosse-ui-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
 .fosse-admin-page {
-	--fosse-admin-surface: #fff;
-	--fosse-admin-surface-muted: #f6f7f7;
-	--fosse-admin-border: #dcdcde;
-	--fosse-admin-border-strong: #c3c4c7;
-	--fosse-admin-border-soft: #e5e7eb;
-	--fosse-admin-border-faint: #eef0f2;
-	--fosse-admin-accent: #3858e9;
-	--fosse-admin-accent-soft: #f3f6ff;
-	--fosse-admin-accent-soft-border: rgba(56, 88, 233, 0.38);
-	--fosse-admin-success: #287340;
-	--fosse-admin-success-soft: #edf8f1;
 	--fosse-admin-danger: #b32d2e;
 	--fosse-admin-danger-soft: #fcf0f1;
 	--fosse-admin-warning: #8a6200;
 	--fosse-admin-warning-soft: #fff7e3;
-	--fosse-admin-text: #1d2327;
-	--fosse-admin-muted: #646970;
-	--fosse-admin-radius: 8px;
-	--fosse-admin-radius-small: 6px;
-	--fosse-admin-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
 
 	max-width: 1120px;
-	color: var(--fosse-admin-text);
+	color: var(--fosse-ui-text);
 }
 
 .fosse-admin-page__header {
@@ -43,7 +47,7 @@
 	line-height: 1.3;
 	letter-spacing: 0;
 	text-transform: uppercase;
-	color: var(--fosse-admin-muted);
+	color: var(--fosse-ui-muted);
 }
 
 .fosse-admin-page .fosse-admin-page__title {
@@ -53,7 +57,7 @@
 	font-weight: 600;
 	line-height: 1.18;
 	letter-spacing: 0;
-	color: var(--fosse-admin-text);
+	color: var(--fosse-ui-text);
 }
 
 .fosse-admin-page__description {
@@ -61,7 +65,7 @@
 	margin: 12px 0 0;
 	font-size: 15px;
 	line-height: 1.6;
-	color: var(--fosse-admin-muted);
+	color: var(--fosse-ui-muted);
 }
 
 .fosse-admin-notice {
@@ -69,7 +73,7 @@
 }
 
 .fosse-admin-page .button {
-	border-radius: var(--fosse-admin-radius-small);
+	border-radius: var(--fosse-ui-radius-small);
 }
 
 /* Bluesky auto-publish recovery notice form sits above its description
@@ -90,9 +94,9 @@
 	white-space: normal;
 	overflow-wrap: break-word;
 	padding: 2px 5px;
-	border-radius: var(--fosse-admin-radius-small);
-	background: var(--fosse-admin-surface-muted, #f6f7f7);
-	color: var(--fosse-admin-text, #1d2327);
+	border-radius: var(--fosse-ui-radius-small);
+	background: var(--fosse-ui-surface-muted, #f6f7f7);
+	color: var(--fosse-ui-text, #1d2327);
 	box-decoration-break: clone;
 	-webkit-box-decoration-break: clone;
 }
@@ -114,9 +118,9 @@
 	margin: 0 0 20px;
 	padding: 18px 20px;
 	border: 1px solid rgba(40, 115, 64, 0.18);
-	border-radius: var(--fosse-admin-radius);
-	background: var(--fosse-admin-surface);
-	box-shadow: var(--fosse-admin-shadow);
+	border-radius: var(--fosse-ui-radius);
+	background: var(--fosse-ui-surface);
+	box-shadow: var(--fosse-ui-shadow);
 }
 
 .fosse-status-summary::before {
@@ -126,7 +130,7 @@
 	width: 42px;
 	height: 42px;
 	border-radius: 50%;
-	background: var(--fosse-admin-success-soft);
+	background: var(--fosse-ui-success-soft);
 	box-shadow:
 		inset 0 0 0 1px rgba(40, 115, 64, 0.22),
 		0 0 0 8px rgba(40, 115, 64, 0.05);
@@ -164,7 +168,7 @@
 	line-height: 1.3;
 	letter-spacing: 0;
 	text-transform: uppercase;
-	color: var(--fosse-admin-muted);
+	color: var(--fosse-ui-muted);
 }
 
 .fosse-status-summary__count {
@@ -172,14 +176,14 @@
 	font-size: 18px;
 	font-weight: 600;
 	line-height: 1.35;
-	color: var(--fosse-admin-text);
+	color: var(--fosse-ui-text);
 }
 
 .fosse-status-summary__description {
 	margin-top: 5px;
 	font-size: 13px;
 	line-height: 1.5;
-	color: var(--fosse-admin-muted);
+	color: var(--fosse-ui-muted);
 }
 
 .fosse-status-summary__actions {
@@ -203,10 +207,10 @@
 .fosse-status-card {
 	min-width: 0;
 	padding: 20px;
-	border: 1px solid var(--fosse-admin-border);
-	border-radius: var(--fosse-admin-radius);
-	background: var(--fosse-admin-surface);
-	box-shadow: var(--fosse-admin-shadow);
+	border: 1px solid var(--fosse-ui-border);
+	border-radius: var(--fosse-ui-radius);
+	background: var(--fosse-ui-surface);
+	box-shadow: var(--fosse-ui-shadow);
 }
 
 .fosse-status-card__header {
@@ -226,7 +230,7 @@
 	font-size: 18px;
 	font-weight: 600;
 	line-height: 1.3;
-	color: var(--fosse-admin-text);
+	color: var(--fosse-ui-text);
 }
 
 .fosse-status-badge {
@@ -234,20 +238,20 @@
 	align-items: center;
 	min-height: 24px;
 	padding: 3px 9px;
-	border: 1px solid var(--fosse-admin-border);
+	border: 1px solid var(--fosse-ui-border);
 	border-radius: 999px;
-	background: var(--fosse-admin-surface-muted);
+	background: var(--fosse-ui-surface-muted);
 	font-size: 12px;
 	font-weight: 500;
 	line-height: 1.2;
 	white-space: nowrap;
-	color: var(--fosse-admin-muted);
+	color: var(--fosse-ui-muted);
 }
 
 .fosse-status-badge.is-connected {
 	border-color: rgba(40, 115, 64, 0.22);
-	background: var(--fosse-admin-success-soft);
-	color: var(--fosse-admin-success);
+	background: var(--fosse-ui-success-soft);
+	color: var(--fosse-ui-success);
 }
 
 .fosse-status-badge.is-disconnected {
@@ -275,6 +279,7 @@
 	box-sizing: border-box;
 	width: 100%;
 	min-width: 0;
+	/* WP core widefat striped rows win on specificity without !important. */
 	background: transparent !important;
 }
 
@@ -295,7 +300,7 @@
 	min-width: 0;
 	padding: 12px 0;
 	border: 0;
-	border-top: 1px solid var(--fosse-admin-border-faint);
+	border-top: 1px solid var(--fosse-ui-border-faint);
 	background: transparent;
 	box-shadow: none;
 	vertical-align: top;
@@ -310,8 +315,9 @@
 	letter-spacing: 0;
 	text-align: left;
 	text-transform: uppercase;
-	white-space: nowrap;
-	color: var(--fosse-admin-muted);
+	white-space: normal;
+	overflow-wrap: break-word;
+	color: var(--fosse-ui-muted);
 }
 
 .fosse-status-card__row--stacked .fosse-status-card__label {
@@ -327,7 +333,7 @@
 	font-size: 13px;
 	line-height: 1.5;
 	overflow-wrap: break-word;
-	color: var(--fosse-admin-text);
+	color: var(--fosse-ui-text);
 }
 
 .fosse-status-card__error {
@@ -353,7 +359,7 @@
 }
 
 .fosse-status-indicator.connected {
-	background: var(--fosse-admin-success);
+	background: var(--fosse-ui-success);
 	box-shadow: 0 0 0 3px rgba(40, 115, 64, 0.12);
 }
 
@@ -367,10 +373,10 @@
 .fosse-provider-section {
 	margin: 20px 0;
 	padding: 24px;
-	border: 1px solid var(--fosse-admin-border);
-	border-radius: var(--fosse-admin-radius);
-	background: var(--fosse-admin-surface);
-	box-shadow: var(--fosse-admin-shadow);
+	border: 1px solid var(--fosse-ui-border);
+	border-radius: var(--fosse-ui-radius);
+	background: var(--fosse-ui-surface);
+	box-shadow: var(--fosse-ui-shadow);
 }
 
 .fosse-settings-panel__header {
@@ -383,7 +389,7 @@
 	font-size: 20px;
 	font-weight: 600;
 	line-height: 1.3;
-	color: var(--fosse-admin-text);
+	color: var(--fosse-ui-text);
 }
 
 .fosse-settings-panel__description {
@@ -391,14 +397,14 @@
 	margin: 8px 0 0;
 	font-size: 13px;
 	line-height: 1.5;
-	color: var(--fosse-admin-muted);
+	color: var(--fosse-ui-muted);
 }
 
 .fosse-settings-section,
 .fosse-connection-section {
 	margin-top: 24px;
 	padding-top: 24px;
-	border-top: 1px solid var(--fosse-admin-border-soft);
+	border-top: 1px solid var(--fosse-ui-border-soft);
 }
 
 .fosse-settings-panel__header + .fosse-settings-section,
@@ -416,7 +422,7 @@
 	line-height: 1.35;
 	letter-spacing: 0;
 	text-transform: uppercase;
-	color: var(--fosse-admin-muted);
+	color: var(--fosse-ui-muted);
 }
 
 .fosse-admin-page .form-table {
@@ -430,23 +436,23 @@
 	padding: 16px 22px 16px 0;
 	font-weight: 600;
 	line-height: 1.45;
-	color: var(--fosse-admin-text);
+	color: var(--fosse-ui-text);
 }
 
 .fosse-admin-page .form-table td {
 	min-width: 0;
 	padding: 14px 0;
 	line-height: 1.5;
-	color: var(--fosse-admin-text);
+	color: var(--fosse-ui-text);
 }
 
 .fosse-admin-page .form-table tr + tr th,
 .fosse-admin-page .form-table tr + tr td {
-	border-top: 1px solid var(--fosse-admin-border-faint);
+	border-top: 1px solid var(--fosse-ui-border-faint);
 }
 
 .fosse-admin-page .description {
-	color: var(--fosse-admin-muted);
+	color: var(--fosse-ui-muted);
 }
 
 .fosse-admin-page input[type="text"],
@@ -455,8 +461,8 @@
 .fosse-admin-page input[type="password"],
 .fosse-admin-page textarea,
 .fosse-admin-page select {
-	border-color: var(--fosse-admin-border-strong);
-	border-radius: var(--fosse-admin-radius-small);
+	border-color: var(--fosse-ui-border-strong);
+	border-radius: var(--fosse-ui-radius-small);
 }
 
 .fosse-settings-choice-grid {
@@ -512,9 +518,9 @@
 .fosse-settings-card-option__body {
 	display: block;
 	padding: 14px 16px 14px 41px;
-	border: 1px solid var(--fosse-admin-border-soft);
-	border-radius: var(--fosse-admin-radius);
-	background: var(--fosse-admin-surface);
+	border: 1px solid var(--fosse-ui-border-soft);
+	border-radius: var(--fosse-ui-radius);
+	background: var(--fosse-ui-surface);
 	transition:
 		border-color 0.15s ease,
 		background-color 0.15s ease,
@@ -522,14 +528,14 @@
 }
 
 .fosse-settings-card-option__input:checked + .fosse-settings-card-option__body {
-	border-color: var(--fosse-admin-accent-soft-border);
-	background: var(--fosse-admin-accent-soft);
+	border-color: var(--fosse-ui-accent-soft-border);
+	background: var(--fosse-ui-accent-soft);
 }
 
 .fosse-settings-card-option__input:focus-visible
 	+ .fosse-settings-card-option__body,
 .fosse-settings-card-option:focus-within .fosse-settings-card-option__body {
-	outline: 2px solid var(--fosse-admin-accent);
+	outline: 2px solid var(--fosse-ui-accent);
 	outline-offset: 2px;
 }
 
@@ -546,9 +552,9 @@
 .fosse-activitypub-actor-mode-note {
 	margin-top: 2px;
 	padding: 12px 14px;
-	border: 1px solid var(--fosse-admin-border-soft);
-	border-radius: var(--fosse-admin-radius);
-	background: var(--fosse-admin-surface-muted);
+	border: 1px solid var(--fosse-ui-border-soft);
+	border-radius: var(--fosse-ui-radius);
+	background: var(--fosse-ui-surface-muted);
 }
 
 .fosse-activitypub-actor-mode-note .description {
@@ -562,9 +568,9 @@
 .fosse-domain-handle-panel {
 	margin: 18px 0;
 	padding: 16px;
-	border: 1px solid var(--fosse-admin-border-soft);
-	border-radius: var(--fosse-admin-radius);
-	background: var(--fosse-admin-accent-soft);
+	border: 1px solid var(--fosse-ui-border-soft);
+	border-radius: var(--fosse-ui-radius);
+	background: var(--fosse-ui-accent-soft);
 }
 
 .fosse-domain-handle-panel h4 {
@@ -586,7 +592,7 @@
 	align-items: center;
 	margin-top: 24px;
 	padding-top: 20px;
-	border-top: 1px solid var(--fosse-admin-border-soft);
+	border-top: 1px solid var(--fosse-ui-border-soft);
 }
 
 .fosse-settings-actions .button {
@@ -683,31 +689,15 @@
    ============================================= */
 
 .fosse-wizard {
-	--fosse-wizard-surface: #fff;
-	--fosse-wizard-surface-muted: #f6f7f7;
-	--fosse-wizard-border: #dcdcde;
-	--fosse-wizard-border-strong: #c3c4c7;
-	--fosse-wizard-border-soft: #e5e7eb;
-	--fosse-wizard-border-faint: #eef0f2;
-	--fosse-wizard-accent: #3858e9;
-	--fosse-wizard-accent-soft: #f3f6ff;
 	--fosse-wizard-accent-icon: #e6ecff;
-	--fosse-wizard-accent-soft-border: rgba(56, 88, 233, 0.38);
-	--fosse-wizard-success: #287340;
-	--fosse-wizard-success-soft: #edf8f1;
-	--fosse-wizard-text: #1d2327;
-	--fosse-wizard-muted: #646970;
 	--fosse-wizard-warm: #fff4cf;
 	--fosse-wizard-warm-text: #6f5700;
-	--fosse-wizard-radius: 8px;
-	--fosse-wizard-radius-small: 6px;
-	--fosse-wizard-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
 
 	position: relative;
-	max-width: 860px;
+	max-width: 800px;
 	margin: 0 auto;
 	padding-top: 32px;
-	color: var(--fosse-wizard-text);
+	color: var(--fosse-ui-text);
 }
 
 .fosse-wizard__lizard {
@@ -746,7 +736,7 @@
 }
 
 .fosse-wizard__lizard:focus-visible {
-	outline: 2px solid var(--fosse-wizard-accent);
+	outline: 2px solid var(--fosse-ui-accent);
 	outline-offset: 2px;
 }
 
@@ -771,9 +761,9 @@
 	font-size: 12px;
 	font-weight: 500;
 	line-height: 1;
-	/* var(--fosse-wizard-muted) is #646970 — 5.74:1 on white (WCAG AA
+	/* var(--fosse-ui-muted) is #646970 — 5.74:1 on white (WCAG AA
 	   for normal text). The earlier #949494 was ~3.0:1 (fail AA at 12px). */
-	color: var(--fosse-wizard-muted);
+	color: var(--fosse-ui-muted);
 	white-space: nowrap;
 }
 
@@ -784,15 +774,15 @@
 }
 
 .fosse-wizard__progress-step.is-active {
-	color: var(--fosse-wizard-text);
+	color: var(--fosse-ui-text);
 	font-weight: 600;
 }
 
 .fosse-wizard__progress-step.is-complete {
-	/* var(--fosse-wizard-success) is #287340 — 5.81:1 on white,
-	   5.34:1 on var(--fosse-wizard-success-soft) #edf8f1 (both WCAG AA).
+	/* var(--fosse-ui-success) is #287340 — 5.81:1 on white,
+	   5.34:1 on var(--fosse-ui-success-soft) #edf8f1 (both WCAG AA).
 	   The earlier #4ab866 was ~2.6:1 (fail AA at 12px). */
-	color: var(--fosse-wizard-success);
+	color: var(--fosse-ui-success);
 }
 
 .fosse-wizard__progress-dot {
@@ -802,7 +792,7 @@
 	width: 9px;
 	height: 9px;
 	border-radius: 50%;
-	background: var(--fosse-wizard-border-strong);
+	background: var(--fosse-ui-border-strong);
 	flex-shrink: 0;
 	transform: translateY(1px);
 }
@@ -810,14 +800,14 @@
 .fosse-wizard__progress-step.is-active .fosse-wizard__progress-dot {
 	width: 11px;
 	height: 11px;
-	background: var(--fosse-wizard-accent);
+	background: var(--fosse-ui-accent);
 	box-shadow: 0 0 0 3px rgba(56, 88, 233, 0.12);
 }
 
 .fosse-wizard__progress-step.is-complete .fosse-wizard__progress-dot {
 	width: 14px;
 	height: 14px;
-	background: var(--fosse-wizard-success);
+	background: var(--fosse-ui-success);
 }
 
 .fosse-wizard__progress-step.is-complete .fosse-wizard__progress-dot::before {
@@ -835,12 +825,12 @@
 	flex: 1;
 	min-width: 18px;
 	height: 1px;
-	background: var(--fosse-wizard-border);
+	background: var(--fosse-ui-border);
 	transform: translateY(1px);
 }
 
 .fosse-wizard__progress-line.is-complete {
-	background: var(--fosse-wizard-success);
+	background: var(--fosse-ui-success);
 }
 
 /* Title and description */
@@ -851,7 +841,7 @@
 	line-height: 1.18;
 	letter-spacing: 0;
 	text-align: center;
-	color: var(--fosse-wizard-text);
+	color: var(--fosse-ui-text);
 	margin: 0 auto 20px;
 }
 
@@ -860,16 +850,16 @@
 	font-size: 15px;
 	line-height: 1.65;
 	text-align: center;
-	color: var(--fosse-wizard-muted);
+	color: var(--fosse-ui-muted);
 	margin: 0 auto 50px;
 }
 
 /* Main content card */
 .fosse-wizard__card {
-	background: var(--fosse-wizard-surface);
-	border: 1px solid var(--fosse-wizard-border);
-	border-radius: var(--fosse-wizard-radius);
-	box-shadow: var(--fosse-wizard-shadow);
+	background: var(--fosse-ui-surface);
+	border: 1px solid var(--fosse-ui-border);
+	border-radius: var(--fosse-ui-radius);
+	box-shadow: var(--fosse-ui-shadow);
 	padding: 36px;
 	margin-bottom: 0;
 }
@@ -911,14 +901,14 @@
 .fosse-wizard__skip {
 	font-size: 12px;
 	line-height: 1.4;
-	color: var(--fosse-wizard-muted);
+	color: var(--fosse-ui-muted);
 	text-decoration: none;
 	text-underline-offset: 3px;
 }
 
 .fosse-wizard__skip:hover,
 .fosse-wizard__skip:focus {
-	color: var(--fosse-wizard-text);
+	color: var(--fosse-ui-text);
 	text-decoration: underline;
 }
 
@@ -926,18 +916,18 @@
 .fosse-wizard__hint {
 	margin-top: 16px;
 	padding: 12px 16px;
-	background: var(--fosse-wizard-surface-muted);
-	border: 1px solid var(--fosse-wizard-border-soft);
+	background: var(--fosse-ui-surface-muted);
+	border: 1px solid var(--fosse-ui-border-soft);
 	border-radius: 8px;
 }
 
 .fosse-wizard__hint p {
 	font-size: 12px;
 	line-height: 1.5;
-	/* var(--fosse-wizard-muted) is #646970 — ~5.4:1 on the
-	   var(--fosse-wizard-surface-muted) #f6f7f7 hint background
+	/* var(--fosse-ui-muted) is #646970 — ~5.4:1 on the
+	   var(--fosse-ui-surface-muted) #f6f7f7 hint background
 	   (WCAG AA). The earlier #757575 was ~3.4:1 (fail AA at 12px). */
-	color: var(--fosse-wizard-muted);
+	color: var(--fosse-ui-muted);
 	margin: 0;
 }
 
@@ -973,9 +963,9 @@
 	flex-direction: column;
 	min-height: 168px;
 	padding: 20px 22px 22px;
-	border: 1px solid var(--fosse-wizard-border);
-	border-radius: var(--fosse-wizard-radius);
-	background: var(--fosse-wizard-surface);
+	border: 1px solid var(--fosse-ui-border);
+	border-radius: var(--fosse-ui-radius);
+	background: var(--fosse-ui-surface);
 	box-shadow: 0 1px 1px rgba(0, 0, 0, 0.025);
 	cursor: pointer;
 	transition:
@@ -986,7 +976,7 @@
 }
 
 .fosse-destination-card:hover {
-	border-color: var(--fosse-wizard-border-strong);
+	border-color: var(--fosse-ui-border-strong);
 	box-shadow: 0 4px 10px rgba(0, 0, 0, 0.06);
 	transform: translateY(-1px);
 }
@@ -998,20 +988,20 @@
 }
 
 .fosse-destination-card:has(.fosse-destination-card__input:checked) {
-	border-color: var(--fosse-wizard-accent);
-	background: var(--fosse-wizard-accent-soft);
+	border-color: var(--fosse-ui-accent);
+	background: var(--fosse-ui-accent-soft);
 	box-shadow: 0 3px 10px rgba(56, 88, 233, 0.07);
 }
 
 .fosse-destination-card:focus-within {
-	border-color: var(--fosse-wizard-accent);
-	outline: 2px solid var(--fosse-wizard-accent);
+	border-color: var(--fosse-ui-accent);
+	outline: 2px solid var(--fosse-ui-accent);
 	outline-offset: 3px;
 }
 
 .fosse-destination-card:has(.fosse-destination-card__input:focus-visible) {
-	border-color: var(--fosse-wizard-accent);
-	outline: 2px solid var(--fosse-wizard-accent);
+	border-color: var(--fosse-ui-accent);
+	outline: 2px solid var(--fosse-ui-accent);
 	outline-offset: 3px;
 }
 
@@ -1035,8 +1025,8 @@
 }
 
 .fosse-destination-card--fediverse-only .fosse-destination-card__icon {
-	background: var(--fosse-wizard-success-soft);
-	color: var(--fosse-wizard-success);
+	background: var(--fosse-ui-success-soft);
+	color: var(--fosse-ui-success);
 }
 
 .fosse-destination-card__icon .dashicons {
@@ -1048,7 +1038,7 @@
 .fosse-destination-card:has(.fosse-destination-card__input:checked)
 	.fosse-destination-card__icon {
 	background: var(--fosse-wizard-accent-icon);
-	color: var(--fosse-wizard-accent);
+	color: var(--fosse-ui-accent);
 }
 
 .fosse-destination-card__badge {
@@ -1057,12 +1047,12 @@
 	line-height: 1.3;
 	letter-spacing: 0;
 	text-transform: uppercase;
-	color: var(--fosse-wizard-muted);
+	color: var(--fosse-ui-muted);
 }
 
 .fosse-destination-card:has(.fosse-destination-card__input:checked)
 	.fosse-destination-card__badge {
-	color: var(--fosse-wizard-accent);
+	color: var(--fosse-ui-accent);
 }
 
 .fosse-destination-card__title {
@@ -1070,13 +1060,13 @@
 	font-size: 18px;
 	font-weight: 600;
 	line-height: 1.3;
-	color: var(--fosse-wizard-text);
+	color: var(--fosse-ui-text);
 }
 
 .fosse-destination-card__desc {
 	font-size: 13px;
 	line-height: 1.55;
-	color: var(--fosse-wizard-muted);
+	color: var(--fosse-ui-muted);
 }
 
 .fosse-destination-card__check {
@@ -1089,7 +1079,7 @@
 	width: 22px;
 	height: 22px;
 	border-radius: 50%;
-	background: var(--fosse-wizard-accent);
+	background: var(--fosse-ui-accent);
 	color: #fff;
 	opacity: 0;
 	transform: scale(0.86);
@@ -1140,10 +1130,10 @@
 	align-items: flex-start;
 	gap: 16px;
 	padding: 18px 22px;
-	border: 1px solid var(--fosse-wizard-border);
-	border-radius: var(--fosse-wizard-radius);
+	border: 1px solid var(--fosse-ui-border);
+	border-radius: var(--fosse-ui-radius);
 	cursor: pointer;
-	background: var(--fosse-wizard-surface);
+	background: var(--fosse-ui-surface);
 	box-shadow: 0 1px 1px rgba(0, 0, 0, 0.025);
 	transition:
 		border-color 0.15s ease,
@@ -1153,7 +1143,7 @@
 }
 
 .fosse-mode-card:hover {
-	border-color: var(--fosse-wizard-border-strong);
+	border-color: var(--fosse-ui-border-strong);
 	box-shadow: 0 4px 10px rgba(0, 0, 0, 0.05);
 	transform: translateY(-1px);
 }
@@ -1167,23 +1157,23 @@
 
 /* Selected state via :has(:checked) */
 .fosse-mode-card:has(.fosse-mode-card__input:checked) {
-	border-color: var(--fosse-wizard-accent);
-	background: var(--fosse-wizard-accent-soft);
+	border-color: var(--fosse-ui-accent);
+	background: var(--fosse-ui-accent-soft);
 	box-shadow: 0 3px 10px rgba(56, 88, 233, 0.07);
 }
 
 /* Keyboard focus state — radio is visually hidden, so surface focus on the card. */
 .fosse-mode-card:has(.fosse-mode-card__input:focus-visible) {
-	border-color: var(--fosse-wizard-accent);
-	outline: 2px solid var(--fosse-wizard-accent);
+	border-color: var(--fosse-ui-accent);
+	outline: 2px solid var(--fosse-ui-accent);
 	outline-offset: 3px;
 }
 
 /* :focus-within keeps keyboard focus visible when :has() / :focus-visible
    support is missing or inconsistent. */
 .fosse-mode-card:focus-within {
-	border-color: var(--fosse-wizard-accent);
-	outline: 2px solid var(--fosse-wizard-accent);
+	border-color: var(--fosse-ui-accent);
+	outline: 2px solid var(--fosse-ui-accent);
 	outline-offset: 3px;
 }
 
@@ -1194,14 +1184,14 @@
 	width: 34px;
 	height: 34px;
 	border-radius: 50%;
-	background: var(--fosse-wizard-surface-muted);
-	color: var(--fosse-wizard-muted);
+	background: var(--fosse-ui-surface-muted);
+	color: var(--fosse-ui-muted);
 	flex-shrink: 0;
 }
 
 .fosse-mode-card:has(.fosse-mode-card__input:checked) .fosse-mode-card__icon {
 	background: var(--fosse-wizard-accent-icon);
-	color: var(--fosse-wizard-accent);
+	color: var(--fosse-ui-accent);
 }
 
 .fosse-mode-card__icon .dashicons {
@@ -1220,13 +1210,13 @@
 	font-weight: 600;
 	line-height: 1.35;
 	margin-bottom: 4px;
-	color: var(--fosse-wizard-text);
+	color: var(--fosse-ui-text);
 }
 
 .fosse-mode-card__desc {
 	font-size: 13px;
 	line-height: 1.5;
-	color: var(--fosse-wizard-muted);
+	color: var(--fosse-ui-muted);
 }
 
 .fosse-mode-card__check {
@@ -1236,7 +1226,7 @@
 	width: 22px;
 	height: 22px;
 	border-radius: 50%;
-	background: var(--fosse-wizard-accent);
+	background: var(--fosse-ui-accent);
 	color: #fff;
 	flex-shrink: 0;
 	opacity: 0;
@@ -1264,8 +1254,8 @@
 	align-items: center;
 	flex-wrap: wrap;
 	gap: 10px 12px;
-	background: var(--fosse-wizard-surface-muted);
-	border: 1px solid var(--fosse-wizard-border-soft);
+	background: var(--fosse-ui-surface-muted);
+	border: 1px solid var(--fosse-ui-border-soft);
 	border-radius: 8px;
 	padding: 13px 16px;
 	font-size: 13px;
@@ -1278,15 +1268,15 @@
 }
 
 .fosse-address-preview__label {
-	color: var(--fosse-wizard-muted);
+	color: var(--fosse-ui-muted);
 }
 
 .fosse-address-preview__address {
 	font-size: 12px;
-	background: #fff;
+	background: var(--fosse-ui-surface);
 	padding: 4px 8px;
 	border-radius: 4px;
-	border: 1px solid var(--fosse-wizard-border);
+	border: 1px solid var(--fosse-ui-border);
 }
 
 /* Wizard Appearance step swaps which fediverse-address preview is visible
@@ -1305,7 +1295,7 @@
 .fosse-wizard__blog-handle {
 	margin-top: 18px;
 	padding-top: 18px;
-	border-top: 1px solid var(--fosse-wizard-border-soft);
+	border-top: 1px solid var(--fosse-ui-border-soft);
 }
 
 .fosse-wizard__blog-handle-label {
@@ -1314,7 +1304,7 @@
 	font-weight: 600;
 	letter-spacing: 0;
 	text-transform: uppercase;
-	color: var(--fosse-wizard-muted);
+	color: var(--fosse-ui-muted);
 	margin-bottom: 8px;
 }
 
@@ -1325,7 +1315,7 @@
 .fosse-wizard__blog-handle .description {
 	margin-top: 6px;
 	font-size: 12px;
-	color: var(--fosse-wizard-muted);
+	color: var(--fosse-ui-muted);
 }
 
 /* Post type selection */
@@ -1351,7 +1341,7 @@
 	line-height: 1.3;
 	letter-spacing: 0;
 	text-transform: uppercase;
-	color: var(--fosse-wizard-muted);
+	color: var(--fosse-ui-muted);
 }
 
 .fosse-post-type-item {
@@ -1359,9 +1349,9 @@
 	align-items: center;
 	gap: 12px;
 	padding: 13px 16px;
-	border: 1px solid var(--fosse-wizard-border);
+	border: 1px solid var(--fosse-ui-border);
 	border-radius: 8px;
-	background: var(--fosse-wizard-surface);
+	background: var(--fosse-ui-surface);
 	cursor: pointer;
 	transition:
 		border-color 0.15s ease,
@@ -1370,13 +1360,13 @@
 }
 
 .fosse-post-type-item:hover {
-	border-color: var(--fosse-wizard-border-strong);
+	border-color: var(--fosse-ui-border-strong);
 	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
 }
 
 .fosse-post-type-item:has(input:checked) {
-	border-color: var(--fosse-wizard-accent-soft-border);
-	background: var(--fosse-wizard-accent-soft);
+	border-color: var(--fosse-ui-accent-soft-border);
+	background: var(--fosse-ui-accent-soft);
 }
 
 .fosse-post-type-item input[type="checkbox"] {
@@ -1384,7 +1374,7 @@
 }
 
 .fosse-post-type-item:has(input:focus-visible) {
-	outline: 2px solid var(--fosse-wizard-accent);
+	outline: 2px solid var(--fosse-ui-accent);
 	outline-offset: 2px;
 }
 
@@ -1392,14 +1382,14 @@
    matching the destination-card and mode-card fallbacks above so keyboard
    focus stays visible across all three interactive card types. */
 .fosse-post-type-item:focus-within {
-	outline: 2px solid var(--fosse-wizard-accent);
+	outline: 2px solid var(--fosse-ui-accent);
 	outline-offset: 2px;
 }
 
 .fosse-post-type-item__label {
 	font-size: 13px;
 	font-weight: 600;
-	color: var(--fosse-wizard-text);
+	color: var(--fosse-ui-text);
 	flex: 1;
 }
 
@@ -1415,7 +1405,7 @@
 	line-height: 1.3;
 	letter-spacing: 0;
 	text-transform: uppercase;
-	color: var(--fosse-wizard-muted);
+	color: var(--fosse-ui-muted);
 	margin-bottom: 8px;
 }
 
@@ -1429,13 +1419,13 @@
 	width: 100%;
 	max-width: none;
 	min-height: 36px;
-	border-color: var(--fosse-wizard-border-strong);
+	border-color: var(--fosse-ui-border-strong);
 	border-radius: 4px;
 }
 
 .fosse-bluesky-form .description {
 	margin-top: 6px;
-	color: var(--fosse-wizard-muted);
+	color: var(--fosse-ui-muted);
 }
 
 /* Completion screen */
@@ -1461,7 +1451,7 @@
 	width: 64px;
 	height: 64px;
 	border-radius: 50%;
-	background: var(--fosse-wizard-success-soft);
+	background: var(--fosse-ui-success-soft);
 	display: flex;
 	align-items: center;
 	justify-content: center;
@@ -1476,7 +1466,7 @@
 	font-size: 32px;
 	width: 32px;
 	height: 32px;
-	color: var(--fosse-wizard-success);
+	color: var(--fosse-ui-success);
 	transform: translateY(1px);
 }
 
@@ -1488,7 +1478,7 @@
 }
 
 .fosse-summary tr {
-	border-bottom: 1px solid var(--fosse-wizard-border-faint);
+	border-bottom: 1px solid var(--fosse-ui-border-faint);
 }
 
 .fosse-summary tr:last-child {
@@ -1503,7 +1493,7 @@
 }
 
 .fosse-summary__label {
-	color: var(--fosse-wizard-muted);
+	color: var(--fosse-ui-muted);
 	width: 40%;
 	/* Reset the bold/centered defaults `<th>` carries so the row label
 	   reads at the same weight as a `<td>` would. The semantic upgrade
@@ -1514,7 +1504,7 @@
 
 .fosse-summary__value {
 	font-weight: 600;
-	color: var(--fosse-wizard-text);
+	color: var(--fosse-ui-text);
 }
 
 .fosse-summary__value code {
@@ -1522,7 +1512,7 @@
 }
 
 .fosse-summary__value--muted {
-	color: var(--fosse-wizard-muted);
+	color: var(--fosse-ui-muted);
 	font-weight: 400;
 }
 
@@ -1534,12 +1524,12 @@
 }
 
 .fosse-wizard__reset a {
-	color: var(--fosse-wizard-muted);
+	color: var(--fosse-ui-muted);
 	text-underline-offset: 3px;
 }
 
 .fosse-wizard__reset a:hover {
-	color: var(--fosse-wizard-text);
+	color: var(--fosse-ui-text);
 }
 
 /* WordPress's default `.button-hero` leaves anchor labels left-aligned, which
@@ -1559,7 +1549,7 @@
 	text-align: center;
 	margin: 18px auto 0;
 	font-size: 13px;
-	color: var(--fosse-wizard-muted);
+	color: var(--fosse-ui-muted);
 	max-width: 590px;
 }
 
@@ -1574,23 +1564,23 @@
 
 /* Hidden wizard style-toggle theme */
 .fosse-wizard.is-lizard-themed {
-	--fosse-wizard-surface: #fbfff1;
-	--fosse-wizard-surface-muted: #f1f8df;
-	--fosse-wizard-border: #cadb9b;
-	--fosse-wizard-border-strong: #78983a;
-	--fosse-wizard-border-soft: #d9e8b8;
-	--fosse-wizard-border-faint: #e8f1cf;
-	--fosse-wizard-accent: #315d12;
+	--fosse-ui-surface: #fbfff1;
+	--fosse-ui-surface-muted: #f1f8df;
+	--fosse-ui-border: #cadb9b;
+	--fosse-ui-border-strong: #78983a;
+	--fosse-ui-border-soft: #d9e8b8;
+	--fosse-ui-border-faint: #e8f1cf;
+	--fosse-ui-accent: #315d12;
 	--fosse-wizard-accent-button-border: #315717;
 	--fosse-wizard-accent-button-hover: #335d18;
 	--fosse-wizard-accent-button-hover-border: #264711;
-	--fosse-wizard-accent-soft: #eef7d6;
+	--fosse-ui-accent-soft: #eef7d6;
 	--fosse-wizard-accent-icon: #d9edab;
-	--fosse-wizard-accent-soft-border: rgba(49, 93, 18, 0.5);
-	--fosse-wizard-success: #2f6e21;
-	--fosse-wizard-success-soft: #e8f5d7;
-	--fosse-wizard-text: #13200b;
-	--fosse-wizard-muted: #405334;
+	--fosse-ui-accent-soft-border: rgba(49, 93, 18, 0.5);
+	--fosse-ui-success: #2f6e21;
+	--fosse-ui-success-soft: #e8f5d7;
+	--fosse-ui-text: #13200b;
+	--fosse-ui-muted: #405334;
 	--fosse-wizard-warm: #fff2b8;
 	--fosse-wizard-warm-text: #604d00;
 	isolation: isolate;
@@ -1603,7 +1593,7 @@
 	pointer-events: none;
 	content: "";
 	border: 1px solid rgba(137, 168, 75, 0.24);
-	border-radius: var(--fosse-wizard-radius);
+	border-radius: var(--fosse-ui-radius);
 	background: #f8fce8;
 }
 
@@ -1687,7 +1677,7 @@
 }
 
 .fosse-wizard.is-lizard-themed .button-primary {
-	background: var(--fosse-wizard-accent);
+	background: var(--fosse-ui-accent);
 	border-color: var(--fosse-wizard-accent-button-border);
 }
 

@@ -17,6 +17,9 @@ const selectDestination = async ( page: Page, destination: string ) => {
 
 const openBlueskyStep = async ( page: Page ) => {
 	await selectDestination( page, 'Fediverse + Bluesky' );
+	// This helper intentionally jumps to Bluesky after setting destination
+	// intent; it does not seed appearance/content state, so keep full-flow
+	// dependencies covered by the sequential wizard specs below.
 	await page.goto( '/wp-admin/admin.php?page=fosse-wizard&step=bluesky' );
 };
 
@@ -166,6 +169,41 @@ test( 'Wizard surfaces use restrained visual tokens without page overflow', asyn
 	await expect(
 		page.getByRole( 'button', { name: 'Continue' } )
 	).toBeVisible();
+} );
+
+test( 'Wizard keeps a centered reading column inside wp-admin content', async ( {
+	page,
+} ) => {
+	await page.setViewportSize( { width: 1103, height: 749 } );
+	await page.goto( '/wp-admin/admin.php?page=fosse-wizard' );
+
+	const metrics = await page.evaluate( () => {
+		const wpBody = document.querySelector( '#wpbody-content' );
+		const wizard = document.querySelector( '.fosse-wizard' );
+
+		if ( ! wpBody || ! wizard ) {
+			return null;
+		}
+
+		const wpBodyRect = wpBody.getBoundingClientRect();
+		const wizardRect = wizard.getBoundingClientRect();
+
+		return {
+			centerDelta: Math.abs(
+				wpBodyRect.left +
+					wpBodyRect.width / 2 -
+					( wizardRect.left + wizardRect.width / 2 )
+			),
+			leftGutter: wizardRect.left - wpBodyRect.left,
+			rightGutter: wpBodyRect.right - wizardRect.right,
+		};
+	} );
+
+	expect( metrics ).not.toBeNull();
+	expect( metrics!.centerDelta ).toBeLessThanOrEqual( 1 );
+	expect(
+		Math.min( metrics!.leftGutter, metrics!.rightGutter )
+	).toBeGreaterThanOrEqual( 56 );
 } );
 
 test( 'Destination selection navigates to identity step', async ( {
