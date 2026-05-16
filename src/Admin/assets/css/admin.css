@@ -300,82 +300,6 @@
 	color: var(--fosse-admin-danger);
 }
 
-.fosse-status-card__table.widefat {
-	border: 0;
-	background: transparent;
-	box-shadow: none;
-}
-
-.fosse-status-card__table {
-	box-sizing: border-box;
-	width: 100%;
-	max-width: 100%;
-	table-layout: fixed;
-	border-collapse: separate;
-	border-spacing: 0;
-}
-
-.fosse-status-card__table tr {
-	box-sizing: border-box;
-	width: 100%;
-	min-width: 0;
-	/* WP core widefat striped rows win on specificity without !important. */
-	background: transparent !important;
-}
-
-.fosse-status-card__table tr:first-child th,
-.fosse-status-card__table tr:first-child td {
-	padding-top: 0;
-	border-top: 0;
-}
-
-.fosse-status-card__table tr:last-child th,
-.fosse-status-card__table tr:last-child td {
-	padding-bottom: 0;
-}
-
-.fosse-status-card__table th,
-.fosse-status-card__table td {
-	box-sizing: border-box;
-	min-width: 0;
-	padding: 12px 0;
-	border: 0;
-	border-top: 1px solid var(--fosse-ui-border-faint);
-	background: transparent;
-	box-shadow: none;
-	vertical-align: top;
-}
-
-.fosse-status-card__label {
-	width: 38%;
-	padding-right: 18px;
-	font-size: 11px;
-	font-weight: 600;
-	line-height: 1.45;
-	letter-spacing: 0;
-	text-align: left;
-	text-transform: uppercase;
-	white-space: normal;
-	overflow-wrap: break-word;
-	color: var(--fosse-ui-muted);
-}
-
-.fosse-status-card__row--stacked .fosse-status-card__label {
-	white-space: normal;
-}
-
-/* Defense in depth: token wrappers carry their own wrap rules, but if a
-   future cell holds raw user input without going through Status_Formatter,
-   this keeps the value column from inflating the card. */
-.fosse-status-card__value {
-	width: 62%;
-	min-width: 0;
-	font-size: 13px;
-	line-height: 1.5;
-	overflow-wrap: break-word;
-	color: var(--fosse-ui-text);
-}
-
 .fosse-status-card__error {
 	margin-top: 8px;
 }
@@ -519,14 +443,6 @@
 
 .fosse-activitypub-actor-mode-note .description + .description {
 	margin-top: 6px;
-}
-
-.fosse-domain-handle-panel {
-	margin: 18px 0;
-	padding: 16px;
-	border: 1px solid var(--fosse-ui-border-soft);
-	border-radius: var(--fosse-ui-radius);
-	background: var(--fosse-ui-accent-soft);
 }
 
 .fosse-domain-handle-panel h4 {
@@ -938,16 +854,6 @@
 		align-items: flex-start;
 		flex-direction: column;
 		gap: 10px;
-	}
-
-	.fosse-status-card__label {
-		width: 42%;
-		padding-right: 12px;
-		white-space: normal;
-	}
-
-	.fosse-status-card__value {
-		width: 58%;
 	}
 
 	.fosse-admin-page .form-table,
@@ -1860,10 +1766,6 @@
 	height: 30px;
 	color: var(--fosse-ui-success);
 	transform: translateY(1px);
-}
-
-.fosse-wizard__completion-footer {
-	display: block;
 }
 
 /* Reset link */

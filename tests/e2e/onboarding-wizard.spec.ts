@@ -717,6 +717,11 @@ test( 'Skip setup marks wizard complete and goes to Setup page', async ( {
 	await expect( page.locator( 'text=Run the setup wizard' ) ).toHaveCount(
 		0
 	);
+
+	await expect( page.locator( '.fosse-guided-setup' ) ).toHaveCount( 0 );
+	await expect(
+		page.locator( '.fosse-admin-page__footer-action a' )
+	).toHaveAttribute( 'href', /page=fosse-wizard/ );
 } );
 
 test( 'Wizard is not visible in the admin sidebar menu', async ( { page } ) => {

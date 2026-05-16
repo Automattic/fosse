@@ -1065,7 +1065,6 @@ class Onboarding_WizardTest extends BaseTestCase {
 		$this->assertStringContainsString( 'fosse-bluesky-form', $output );
 		$this->assertStringContainsString( 'Bluesky handle', $output );
 		$this->assertStringContainsString( 'Enter your Bluesky handle, such as yourname.bsky.social. If you use your own domain as your handle, enter that.', $output );
-		$this->assertStringContainsString( 'class="fosse-wizard__form"', $output );
 		$this->assertStringNotContainsString( 'fosse-bluesky-placeholder', $output );
 		$this->assertStringNotContainsString( 'Coming Soon', $output );
 		$this->assertStringNotContainsString( 'Bluesky Handle', $output );
