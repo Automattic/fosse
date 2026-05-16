@@ -334,6 +334,7 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		$this->assertStringContainsString( 'fosse-card-footer', $output );
 		$this->assertStringContainsString( 'fosse-action-bar', $output );
 		$this->assertStringNotContainsString( 'class="form-table"', $output );
+		$this->assertStringContainsString( 'fosse-status-badge is-disconnected', $output );
 	}
 
 	/**
@@ -361,6 +362,7 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		$this->assertStringContainsString( 'fosse-detail-list__term', $output );
 		$this->assertStringContainsString( 'fosse-detail-list__description', $output );
 		$this->assertStringNotContainsString( 'class="form-table"', $output );
+		$this->assertStringContainsString( 'fosse-status-badge is-connected', $output );
 	}
 
 	/**
@@ -2210,6 +2212,7 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		$this->assertStringContainsString( 'fosse_set_bluesky_domain_handle', $output );
 		$this->assertStringContainsString( 'Use example.com as my Bluesky handle', $output );
 		$this->assertStringContainsString( 'Heads up: replacing your handle is destructive', $output );
+		$this->assertStringContainsString( 'fosse-domain-handle-panel fosse-callout', $output );
 	}
 
 	/**

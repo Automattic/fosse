@@ -563,7 +563,31 @@ test( 'Completion step keeps success header and actions aligned inside the card'
 		)
 	).toBeVisible();
 
-	const metrics = await page.evaluate( () => {
+	type CompletionMetrics = {
+		cardBottom: number;
+		ctaBottom: number;
+		ctaInsideFooter: boolean;
+		ctaStartsInFooter: boolean;
+		descriptionContainsSetup: boolean;
+		descriptionContainsReach: boolean;
+		descriptionContainsBluesky: boolean;
+		descriptionTopGap: number;
+		headerHeight: number;
+		helpInsideHeader: boolean;
+		helpInsideDescription: boolean;
+		helpOutsideFooter: boolean;
+		iconAboveTitle: boolean;
+		iconCenterDelta: number;
+		messageCenterDelta: number;
+		oldTitleRowRemoved: boolean;
+		iconHeight: number;
+		resetBelowCard: boolean;
+		resetOutsideCard: boolean;
+		descriptionTextAlign: string;
+		titleTextAlign: string;
+	} | null;
+
+	const metrics = await page.evaluate( (): CompletionMetrics => {
 		const card = document.querySelector( '.fosse-wizard__complete-card' );
 		const header = card?.querySelector( '.fosse-wizard__complete-header' );
 		const message = card?.querySelector(

@@ -115,3 +115,15 @@ export const resetBlueskyState = async (
 		await page.close();
 	}
 };
+
+export const resetWizardIfComplete = async ( page: Page ) => {
+	await page.goto(
+		'/wp-admin/admin.php?page=fosse-wizard&step=complete'
+	);
+	const reset = page.getByRole( 'link', { name: 'Run wizard again' } );
+
+	if ( await reset.count() ) {
+		await reset.click();
+		await expect( page ).toHaveURL( /page=fosse-wizard/ );
+	}
+};

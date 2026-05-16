@@ -148,30 +148,6 @@
 	margin-bottom: 6px;
 }
 
-/* Shared inline token treatment for long handles, DIDs, AP addresses, and URLs. */
-.fosse-admin-token,
-.fosse-status-card__token {
-	display: inline-block;
-	box-sizing: border-box;
-	max-width: 100%;
-	word-break: normal;
-	white-space: normal;
-	overflow-wrap: break-word;
-	padding: 2px 5px;
-	border-radius: var(--fosse-ui-radius-small);
-	background: var(--fosse-ui-surface-muted, #f6f7f7);
-	color: var(--fosse-ui-text, #1d2327);
-	box-decoration-break: clone;
-	-webkit-box-decoration-break: clone;
-}
-
-.fosse-admin-token--did,
-.fosse-admin-token--url,
-.fosse-status-card__token--did,
-.fosse-status-card__token--url {
-	overflow-wrap: anywhere;
-}
-
 /* Status summary bar */
 .fosse-status-summary {
 	position: relative;
@@ -527,90 +503,6 @@
 .fosse-admin-page select {
 	border-color: var(--fosse-ui-border-strong);
 	border-radius: var(--fosse-ui-radius-small);
-}
-
-.fosse-settings-choice-grid {
-	display: flex;
-	flex-wrap: wrap;
-	gap: 10px 16px;
-	margin: 0;
-}
-
-.fosse-settings-choice-grid .description {
-	flex-basis: 100%;
-	margin: 2px 0 0;
-}
-
-.fosse-settings-choice-label {
-	display: inline-flex;
-	align-items: center;
-	gap: 7px;
-	padding: 0;
-	border: 0;
-	border-radius: 0;
-	background: transparent;
-	font-weight: 400;
-	line-height: 1.2;
-	cursor: pointer;
-}
-
-.fosse-settings-choice-label input {
-	margin: 0;
-}
-
-.fosse-settings-radio-group {
-	display: grid;
-	gap: 10px;
-	max-width: 680px;
-	margin: 0;
-}
-
-.fosse-settings-card-option {
-	position: relative;
-	display: block;
-	cursor: pointer;
-}
-
-.fosse-settings-card-option__input {
-	position: absolute;
-	top: 17px;
-	left: 16px;
-	z-index: 1;
-	margin: 0;
-}
-
-.fosse-settings-card-option__body {
-	display: block;
-	padding: 14px 16px 14px 41px;
-	border: 1px solid var(--fosse-ui-border-soft);
-	border-radius: var(--fosse-ui-radius);
-	background: var(--fosse-ui-surface);
-	transition:
-		border-color 0.15s ease,
-		background-color 0.15s ease,
-		box-shadow 0.15s ease;
-}
-
-.fosse-settings-card-option__input:checked + .fosse-settings-card-option__body {
-	border-color: var(--fosse-ui-accent-soft-border);
-	background: var(--fosse-ui-accent-soft);
-}
-
-.fosse-settings-card-option__input:focus-visible
-	+ .fosse-settings-card-option__body,
-.fosse-settings-card-option:focus-within .fosse-settings-card-option__body {
-	outline: 2px solid var(--fosse-ui-accent);
-	outline-offset: 2px;
-}
-
-.fosse-settings-card-option__label {
-	display: block;
-	font-weight: 600;
-}
-
-.fosse-settings-card-option__body .description {
-	display: block;
-	margin: 7px 0 0;
 }
 
 .fosse-activitypub-actor-mode-note {
@@ -1088,10 +980,6 @@
 
 	.fosse-admin-page .form-table tr + tr td {
 		border-top: 0;
-	}
-
-	.fosse-settings-card-option__body .description {
-		margin-left: 0;
 	}
 
 	.fosse-card-header,
@@ -1976,52 +1864,6 @@
 
 .fosse-wizard__completion-footer {
 	display: block;
-}
-
-/* Summary table */
-.fosse-summary {
-	width: 100%;
-	border-collapse: collapse;
-	margin-bottom: 8px;
-}
-
-.fosse-summary tr {
-	border-bottom: 1px solid var(--fosse-ui-border-faint);
-}
-
-.fosse-summary tr:last-child {
-	border-bottom: none;
-}
-
-.fosse-summary td,
-.fosse-summary th {
-	padding: 14px 0;
-	font-size: 13px;
-	line-height: 1.5;
-}
-
-.fosse-summary__label {
-	color: var(--fosse-ui-muted);
-	width: 40%;
-	/* Reset the bold/centered defaults `<th>` carries so the row label
-	   reads at the same weight as a `<td>` would. The semantic upgrade
-	   to `<th scope="row">` is for assistive tech, not for visual style. */
-	font-weight: normal;
-	text-align: left;
-}
-
-.fosse-summary__value {
-	font-weight: 600;
-	color: var(--fosse-ui-text);
-}
-
-.fosse-summary__value code {
-	overflow-wrap: anywhere;
-}
-
-.fosse-summary__value--muted {
-	color: var(--fosse-ui-muted);
-	font-weight: 400;
 }
 
 /* Reset link */

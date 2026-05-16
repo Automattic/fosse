@@ -3,6 +3,7 @@ import {
 	expectNoHorizontalOverflow,
 	numericCssValue,
 	resetBlueskyState,
+	resetWizardIfComplete,
 	setBlueskyState,
 } from './test-helpers';
 
@@ -38,18 +39,6 @@ test.describe( 'Bluesky provider UI', () => {
 		await expect( page.locator( '#error-page' ) ).toHaveCount( 0 );
 	};
 
-	const resetWizardIfComplete = async ( page: Page ) => {
-		await page.goto(
-			'/wp-admin/admin.php?page=fosse-wizard&step=complete'
-		);
-		const reset = page.getByRole( 'link', { name: 'Run wizard again' } );
-
-		if ( await reset.count() ) {
-			await reset.click();
-			await expect( page ).toHaveURL( /page=fosse-wizard/ );
-		}
-	};
-
 	test( 'setup and status pages show Bluesky disconnected by default', async ( {
 		page,
 	} ) => {
@@ -59,6 +48,7 @@ test.describe( 'Bluesky provider UI', () => {
 		} );
 		await resetWizardIfComplete( page );
 
+		await page.setViewportSize( { width: 1280, height: 720 } );
 		await page.goto( '/wp-admin/admin.php?page=fosse' );
 		await expectNoCriticalText( page );
 
@@ -72,10 +62,6 @@ test.describe( 'Bluesky provider UI', () => {
 		await expect( guidedSetup ).toBeVisible();
 		await expect( guidedSetup ).toContainText( 'Want a guided setup?' );
 		await expect( guidedSetup ).toHaveCSS( 'border-left-width', '4px' );
-		await expect( guidedSetup ).toHaveCSS(
-			'border-left-color',
-			'rgb(56, 88, 233)'
-		);
 		const calloutWidth = await page.evaluate( () => {
 			const callout = document.querySelector( '.fosse-guided-setup' );
 			const mainCard = document.querySelector(

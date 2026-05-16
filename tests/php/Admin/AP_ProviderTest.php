@@ -180,6 +180,7 @@ class AP_ProviderTest extends BaseTestCase {
 		$this->assertStringContainsString( 'ActivityPub', $output );
 		$this->assertStringContainsString( 'Connected automatically', $output );
 		$this->assertStringNotContainsString( '<form', $output );
+		$this->assertStringContainsString( 'fosse-status-badge is-connected', $output );
 	}
 
 	/**
@@ -200,7 +201,7 @@ class AP_ProviderTest extends BaseTestCase {
 		$this->assertStringContainsString( 'fosse-field', $output );
 		$this->assertStringContainsString( 'fosse-detail-list', $output );
 		$this->assertStringContainsString( 'Advanced ActivityPub settings', $output );
-		$this->assertStringContainsString( 'fosse-settings-secondary-link', $output );
+		$this->assertStringContainsString( 'fosse-admin-page__secondary-link', $output );
 		$this->assertStringNotContainsString( 'class="form-table"', $output );
 	}
 

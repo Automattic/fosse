@@ -208,7 +208,7 @@ class AP_Provider implements Connection_Provider {
 			</div>
 
 			<p class="fosse-action-bar">
-				<a class="fosse-settings-secondary-link" href="<?php echo esc_url( admin_url( 'options-general.php?page=activitypub' ) ); ?>">
+				<a class="fosse-admin-page__secondary-link" href="<?php echo esc_url( admin_url( 'options-general.php?page=activitypub' ) ); ?>">
 					<?php esc_html_e( 'Advanced ActivityPub settings', 'fosse' ); ?>
 				</a>
 			</p>
