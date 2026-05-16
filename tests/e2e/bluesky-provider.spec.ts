@@ -3,6 +3,7 @@ import {
 	expectNoHorizontalOverflow,
 	numericCssValue,
 	resetBlueskyState,
+	resetWizardIfComplete,
 	setBlueskyState,
 } from './test-helpers';
 
@@ -45,16 +46,52 @@ test.describe( 'Bluesky provider UI', () => {
 			connected: false,
 			auto_publish: true,
 		} );
+		await resetWizardIfComplete( page );
 
+		await page.setViewportSize( { width: 1280, height: 720 } );
 		await page.goto( '/wp-admin/admin.php?page=fosse' );
 		await expectNoCriticalText( page );
 
 		const federationSettings = page.locator( '#fosse-federation-settings' );
 		const connections = page.locator( '#fosse-connections' );
+		const guidedSetup = page.locator( '.fosse-guided-setup' );
 		const blueskyConnection = connections.locator(
 			'#fosse-provider-bluesky'
 		);
 
+		await expect( guidedSetup ).toBeVisible();
+		await expect( guidedSetup ).toContainText( 'Want a guided setup?' );
+		await expect( guidedSetup ).toHaveCSS( 'border-left-width', '4px' );
+		const calloutWidth = await page.evaluate( () => {
+			const callout = document.querySelector( '.fosse-guided-setup' );
+			const mainCard = document.querySelector(
+				'#fosse-federation-settings'
+			);
+
+			if ( ! callout || ! mainCard ) {
+				return null;
+			}
+
+			return {
+				calloutWidth: callout.getBoundingClientRect().width,
+				mainCardWidth: mainCard.getBoundingClientRect().width,
+			};
+		} );
+		expect( calloutWidth ).not.toBeNull();
+		expect(
+			Math.abs( calloutWidth!.calloutWidth - calloutWidth!.mainCardWidth )
+		).toBeLessThanOrEqual( 1 );
+
+		await expect( federationSettings ).toHaveClass( /fosse-admin-card/ );
+		await expect(
+			federationSettings.locator( '.fosse-field' )
+		).not.toHaveCount( 0 );
+		await expect(
+			federationSettings.locator( '.fosse-choice-card' )
+		).not.toHaveCount( 0 );
+		await expect(
+			page.locator( '.fosse-admin-page .form-table' )
+		).toHaveCount( 0 );
 		await expect(
 			federationSettings.getByRole( 'heading', {
 				name: 'Publishing settings',
@@ -69,6 +106,30 @@ test.describe( 'Bluesky provider UI', () => {
 		await expect(
 			federationSettings.getByRole( 'button', { name: 'Save settings' } )
 		).toBeVisible();
+		await expect(
+			page.getByRole( 'link', { name: 'Run the wizard' } )
+		).toHaveAttribute( 'href', /page=fosse-wizard/ );
+		const wizardLinkPlacement = await page.evaluate( () => {
+			const connectionSection =
+				document.querySelector( '#fosse-connections' );
+			const link = document.querySelector(
+				'.fosse-admin-page__footer-action a'
+			);
+
+			if ( ! connectionSection || ! link ) {
+				return null;
+			}
+
+			return {
+				connectionsBottom:
+					connectionSection.getBoundingClientRect().bottom,
+				linkTop: link.getBoundingClientRect().top,
+			};
+		} );
+		expect( wizardLinkPlacement ).not.toBeNull();
+		expect( wizardLinkPlacement!.linkTop ).toBeGreaterThan(
+			wizardLinkPlacement!.connectionsBottom
+		);
 		await expect(
 			connections.getByRole( 'heading', { name: 'Connections' } )
 		).toBeVisible();
@@ -178,23 +239,15 @@ test.describe( 'Bluesky provider UI', () => {
 		expect(
 			await numericCssValue(
 				page,
-				'.fosse-settings-section h3',
+				'.fosse-field__label',
 				'letter-spacing'
 			)
 		).toBe( 0 );
 		expect(
-			await numericCssValue(
-				page,
-				'.fosse-settings-panel',
-				'border-radius'
-			)
+			await numericCssValue( page, '.fosse-admin-card', 'border-radius' )
 		).toBeLessThanOrEqual( 8 );
 		expect(
-			await numericCssValue(
-				page,
-				'.fosse-settings-card-option__body',
-				'border-radius'
-			)
+			await numericCssValue( page, '.fosse-choice-card', 'border-radius' )
 		).toBeLessThanOrEqual( 8 );
 
 		await page.setViewportSize( { width: 390, height: 720 } );

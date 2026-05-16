@@ -12,6 +12,7 @@ use Automattic\Fosse\Admin\Actor_Mode_Lock;
 use Automattic\Fosse\Admin\AP_Provider;
 use Automattic\Fosse\Admin\Bluesky_Provider;
 use Automattic\Fosse\Admin\Connection_Provider_Registry;
+use Automattic\Fosse\Admin\Onboarding_Wizard;
 use Automattic\Fosse\Admin\Setup_Page;
 use PHPUnit\Framework\Attributes\After;
 use PHPUnit\Framework\Attributes\Before;
@@ -48,6 +49,7 @@ class Setup_PageTest extends BaseTestCase {
 		delete_option( 'activitypub_blog_identifier' );
 		delete_option( 'atmosphere_connection' );
 		delete_option( 'atmosphere_auto_publish' );
+		delete_option( Onboarding_Wizard::COMPLETED_OPTION );
 
 		global $wp_settings_errors;
 		$wp_settings_errors = array(); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited,WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedVariableFound -- reset core settings-error storage for test isolation.
@@ -491,6 +493,53 @@ class Setup_PageTest extends BaseTestCase {
 	}
 
 	/**
+	 * The first-run wizard prompt should use the FOSSE card/callout visual
+	 * language instead of a generic WordPress info notice.
+	 */
+	public function test_render_guided_setup_prompt_uses_fosse_callout(): void {
+		$this->become_admin();
+
+		$output = $this->capture_render();
+
+		$this->assertStringContainsString( 'fosse-guided-setup', $output );
+		$this->assertStringContainsString( 'Want a guided setup?', $output );
+		$this->assertStringContainsString( 'Run the setup wizard', $output );
+		$this->assertStringNotContainsString( 'Need a guided setup?', $output );
+		$this->assertStringNotContainsString( 'notice notice-info fosse-admin-notice', $output );
+		$this->assertMatchesRegularExpression(
+			'/<a[^>]*class="[^"]*button[^"]*"[^>]*href="[^"]*page=fosse-wizard[^"]*"[^>]*>\\s*Run the setup wizard\\s*<\\/a>/',
+			$output
+		);
+	}
+
+	/**
+	 * The Settings page keeps a low-emphasis path back to the hidden wizard
+	 * even when the first-run notice is no longer shown.
+	 */
+	public function test_render_exposes_subtle_wizard_link(): void {
+		$this->become_admin();
+		update_option( Onboarding_Wizard::COMPLETED_OPTION, 1, false );
+
+		$output = $this->capture_render();
+
+		$connections_position = strpos( $output, 'id="fosse-connections"' );
+		$link_position        = strpos( $output, 'fosse-admin-page__footer-action' );
+
+		$this->assertIsInt( $connections_position );
+		$this->assertIsInt( $link_position );
+		$this->assertGreaterThan( $connections_position, $link_position );
+		$this->assertStringContainsString( 'fosse-admin-page__footer-action', $output );
+		$this->assertStringContainsString( 'fosse-admin-page__secondary-link', $output );
+		$this->assertStringContainsString( 'Run the wizard', $output );
+		$this->assertStringNotContainsString( 'fosse-guided-setup', $output );
+		$this->assertStringNotContainsString( 'Run the setup wizard', $output );
+		$this->assertMatchesRegularExpression(
+			'/<a[^>]*href="[^"]*page=fosse-wizard[^"]*"[^>]*>\\s*Run the wizard\\s*<\\/a>/',
+			$output
+		);
+	}
+
+	/**
 	 * The unified Settings form posts to admin-post.php with the canonical
 	 * action and a fresh nonce.
 	 */
@@ -517,6 +566,11 @@ class Setup_PageTest extends BaseTestCase {
 		$this->assertStringContainsString( 'id="fosse-federation-settings"', $output );
 		$this->assertStringContainsString( 'id="fosse-settings-actions"', $output );
 		$this->assertStringContainsString( 'id="fosse-connections"', $output );
+		$this->assertStringContainsString( 'fosse-admin-card', $output );
+		$this->assertStringContainsString( 'fosse-card-header', $output );
+		$this->assertStringContainsString( 'fosse-card-body', $output );
+		$this->assertStringContainsString( 'fosse-card-footer', $output );
+		$this->assertStringContainsString( 'fosse-action-bar', $output );
 		$this->assertStringContainsString( 'id="fosse-provider-activitypub-connection"', $output );
 
 		$form_position        = strpos( $output, 'id="fosse-settings"' );
@@ -544,8 +598,12 @@ class Setup_PageTest extends BaseTestCase {
 		$output = $this->capture_render();
 
 		$this->assertStringContainsString( 'id="fosse-section-general"', $output );
+		$this->assertStringContainsString( 'fosse-field-stack', $output );
+		$this->assertStringContainsString( 'fosse-field', $output );
+		$this->assertStringContainsString( 'fosse-checkbox-grid', $output );
 		$this->assertStringContainsString( 'name="activitypub_support_post_types[]"', $output );
 		$this->assertStringContainsString( 'name="activitypub_actor_mode"', $output );
+		$this->assertStringNotContainsString( 'class="form-table"', $output );
 	}
 
 	/**
@@ -577,10 +635,11 @@ class Setup_PageTest extends BaseTestCase {
 		$output = $this->capture_render();
 
 		$this->assertStringNotContainsString( 'is-selected', $output );
-		$this->assertStringContainsString( 'class="fosse-settings-card-option__input"', $output );
-		$this->assertStringContainsString( 'class="fosse-settings-card-option__body"', $output );
+		$this->assertStringContainsString( 'fosse-choice-card', $output );
+		$this->assertStringContainsString( 'class="fosse-choice-card__input"', $output );
+		$this->assertStringContainsString( 'class="fosse-choice-card__body"', $output );
 		$this->assertMatchesRegularExpression(
-			'/id="fosse-activitypub-actor-mode-actor"[\s\S]+?class="fosse-settings-card-option__body"/',
+			'/id="fosse-activitypub-actor-mode-actor"[\s\S]+?class="fosse-choice-card__body"/',
 			$output
 		);
 	}

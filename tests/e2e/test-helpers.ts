@@ -115,3 +115,30 @@ export const resetBlueskyState = async (
 		await page.close();
 	}
 };
+
+/**
+ * Reset the FOSSE onboarding wizard back to the destinations step when it is
+ * currently in the completed state.
+ *
+ * Navigates to the wizard's complete step and clicks the "Run wizard again"
+ * link if it is present. Acts as a no-op when the wizard is not complete (the
+ * link will not be rendered). The provided `page` must already hold a
+ * logged-in wp-admin session.
+ *
+ * @param {Page} page Playwright page already authenticated against wp-admin.
+ * @return {Promise<void>} Resolves once the reset (or no-op) completes.
+ */
+export const resetWizardIfComplete = async ( page: Page ): Promise< void > => {
+	await page.goto( '/wp-admin/admin.php?page=fosse-wizard&step=complete' );
+	const reset = page.getByRole( 'link', { name: 'Run wizard again' } );
+
+	const isComplete = await reset
+		.waitFor( { state: 'attached', timeout: 2000 } )
+		.then( () => true )
+		.catch( () => false );
+
+	if ( isComplete ) {
+		await reset.click();
+		await expect( page ).toHaveURL( /page=fosse-wizard/ );
+	}
+};

@@ -246,6 +246,9 @@ class Onboarding_WizardTest extends BaseTestCase {
 			$output,
 			'Wizard content step should not render a Media (attachment) checkbox.'
 		);
+		$this->assertStringContainsString( 'fosse-choice-card', $output );
+		$this->assertStringContainsString( 'fosse-post-type-item', $output );
+		$this->assertStringNotContainsString( 'form-table', $output );
 	}
 
 	/**
@@ -665,6 +668,11 @@ class Onboarding_WizardTest extends BaseTestCase {
 
 		$this->assertStringContainsString( 'Where should your WordPress posts appear?', $output );
 		$this->assertStringContainsString( 'Fediverse + Bluesky', $output );
+		$this->assertStringContainsString( 'fosse-choice-card', $output );
+		$this->assertStringContainsString( 'fosse-wizard__card fosse-admin-card', $output );
+		$this->assertStringContainsString( 'fosse-card-header', $output );
+		$this->assertStringContainsString( 'fosse-card-body', $output );
+		$this->assertStringContainsString( 'fosse-card-footer', $output );
 	}
 
 	/**
@@ -689,6 +697,7 @@ class Onboarding_WizardTest extends BaseTestCase {
 
 		$this->assertStringContainsString( 'Who should people follow?', $output );
 		$this->assertStringContainsString( 'Choose the fediverse identity people can follow when FOSSE shares your selected content types.', $output );
+		$this->assertStringContainsString( 'fosse-choice-card', $output );
 		$this->assertMatchesRegularExpression(
 			'/fosse-mode-card__title">As you<.*fosse-mode-card__title">As your site</s',
 			$output,
@@ -1389,8 +1398,12 @@ class Onboarding_WizardTest extends BaseTestCase {
 		$output = $this->render_wizard_step( 'complete' );
 
 		$this->assertStringContainsString( 'Bluesky', $output );
+		$this->assertStringContainsString( 'fosse-detail-list', $output );
+		$this->assertStringContainsString( 'fosse-detail-list__term', $output );
+		$this->assertStringContainsString( 'fosse-detail-list__description', $output );
 		$this->assertStringContainsString( 'Connected as alice.bsky.social', $output );
 		$this->assertStringNotContainsString( 'Not connected', $output );
+		$this->assertStringNotContainsString( 'class="fosse-summary"', $output );
 	}
 
 	/**
@@ -1422,7 +1435,7 @@ class Onboarding_WizardTest extends BaseTestCase {
 
 		$this->assertStringContainsString( 'Fediverse only', $output );
 		$this->assertMatchesRegularExpression(
-			'~<th scope="row" class="fosse-summary__label">Bluesky</th>\s*<td class="fosse-summary__value">Connected as alice\.bsky\.social</td>~',
+			'~<dt class="fosse-detail-list__term">Bluesky</dt>\s*<dd class="fosse-detail-list__description">Connected as alice\.bsky\.social</dd>~',
 			$output,
 			'Connected Bluesky accounts must not be visually muted even when the saved destination is Fediverse-only.'
 		);
@@ -1706,11 +1719,14 @@ class Onboarding_WizardTest extends BaseTestCase {
 
 		$output = $this->render_wizard_step( 'complete' );
 
+		$this->assertStringContainsString( 'fosse-wizard__complete-message', $output );
+		$this->assertStringContainsString( 'Your sharing setup is ready.', $output );
 		$this->assertMatchesRegularExpression(
-			'~<p[^>]*class="[^"]*fosse-wizard__cta-help[^"]*"[^>]*>[^<]*Fediverse apps like Mastodon.*Connect Bluesky~i',
+			'~<span[^>]*class="[^"]*fosse-wizard__cta-help[^"]*"[^>]*>[^<]*Connect Bluesky to share there too\\.~i',
 			$output,
-			'The publish CTA helper copy must describe the selected destinations.'
+			'The completion success copy must describe the selected destinations.'
 		);
+		$this->assertStringNotContainsString( 'Your post can reach people on Fediverse apps like Mastodon.', $output );
 	}
 
 	/**
@@ -1725,10 +1741,11 @@ class Onboarding_WizardTest extends BaseTestCase {
 		$output = $this->render_wizard_step( 'complete' );
 
 		$this->assertMatchesRegularExpression(
-			'~<p[^>]*class="[^"]*fosse-wizard__cta-help[^"]*"[^>]*>[^<]*Fediverse apps like Mastodon and on Bluesky\\.~i',
+			'~<span[^>]*class="[^"]*fosse-wizard__cta-help[^"]*"[^>]*>[^<]*Bluesky sharing is ready too\\.~i',
 			$output,
-			'The publish CTA helper copy must mention Bluesky when existing settings will publish there.'
+			'The completion success copy must mention Bluesky when existing settings will publish there.'
 		);
+		$this->assertStringNotContainsString( 'Your post can reach people on Fediverse apps like Mastodon', $output );
 	}
 
 	/**
@@ -1744,11 +1761,11 @@ class Onboarding_WizardTest extends BaseTestCase {
 		$output = $this->render_wizard_step( 'complete' );
 
 		$this->assertMatchesRegularExpression(
-			'~<p[^>]*class="[^"]*fosse-wizard__cta-help[^"]*"[^>]*>[^<]*automatic sharing is off\\.~i',
+			'~<span[^>]*class="[^"]*fosse-wizard__cta-help[^"]*"[^>]*>[^<]*automatic sharing is off\\.~i',
 			$output,
-			'The publish CTA helper copy must explain why a connected account will not receive the next post.'
+			'The completion success copy must explain why a connected account will not receive the next post.'
 		);
-		$this->assertStringNotContainsString( 'Fediverse apps like Mastodon and on Bluesky.', $output );
+		$this->assertStringNotContainsString( 'Your post can reach people on Fediverse apps like Mastodon', $output );
 	}
 
 	/**

@@ -214,24 +214,27 @@ class Bluesky_Provider implements Connection_Provider {
 	public function render_connection_actions(): void {
 		$status = $this->get_status();
 		?>
-		<div class="fosse-connection-section" id="fosse-provider-bluesky">
-			<h3><?php esc_html_e( 'Bluesky', 'fosse' ); ?></h3>
+		<div class="fosse-connection-section fosse-admin-card" id="fosse-provider-bluesky">
+			<div class="fosse-card-header">
+				<h3><?php esc_html_e( 'Bluesky', 'fosse' ); ?></h3>
+				<span class="fosse-status-badge is-<?php echo esc_attr( $status['connected'] ? 'connected' : 'disconnected' ); ?>">
+					<?php echo esc_html( $status['connected'] ? __( 'Connected', 'fosse' ) : __( 'Disconnected', 'fosse' ) ); ?>
+				</span>
+			</div>
 
 			<?php settings_errors( 'atmosphere' ); ?>
 
 			<?php if ( ! $status['connected'] ) : ?>
-				<p><?php esc_html_e( 'Connect a Bluesky account to share eligible WordPress posts there too. You can disconnect it here later.', 'fosse' ); ?></p>
-
 				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
 					<input type="hidden" name="action" value="fosse_connect_bluesky" />
 					<input type="hidden" name="_wpnonce" value="<?php echo esc_attr( wp_create_nonce( 'fosse_connect_bluesky' ) ); ?>" />
 
-					<table class="form-table">
-						<tr>
-							<th scope="row">
-								<label for="fosse_bluesky_handle"><?php esc_html_e( 'Bluesky handle', 'fosse' ); ?></label>
-							</th>
-							<td>
+					<div class="fosse-card-body">
+						<p><?php esc_html_e( 'Connect a Bluesky account to share eligible WordPress posts there too. You can disconnect it here later.', 'fosse' ); ?></p>
+
+						<div class="fosse-field">
+							<label class="fosse-field__label" for="fosse_bluesky_handle"><?php esc_html_e( 'Bluesky handle', 'fosse' ); ?></label>
+							<div class="fosse-field__control">
 								<input
 									type="text"
 									class="regular-text"
@@ -252,92 +255,90 @@ class Bluesky_Provider implements Connection_Provider {
 									);
 									?>
 								</p>
-							</td>
-						</tr>
-					</table>
+							</div>
+						</div>
+					</div>
 
-					<?php submit_button( __( 'Connect Bluesky', 'fosse' ) ); ?>
+					<div class="fosse-card-footer fosse-action-bar">
+						<?php submit_button( __( 'Connect Bluesky', 'fosse' ), 'primary', 'submit', false ); ?>
+					</div>
 				</form>
 			<?php else : ?>
-				<p>
-					<strong><?php esc_html_e( 'Connected account', 'fosse' ); ?></strong>
-				</p>
-				<p class="description">
-					<?php esc_html_e( 'FOSSE can share eligible WordPress posts with this Bluesky account.', 'fosse' ); ?>
-				</p>
-				<table class="form-table">
-					<tr>
-						<th scope="row"><?php esc_html_e( 'Bluesky handle', 'fosse' ); ?></th>
-						<td>
-							<strong class="fosse-admin-token fosse-admin-token--handle">
+				<div class="fosse-card-body">
+					<p>
+						<strong><?php esc_html_e( 'Connected account', 'fosse' ); ?></strong>
+					</p>
+					<p class="description">
+						<?php esc_html_e( 'FOSSE can share eligible WordPress posts with this Bluesky account.', 'fosse' ); ?>
+					</p>
+					<dl class="fosse-detail-list">
+						<dt class="fosse-detail-list__term"><?php esc_html_e( 'Bluesky handle', 'fosse' ); ?></dt>
+						<dd class="fosse-detail-list__description">
+							<strong class="fosse-token fosse-admin-token fosse-token--handle fosse-admin-token--handle">
 								<?php
 								echo Status_Formatter::handle( $status['handle'] ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Status_Formatter::handle() escapes input and returns safe HTML with <wbr>.
 								?>
 							</strong>
-						</td>
-					</tr>
-					<tr>
-						<th scope="row"><?php esc_html_e( 'Account ID', 'fosse' ); ?></th>
-						<td>
-							<code class="fosse-admin-token fosse-admin-token--did">
+						</dd>
+						<dt class="fosse-detail-list__term"><?php esc_html_e( 'Account ID', 'fosse' ); ?></dt>
+						<dd class="fosse-detail-list__description">
+							<code class="fosse-token fosse-admin-token fosse-token--did fosse-admin-token--did">
 								<?php
 								echo Status_Formatter::did( $status['did'] ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Status_Formatter::did() escapes input and returns safe HTML with <wbr>.
 								?>
 							</code>
-						</td>
-					</tr>
-					<tr>
-						<th scope="row"><?php esc_html_e( 'PDS endpoint', 'fosse' ); ?></th>
-						<td>
-							<code class="fosse-admin-token fosse-admin-token--url">
+						</dd>
+						<dt class="fosse-detail-list__term"><?php esc_html_e( 'PDS endpoint', 'fosse' ); ?></dt>
+						<dd class="fosse-detail-list__description">
+							<code class="fosse-token fosse-admin-token fosse-token--url fosse-admin-token--url">
 								<?php
 								echo Status_Formatter::url( $status['pds_endpoint'] ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Status_Formatter::url() escapes input and returns safe HTML with <wbr>.
 								?>
 							</code>
-						</td>
-					</tr>
-					<tr>
-						<th scope="row"><?php esc_html_e( 'Token health', 'fosse' ); ?></th>
-						<td><?php echo esc_html( $status['token_error'] ? $status['token_error'] : __( 'OK', 'fosse' ) ); ?></td>
-					</tr>
-				</table>
+						</dd>
+						<dt class="fosse-detail-list__term"><?php esc_html_e( 'Token health', 'fosse' ); ?></dt>
+						<dd class="fosse-detail-list__description"><?php echo esc_html( $status['token_error'] ? $status['token_error'] : __( 'OK', 'fosse' ) ); ?></dd>
+					</dl>
 
-				<?php $this->render_domain_handle_panel( $status ); ?>
-
-				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
-					<input type="hidden" name="action" value="fosse_disconnect_bluesky" />
-					<input type="hidden" name="_wpnonce" value="<?php echo esc_attr( wp_create_nonce( 'fosse_disconnect_bluesky' ) ); ?>" />
-					<?php
-					// Surface the planned handle-revert so users understand
-					// disconnect isn't just "log me out" when FOSSE previously
-					// changed their Bluesky handle. The disconnect handler
-					// runs the revert before dropping the OAuth token; if the
-					// snapshot belongs to a different DID (reconnect to a
-					// different account) the getter returns '' and the note
-					// is suppressed.
-					$pending_revert = Bluesky_Domain_Handle::get_pending_revert_handle();
-					if ( '' !== $pending_revert ) :
-						?>
-						<div class="notice notice-warning inline fosse-domain-handle-revert-note">
-							<p>
-								<strong><?php esc_html_e( 'Disconnect note:', 'fosse' ); ?></strong>
-								<?php
-								echo esc_html(
-									sprintf(
-										/* translators: %s: previous Bluesky handle that disconnect will restore (e.g. alice.bsky.social). */
-										__( 'Disconnecting will also restore %s as this account\'s Bluesky handle.', 'fosse' ),
-										$pending_revert
-									)
-								);
-								?>
-							</p>
-						</div>
+						<?php $this->render_domain_handle_panel( $status ); ?>
 						<?php
-					endif;
-					submit_button( __( 'Disconnect Bluesky', 'fosse' ), 'secondary' );
-					?>
-				</form>
-			<?php endif; ?>
+						// Surface the planned handle-revert so users understand
+						// disconnect isn't just "log me out" when FOSSE previously
+						// changed their Bluesky handle. The disconnect handler
+						// runs the revert before dropping the OAuth token; if the
+						// snapshot belongs to a different DID (reconnect to a
+						// different account) the getter returns '' and the note
+						// is suppressed.
+						$pending_revert = Bluesky_Domain_Handle::get_pending_revert_handle();
+						if ( '' !== $pending_revert ) :
+							?>
+							<div class="notice notice-warning inline fosse-domain-handle-revert-note">
+								<p>
+									<strong><?php esc_html_e( 'Disconnect note:', 'fosse' ); ?></strong>
+									<?php
+									echo esc_html(
+										sprintf(
+											/* translators: %s: previous Bluesky handle that disconnect will restore (e.g. alice.bsky.social). */
+											__( 'Disconnecting will also restore %s as this account\'s Bluesky handle.', 'fosse' ),
+											$pending_revert
+										)
+									);
+									?>
+								</p>
+							</div>
+							<?php
+						endif;
+						?>
+					</div>
+
+					<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+						<input type="hidden" name="action" value="fosse_disconnect_bluesky" />
+						<input type="hidden" name="_wpnonce" value="<?php echo esc_attr( wp_create_nonce( 'fosse_disconnect_bluesky' ) ); ?>" />
+						<div class="fosse-card-footer fosse-action-bar">
+							<?php submit_button( __( 'Disconnect Bluesky', 'fosse' ), 'secondary', 'submit', false ); ?>
+						</div>
+					</form>
+				<?php endif; ?>
 		</div>
 		<?php
 	}
@@ -369,7 +370,7 @@ class Bluesky_Provider implements Connection_Provider {
 		$target   = Bluesky_Domain_Handle::get_target_handle();
 		$is_drift = Bluesky_Domain_Handle::is_drift( $status );
 		?>
-		<div class="fosse-domain-handle-panel">
+		<div class="fosse-domain-handle-panel fosse-callout">
 			<h4>
 				<?php
 				if ( $is_drift ) {
@@ -415,7 +416,7 @@ class Bluesky_Provider implements Connection_Provider {
 				?>
 			</p>
 			<?php Bluesky_Domain_Handle::render_destructive_warning_notice(); ?>
-			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+			<form class="fosse-action-bar" method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
 				<input type="hidden" name="action" value="fosse_set_bluesky_domain_handle" />
 				<input type="hidden" name="_wpnonce" value="<?php echo esc_attr( wp_create_nonce( 'fosse_set_bluesky_domain_handle' ) ); ?>" />
 				<?php
@@ -445,8 +446,8 @@ class Bluesky_Provider implements Connection_Provider {
 		$status_class = $status['connected'] ? 'connected' : 'disconnected';
 		$status_label = $status['connected'] ? __( 'Connected', 'fosse' ) : __( 'Disconnected', 'fosse' );
 		?>
-		<div class="fosse-status-card">
-			<div class="fosse-status-card__header">
+		<div class="fosse-status-card fosse-admin-card">
+			<div class="fosse-status-card__header fosse-card-header">
 				<h2 class="fosse-status-card__title">
 					<span
 						class="fosse-status-indicator <?php echo esc_attr( $status_class ); ?>"
@@ -457,51 +458,42 @@ class Bluesky_Provider implements Connection_Provider {
 				<span class="fosse-status-badge is-<?php echo esc_attr( $status_class ); ?>"><?php echo esc_html( $status_label ); ?></span>
 			</div>
 
-			<table class="widefat striped fosse-status-card__table">
-				<tbody>
-					<tr>
-						<th scope="row" class="fosse-status-card__label"><?php esc_html_e( 'Connection', 'fosse' ); ?></th>
-						<td class="fosse-status-card__value"><?php echo esc_html( $status_label ); ?></td>
-					</tr>
+			<div class="fosse-card-body">
+				<dl class="fosse-detail-list">
+					<dt class="fosse-detail-list__term"><?php esc_html_e( 'Connection', 'fosse' ); ?></dt>
+					<dd class="fosse-detail-list__description"><?php echo esc_html( $status_label ); ?></dd>
 					<?php if ( $status['handle'] ) : ?>
-						<tr>
-							<th scope="row" class="fosse-status-card__label"><?php esc_html_e( 'Handle', 'fosse' ); ?></th>
-							<td class="fosse-status-card__value">
-								<strong class="fosse-status-card__token fosse-status-card__token--handle">
+						<dt class="fosse-detail-list__term"><?php esc_html_e( 'Handle', 'fosse' ); ?></dt>
+						<dd class="fosse-detail-list__description">
+								<strong class="fosse-token fosse-status-card__token fosse-token--handle fosse-status-card__token--handle">
 									<?php
 									echo Status_Formatter::handle( $status['handle'] ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Status_Formatter::handle() escapes input and returns safe HTML with <wbr>.
 									?>
 								</strong>
-							</td>
-						</tr>
+						</dd>
 					<?php endif; ?>
 					<?php if ( $status['did'] ) : ?>
-						<tr>
-							<th scope="row" class="fosse-status-card__label"><?php esc_html_e( 'DID', 'fosse' ); ?></th>
-							<td class="fosse-status-card__value">
-								<code class="fosse-status-card__token fosse-status-card__token--did">
+						<dt class="fosse-detail-list__term"><?php esc_html_e( 'DID', 'fosse' ); ?></dt>
+						<dd class="fosse-detail-list__description">
+								<code class="fosse-token fosse-status-card__token fosse-token--did fosse-status-card__token--did">
 									<?php
 									echo Status_Formatter::did( $status['did'] ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Status_Formatter::did() escapes input and returns safe HTML with <wbr>.
 									?>
 								</code>
-							</td>
-						</tr>
+						</dd>
 					<?php endif; ?>
 					<?php if ( $status['pds_endpoint'] ) : ?>
-						<tr>
-							<th scope="row" class="fosse-status-card__label"><?php esc_html_e( 'PDS endpoint', 'fosse' ); ?></th>
-							<td class="fosse-status-card__value">
-								<code class="fosse-status-card__token fosse-status-card__token--url">
+						<dt class="fosse-detail-list__term"><?php esc_html_e( 'PDS endpoint', 'fosse' ); ?></dt>
+						<dd class="fosse-detail-list__description">
+								<code class="fosse-token fosse-status-card__token fosse-token--url fosse-status-card__token--url">
 									<?php
 									echo Status_Formatter::url( $status['pds_endpoint'] ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Status_Formatter::url() escapes input and returns safe HTML with <wbr>.
 									?>
 								</code>
-							</td>
-						</tr>
+						</dd>
 					<?php endif; ?>
-					<tr>
-						<th scope="row" class="fosse-status-card__label"><?php esc_html_e( 'Token Health', 'fosse' ); ?></th>
-						<td class="fosse-status-card__value">
+					<dt class="fosse-detail-list__term"><?php esc_html_e( 'Token Health', 'fosse' ); ?></dt>
+					<dd class="fosse-detail-list__description">
 							<?php if ( $status['token_error'] ) : ?>
 								<strong><?php esc_html_e( 'Reconnect required.', 'fosse' ); ?></strong>
 								<a href="<?php echo esc_url( admin_url( 'admin.php?page=fosse#fosse-provider-bluesky' ) ); ?>">
@@ -514,13 +506,12 @@ class Bluesky_Provider implements Connection_Provider {
 							<?php else : ?>
 								<?php esc_html_e( 'OK', 'fosse' ); ?>
 							<?php endif; ?>
-						</td>
-					</tr>
-				</tbody>
-			</table>
+					</dd>
+				</dl>
+			</div>
 
 			<?php if ( ! $status['connected'] && ! $status['token_error'] ) : ?>
-				<p class="fosse-status-card__actions">
+				<p class="fosse-status-card__actions fosse-card-footer fosse-action-bar">
 					<a class="button button-secondary" href="<?php echo esc_url( admin_url( 'admin.php?page=fosse#fosse-provider-bluesky' ) ); ?>">
 						<?php esc_html_e( 'Open Bluesky settings', 'fosse' ); ?>
 					</a>

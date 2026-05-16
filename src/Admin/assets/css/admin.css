@@ -68,8 +68,72 @@
 	color: var(--fosse-ui-muted);
 }
 
+.fosse-admin-page__secondary-action {
+	margin: 8px 0 0;
+	font-size: 13px;
+	line-height: 1.45;
+}
+
+.fosse-admin-page__footer-action {
+	margin: 16px 0 0;
+	font-size: 13px;
+	line-height: 1.45;
+	text-align: center;
+}
+
+.fosse-admin-page__secondary-link {
+	color: var(--fosse-ui-muted);
+	text-decoration: underline;
+	text-decoration-thickness: from-font;
+	text-underline-offset: 2px;
+}
+
+.fosse-admin-page__secondary-link:hover,
+.fosse-admin-page__secondary-link:focus-visible {
+	color: var(--fosse-ui-accent);
+}
+
 .fosse-admin-notice {
 	max-width: 860px;
+}
+
+.fosse-guided-setup {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 16px;
+	box-sizing: border-box;
+	width: 100%;
+	margin: 0 0 20px;
+	padding: 16px 18px;
+	border: 1px solid var(--fosse-ui-border-soft);
+	border-left: 4px solid var(--fosse-ui-accent);
+	border-radius: var(--fosse-ui-radius);
+	background: var(--fosse-ui-surface);
+	box-shadow: var(--fosse-ui-shadow);
+}
+
+.fosse-guided-setup__content {
+	min-width: 0;
+}
+
+.fosse-guided-setup__title {
+	margin: 0;
+	font-size: 14px;
+	font-weight: 600;
+	line-height: 1.4;
+	color: var(--fosse-ui-text);
+}
+
+.fosse-guided-setup__description {
+	margin: 3px 0 0;
+	font-size: 13px;
+	line-height: 1.45;
+	color: var(--fosse-ui-muted);
+}
+
+.fosse-guided-setup__button {
+	flex: 0 0 auto;
 }
 
 .fosse-admin-page .button {
@@ -82,30 +146,6 @@
    stylesheet (already enqueued) is the single source of truth. */
 .fosse-auto-publish-recover__form {
 	margin-bottom: 6px;
-}
-
-/* Shared inline token treatment for long handles, DIDs, AP addresses, and URLs. */
-.fosse-admin-token,
-.fosse-status-card__token {
-	display: inline-block;
-	box-sizing: border-box;
-	max-width: 100%;
-	word-break: normal;
-	white-space: normal;
-	overflow-wrap: break-word;
-	padding: 2px 5px;
-	border-radius: var(--fosse-ui-radius-small);
-	background: var(--fosse-ui-surface-muted, #f6f7f7);
-	color: var(--fosse-ui-text, #1d2327);
-	box-decoration-break: clone;
-	-webkit-box-decoration-break: clone;
-}
-
-.fosse-admin-token--did,
-.fosse-admin-token--url,
-.fosse-status-card__token--did,
-.fosse-status-card__token--url {
-	overflow-wrap: anywhere;
 }
 
 /* Status summary bar */
@@ -260,82 +300,6 @@
 	color: var(--fosse-admin-danger);
 }
 
-.fosse-status-card__table.widefat {
-	border: 0;
-	background: transparent;
-	box-shadow: none;
-}
-
-.fosse-status-card__table {
-	box-sizing: border-box;
-	width: 100%;
-	max-width: 100%;
-	table-layout: fixed;
-	border-collapse: separate;
-	border-spacing: 0;
-}
-
-.fosse-status-card__table tr {
-	box-sizing: border-box;
-	width: 100%;
-	min-width: 0;
-	/* WP core widefat striped rows win on specificity without !important. */
-	background: transparent !important;
-}
-
-.fosse-status-card__table tr:first-child th,
-.fosse-status-card__table tr:first-child td {
-	padding-top: 0;
-	border-top: 0;
-}
-
-.fosse-status-card__table tr:last-child th,
-.fosse-status-card__table tr:last-child td {
-	padding-bottom: 0;
-}
-
-.fosse-status-card__table th,
-.fosse-status-card__table td {
-	box-sizing: border-box;
-	min-width: 0;
-	padding: 12px 0;
-	border: 0;
-	border-top: 1px solid var(--fosse-ui-border-faint);
-	background: transparent;
-	box-shadow: none;
-	vertical-align: top;
-}
-
-.fosse-status-card__label {
-	width: 38%;
-	padding-right: 18px;
-	font-size: 11px;
-	font-weight: 600;
-	line-height: 1.45;
-	letter-spacing: 0;
-	text-align: left;
-	text-transform: uppercase;
-	white-space: normal;
-	overflow-wrap: break-word;
-	color: var(--fosse-ui-muted);
-}
-
-.fosse-status-card__row--stacked .fosse-status-card__label {
-	white-space: normal;
-}
-
-/* Defense in depth: token wrappers carry their own wrap rules, but if a
-   future cell holds raw user input without going through Status_Formatter,
-   this keeps the value column from inflating the card. */
-.fosse-status-card__value {
-	width: 62%;
-	min-width: 0;
-	font-size: 13px;
-	line-height: 1.5;
-	overflow-wrap: break-word;
-	color: var(--fosse-ui-text);
-}
-
 .fosse-status-card__error {
 	margin-top: 8px;
 }
@@ -465,90 +429,6 @@
 	border-radius: var(--fosse-ui-radius-small);
 }
 
-.fosse-settings-choice-grid {
-	display: flex;
-	flex-wrap: wrap;
-	gap: 10px 16px;
-	margin: 0;
-}
-
-.fosse-settings-choice-grid .description {
-	flex-basis: 100%;
-	margin: 2px 0 0;
-}
-
-.fosse-settings-choice-label {
-	display: inline-flex;
-	align-items: center;
-	gap: 7px;
-	padding: 0;
-	border: 0;
-	border-radius: 0;
-	background: transparent;
-	font-weight: 400;
-	line-height: 1.2;
-	cursor: pointer;
-}
-
-.fosse-settings-choice-label input {
-	margin: 0;
-}
-
-.fosse-settings-radio-group {
-	display: grid;
-	gap: 10px;
-	max-width: 680px;
-	margin: 0;
-}
-
-.fosse-settings-card-option {
-	position: relative;
-	display: block;
-	cursor: pointer;
-}
-
-.fosse-settings-card-option__input {
-	position: absolute;
-	top: 17px;
-	left: 16px;
-	z-index: 1;
-	margin: 0;
-}
-
-.fosse-settings-card-option__body {
-	display: block;
-	padding: 14px 16px 14px 41px;
-	border: 1px solid var(--fosse-ui-border-soft);
-	border-radius: var(--fosse-ui-radius);
-	background: var(--fosse-ui-surface);
-	transition:
-		border-color 0.15s ease,
-		background-color 0.15s ease,
-		box-shadow 0.15s ease;
-}
-
-.fosse-settings-card-option__input:checked + .fosse-settings-card-option__body {
-	border-color: var(--fosse-ui-accent-soft-border);
-	background: var(--fosse-ui-accent-soft);
-}
-
-.fosse-settings-card-option__input:focus-visible
-	+ .fosse-settings-card-option__body,
-.fosse-settings-card-option:focus-within .fosse-settings-card-option__body {
-	outline: 2px solid var(--fosse-ui-accent);
-	outline-offset: 2px;
-}
-
-.fosse-settings-card-option__label {
-	display: block;
-	font-weight: 600;
-}
-
-.fosse-settings-card-option__body .description {
-	display: block;
-	margin: 7px 0 0;
-}
-
 .fosse-activitypub-actor-mode-note {
 	margin-top: 2px;
 	padding: 12px 14px;
@@ -563,14 +443,6 @@
 
 .fosse-activitypub-actor-mode-note .description + .description {
 	margin-top: 6px;
-}
-
-.fosse-domain-handle-panel {
-	margin: 18px 0;
-	padding: 16px;
-	border: 1px solid var(--fosse-ui-border-soft);
-	border-radius: var(--fosse-ui-radius);
-	background: var(--fosse-ui-accent-soft);
 }
 
 .fosse-domain-handle-panel h4 {
@@ -597,6 +469,350 @@
 
 .fosse-settings-actions .button {
 	margin: 0;
+}
+
+/* Shared Gutenberg-like primitives for FOSSE-owned admin screens. */
+.fosse-admin-shell {
+	box-sizing: border-box;
+}
+
+.fosse-admin-card,
+.fosse-status-card.fosse-admin-card,
+.fosse-settings-panel.fosse-admin-card,
+.fosse-connection-section.fosse-admin-card,
+.fosse-status-summary.fosse-admin-card {
+	box-sizing: border-box;
+	min-width: 0;
+	overflow: hidden;
+	padding: 0;
+	border: 1px solid var(--fosse-ui-border);
+	border-radius: var(--fosse-ui-radius);
+	background: var(--fosse-ui-surface);
+	box-shadow: var(--fosse-ui-shadow);
+}
+
+.fosse-card-header,
+.fosse-card-body,
+.fosse-card-footer {
+	box-sizing: border-box;
+	min-width: 0;
+	padding: 20px 24px;
+}
+
+.fosse-card-header {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 16px;
+	border-bottom: 1px solid var(--fosse-ui-border-soft);
+}
+
+.fosse-card-header h2,
+.fosse-card-header h3 {
+	margin: 0;
+}
+
+.fosse-card-body > :first-child {
+	margin-top: 0;
+}
+
+.fosse-card-body > :last-child {
+	margin-bottom: 0;
+}
+
+.fosse-card-footer {
+	border-top: 1px solid var(--fosse-ui-border-soft);
+	background: var(--fosse-ui-surface-muted);
+}
+
+.fosse-action-bar {
+	display: flex;
+	align-items: center;
+	justify-content: flex-start;
+	gap: 12px;
+	flex-wrap: wrap;
+}
+
+.fosse-action-bar .button,
+.fosse-action-bar p.submit,
+.fosse-card-footer p.submit {
+	margin: 0;
+}
+
+.fosse-field-stack {
+	display: grid;
+	gap: 20px;
+}
+
+.fosse-field {
+	display: grid;
+	grid-template-columns: minmax(140px, 185px) minmax(0, 1fr);
+	gap: 16px 24px;
+	align-items: start;
+	min-width: 0;
+	padding: 18px 0;
+	border-top: 1px solid var(--fosse-ui-border-faint);
+}
+
+.fosse-field:first-child {
+	padding-top: 0;
+	border-top: 0;
+}
+
+.fosse-field:last-child {
+	padding-bottom: 0;
+}
+
+.fosse-field__label {
+	font-size: 13px;
+	font-weight: 600;
+	line-height: 1.45;
+	letter-spacing: 0;
+	color: var(--fosse-ui-text);
+}
+
+.fosse-field__control {
+	min-width: 0;
+}
+
+.fosse-checkbox-grid {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 10px 16px;
+	min-inline-size: 0;
+	margin: 0;
+	padding: 0;
+	border: 0;
+}
+
+.fosse-checkbox-grid .description {
+	flex-basis: 100%;
+	margin: 2px 0 0;
+}
+
+.fosse-checkbox-grid__item {
+	display: inline-flex;
+	align-items: center;
+	gap: 7px;
+	line-height: 1.2;
+	cursor: pointer;
+}
+
+.fosse-checkbox-grid__item input {
+	margin: 0;
+}
+
+.fosse-choice-card-group {
+	display: grid;
+	gap: 10px;
+	min-inline-size: 0;
+	max-width: 680px;
+	margin: 0;
+	padding: 0;
+	border: 0;
+}
+
+.fosse-choice-card {
+	position: relative;
+	box-sizing: border-box;
+	min-width: 0;
+	border: 1px solid var(--fosse-ui-border);
+	border-radius: var(--fosse-ui-radius);
+	background: var(--fosse-ui-surface);
+	cursor: pointer;
+	transition:
+		border-color 0.15s ease,
+		background-color 0.15s ease,
+		box-shadow 0.15s ease,
+		transform 0.15s ease;
+}
+
+.fosse-choice-card:hover {
+	border-color: var(--fosse-ui-border-strong);
+	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+.fosse-choice-card__input {
+	position: absolute;
+	top: 17px;
+	left: 16px;
+	z-index: 1;
+	margin: 0;
+}
+
+.fosse-choice-card__body {
+	display: block;
+	padding: 14px 16px 14px 41px;
+}
+
+.fosse-choice-card__label {
+	display: block;
+	font-weight: 600;
+	line-height: 1.35;
+	color: var(--fosse-ui-text);
+}
+
+.fosse-choice-card__body .description {
+	display: block;
+	margin: 7px 0 0;
+}
+
+.fosse-choice-card:has(.fosse-choice-card__input:checked),
+.fosse-choice-card:has(input:checked) {
+	border-color: var(--fosse-ui-accent-soft-border);
+	background: var(--fosse-ui-accent-soft);
+}
+
+.fosse-choice-card:has(.fosse-choice-card__input:focus-visible),
+.fosse-choice-card:has(input:focus-visible),
+.fosse-choice-card:focus-within {
+	outline: 2px solid var(--fosse-ui-accent);
+	outline-offset: 2px;
+}
+
+.fosse-detail-list {
+	display: grid;
+	grid-template-columns: minmax(120px, 38%) minmax(0, 1fr);
+	width: 100%;
+	min-width: 0;
+	margin: 0;
+	border-top: 1px solid var(--fosse-ui-border-faint);
+}
+
+.fosse-detail-list:first-child {
+	border-top: 0;
+}
+
+.fosse-detail-list__term,
+.fosse-detail-list__description {
+	box-sizing: border-box;
+	min-width: 0;
+	margin: 0;
+	padding: 12px 0;
+	border-bottom: 1px solid var(--fosse-ui-border-faint);
+}
+
+.fosse-detail-list__term {
+	padding-right: 18px;
+	font-size: 11px;
+	font-weight: 600;
+	line-height: 1.45;
+	letter-spacing: 0;
+	text-transform: uppercase;
+	color: var(--fosse-ui-muted);
+}
+
+.fosse-detail-list__description {
+	font-size: 13px;
+	line-height: 1.5;
+	overflow-wrap: break-word;
+	color: var(--fosse-ui-text);
+}
+
+.fosse-detail-list__description--muted {
+	color: var(--fosse-ui-muted);
+	font-weight: 400;
+}
+
+.fosse-detail-list__term:nth-last-child(2),
+.fosse-detail-list__term:nth-last-child(2) + .fosse-detail-list__description {
+	border-bottom: 0;
+}
+
+.fosse-token,
+.fosse-admin-token,
+.fosse-status-card__token {
+	display: inline-block;
+	box-sizing: border-box;
+	max-width: 100%;
+	padding: 2px 5px;
+	border-radius: var(--fosse-ui-radius-small);
+	background: var(--fosse-ui-surface-muted);
+	color: var(--fosse-ui-text);
+	word-break: normal;
+	white-space: normal;
+	overflow-wrap: break-word;
+	box-decoration-break: clone;
+	-webkit-box-decoration-break: clone;
+}
+
+.fosse-token--did,
+.fosse-token--url,
+.fosse-admin-token--did,
+.fosse-admin-token--url,
+.fosse-status-card__token--did,
+.fosse-status-card__token--url {
+	overflow-wrap: anywhere;
+}
+
+.fosse-callout {
+	margin: 18px 0;
+	padding: 16px;
+	border: 1px solid var(--fosse-ui-border-soft);
+	border-radius: var(--fosse-ui-radius);
+	background: var(--fosse-ui-surface-muted);
+}
+
+.fosse-callout > :first-child {
+	margin-top: 0;
+}
+
+.fosse-callout > :last-child {
+	margin-bottom: 0;
+}
+
+.fosse-status-summary.fosse-admin-card {
+	display: flex;
+	align-items: stretch;
+	gap: 0;
+	margin: 0 0 20px;
+	background: var(--fosse-ui-surface);
+}
+
+.fosse-status-summary::before {
+	display: none;
+}
+
+.fosse-status-summary.has-attention {
+	border-color: rgba(138, 98, 0, 0.24);
+	background: var(--fosse-ui-surface);
+}
+
+.fosse-status-summary__body.fosse-card-body {
+	flex: 1 1 auto;
+}
+
+.fosse-status-summary__actions.fosse-card-footer {
+	display: flex;
+	align-items: center;
+	flex: 0 0 auto;
+	margin: 0;
+	border-top: 0;
+	border-left: 1px solid var(--fosse-ui-border-soft);
+}
+
+.fosse-connection-section.fosse-admin-card {
+	margin-top: 16px;
+	border-top: 1px solid var(--fosse-ui-border);
+}
+
+.fosse-settings-panel__header.fosse-card-header {
+	margin-bottom: 0;
+}
+
+.fosse-status-card__header.fosse-card-header {
+	margin-bottom: 0;
+}
+
+.fosse-settings-actions.fosse-card-footer {
+	margin-top: 0;
+	padding-top: 20px;
+}
+
+.fosse-card-body .fosse-settings-section {
+	margin-top: 0;
+	padding-top: 0;
+	border-top: 0;
 }
 
 @media (max-width: 782px) {
@@ -631,20 +847,17 @@
 		padding: 18px;
 	}
 
+	.fosse-status-card.fosse-admin-card,
+	.fosse-settings-panel.fosse-admin-card,
+	.fosse-connection-section.fosse-admin-card,
+	.fosse-status-summary.fosse-admin-card {
+		padding: 0;
+	}
+
 	.fosse-status-card__header {
 		align-items: flex-start;
 		flex-direction: column;
 		gap: 10px;
-	}
-
-	.fosse-status-card__label {
-		width: 42%;
-		padding-right: 12px;
-		white-space: normal;
-	}
-
-	.fosse-status-card__value {
-		width: 58%;
 	}
 
 	.fosse-admin-page .form-table,
@@ -679,8 +892,63 @@
 		border-top: 0;
 	}
 
-	.fosse-settings-card-option__body .description {
-		margin-left: 0;
+	.fosse-card-header,
+	.fosse-card-body,
+	.fosse-card-footer {
+		padding: 18px;
+	}
+
+	.fosse-card-header,
+	.fosse-status-summary.fosse-admin-card,
+	.fosse-status-summary__actions.fosse-card-footer {
+		flex-direction: column;
+	}
+
+	.fosse-guided-setup {
+		align-items: stretch;
+		flex-direction: column;
+	}
+
+	.fosse-guided-setup__button {
+		text-align: center;
+	}
+
+	.fosse-status-summary__actions.fosse-card-footer {
+		align-items: stretch;
+		width: 100%;
+		border-top: 1px solid var(--fosse-ui-border-soft);
+		border-left: 0;
+	}
+
+	.fosse-field,
+	.fosse-detail-list {
+		grid-template-columns: 1fr;
+	}
+
+	.fosse-field {
+		gap: 8px;
+	}
+
+	.fosse-detail-list__term {
+		padding-bottom: 3px;
+		border-bottom: 0;
+	}
+
+	.fosse-detail-list__description {
+		padding-top: 0;
+	}
+}
+
+@media (max-width: 480px) {
+	.fosse-action-bar,
+	.fosse-action-bar .button,
+	.fosse-action-bar input[type="submit"] {
+		width: 100%;
+	}
+
+	.fosse-action-bar {
+		align-items: stretch;
+		flex-direction: column;
 	}
 }
 
@@ -694,9 +962,11 @@
 	--fosse-wizard-warm-text: #6f5700;
 
 	position: relative;
-	max-width: 800px;
+	box-sizing: border-box;
+	width: calc(100% - 112px);
+	max-width: 960px;
 	margin: 0 auto;
-	padding-top: 32px;
+	padding-top: 24px;
 	color: var(--fosse-ui-text);
 }
 
@@ -745,12 +1015,13 @@
 	display: flex;
 	align-items: center;
 	gap: 10px;
-	margin: 0 0 42px;
-	padding: 8px 12px;
+	margin: 0 0 18px;
+	padding: 10px 12px;
 	list-style: none;
-	background: rgba(255, 255, 255, 0.78);
-	border: 1px solid rgba(220, 220, 222, 0.82);
-	border-radius: 999px;
+	background: var(--fosse-ui-surface);
+	border: 1px solid var(--fosse-ui-border);
+	border-radius: var(--fosse-ui-radius);
+	box-shadow: 0 1px 1px rgba(0, 0, 0, 0.02);
 }
 
 .fosse-wizard__progress-step {
@@ -835,40 +1106,51 @@
 
 /* Title and description */
 .fosse-wizard .fosse-wizard__title {
-	max-width: 650px;
-	font-size: 32px;
+	max-width: none;
+	font-size: 22px;
 	font-weight: 600;
-	line-height: 1.18;
+	line-height: 1.25;
 	letter-spacing: 0;
-	text-align: center;
+	text-align: left;
 	color: var(--fosse-ui-text);
-	margin: 0 auto 20px;
+	margin: 0;
 }
 
 .fosse-wizard .fosse-wizard__description {
-	max-width: 590px;
-	font-size: 15px;
-	line-height: 1.65;
-	text-align: center;
+	max-width: 720px;
+	font-size: 13px;
+	line-height: 1.5;
+	text-align: left;
 	color: var(--fosse-ui-muted);
-	margin: 0 auto 50px;
+	margin: 8px 0 0;
 }
 
 /* Main content card */
 .fosse-wizard__card {
+	overflow: hidden;
+	padding: 0;
 	background: var(--fosse-ui-surface);
 	border: 1px solid var(--fosse-ui-border);
 	border-radius: var(--fosse-ui-radius);
 	box-shadow: var(--fosse-ui-shadow);
-	padding: 36px;
 	margin-bottom: 0;
 }
 
-.fosse-wizard__card:has(.fosse-destination-cards) {
-	padding: 0;
-	background: transparent;
-	border: 0;
-	box-shadow: none;
+.fosse-wizard__card-header {
+	display: block;
+	background: var(--fosse-ui-surface);
+}
+
+.fosse-wizard__card-heading {
+	min-width: 0;
+}
+
+.fosse-wizard__card .fosse-card-body {
+	padding: 24px;
+}
+
+.fosse-wizard__card .fosse-card-footer {
+	padding: 16px 24px;
 }
 
 /* Action bar */
@@ -877,25 +1159,18 @@
 	align-items: center;
 	justify-content: space-between;
 	gap: 16px;
-	margin-top: 32px;
+	margin-top: 0;
 	padding-top: 0;
 }
 
 .fosse-wizard__actions--center {
-	justify-content: center;
+	justify-content: flex-end;
 }
 
 .fosse-wizard__actions-primary {
 	display: flex;
 	align-items: center;
 	gap: 16px;
-}
-
-.fosse-wizard__actions-column {
-	display: flex;
-	flex-direction: column;
-	align-items: center;
-	gap: 10px;
 }
 
 .fosse-wizard__skip {
@@ -954,15 +1229,15 @@
 .fosse-destination-cards {
 	display: grid;
 	grid-template-columns: repeat(2, minmax(0, 1fr));
-	gap: 18px;
+	gap: 14px;
 }
 
 .fosse-destination-card {
 	position: relative;
 	display: flex;
 	flex-direction: column;
-	min-height: 168px;
-	padding: 20px 22px 22px;
+	min-height: 136px;
+	padding: 18px 20px;
 	border: 1px solid var(--fosse-ui-border);
 	border-radius: var(--fosse-ui-radius);
 	background: var(--fosse-ui-surface);
@@ -1009,15 +1284,15 @@
 	display: flex;
 	align-items: center;
 	gap: 10px;
-	margin-bottom: 16px;
+	margin-bottom: 14px;
 }
 
 .fosse-destination-card__icon {
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	width: 34px;
-	height: 34px;
+	width: 30px;
+	height: 30px;
 	border-radius: 50%;
 	background: var(--fosse-wizard-warm);
 	color: var(--fosse-wizard-warm-text);
@@ -1056,8 +1331,8 @@
 }
 
 .fosse-destination-card__title {
-	margin-bottom: 8px;
-	font-size: 18px;
+	margin-bottom: 6px;
+	font-size: 16px;
 	font-weight: 600;
 	line-height: 1.3;
 	color: var(--fosse-ui-text);
@@ -1065,7 +1340,7 @@
 
 .fosse-destination-card__desc {
 	font-size: 13px;
-	line-height: 1.55;
+	line-height: 1.5;
 	color: var(--fosse-ui-muted);
 }
 
@@ -1105,13 +1380,15 @@
 	.fosse-destination-card__check,
 	.fosse-mode-card,
 	.fosse-mode-card__check,
+	.fosse-choice-card,
 	.fosse-post-type-item,
 	.fosse-wizard__lizard {
 		transition: none;
 	}
 
 	.fosse-destination-card:hover,
-	.fosse-mode-card:hover {
+	.fosse-mode-card:hover,
+	.fosse-choice-card:hover {
 		transform: none;
 	}
 }
@@ -1429,97 +1706,76 @@
 }
 
 /* Completion screen */
-.fosse-wizard__complete-header + .fosse-wizard__card {
-	text-align: left;
-}
-
 .fosse-wizard__complete-header {
 	display: flex;
 	flex-direction: column;
 	align-items: center;
+	justify-content: flex-start;
+	gap: 12px;
+	padding: 22px 32px 20px;
 	text-align: center;
-	margin-bottom: 28px;
 }
 
-/* Keep the Complete step hero copy visually grouped under the success icon. */
 .fosse-wizard__complete-header .fosse-wizard__title,
 .fosse-wizard__complete-header .fosse-wizard__description {
-	max-width: 620px;
+	max-width: none;
+}
+
+.fosse-wizard__complete-message {
+	width: 100%;
+	max-width: 860px;
+	min-width: 0;
+	margin: 0 auto;
+}
+
+.fosse-wizard__complete-message .fosse-wizard__title {
+	margin-top: 0;
+	padding: 0;
+	text-align: center;
+}
+
+.fosse-wizard__complete-message .fosse-wizard__description {
+	margin: 6px 0 0;
+	text-align: center;
+}
+
+.fosse-wizard__complete-message .fosse-wizard__description strong {
+	font-weight: 600;
+	color: var(--fosse-ui-text);
+}
+
+.fosse-wizard__complete-message .fosse-wizard__cta-help {
+	display: inline;
 }
 
 .fosse-complete-icon {
-	width: 64px;
-	height: 64px;
+	width: 56px;
+	height: 56px;
 	border-radius: 50%;
 	background: var(--fosse-ui-success-soft);
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	margin: 0 auto 34px;
-	box-shadow: 0 0 0 8px rgba(22, 138, 74, 0.06);
+	margin: 0 auto;
+	box-shadow: 0 0 0 6px rgba(22, 138, 74, 0.06);
+	flex: 0 0 auto;
 }
 
 .fosse-complete-icon .dashicons {
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	font-size: 32px;
-	width: 32px;
-	height: 32px;
+	font-size: 30px;
+	width: 30px;
+	height: 30px;
 	color: var(--fosse-ui-success);
 	transform: translateY(1px);
-}
-
-/* Summary table */
-.fosse-summary {
-	width: 100%;
-	border-collapse: collapse;
-	margin-bottom: 8px;
-}
-
-.fosse-summary tr {
-	border-bottom: 1px solid var(--fosse-ui-border-faint);
-}
-
-.fosse-summary tr:last-child {
-	border-bottom: none;
-}
-
-.fosse-summary td,
-.fosse-summary th {
-	padding: 14px 0;
-	font-size: 13px;
-	line-height: 1.5;
-}
-
-.fosse-summary__label {
-	color: var(--fosse-ui-muted);
-	width: 40%;
-	/* Reset the bold/centered defaults `<th>` carries so the row label
-	   reads at the same weight as a `<td>` would. The semantic upgrade
-	   to `<th scope="row">` is for assistive tech, not for visual style. */
-	font-weight: normal;
-	text-align: left;
-}
-
-.fosse-summary__value {
-	font-weight: 600;
-	color: var(--fosse-ui-text);
-}
-
-.fosse-summary__value code {
-	overflow-wrap: anywhere;
-}
-
-.fosse-summary__value--muted {
-	color: var(--fosse-ui-muted);
-	font-weight: 400;
 }
 
 /* Reset link */
 .fosse-wizard__reset {
 	text-align: center;
-	margin-top: 16px;
+	margin: 14px 0 0;
 	font-size: 12px;
 }
 
@@ -1542,19 +1798,30 @@
 
 /* Completion publish CTA */
 .fosse-wizard__cta-publish {
-	min-width: 240px;
+	min-width: 0;
 }
 
 .fosse-wizard__cta-help {
-	text-align: center;
-	margin: 18px auto 0;
+	text-align: left;
+	margin: 0;
 	font-size: 13px;
 	color: var(--fosse-ui-muted);
-	max-width: 590px;
+	max-width: 720px;
 }
 
-.fosse-wizard__actions--secondary {
-	margin-top: 28px;
+.fosse-wizard__completion-actions {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	flex-wrap: wrap;
+}
+
+.fosse-wizard__completion-secondary {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	flex-wrap: wrap;
 }
 
 /* Bluesky signup affordance */
@@ -1736,6 +2003,7 @@
 
 @media (max-width: 782px) {
 	.fosse-wizard {
+		width: auto;
 		max-width: none;
 		margin: 0;
 		padding-top: 18px;
@@ -1745,13 +2013,13 @@
 		align-items: center;
 		flex-wrap: nowrap;
 		gap: 6px;
-		margin-bottom: 28px;
+		margin-bottom: 14px;
 		padding: 8px 10px;
-		border-radius: 999px;
+		border-radius: var(--fosse-ui-radius);
 	}
 
 	.fosse-wizard .fosse-wizard__title {
-		font-size: 26px;
+		font-size: 20px;
 	}
 
 	.fosse-wizard__progress-line {
@@ -1788,7 +2056,13 @@
 	}
 
 	.fosse-wizard__card {
-		padding: 24px;
+		padding: 0;
+	}
+
+	.fosse-wizard__card .fosse-card-header,
+	.fosse-wizard__card .fosse-card-body,
+	.fosse-wizard__card .fosse-card-footer {
+		padding: 18px;
 	}
 
 	.fosse-destination-cards {
@@ -1815,6 +2089,8 @@
 
 	.fosse-wizard__actions,
 	.fosse-wizard__actions-primary,
+	.fosse-wizard__completion-actions,
+	.fosse-wizard__completion-secondary,
 	.fosse-bluesky-form__controls {
 		align-items: stretch;
 		flex-direction: column;
@@ -1822,6 +2098,14 @@
 
 	.fosse-wizard__actions {
 		gap: 12px;
+	}
+
+	.fosse-wizard__completion-actions .button {
+		text-align: center;
+	}
+
+	.fosse-wizard__reset {
+		text-align: center;
 	}
 
 	.fosse-wizard__actions .button,

@@ -17,7 +17,7 @@ defined( 'ABSPATH' ) || exit;
 
 // phpcs:disable VariableAnalysis.CodeAnalysis.VariableAnalysis.UndefinedVariable -- variables set by Setup_Page::render().
 ?>
-<div class="wrap fosse-admin-page fosse-admin-page--settings">
+<div class="wrap fosse-admin-page fosse-admin-shell fosse-admin-page--settings">
 	<header class="fosse-admin-page__header">
 		<p class="fosse-admin-page__eyebrow"><?php esc_html_e( 'Social web', 'fosse' ); ?></p>
 		<h1 class="fosse-admin-page__title"><?php esc_html_e( 'FOSSE Settings', 'fosse' ); ?></h1>
@@ -29,19 +29,16 @@ defined( 'ABSPATH' ) || exit;
 	<?php settings_errors( 'fosse' ); ?>
 
 	<?php if ( $wizard_incomplete ) : ?>
-		<div class="notice notice-info fosse-admin-notice">
-			<p>
-				<?php
-				echo wp_kses_post(
-					sprintf(
-						/* translators: 1: opening anchor tag to setup wizard, 2: closing anchor tag */
-						__( 'Need a guided setup? %1$sRun the setup wizard%2$s to configure social web publishing in a few steps.', 'fosse' ),
-						'<a href="' . esc_url( admin_url( 'admin.php?page=fosse-wizard' ) ) . '">',
-						'</a>'
-					)
-				);
-				?>
-			</p>
+		<div class="fosse-guided-setup" role="note">
+			<div class="fosse-guided-setup__content">
+				<p class="fosse-guided-setup__title"><?php esc_html_e( 'Want a guided setup?', 'fosse' ); ?></p>
+				<p class="fosse-guided-setup__description">
+					<?php esc_html_e( 'Configure social web publishing in a few steps.', 'fosse' ); ?>
+				</p>
+			</div>
+			<a class="button fosse-guided-setup__button" href="<?php echo esc_url( admin_url( 'admin.php?page=fosse-wizard' ) ); ?>">
+				<?php esc_html_e( 'Run the setup wizard', 'fosse' ); ?>
+			</a>
 		</div>
 	<?php endif; ?>
 
@@ -57,29 +54,30 @@ defined( 'ABSPATH' ) || exit;
 			</p>
 		</div>
 	<?php else : ?>
-		<div class="fosse-settings-panel" id="fosse-federation-settings">
+		<div class="fosse-settings-panel fosse-admin-card" id="fosse-federation-settings">
 			<form id="fosse-settings" method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
 				<input type="hidden" name="action" value="<?php echo esc_attr( \Automattic\Fosse\Admin\Setup_Page::SAVE_ACTION ); ?>" />
 				<input type="hidden" name="_wpnonce" value="<?php echo esc_attr( $save_nonce ); ?>" />
 
-				<div class="fosse-settings-panel__header">
+				<div class="fosse-settings-panel__header fosse-card-header">
 					<h2><?php esc_html_e( 'Publishing settings', 'fosse' ); ?></h2>
 					<p class="fosse-settings-panel__description">
 						<?php esc_html_e( 'Choose the content types FOSSE publishes and the fediverse identity people can follow.', 'fosse' ); ?>
 					</p>
 				</div>
 
-				<div class="fosse-settings-section" id="fosse-section-general">
-					<h3><?php esc_html_e( 'Content and identity', 'fosse' ); ?></h3>
+				<div class="fosse-card-body">
+					<div class="fosse-settings-section" id="fosse-section-general">
+						<h3><?php esc_html_e( 'Content and identity', 'fosse' ); ?></h3>
 
-					<table class="form-table">
-						<tr>
-							<th scope="row"><?php esc_html_e( 'Content types', 'fosse' ); ?></th>
-							<td>
-								<fieldset class="fosse-settings-choice-grid">
+						<div class="fosse-field-stack">
+							<div class="fosse-field">
+								<div class="fosse-field__label" id="fosse-content-types-label"><?php esc_html_e( 'Content types', 'fosse' ); ?></div>
+								<div class="fosse-field__control">
+									<fieldset class="fosse-checkbox-grid" aria-labelledby="fosse-content-types-label">
 									<legend class="screen-reader-text"><?php esc_html_e( 'Content types', 'fosse' ); ?></legend>
 									<?php foreach ( $all_post_types as $pt ) : ?>
-										<label class="fosse-settings-choice-label">
+										<label class="fosse-checkbox-grid__item">
 											<input
 												type="checkbox"
 												name="activitypub_support_post_types[]"
@@ -92,14 +90,14 @@ defined( 'ABSPATH' ) || exit;
 									<p class="description">
 										<?php esc_html_e( 'Selected content types can be published to your connected social web providers.', 'fosse' ); ?>
 									</p>
-								</fieldset>
-							</td>
-						</tr>
+									</fieldset>
+								</div>
+							</div>
 
-						<?php if ( $ap_available ) : ?>
-							<tr>
-								<th scope="row"><?php esc_html_e( 'ActivityPub profile', 'fosse' ); ?></th>
-								<td>
+							<?php if ( $ap_available ) : ?>
+								<div class="fosse-field">
+									<div class="fosse-field__label" id="fosse-activitypub-profile-label"><?php esc_html_e( 'ActivityPub profile', 'fosse' ); ?></div>
+									<div class="fosse-field__control">
 									<?php if ( \Automattic\Fosse\Admin\Actor_Mode_Lock::is_locked() ) : ?>
 										<?php
 										$forced_mode  = \Automattic\Fosse\Admin\Actor_Mode_Lock::forced_mode();
@@ -115,11 +113,11 @@ defined( 'ABSPATH' ) || exit;
 										</p>
 										<input type="hidden" name="activitypub_actor_mode" value="<?php echo esc_attr( $forced_mode ); ?>" />
 									<?php else : ?>
-										<fieldset class="fosse-settings-radio-group">
+										<fieldset class="fosse-choice-card-group" aria-labelledby="fosse-activitypub-profile-label">
 											<legend class="screen-reader-text"><?php esc_html_e( 'ActivityPub profile', 'fosse' ); ?></legend>
-											<label class="fosse-settings-card-option">
+											<label class="fosse-choice-card">
 												<input
-													class="fosse-settings-card-option__input"
+													class="fosse-choice-card__input"
 													type="radio"
 													id="fosse-activitypub-actor-mode-actor"
 													name="activitypub_actor_mode"
@@ -127,8 +125,8 @@ defined( 'ABSPATH' ) || exit;
 													aria-describedby="fosse-activitypub-actor-mode-actor-desc fosse-activitypub-actor-mode-note"
 													<?php checked( 'actor', $actor_mode ); ?>
 												/>
-												<span class="fosse-settings-card-option__body">
-													<span class="fosse-settings-card-option__label">
+												<span class="fosse-choice-card__body">
+													<span class="fosse-choice-card__label">
 														<?php esc_html_e( 'Author profiles', 'fosse' ); ?>
 													</span>
 													<span id="fosse-activitypub-actor-mode-actor-desc" class="description">
@@ -136,9 +134,9 @@ defined( 'ABSPATH' ) || exit;
 													</span>
 												</span>
 											</label>
-											<label class="fosse-settings-card-option">
+											<label class="fosse-choice-card">
 												<input
-													class="fosse-settings-card-option__input"
+													class="fosse-choice-card__input"
 													type="radio"
 													id="fosse-activitypub-actor-mode-blog"
 													name="activitypub_actor_mode"
@@ -146,8 +144,8 @@ defined( 'ABSPATH' ) || exit;
 													aria-describedby="fosse-activitypub-actor-mode-blog-desc fosse-activitypub-actor-mode-note"
 													<?php checked( 'blog', $actor_mode ); ?>
 												/>
-												<span class="fosse-settings-card-option__body">
-													<span class="fosse-settings-card-option__label">
+												<span class="fosse-choice-card__body">
+													<span class="fosse-choice-card__label">
 														<?php esc_html_e( 'Blog profile', 'fosse' ); ?>
 													</span>
 													<span id="fosse-activitypub-actor-mode-blog-desc" class="description">
@@ -155,9 +153,9 @@ defined( 'ABSPATH' ) || exit;
 													</span>
 												</span>
 											</label>
-											<label class="fosse-settings-card-option">
+											<label class="fosse-choice-card">
 												<input
-													class="fosse-settings-card-option__input"
+													class="fosse-choice-card__input"
 													type="radio"
 													id="fosse-activitypub-actor-mode-actor-blog"
 													name="activitypub_actor_mode"
@@ -165,8 +163,8 @@ defined( 'ABSPATH' ) || exit;
 													aria-describedby="fosse-activitypub-actor-mode-actor-blog-desc fosse-activitypub-actor-mode-note"
 													<?php checked( 'actor_blog', $actor_mode ); ?>
 												/>
-												<span class="fosse-settings-card-option__body">
-													<span class="fosse-settings-card-option__label">
+												<span class="fosse-choice-card__body">
+													<span class="fosse-choice-card__label">
 														<?php esc_html_e( 'Both author and blog profiles', 'fosse' ); ?>
 													</span>
 													<span id="fosse-activitypub-actor-mode-actor-blog-desc" class="description">
@@ -197,43 +195,52 @@ defined( 'ABSPATH' ) || exit;
 											</div>
 										</fieldset>
 									<?php endif; ?>
-								</td>
-							</tr>
-						<?php endif; ?>
-					</table>
+									</div>
+								</div>
+							<?php endif; ?>
+						</div>
+					</div>
+
+					<?php
+					foreach ( $providers as $provider ) {
+						if ( $provider->is_available() ) {
+							$provider->render_setup_section();
+						}
+					}
+					?>
 				</div>
 
-				<?php
-				foreach ( $providers as $provider ) {
-					if ( $provider->is_available() ) {
-						$provider->render_setup_section();
-					}
-				}
-				?>
-
-				<div class="fosse-settings-actions" id="fosse-settings-actions">
+				<div class="fosse-settings-actions fosse-card-footer fosse-action-bar" id="fosse-settings-actions">
 					<?php submit_button( __( 'Save settings', 'fosse' ), 'primary', 'submit', false ); ?>
 				</div>
 			</form>
 		</div>
 
-		<div class="fosse-settings-panel" id="fosse-connections">
-			<div class="fosse-settings-panel__header">
+		<div class="fosse-settings-panel fosse-admin-card" id="fosse-connections">
+			<div class="fosse-settings-panel__header fosse-card-header">
 				<h2><?php esc_html_e( 'Connections', 'fosse' ); ?></h2>
 				<p class="fosse-settings-panel__description">
 					<?php esc_html_e( 'Review connected accounts and connect or disconnect the networks FOSSE can publish to.', 'fosse' ); ?>
 				</p>
 			</div>
 
-			<?php
-			foreach ( $providers as $provider ) {
-				if ( $provider->is_available() ) {
-					$provider->render_connection_actions();
+			<div class="fosse-card-body">
+				<?php
+				foreach ( $providers as $provider ) {
+					if ( $provider->is_available() ) {
+						$provider->render_connection_actions();
+					}
 				}
-			}
-			?>
+				?>
+			</div>
 		</div>
 	<?php endif; ?>
+
+	<p class="fosse-admin-page__footer-action">
+		<a class="fosse-admin-page__secondary-link" href="<?php echo esc_url( admin_url( 'admin.php?page=fosse-wizard' ) ); ?>">
+			<?php esc_html_e( 'Run the wizard', 'fosse' ); ?>
+		</a>
+	</p>
 </div>
 <?php
 // phpcs:enable VariableAnalysis.CodeAnalysis.VariableAnalysis.UndefinedVariable
