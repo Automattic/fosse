@@ -800,6 +800,10 @@
 	margin-bottom: 0;
 }
 
+.fosse-status-card__header.fosse-card-header {
+	margin-bottom: 0;
+}
+
 .fosse-settings-actions.fosse-card-footer {
 	margin-top: 0;
 	padding-top: 20px;
