@@ -246,8 +246,8 @@ class Onboarding_WizardTest extends BaseTestCase {
 			$output,
 			'Wizard content step should not render a Media (attachment) checkbox.'
 		);
-		$this->assertStringContainsString( 'fosse-choice-card', $output );
-		$this->assertStringContainsString( 'fosse-post-type-item', $output );
+		$this->assertStringContainsString( 'Posts', $output );
+		$this->assertStringContainsString( 'Pages', $output );
 		$this->assertStringNotContainsString( 'form-table', $output );
 	}
 
@@ -668,11 +668,10 @@ class Onboarding_WizardTest extends BaseTestCase {
 
 		$this->assertStringContainsString( 'Where should your WordPress posts appear?', $output );
 		$this->assertStringContainsString( 'Fediverse + Bluesky', $output );
-		$this->assertStringContainsString( 'fosse-choice-card', $output );
-		$this->assertStringContainsString( 'fosse-wizard__card fosse-admin-card', $output );
-		$this->assertStringContainsString( 'fosse-card-header', $output );
-		$this->assertStringContainsString( 'fosse-card-body', $output );
-		$this->assertStringContainsString( 'fosse-card-footer', $output );
+		$this->assertStringContainsString( 'Fediverse only', $output );
+		$this->assertStringContainsString( 'name="fosse_onboarding_destination"', $output );
+		$this->assertStringContainsString( 'Skip setup', $output );
+		$this->assertStringContainsString( 'Continue', $output );
 	}
 
 	/**
@@ -697,9 +696,8 @@ class Onboarding_WizardTest extends BaseTestCase {
 
 		$this->assertStringContainsString( 'Who should people follow?', $output );
 		$this->assertStringContainsString( 'Choose the fediverse identity people can follow when FOSSE shares your selected content types.', $output );
-		$this->assertStringContainsString( 'fosse-choice-card', $output );
 		$this->assertMatchesRegularExpression(
-			'/fosse-mode-card__title">As you<.*fosse-mode-card__title">As your site</s',
+			'/As you[\s\S]+As your site/',
 			$output,
 			'The default author-profile option should render before the site-profile option.'
 		);
@@ -1042,10 +1040,8 @@ class Onboarding_WizardTest extends BaseTestCase {
 			'<input type="hidden" name="activitypub_actor_mode" value="' . Actor_Mode_Lock::MODE_BLOG . '"',
 			$output
 		);
-		$this->assertStringNotContainsString( 'class="fosse-mode-cards"', $output );
-		$this->assertStringNotContainsString( 'class="fosse-mode-card__input"', $output );
+		$this->assertStringNotContainsString( 'type="radio"', $output );
 		$this->assertStringContainsString( 'defined through server configuration', $output );
-		$this->assertStringContainsString( 'fosse-wizard__locked-mode', $output );
 	}
 
 	// --- Bluesky step render ---
@@ -1062,10 +1058,8 @@ class Onboarding_WizardTest extends BaseTestCase {
 		$this->assertStringContainsString( 'value="wizard"', $output );
 		$this->assertStringContainsString( 'Connect Bluesky', $output );
 		$this->assertStringContainsString( 'Skip Bluesky for now', $output );
-		$this->assertStringContainsString( 'fosse-bluesky-form', $output );
 		$this->assertStringContainsString( 'Bluesky handle', $output );
 		$this->assertStringContainsString( 'Enter your Bluesky handle, such as yourname.bsky.social. If you use your own domain as your handle, enter that.', $output );
-		$this->assertStringNotContainsString( 'fosse-bluesky-placeholder', $output );
 		$this->assertStringNotContainsString( 'Coming Soon', $output );
 		$this->assertStringNotContainsString( 'Bluesky Handle', $output );
 		$this->assertMatchesRegularExpression( '/<input\b(?=[^>]*\bid="fosse-bsky-handle")(?=[^>]*\bname="bluesky_handle")[^>]*>/i', $output );
@@ -1073,17 +1067,18 @@ class Onboarding_WizardTest extends BaseTestCase {
 	}
 
 	/**
-	 * The disconnected Bluesky step makes Connect the primary footer action.
+	 * The disconnected Bluesky step points the Connect button at the connect
+	 * form rendered inside the step.
 	 */
-	public function test_render_bluesky_step_disconnected_connect_is_primary_footer_action(): void {
+	public function test_render_bluesky_step_disconnected_connect_targets_connect_form(): void {
 		update_option( Onboarding_Wizard::DESTINATION_OPTION, 'fediverse_bluesky' );
 
 		$output = $this->render_wizard_step( 'bluesky' );
 
 		$this->assertMatchesRegularExpression(
-			'/<button[^>]*form="fosse-wizard-bluesky-connect-form"[^>]*class="[^"]*button-primary[^"]*"[^>]*>\s*Connect Bluesky\s*<\/button>/i',
+			'/<button[^>]*form="fosse-wizard-bluesky-connect-form"[^>]*>\s*Connect Bluesky\s*<\/button>/i',
 			$output,
-			'Connect Bluesky should be the primary footer action.'
+			'Connect Bluesky should submit the in-step connect form.'
 		);
 		$this->assertStringContainsString( 'Skip Bluesky for now', $output );
 	}
@@ -1398,12 +1393,11 @@ class Onboarding_WizardTest extends BaseTestCase {
 		$output = $this->render_wizard_step( 'complete' );
 
 		$this->assertStringContainsString( 'Bluesky', $output );
-		$this->assertStringContainsString( 'fosse-detail-list', $output );
-		$this->assertStringContainsString( 'fosse-detail-list__term', $output );
-		$this->assertStringContainsString( 'fosse-detail-list__description', $output );
+		$this->assertStringContainsString( '<dl', $output );
+		$this->assertStringContainsString( '<dt', $output );
+		$this->assertStringContainsString( '<dd', $output );
 		$this->assertStringContainsString( 'Connected as alice.bsky.social', $output );
 		$this->assertStringNotContainsString( 'Not connected', $output );
-		$this->assertStringNotContainsString( 'class="fosse-summary"', $output );
 	}
 
 	/**
@@ -1435,9 +1429,9 @@ class Onboarding_WizardTest extends BaseTestCase {
 
 		$this->assertStringContainsString( 'Fediverse only', $output );
 		$this->assertMatchesRegularExpression(
-			'~<dt class="fosse-detail-list__term">Bluesky</dt>\s*<dd class="fosse-detail-list__description">Connected as alice\.bsky\.social</dd>~',
+			'~<dt[^>]*>Bluesky</dt>\s*<dd[^>]*>Connected as alice\.bsky\.social</dd>~',
 			$output,
-			'Connected Bluesky accounts must not be visually muted even when the saved destination is Fediverse-only.'
+			'Connected Bluesky accounts must be reported even when the saved destination is Fediverse-only.'
 		);
 		$this->assertStringNotContainsString( 'Skipped', $output );
 	}
@@ -1518,8 +1512,7 @@ class Onboarding_WizardTest extends BaseTestCase {
 	public function test_render_bluesky_step_disconnected_shows_signup_link(): void {
 		$output = $this->render_wizard_step( 'bluesky' );
 
-		$this->assertStringContainsString( 'fosse-bluesky-signup', $output );
-		$this->assertSame( 1, substr_count( $output, 'fosse-wizard__hint fosse-bluesky-signup' ) );
+		$this->assertSame( 1, substr_count( $output, 'Need a Bluesky account?' ) );
 		$this->assertStringContainsString( 'https://bsky.app/', $output );
 		$this->assertStringContainsString( 'https://bsky.social/about/blog/4-28-2023-domain-handle-tutorial', $output );
 		$this->assertStringContainsString( 'Need a Bluesky account?', $output );
@@ -1537,7 +1530,6 @@ class Onboarding_WizardTest extends BaseTestCase {
 
 		$output = $this->render_wizard_step( 'bluesky' );
 
-		$this->assertStringNotContainsString( 'fosse-bluesky-signup', $output );
 		$this->assertStringNotContainsString( 'https://bsky.app/', $output );
 		$this->assertStringNotContainsString( 'Need a Bluesky account', $output );
 	}
@@ -1702,11 +1694,10 @@ class Onboarding_WizardTest extends BaseTestCase {
 		$output = $this->render_wizard_step( 'complete' );
 
 		$this->assertStringContainsString( 'Publish your first Post', $output );
-		$this->assertStringContainsString( 'fosse-wizard__cta-publish', $output );
 		$this->assertMatchesRegularExpression(
-			'/<a[^>]*href="[^"]*post-new\.php[^"]*"[^>]*class="[^"]*button-primary[^"]*"[^>]*>\s*Publish your first Post/i',
+			'/<a[^>]*href="[^"]*post-new\.php[^"]*"[^>]*>\s*Publish your first Post/i',
 			$output,
-			'The publish CTA must be a button-primary link to post-new.php.'
+			'The publish CTA must link to post-new.php.'
 		);
 	}
 
@@ -1719,13 +1710,8 @@ class Onboarding_WizardTest extends BaseTestCase {
 
 		$output = $this->render_wizard_step( 'complete' );
 
-		$this->assertStringContainsString( 'fosse-wizard__complete-message', $output );
 		$this->assertStringContainsString( 'Your sharing setup is ready.', $output );
-		$this->assertMatchesRegularExpression(
-			'~<span[^>]*class="[^"]*fosse-wizard__cta-help[^"]*"[^>]*>[^<]*Connect Bluesky to share there too\\.~i',
-			$output,
-			'The completion success copy must describe the selected destinations.'
-		);
+		$this->assertStringContainsString( 'Connect Bluesky to share there too.', $output );
 		$this->assertStringNotContainsString( 'Your post can reach people on Fediverse apps like Mastodon.', $output );
 	}
 
@@ -1740,11 +1726,7 @@ class Onboarding_WizardTest extends BaseTestCase {
 
 		$output = $this->render_wizard_step( 'complete' );
 
-		$this->assertMatchesRegularExpression(
-			'~<span[^>]*class="[^"]*fosse-wizard__cta-help[^"]*"[^>]*>[^<]*Bluesky sharing is ready too\\.~i',
-			$output,
-			'The completion success copy must mention Bluesky when existing settings will publish there.'
-		);
+		$this->assertStringContainsString( 'Bluesky sharing is ready too.', $output );
 		$this->assertStringNotContainsString( 'Your post can reach people on Fediverse apps like Mastodon', $output );
 	}
 
@@ -1760,11 +1742,7 @@ class Onboarding_WizardTest extends BaseTestCase {
 
 		$output = $this->render_wizard_step( 'complete' );
 
-		$this->assertMatchesRegularExpression(
-			'~<span[^>]*class="[^"]*fosse-wizard__cta-help[^"]*"[^>]*>[^<]*automatic sharing is off\\.~i',
-			$output,
-			'The completion success copy must explain why a connected account will not receive the next post.'
-		);
+		$this->assertStringContainsString( 'automatic sharing is off.', $output );
 		$this->assertStringNotContainsString( 'Your post can reach people on Fediverse apps like Mastodon', $output );
 	}
 
@@ -1781,7 +1759,7 @@ class Onboarding_WizardTest extends BaseTestCase {
 		$output = $this->render_wizard_step( 'complete' );
 
 		$this->assertMatchesRegularExpression(
-			'/<a[^>]*href="[^"]*post-new\.php\?[^"]*post_type=page[^"]*"[^>]*class="[^"]*fosse-wizard__cta-publish[^"]*"/i',
+			'/<a[^>]*href="[^"]*post-new\.php\?[^"]*post_type=page[^"]*"/i',
 			$output,
 			'Publish CTA must deep-link to post-new.php?post_type=page when only page is federated.'
 		);
@@ -1801,7 +1779,7 @@ class Onboarding_WizardTest extends BaseTestCase {
 		$output = $this->render_wizard_step( 'complete' );
 
 		$this->assertMatchesRegularExpression(
-			'/<a[^>]*href="[^"]*post-new\.php"[^>]*class="[^"]*fosse-wizard__cta-publish[^"]*"/i',
+			'/<a[^>]*href="[^"]*post-new\.php"[^>]*>/i',
 			$output,
 			'Publish CTA URL must not include post_type=post when post is among the selected types.'
 		);
@@ -1823,7 +1801,7 @@ class Onboarding_WizardTest extends BaseTestCase {
 		$this->assertStringContainsString( 'Set up sharing', $output );
 		$this->assertStringNotContainsString( 'Publish your first', $output );
 		$this->assertMatchesRegularExpression(
-			'/<a[^>]*href="[^"]*page=fosse[^"]*"[^>]*class="[^"]*fosse-wizard__cta-publish[^"]*"/i',
+			'/<a[^>]*href="[^"]*page=fosse[^"]*"/i',
 			$output,
 			'Empty post-type list must route the CTA to the FOSSE Setup page.'
 		);

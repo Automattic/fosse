@@ -180,7 +180,6 @@ class AP_ProviderTest extends BaseTestCase {
 		$this->assertStringContainsString( 'ActivityPub', $output );
 		$this->assertStringContainsString( 'Connected automatically', $output );
 		$this->assertStringNotContainsString( '<form', $output );
-		$this->assertStringContainsString( 'fosse-status-badge is-connected', $output );
 	}
 
 	/**
@@ -197,17 +196,16 @@ class AP_ProviderTest extends BaseTestCase {
 
 		$this->assertStringContainsString( 'name="activitypub_blog_identifier"', $output );
 		$this->assertStringContainsString( 'value="my-site"', $output );
-		$this->assertStringContainsString( 'fosse-field-stack', $output );
-		$this->assertStringContainsString( 'fosse-field', $output );
-		$this->assertStringContainsString( 'fosse-detail-list', $output );
+		$this->assertStringContainsString( 'Site handle', $output );
+		$this->assertStringContainsString( 'Site fediverse address', $output );
 		$this->assertStringContainsString( 'Advanced ActivityPub settings', $output );
-		$this->assertStringContainsString( 'fosse-admin-page__secondary-link', $output );
+		$this->assertStringContainsString( 'options-general.php?page=activitypub', $output );
 		$this->assertStringNotContainsString( 'class="form-table"', $output );
 	}
 
 	/**
-	 * Status card exposes the shared detail-list classes and no longer renders a
-	 * "Manage ActivityPub settings" deep link (issue #74) — the sidebar
+	 * Status card exposes ActivityPub connection details and no longer renders
+	 * a "Manage ActivityPub settings" deep link (issue #74) — the sidebar
 	 * Settings menu entry replaces those per-card links.
 	 */
 	public function test_render_status_card_omits_manage_settings_link() {
@@ -215,16 +213,11 @@ class AP_ProviderTest extends BaseTestCase {
 		$this->provider->render_status_card();
 		$output = ob_get_clean();
 
-		$this->assertStringContainsString( 'fosse-admin-card', $output );
-		$this->assertStringContainsString( 'fosse-card-header', $output );
-		$this->assertStringContainsString( 'fosse-card-body', $output );
-		$this->assertStringContainsString( 'fosse-detail-list', $output );
-		$this->assertStringContainsString( 'fosse-detail-list__term', $output );
-		$this->assertStringContainsString( 'fosse-detail-list__description', $output );
+		$this->assertStringContainsString( '<h2', $output );
+		$this->assertStringContainsString( 'ActivityPub', $output );
 		$this->assertStringContainsString( 'Content types', $output );
 		$this->assertStringNotContainsString( '<table', $output );
 		$this->assertStringNotContainsString( 'Manage ActivityPub settings', $output );
-		$this->assertStringNotContainsString( 'fosse-status-card__manage', $output );
 	}
 
 	// --- save_settings tests ---------------------------------------------------
@@ -884,18 +877,18 @@ class AP_ProviderTest extends BaseTestCase {
 	}
 
 	/**
-	 * Status card label/value pairs carry the shared detail-list classes the
-	 * polish CSS targets. A renamed class would silently break the column-width
-	 * and wrap rules without surfacing a test failure otherwise.
+	 * Status card renders label/value pairs as a semantic definition list
+	 * rather than the legacy table layout.
 	 */
-	public function test_render_status_card_uses_detail_list_label_value_classes() {
+	public function test_render_status_card_uses_definition_list_label_value_pairs() {
 		ob_start();
 		$this->provider->render_status_card();
 		$output = ob_get_clean();
 
-		$this->assertStringContainsString( 'fosse-detail-list', $output );
-		$this->assertStringContainsString( 'fosse-detail-list__term', $output );
-		$this->assertStringContainsString( 'fosse-detail-list__description', $output );
+		$this->assertStringContainsString( '<dl', $output );
+		$this->assertStringContainsString( '<dt', $output );
+		$this->assertStringContainsString( '<dd', $output );
+		$this->assertStringContainsString( 'ActivityPub profile', $output );
 		$this->assertStringNotContainsString( 'widefat striped', $output );
 	}
 }

@@ -1,16 +1,14 @@
 import { test, expect, type Page } from '@playwright/test';
 import {
 	expectNoHorizontalOverflow,
-	numericCssValue,
+	numericCssValueFor,
 	resetBlueskyState,
 	setBlueskyState,
 } from './test-helpers';
 
 const selectDestination = async ( page: Page, destination: string ) => {
 	await page.goto( '/wp-admin/admin.php?page=fosse-wizard' );
-	await page
-		.locator( '.fosse-destination-card', { hasText: destination } )
-		.click();
+	await page.getByText( destination, { exact: true } ).click();
 	await page.getByRole( 'button', { name: 'Continue' } ).click();
 	await expect( page ).toHaveURL( /step=appearance/ );
 };
@@ -39,8 +37,8 @@ test( 'Wizard page loads without errors', async ( { page } ) => {
 	await expect( page.locator( '#error-page' ) ).toHaveCount( 0 );
 
 	await expect(
-		page.locator( '.fosse-wizard__title', {
-			hasText: 'Where should your WordPress posts appear?',
+		page.getByRole( 'heading', {
+			name: 'Where should your WordPress posts appear?',
 		} )
 	).toBeVisible();
 } );
@@ -50,44 +48,50 @@ test( 'Wizard shows progress indicator on destination step', async ( {
 } ) => {
 	await page.goto( '/wp-admin/admin.php?page=fosse-wizard' );
 
-	await expect( page.locator( '.fosse-wizard__progress' ) ).toBeVisible();
-	await expect(
-		page.locator( '.fosse-wizard__progress-step.is-active', {
-			hasText: 'Destinations',
-		} )
-	).toBeVisible();
+	const progress = page.getByRole( 'list', { name: 'Setup progress' } );
+	await expect( progress ).toBeVisible();
+	await expect( progress.locator( '[aria-current="step"]' ) ).toBeVisible();
+	await expect( progress.locator( '[aria-current="step"]' ) ).toHaveText(
+		'Destinations'
+	);
 } );
 
 test( 'Destination step shows two destination cards', async ( { page } ) => {
 	await page.goto( '/wp-admin/admin.php?page=fosse-wizard' );
 
-	await expect( page.locator( '.fosse-wizard__description' ) ).toContainText(
-		'Fediverse apps like Mastodon'
-	);
-	const wizardCard = page.locator( '.fosse-wizard__card.fosse-admin-card' );
-	await expect( wizardCard ).toBeVisible();
 	await expect(
-		wizardCard.locator( '.fosse-card-header .fosse-wizard__title' )
-	).toContainText( 'Where should your WordPress posts appear?' );
-	await expect( wizardCard.locator( '.fosse-card-body' ) ).toBeVisible();
-	await expect(
-		wizardCard.locator( '.fosse-card-footer .fosse-wizard__actions' )
+		page.getByText(
+			/Fediverse sharing is enabled by default.*Fediverse apps like Mastodon/
+		)
 	).toBeVisible();
-	await expect( page.locator( '.fosse-destination-card' ) ).toHaveCount( 2 );
-	await expect( page.locator( '.fosse-choice-card' ) ).toHaveCount( 2 );
 	await expect(
-		page.locator( '.fosse-destination-card', {
-			hasText: 'Fediverse apps like Mastodon',
+		page.getByRole( 'heading', {
+			name: 'Where should your WordPress posts appear?',
+		} )
+	).toContainText( 'Where should your WordPress posts appear?' );
+	await expect(
+		page.getByRole( 'link', { name: 'Skip setup' } )
+	).toBeVisible();
+	await expect(
+		page.getByRole( 'button', { name: 'Continue' } )
+	).toBeVisible();
+	const destinations = page.getByRole( 'group', {
+		name: 'Where to publish',
+	} );
+	await expect( destinations.getByRole( 'radio' ) ).toHaveCount( 2 );
+	await expect(
+		destinations.getByRole( 'radio', {
+			name: /Fediverse apps like Mastodon/,
 		} )
 	).toHaveCount( 2 );
 	await expect(
-		page.locator( '.fosse-destination-card', {
-			hasText: 'Fediverse + Bluesky',
+		destinations.getByRole( 'radio', {
+			name: /Fediverse \+ Bluesky/,
 		} )
 	).toBeVisible();
 	await expect(
-		page.locator( '.fosse-destination-card', {
-			hasText: 'Fediverse only',
+		destinations.getByRole( 'radio', {
+			name: /Fediverse only/,
 		} )
 	).toBeVisible();
 	await expect( page.getByText( 'Mastodon and similar apps' ) ).toHaveCount(
@@ -101,32 +105,25 @@ test( 'Destination step keeps skip and continue actions on one desktop row', asy
 	await page.setViewportSize( { width: 1280, height: 900 } );
 	await page.goto( '/wp-admin/admin.php?page=fosse-wizard' );
 
-	const metrics = await page.evaluate( () => {
-		const skip = document.querySelector( '.fosse-wizard__skip' );
-		const submit = document.querySelector(
-			'.fosse-wizard__actions input[type="submit"]'
-		);
+	const skipRect = await page
+		.getByRole( 'link', { name: 'Skip setup' } )
+		.boundingBox();
+	const submitRect = await page
+		.getByRole( 'button', { name: 'Continue' } )
+		.boundingBox();
 
-		if ( ! skip || ! submit ) {
-			return null;
-		}
-
-		const skipRect = skip.getBoundingClientRect();
-		const submitRect = submit.getBoundingClientRect();
-
-		return {
-			centerDelta: Math.abs(
-				skipRect.top +
-					skipRect.height / 2 -
-					( submitRect.top + submitRect.height / 2 )
-			),
-			skipBeforeSubmit: skipRect.right <= submitRect.left,
-		};
-	} );
-
-	expect( metrics ).not.toBeNull();
-	expect( metrics!.centerDelta ).toBeLessThanOrEqual( 4 );
-	expect( metrics!.skipBeforeSubmit ).toBe( true );
+	expect( skipRect ).not.toBeNull();
+	expect( submitRect ).not.toBeNull();
+	expect(
+		Math.abs(
+			skipRect!.y +
+				skipRect!.height / 2 -
+				( submitRect!.y + submitRect!.height / 2 )
+		)
+	).toBeLessThanOrEqual( 4 );
+	expect( skipRect!.x + skipRect!.width ).toBeLessThanOrEqual(
+		submitRect!.x
+	);
 } );
 
 test( 'Wizard progress stays compact and keeps step labels available on mobile', async ( {
@@ -139,30 +136,31 @@ test( 'Wizard progress stays compact and keeps step labels available on mobile',
 	await expect(
 		page.getByRole( 'button', { name: 'Continue' } )
 	).toBeVisible();
-	await expect(
-		page.locator(
-			'.fosse-wizard__progress-step.is-active .fosse-wizard__progress-label',
-			{ hasText: 'Destinations' }
-		)
-	).toBeVisible();
+	const progress = page.getByRole( 'list', { name: 'Setup progress' } );
+	await expect( progress.locator( '[aria-current="step"]' ) ).toHaveText(
+		'Destinations'
+	);
 
-	const progressMetrics = await page
-		.locator( '.fosse-wizard__progress' )
-		.evaluate( ( el ) => {
-			const unavailableLabels = Array.from(
-				el.querySelectorAll( '.fosse-wizard__progress-label' )
-			).filter( ( label ) => {
-				const style = window.getComputedStyle( label );
-				return (
-					'hidden' === style.visibility || 'none' === style.display
-				);
-			} ).length;
+	const progressMetrics = await progress.evaluate( ( el ) => {
+		const visibleSteps = Array.from(
+			el.querySelectorAll( 'li:not([aria-hidden="true"])' )
+		);
+		const unavailableLabels = visibleSteps.filter( ( step ) => {
+			const label = Array.from( step.children ).find(
+				( child ) => child.textContent?.trim()
+			);
+			if ( ! label ) {
+				return true;
+			}
+			const style = window.getComputedStyle( label );
+			return 'hidden' === style.visibility || 'none' === style.display;
+		} ).length;
 
-			return {
-				height: ( el as HTMLElement ).offsetHeight,
-				unavailableLabels,
-			};
-		} );
+		return {
+			height: ( el as HTMLElement ).offsetHeight,
+			unavailableLabels,
+		};
+	} );
 
 	expect( progressMetrics.height ).toBeLessThanOrEqual( 48 );
 	expect( progressMetrics.unavailableLabels ).toBe( 0 );
@@ -177,28 +175,41 @@ test( 'Wizard surfaces use restrained visual tokens without page overflow', asyn
 	await expectNoHorizontalOverflow( page );
 
 	expect(
-		await numericCssValue( page, '.fosse-wizard__title', 'letter-spacing' )
-	).toBe( 0 );
-	expect(
-		await numericCssValue(
-			page,
-			'.fosse-destination-card__badge',
+		await numericCssValueFor(
+			page.getByRole( 'heading', {
+				name: 'Where should your WordPress posts appear?',
+			} ),
 			'letter-spacing'
 		)
 	).toBe( 0 );
 	expect(
-		await numericCssValue( page, '.fosse-choice-card', 'border-radius' )
+		await numericCssValueFor(
+			page.getByText( 'Recommended', { exact: true } ),
+			'letter-spacing'
+		)
+	).toBe( 0 );
+	expect(
+		await numericCssValueFor(
+			page
+				.getByRole( 'radio', { name: /Fediverse \+ Bluesky/ } )
+				.locator( 'xpath=..' ),
+			'border-radius'
+		)
 	).toBeLessThanOrEqual( 8 );
 
 	await page.goto( '/wp-admin/admin.php?page=fosse-wizard&step=content' );
 	await expectNoHorizontalOverflow( page );
 	expect(
-		await numericCssValue( page, '.fosse-wizard__card', 'border-radius' )
+		await numericCssValueFor(
+			page
+				.getByRole( 'heading', { name: 'What do you want to share?' } )
+				.locator( 'xpath=ancestor::div[3]' ),
+			'border-radius'
+		)
 	).toBeLessThanOrEqual( 8 );
 	expect(
-		await numericCssValue(
-			page,
-			'.fosse-post-types__group-label',
+		await numericCssValueFor(
+			page.getByText( 'Common content types', { exact: true } ),
 			'letter-spacing'
 		)
 	).toBe( 0 );
@@ -217,27 +228,35 @@ test( 'Wizard keeps a centered reading column inside wp-admin content', async ( 
 	await page.setViewportSize( { width: 1103, height: 749 } );
 	await page.goto( '/wp-admin/admin.php?page=fosse-wizard' );
 
-	const metrics = await page.evaluate( () => {
-		const wpBody = document.querySelector( '#wpbody-content' );
-		const wizard = document.querySelector( '.fosse-wizard' );
+	const metrics = await page
+		.getByRole( 'heading', {
+			name: 'Where should your WordPress posts appear?',
+		} )
+		.evaluate( ( heading ) => {
+			const wpBody = document.querySelector( '#wpbody-content' );
+			let wizard = heading.parentElement;
 
-		if ( ! wpBody || ! wizard ) {
-			return null;
-		}
+			while ( wizard?.parentElement && wizard.parentElement !== wpBody ) {
+				wizard = wizard.parentElement;
+			}
 
-		const wpBodyRect = wpBody.getBoundingClientRect();
-		const wizardRect = wizard.getBoundingClientRect();
+			if ( ! wpBody || ! wizard ) {
+				return null;
+			}
 
-		return {
-			centerDelta: Math.abs(
-				wpBodyRect.left +
-					wpBodyRect.width / 2 -
-					( wizardRect.left + wizardRect.width / 2 )
-			),
-			leftGutter: wizardRect.left - wpBodyRect.left,
-			rightGutter: wpBodyRect.right - wizardRect.right,
-		};
-	} );
+			const wpBodyRect = wpBody.getBoundingClientRect();
+			const wizardRect = wizard.getBoundingClientRect();
+
+			return {
+				centerDelta: Math.abs(
+					wpBodyRect.left +
+						wpBodyRect.width / 2 -
+						( wizardRect.left + wizardRect.width / 2 )
+				),
+				leftGutter: wizardRect.left - wpBodyRect.left,
+				rightGutter: wpBodyRect.right - wizardRect.right,
+			};
+		} );
 
 	expect( metrics ).not.toBeNull();
 	expect( metrics!.centerDelta ).toBeLessThanOrEqual( 1 );
@@ -254,16 +273,18 @@ test( 'Destination selection navigates to identity step', async ( {
 	await page.getByRole( 'button', { name: 'Continue' } ).click();
 	await expect( page ).toHaveURL( /step=appearance/ );
 	await expect(
-		page.locator( '.fosse-wizard__title', {
-			hasText: 'Who should people follow?',
-		} )
+		page.getByRole( 'heading', { name: 'Who should people follow?' } )
 	).toBeVisible();
 } );
 
 test( 'Appearance step has three actor mode cards', async ( { page } ) => {
 	await page.goto( '/wp-admin/admin.php?page=fosse-wizard&step=appearance' );
 
-	await expect( page.locator( '.fosse-mode-card' ) ).toHaveCount( 3 );
+	await expect(
+		page
+			.getByRole( 'group', { name: 'How posts appear' } )
+			.getByRole( 'radio' )
+	).toHaveCount( 3 );
 } );
 
 test( 'Appearance step swaps the visible address preview when the actor mode changes', async ( {
@@ -271,83 +292,57 @@ test( 'Appearance step swaps the visible address preview when the actor mode cha
 } ) => {
 	await page.goto( '/wp-admin/admin.php?page=fosse-wizard&step=appearance' );
 
-	// Three preview containers render server-side, one per mode. JS toggles
-	// `is-hidden` on radio change; only the matching container should be
-	// visible at any given time.
 	await expect(
-		page.locator( '.fosse-address-preview[data-fosse-mode]' )
-	).toHaveCount( 3 );
-	await expect(
-		page.locator( '.fosse-address-preview[data-fosse-mode="actor"]' )
-	).toContainText( 'Your fediverse address:' );
+		page.getByText( 'Your fediverse address:', { exact: true } )
+	).toBeVisible();
 
 	// Selecting "As your site" exposes the blog preview and the inline
 	// Site Handle row, and hides the personal address preview.
-	await page
-		.locator( '.fosse-mode-card', {
-			has: page.locator( '.fosse-mode-card__title', {
-				hasText: /^As your site$/,
-			} ),
-		} )
-		.click();
+	await page.getByText( 'As your site', { exact: true } ).click();
 
 	await expect(
-		page.locator( '.fosse-address-preview[data-fosse-mode="blog"]' )
+		page.getByText( 'Site fediverse address:', { exact: true } )
 	).toBeVisible();
 	await expect(
-		page.locator( '.fosse-address-preview[data-fosse-mode="blog"]' )
-	).toContainText( 'Site fediverse address:' );
-	await expect(
-		page.locator( '.fosse-address-preview[data-fosse-mode="actor"]' )
+		page.getByText( 'Your fediverse address:', { exact: true } )
 	).toBeHidden();
+	await expect( page.getByText( 'As you:', { exact: true } ) ).toBeHidden();
 	await expect(
-		page.locator( '.fosse-address-preview[data-fosse-mode="actor_blog"]' )
+		page.getByText( 'As your site:', { exact: true } )
 	).toBeHidden();
-	await expect(
-		page.locator( '[data-fosse-when="includes-blog"]' )
-	).toBeVisible();
-	await expect(
-		page.locator( '#fosse-wizard-blog-identifier' )
-	).toBeVisible();
+	await expect( page.getByLabel( 'Site handle' ) ).toBeVisible();
 
-	// "Both" reveals the actor_blog container instead.
-	await page
-		.locator( '.fosse-mode-card', {
-			has: page.locator( '.fosse-mode-card__title', {
-				hasText: /^Both$/,
-			} ),
-		} )
-		.click();
+	// "Both" reveals the actor_blog container and keeps the inline Site
+	// handle row available for the blog actor.
+	await page.getByText( 'Both', { exact: true } ).click();
 
+	await expect( page.getByText( 'As you:', { exact: true } ) ).toBeVisible();
 	await expect(
-		page.locator( '.fosse-address-preview[data-fosse-mode="actor_blog"]' )
+		page.getByText( 'As your site:', { exact: true } )
 	).toBeVisible();
 	await expect(
-		page.locator( '.fosse-address-preview[data-fosse-mode="blog"]' )
+		page.getByText( 'Your fediverse address:', { exact: true } )
 	).toBeHidden();
 	await expect(
-		page.locator( '[data-fosse-when="includes-blog"]' )
-	).toBeVisible();
+		page.getByText( 'Site fediverse address:', { exact: true } )
+	).toBeHidden();
+	await expect( page.getByLabel( 'Site handle' ) ).toBeVisible();
 
 	// Returning to "As you" hides the inline site handle row again — it
 	// only applies when the mode publishes from a blog actor.
-	await page
-		.locator( '.fosse-mode-card', {
-			has: page.locator( '.fosse-mode-card__title', {
-				hasText: /^As you$/,
-			} ),
-		} )
-		.click();
+	await page.getByText( 'As you', { exact: true } ).click();
 
 	await expect(
-		page.locator( '.fosse-address-preview[data-fosse-mode="actor"]' )
+		page.getByText( 'Your fediverse address:', { exact: true } )
 	).toBeVisible();
 	await expect(
-		page.locator( '.fosse-address-preview[data-fosse-mode="blog"]' )
+		page.getByText( 'Site fediverse address:', { exact: true } )
 	).toBeHidden();
+	await expect( page.getByText( 'As you:', { exact: true } ) ).toBeHidden();
 	await expect(
-		page.locator( '[data-fosse-when="includes-blog"]' )
+		page.getByText( 'As your site:', { exact: true } )
 	).toBeHidden();
+	await expect( page.getByLabel( 'Site handle' ) ).toBeHidden();
 } );
 
 test( 'Selecting a mode and continuing saves the option', async ( {
@@ -357,14 +352,8 @@ test( 'Selecting a mode and continuing saves the option', async ( {
 
 	// Select "As you" (actor mode). Use exact title match to avoid
 	// substring collision with "As your site".
-	await page
-		.locator( '.fosse-mode-card', {
-			has: page.locator( '.fosse-mode-card__title', {
-				hasText: /^As you$/,
-			} ),
-		} )
-		.click();
-	await page.click( 'input[type="submit"]' );
+	await page.getByText( 'As you', { exact: true } ).click();
+	await page.getByRole( 'button', { name: 'Continue' } ).click();
 
 	await expect( page ).toHaveURL( /step=content/ );
 
@@ -372,7 +361,7 @@ test( 'Selecting a mode and continuing saves the option', async ( {
 	// and checking the radio is still selected.
 	await page.goto( '/wp-admin/admin.php?page=fosse-wizard&step=appearance' );
 	await expect(
-		page.locator( '.fosse-mode-card__input[value="actor"]' )
+		page.getByRole( 'radio', { name: /^As you\b/ } )
 	).toBeChecked();
 } );
 
@@ -386,8 +375,8 @@ test( 'Content step saves post types and advances to Bluesky', async ( {
 	await page.goto( '/wp-admin/admin.php?page=fosse-wizard&step=content' );
 
 	// Posts should be checked by default; check Pages too.
-	await page.locator( '.fosse-post-type-item', { hasText: 'Pages' } ).click();
-	await page.click( 'input[type="submit"]' );
+	await page.getByRole( 'checkbox', { name: 'Pages' } ).check();
+	await page.getByRole( 'button', { name: 'Continue' } ).click();
 
 	await expect( page ).toHaveURL( /step=bluesky/ );
 } );
@@ -396,14 +385,12 @@ test( 'Bluesky step shows connect form', async ( { page } ) => {
 	await openBlueskyStep( page );
 
 	await expect(
-		page.locator( '.fosse-wizard__title', {
-			hasText: 'Connect to Bluesky',
-		} )
+		page.getByRole( 'heading', { name: 'Connect to Bluesky' } )
 	).toBeVisible();
-	await expect( page.locator( '#fosse-bsky-handle' ) ).toBeVisible();
+	await expect( page.getByLabel( 'Bluesky handle' ) ).toBeVisible();
 	await expect(
 		page.getByRole( 'button', { name: 'Connect Bluesky' } )
-	).toHaveClass( /button-primary/ );
+	).toBeVisible();
 	await expect(
 		page.getByRole( 'link', { name: 'Skip Bluesky for now' } )
 	).toBeVisible();
@@ -415,10 +402,9 @@ test( 'Bluesky step (disconnected) shows sign-up help linking to bsky.app', asyn
 } ) => {
 	await openBlueskyStep( page );
 
-	const signupLink = page.locator(
-		'.fosse-bluesky-signup a[href="https://bsky.app/"]'
-	);
+	const signupLink = page.getByRole( 'link', { name: 'Create one' } );
 	await expect( signupLink ).toBeVisible();
+	await expect( signupLink ).toHaveAttribute( 'href', 'https://bsky.app/' );
 	await expect( signupLink ).toHaveAttribute( 'target', '_blank' );
 	await expect( signupLink ).toHaveAttribute( 'rel', /noopener/ );
 } );
@@ -456,22 +442,20 @@ test.describe( 'Bluesky step — connected (post-OAuth completion)', () => {
 		await page.goto( '/wp-admin/admin.php?page=fosse-wizard&step=bluesky' );
 
 		await expect(
-			page.locator( '.fosse-wizard__title', {
-				hasText: 'Review Bluesky connection',
+			page.getByRole( 'heading', {
+				name: 'Review Bluesky connection',
 			} )
 		).toBeVisible();
 		await expect(
-			page.locator( '.fosse-wizard__description' )
-		).not.toContainText( 'connect later' );
+			page.getByText( /You can connect Bluesky later/ )
+		).toHaveCount( 0 );
 		await expect(
 			page.locator( 'text=/Bluesky is connected/i' )
 		).toHaveCount( 1 );
-		await expect( page.locator( '.fosse-detail-list' ) ).toContainText(
-			'alice.bsky.social'
-		);
-		await expect( page.locator( '.fosse-bluesky-signup' ) ).toHaveCount(
-			0
-		);
+		await expect( page.getByText( 'alice.bsky.social' ) ).toBeVisible();
+		await expect(
+			page.getByRole( 'link', { name: 'Create one' } )
+		).toHaveCount( 0 );
 		await expect(
 			page.getByRole( 'link', { name: 'Finish setup' } )
 		).toBeVisible();
@@ -483,34 +467,22 @@ test( 'Fediverse-only path skips the Bluesky connect step', async ( {
 } ) => {
 	await page.goto( '/wp-admin/admin.php?page=fosse-wizard' );
 
-	await page
-		.locator( '.fosse-destination-card', { hasText: 'Fediverse only' } )
-		.click();
+	await page.getByText( 'Fediverse only', { exact: true } ).click();
 	await page.getByRole( 'button', { name: 'Continue' } ).click();
 
 	await expect( page ).toHaveURL( /step=appearance/ );
-	await page
-		.locator( '.fosse-mode-card', {
-			has: page.locator( '.fosse-mode-card__title', {
-				hasText: /^As you$/,
-			} ),
-		} )
-		.click();
-	await page.click( 'input[type="submit"]' );
+	await page.getByText( 'As you', { exact: true } ).click();
+	await page.getByRole( 'button', { name: 'Continue' } ).click();
 
 	await expect( page ).toHaveURL( /step=content/ );
-	await page.click( 'input[type="submit"]' );
+	await page.getByRole( 'button', { name: 'Continue' } ).click();
 
 	await expect( page ).toHaveURL( /step=complete/ );
 	await expect(
-		page.locator( '.fosse-detail-list__term', { hasText: 'Destinations' } )
+		page.locator( 'dt' ).filter( { hasText: /^Destinations$/ } )
 	).toBeVisible();
-	await expect( page.locator( '.fosse-detail-list' ) ).toContainText(
-		'Fediverse only'
-	);
-	await expect( page.locator( '.fosse-detail-list' ) ).toContainText(
-		'Skipped'
-	);
+	await expect( page.getByText( 'Fediverse only' ) ).toBeVisible();
+	await expect( page.getByText( 'Skipped' ) ).toBeVisible();
 } );
 
 test( 'Skip Bluesky for now goes to completion', async ( { page } ) => {
@@ -519,23 +491,24 @@ test( 'Skip Bluesky for now goes to completion', async ( { page } ) => {
 	await page.getByRole( 'link', { name: 'Skip Bluesky for now' } ).click();
 	await expect( page ).toHaveURL( /step=complete/ );
 	await expect(
-		page.locator( '.fosse-wizard__title', {
-			hasText: "You're all set",
-		} )
+		page.getByRole( 'heading', { name: "You're all set!" } )
 	).toBeVisible();
 } );
 
 test( 'Completion step shows summary', async ( { page } ) => {
 	await completeThroughBlueskySkip( page );
 
-	await expect( page.locator( '.fosse-detail-list' ) ).toBeVisible();
 	await expect(
-		page.locator( '.fosse-detail-list__term', { hasText: 'Destinations' } )
+		page.locator( 'dt' ).filter( { hasText: /^Destinations$/ } )
 	).toBeVisible();
-	await expect( page.locator( 'text=Fediverse identity' ) ).toBeVisible();
-	await expect( page.locator( 'text=Content types' ) ).toBeVisible();
 	await expect(
-		page.locator( '.fosse-detail-list__term', { hasText: 'Bluesky' } )
+		page.locator( 'dt' ).filter( { hasText: /^Fediverse identity$/ } )
+	).toBeVisible();
+	await expect(
+		page.locator( 'dt' ).filter( { hasText: /^Content types$/ } )
+	).toBeVisible();
+	await expect(
+		page.locator( 'dt' ).filter( { hasText: /^Bluesky$/ } )
 	).toBeVisible();
 } );
 
@@ -544,12 +517,13 @@ test( 'Completion step exposes "Publish your first Post" CTA to post-new.php', a
 } ) => {
 	await completeThroughBlueskySkip( page );
 
-	const publishCta = page.locator( '.fosse-wizard__cta-publish' );
+	const publishCta = page.getByRole( 'link', {
+		name: 'Publish your first Post',
+	} );
 	await expect( publishCta ).toBeVisible();
 	// Capitalization mirrors the post type's `singular_name` ("Post") so
 	// the assertion matches the PHP-side behavior — see PHPUnit
 	// `test_render_complete_step_renders_publish_cta`.
-	await expect( publishCta ).toContainText( 'Publish your first Post' );
 	await expect( publishCta ).toHaveAttribute( 'href', /post-new\.php$/ );
 } );
 
@@ -558,9 +532,7 @@ test( 'Completion step keeps success header and actions aligned inside the card'
 } ) => {
 	await completeThroughBlueskySkip( page );
 	await expect(
-		page.locator(
-			'.fosse-wizard__complete-card .fosse-wizard__completion-footer .fosse-wizard__cta-publish'
-		)
+		page.getByRole( 'link', { name: 'Publish your first Post' } )
 	).toBeVisible();
 
 	type CompletionMetrics = {
@@ -579,7 +551,6 @@ test( 'Completion step keeps success header and actions aligned inside the card'
 		iconAboveTitle: boolean;
 		iconCenterDelta: number;
 		messageCenterDelta: number;
-		oldTitleRowRemoved: boolean;
 		iconHeight: number;
 		resetBelowCard: boolean;
 		resetOutsideCard: boolean;
@@ -587,93 +558,104 @@ test( 'Completion step keeps success header and actions aligned inside the card'
 		titleTextAlign: string;
 	} | null;
 
-	const metrics = await page.evaluate( (): CompletionMetrics => {
-		const card = document.querySelector( '.fosse-wizard__complete-card' );
-		const header = card?.querySelector( '.fosse-wizard__complete-header' );
-		const message = card?.querySelector(
-			'.fosse-wizard__complete-message'
-		);
-		const icon = card?.querySelector( '.fosse-complete-icon' );
-		const title = card?.querySelector( '.fosse-wizard__title' );
-		const description = card?.querySelector(
-			'.fosse-wizard__complete-message .fosse-wizard__description'
-		);
-		const help = card?.querySelector( '.fosse-wizard__cta-help' );
-		const oldTitleRow = card?.querySelector(
-			'.fosse-wizard__complete-title-row'
-		);
-		const footer = card?.querySelector(
-			'.fosse-wizard__completion-footer'
-		);
-		const cta = card?.querySelector( '.fosse-wizard__cta-publish' );
-		const reset = document.querySelector( '.fosse-wizard__reset' );
+	const metrics = await page
+		.getByRole( 'heading', { name: "You're all set!" } )
+		.evaluate( ( title ): CompletionMetrics => {
+			const message = title.parentElement;
+			const header = message?.parentElement;
+			const card = header?.parentElement;
+			const icon = header?.firstElementChild;
+			const description = Array.from(
+				message?.querySelectorAll( 'p' ) ?? []
+			).find(
+				( paragraph ) =>
+					paragraph.textContent?.includes(
+						'Your sharing setup is ready'
+					)
+			);
+			const help = Array.from(
+				description?.querySelectorAll( 'span' ) ?? []
+			).find(
+				( span ) =>
+					span.textContent?.includes(
+						'Connect Bluesky to share there too.'
+					)
+			);
+			const cta = Array.from( card?.querySelectorAll( 'a' ) ?? [] ).find(
+				( link ) =>
+					link.textContent?.trim() === 'Publish your first Post'
+			);
+			const footer = Array.from( card?.children ?? [] ).find( ( child ) =>
+				child.contains( cta ?? null )
+			);
+			const reset = Array.from( document.querySelectorAll( 'a' ) ).find(
+				( link ) => link.textContent?.trim() === 'Run wizard again'
+			)?.parentElement;
 
-		if (
-			! card ||
-			! header ||
-			! message ||
-			! icon ||
-			! title ||
-			! description ||
-			! help ||
-			! footer ||
-			! cta ||
-			! reset
-		) {
-			return null;
-		}
+			if (
+				! card ||
+				! header ||
+				! message ||
+				! icon ||
+				! description ||
+				! help ||
+				! footer ||
+				! cta ||
+				! reset
+			) {
+				return null;
+			}
 
-		const cardRect = card.getBoundingClientRect();
-		const headerRect = header.getBoundingClientRect();
-		const iconRect = icon.getBoundingClientRect();
-		const messageRect = message.getBoundingClientRect();
-		const titleRect = title.getBoundingClientRect();
-		const descriptionRect = description.getBoundingClientRect();
-		const footerRect = footer.getBoundingClientRect();
-		const ctaRect = cta.getBoundingClientRect();
-		const resetRect = reset.getBoundingClientRect();
+			const cardRect = card.getBoundingClientRect();
+			const headerRect = header.getBoundingClientRect();
+			const iconRect = icon.getBoundingClientRect();
+			const messageRect = message.getBoundingClientRect();
+			const titleRect = title.getBoundingClientRect();
+			const descriptionRect = description.getBoundingClientRect();
+			const footerRect = footer.getBoundingClientRect();
+			const ctaRect = cta.getBoundingClientRect();
+			const resetRect = reset.getBoundingClientRect();
 
-		return {
-			cardBottom: cardRect.bottom,
-			ctaBottom: ctaRect.bottom,
-			ctaInsideFooter: footer.contains( cta ),
-			ctaStartsInFooter: ctaRect.top >= footerRect.top,
-			descriptionContainsSetup:
-				description.textContent?.includes(
-					'Your sharing setup is ready'
-				) ?? false,
-			descriptionContainsReach:
-				description.textContent?.includes(
-					'Your post can reach people'
-				) ?? false,
-			descriptionContainsBluesky:
-				description.textContent?.includes(
-					'Connect Bluesky to share there too.'
-				) ?? false,
-			descriptionTopGap: descriptionRect.top - titleRect.bottom,
-			headerHeight: headerRect.height,
-			helpInsideHeader: header.contains( help ),
-			helpInsideDescription: description.contains( help ),
-			helpOutsideFooter: ! footer.contains( help ),
-			iconAboveTitle: iconRect.bottom <= titleRect.top - 8,
-			iconCenterDelta: Math.abs(
-				iconRect.left +
-					iconRect.width / 2 -
-					( headerRect.left + headerRect.width / 2 )
-			),
-			messageCenterDelta: Math.abs(
-				messageRect.left +
-					messageRect.width / 2 -
-					( headerRect.left + headerRect.width / 2 )
-			),
-			oldTitleRowRemoved: ! oldTitleRow,
-			iconHeight: iconRect.height,
-			resetBelowCard: resetRect.top >= cardRect.bottom + 12,
-			resetOutsideCard: ! card.contains( reset ),
-			descriptionTextAlign: getComputedStyle( description ).textAlign,
-			titleTextAlign: getComputedStyle( title ).textAlign,
-		};
-	} );
+			return {
+				cardBottom: cardRect.bottom,
+				ctaBottom: ctaRect.bottom,
+				ctaInsideFooter: footer.contains( cta ),
+				ctaStartsInFooter: ctaRect.top >= footerRect.top,
+				descriptionContainsSetup:
+					description.textContent?.includes(
+						'Your sharing setup is ready'
+					) ?? false,
+				descriptionContainsReach:
+					description.textContent?.includes(
+						'Your post can reach people'
+					) ?? false,
+				descriptionContainsBluesky:
+					description.textContent?.includes(
+						'Connect Bluesky to share there too.'
+					) ?? false,
+				descriptionTopGap: descriptionRect.top - titleRect.bottom,
+				headerHeight: headerRect.height,
+				helpInsideHeader: header.contains( help ),
+				helpInsideDescription: description.contains( help ),
+				helpOutsideFooter: ! footer.contains( help ),
+				iconAboveTitle: iconRect.bottom <= titleRect.top - 8,
+				iconCenterDelta: Math.abs(
+					iconRect.left +
+						iconRect.width / 2 -
+						( headerRect.left + headerRect.width / 2 )
+				),
+				messageCenterDelta: Math.abs(
+					messageRect.left +
+						messageRect.width / 2 -
+						( headerRect.left + headerRect.width / 2 )
+				),
+				iconHeight: iconRect.height,
+				resetBelowCard: resetRect.top >= cardRect.bottom + 12,
+				resetOutsideCard: ! card.contains( reset ),
+				descriptionTextAlign: getComputedStyle( description ).textAlign,
+				titleTextAlign: getComputedStyle( title ).textAlign,
+			};
+		} );
 
 	expect( metrics ).not.toBeNull();
 	expect( metrics!.ctaInsideFooter ).toBe( true );
@@ -691,7 +673,6 @@ test( 'Completion step keeps success header and actions aligned inside the card'
 	expect( metrics!.iconAboveTitle ).toBe( true );
 	expect( metrics!.iconCenterDelta ).toBeLessThanOrEqual( 2 );
 	expect( metrics!.messageCenterDelta ).toBeLessThanOrEqual( 2 );
-	expect( metrics!.oldTitleRowRemoved ).toBe( true );
 	expect( metrics!.iconHeight ).toBeGreaterThanOrEqual( 52 );
 	expect( metrics!.iconHeight ).toBeLessThanOrEqual( 64 );
 	expect( metrics!.descriptionTextAlign ).toBe( 'center' );
@@ -710,7 +691,7 @@ test( 'Skip setup marks wizard complete and goes to Setup page', async ( {
 } ) => {
 	await page.goto( '/wp-admin/admin.php?page=fosse-wizard' );
 
-	await page.click( 'text=Skip setup' );
+	await page.getByRole( 'link', { name: 'Skip setup' } ).click();
 	await expect( page ).toHaveURL( /page=fosse(?!-)/ );
 
 	// Wizard notice should not appear since wizard is now complete.
@@ -718,9 +699,11 @@ test( 'Skip setup marks wizard complete and goes to Setup page', async ( {
 		0
 	);
 
-	await expect( page.locator( '.fosse-guided-setup' ) ).toHaveCount( 0 );
 	await expect(
-		page.locator( '.fosse-admin-page__footer-action a' )
+		page.getByRole( 'note' ).filter( { hasText: 'Want a guided setup?' } )
+	).toHaveCount( 0 );
+	await expect(
+		page.getByRole( 'link', { name: 'Run the wizard' } )
 	).toHaveAttribute( 'href', /page=fosse-wizard/ );
 } );
 

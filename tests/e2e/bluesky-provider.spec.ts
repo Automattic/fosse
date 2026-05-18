@@ -1,7 +1,8 @@
 import { test, expect, type Page } from '@playwright/test';
 import {
 	expectNoHorizontalOverflow,
-	numericCssValue,
+	getProviderStatusCard,
+	numericCssValueFor,
 	resetBlueskyState,
 	resetWizardIfComplete,
 	setBlueskyState,
@@ -52,9 +53,15 @@ test.describe( 'Bluesky provider UI', () => {
 		await page.goto( '/wp-admin/admin.php?page=fosse' );
 		await expectNoCriticalText( page );
 
-		const federationSettings = page.locator( '#fosse-federation-settings' );
-		const connections = page.locator( '#fosse-connections' );
-		const guidedSetup = page.locator( '.fosse-guided-setup' );
+		const federationSettings = page
+			.getByRole( 'heading', { name: 'Publishing settings' } )
+			.locator( 'xpath=ancestor::div[2]' );
+		const connections = page
+			.getByRole( 'heading', { name: 'Connections' } )
+			.locator( 'xpath=ancestor::div[2]' );
+		const guidedSetup = page
+			.getByRole( 'note' )
+			.filter( { hasText: 'Want a guided setup?' } );
 		const blueskyConnection = connections.locator(
 			'#fosse-provider-bluesky'
 		);
@@ -62,36 +69,23 @@ test.describe( 'Bluesky provider UI', () => {
 		await expect( guidedSetup ).toBeVisible();
 		await expect( guidedSetup ).toContainText( 'Want a guided setup?' );
 		await expect( guidedSetup ).toHaveCSS( 'border-left-width', '4px' );
-		const calloutWidth = await page.evaluate( () => {
-			const callout = document.querySelector( '.fosse-guided-setup' );
-			const mainCard = document.querySelector(
-				'#fosse-federation-settings'
-			);
-
-			if ( ! callout || ! mainCard ) {
-				return null;
-			}
-
-			return {
-				calloutWidth: callout.getBoundingClientRect().width,
-				mainCardWidth: mainCard.getBoundingClientRect().width,
-			};
-		} );
-		expect( calloutWidth ).not.toBeNull();
+		const calloutBox = await guidedSetup.boundingBox();
+		const federationSettingsBox = await federationSettings.boundingBox();
+		expect( calloutBox ).not.toBeNull();
+		expect( federationSettingsBox ).not.toBeNull();
 		expect(
-			Math.abs( calloutWidth!.calloutWidth - calloutWidth!.mainCardWidth )
+			Math.abs( calloutBox!.width - federationSettingsBox!.width )
 		).toBeLessThanOrEqual( 1 );
 
-		await expect( federationSettings ).toHaveClass( /fosse-admin-card/ );
 		await expect(
-			federationSettings.locator( '.fosse-field' )
+			federationSettings.getByRole( 'checkbox' )
 		).not.toHaveCount( 0 );
 		await expect(
-			federationSettings.locator( '.fosse-choice-card' )
+			federationSettings.getByRole( 'radio', {
+				name: /Author profiles/,
+			} )
 		).not.toHaveCount( 0 );
-		await expect(
-			page.locator( '.fosse-admin-page .form-table' )
-		).toHaveCount( 0 );
+		await expect( federationSettings.locator( 'table' ) ).toHaveCount( 0 );
 		await expect(
 			federationSettings.getByRole( 'heading', {
 				name: 'Publishing settings',
@@ -109,26 +103,14 @@ test.describe( 'Bluesky provider UI', () => {
 		await expect(
 			page.getByRole( 'link', { name: 'Run the wizard' } )
 		).toHaveAttribute( 'href', /page=fosse-wizard/ );
-		const wizardLinkPlacement = await page.evaluate( () => {
-			const connectionSection =
-				document.querySelector( '#fosse-connections' );
-			const link = document.querySelector(
-				'.fosse-admin-page__footer-action a'
-			);
-
-			if ( ! connectionSection || ! link ) {
-				return null;
-			}
-
-			return {
-				connectionsBottom:
-					connectionSection.getBoundingClientRect().bottom,
-				linkTop: link.getBoundingClientRect().top,
-			};
-		} );
-		expect( wizardLinkPlacement ).not.toBeNull();
-		expect( wizardLinkPlacement!.linkTop ).toBeGreaterThan(
-			wizardLinkPlacement!.connectionsBottom
+		const connectionsBox = await connections.boundingBox();
+		const wizardLink = await page
+			.getByRole( 'link', { name: 'Run the wizard' } )
+			.boundingBox();
+		expect( connectionsBox ).not.toBeNull();
+		expect( wizardLink ).not.toBeNull();
+		expect( wizardLink!.y ).toBeGreaterThan(
+			connectionsBox!.y + connectionsBox!.height
 		);
 		await expect(
 			connections.getByRole( 'heading', { name: 'Connections' } )
@@ -148,9 +130,7 @@ test.describe( 'Bluesky provider UI', () => {
 
 		await page.goto( '/wp-admin/admin.php?page=fosse-status' );
 
-		const blueskyCard = page
-			.locator( '.fosse-status-card' )
-			.filter( { hasText: 'Bluesky' } );
+		const blueskyCard = getProviderStatusCard( page, 'Bluesky' );
 		await expect( blueskyCard ).toContainText( 'Disconnected' );
 		// Auto Publish row was removed alongside the Settings toggle —
 		// the status card no longer surfaces "Enabled" / "Disabled" text
@@ -197,9 +177,7 @@ test.describe( 'Bluesky provider UI', () => {
 
 		await page.goto( '/wp-admin/admin.php?page=fosse-status' );
 
-		const blueskyCard = page
-			.locator( '.fosse-status-card' )
-			.filter( { hasText: 'Bluesky' } );
+		const blueskyCard = getProviderStatusCard( page, 'Bluesky' );
 		await expect( blueskyCard ).toContainText( 'Connected' );
 		await expect( blueskyCard ).toContainText( 'alice.bsky.social' );
 		await expect( blueskyCard ).toContainText( 'did:plc:alice123' );
@@ -230,24 +208,34 @@ test.describe( 'Bluesky provider UI', () => {
 		).toBeVisible();
 
 		expect(
-			await numericCssValue(
-				page,
-				'.fosse-admin-page__title',
+			await numericCssValueFor(
+				page.getByRole( 'heading', { name: 'FOSSE Settings' } ),
 				'letter-spacing'
 			)
 		).toBe( 0 );
 		expect(
-			await numericCssValue(
-				page,
-				'.fosse-field__label',
+			await numericCssValueFor(
+				page
+					.getByText( 'ActivityPub profile', { exact: true } )
+					.first(),
 				'letter-spacing'
 			)
 		).toBe( 0 );
 		expect(
-			await numericCssValue( page, '.fosse-admin-card', 'border-radius' )
+			await numericCssValueFor(
+				page
+					.getByRole( 'heading', { name: 'Publishing settings' } )
+					.locator( 'xpath=ancestor::div[2]' ),
+				'border-radius'
+			)
 		).toBeLessThanOrEqual( 8 );
 		expect(
-			await numericCssValue( page, '.fosse-choice-card', 'border-radius' )
+			await numericCssValueFor(
+				page
+					.getByRole( 'radio', { name: /Author profiles/ } )
+					.locator( 'xpath=..' ),
+				'border-radius'
+			)
 		).toBeLessThanOrEqual( 8 );
 
 		await page.setViewportSize( { width: 390, height: 720 } );

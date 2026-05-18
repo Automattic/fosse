@@ -1,7 +1,8 @@
 import { test, expect, type Page } from '@playwright/test';
 import {
 	expectNoHorizontalOverflow,
-	numericCssValue,
+	getProviderStatusCard,
+	numericCssValueFor,
 	resetBlueskyState,
 	setBlueskyState,
 } from './test-helpers';
@@ -38,14 +39,10 @@ test.describe( 'Status page polish', () => {
 		} );
 
 	const measureCardOverflow = async ( page: Page ) => {
-		const card = page
-			.locator( '.fosse-status-card' )
-			.filter( { hasText: 'Bluesky' } );
+		const card = getProviderStatusCard( page, 'Bluesky' );
 		await expect( card ).toBeVisible();
 		return card.evaluate( ( el ) => {
-			const detailList = el.querySelector(
-				'.fosse-detail-list'
-			) as HTMLElement | null;
+			const detailList = el.querySelector( 'dl' ) as HTMLElement | null;
 			if ( ! detailList || ! ( el instanceof HTMLElement ) ) {
 				return null;
 			}
@@ -64,31 +61,19 @@ test.describe( 'Status page polish', () => {
 		await seedLongValues( page );
 		await page.goto( '/wp-admin/admin.php?page=fosse-status' );
 
-		const blueskyCard = page
-			.locator( '.fosse-status-card' )
-			.filter( { hasText: 'Bluesky' } );
-
-		// The value pairs should carry the shared detail-list classes the
-		// polish CSS targets, and token wrappers should carry token-shape
-		// modifiers so `overflow-wrap: anywhere` is scoped correctly.
-		await expect(
-			blueskyCard.locator( '.fosse-detail-list' )
-		).toBeVisible();
-		await expect(
-			blueskyCard.locator( '.fosse-detail-list__term' )
-		).not.toHaveCount( 0 );
-		await expect(
-			blueskyCard.locator( '.fosse-detail-list__description' )
-		).not.toHaveCount( 0 );
-		await expect(
-			blueskyCard.locator( '.fosse-token--did' )
-		).toBeVisible();
-		await expect(
-			blueskyCard.locator( '.fosse-token--url' )
-		).toBeVisible();
-		await expect(
-			blueskyCard.locator( '.fosse-token--handle' )
-		).toBeVisible();
+		const blueskyCard = getProviderStatusCard( page, 'Bluesky' );
+		await expect( blueskyCard ).toContainText( 'Handle' );
+		await expect( blueskyCard ).toContainText(
+			'someone.with.an.unreasonably.long.handle.example.org'
+		);
+		await expect( blueskyCard ).toContainText( 'DID' );
+		await expect( blueskyCard ).toContainText(
+			'did:plc:abcdefghijklmnopqrstuvwxyz0123456789longidentifier'
+		);
+		await expect( blueskyCard ).toContainText( 'PDS endpoint' );
+		await expect( blueskyCard ).toContainText(
+			'https://very-long-pds-host-name.example.com/some/deep/nested/path'
+		);
 
 		const overflow = await measureCardOverflow( page );
 
@@ -135,12 +120,10 @@ test.describe( 'Status page polish', () => {
 		} );
 		await page.goto( '/wp-admin/admin.php?page=fosse-status' );
 
-		const activityPubCard = page.locator( '.fosse-status-card' ).filter( {
-			has: page.getByRole( 'heading', { name: 'ActivityPub' } ),
-		} );
+		const activityPubCard = getProviderStatusCard( page, 'ActivityPub' );
 		await expect( activityPubCard ).toHaveCount( 1 );
 
-		const rows = activityPubCard.locator( '.fosse-detail-list__term' );
+		const rows = activityPubCard.locator( 'dt' );
 		const rowCount = await rows.count();
 		expect(
 			rowCount,
@@ -151,12 +134,7 @@ test.describe( 'Status page polish', () => {
 			terms.map( ( label ) => {
 				const value = label.nextElementSibling;
 
-				if (
-					! value ||
-					! value.classList.contains(
-						'fosse-detail-list__description'
-					)
-				) {
+				if ( ! value || 'DD' !== value.tagName ) {
 					return null;
 				}
 
@@ -202,54 +180,55 @@ test.describe( 'Status page polish', () => {
 		await expect(
 			page.getByRole( 'link', { name: 'Run the wizard' } )
 		).toHaveAttribute( 'href', /page=fosse-wizard/ );
-		const wizardLinkPlacement = await page.evaluate( () => {
-			const statusCards = document.querySelector( '.fosse-status-cards' );
-			const link = document.querySelector(
-				'.fosse-admin-page__footer-action a'
-			);
-
-			if ( ! statusCards || ! link ) {
-				return null;
-			}
-
-			return {
-				statusCardsBottom: statusCards.getBoundingClientRect().bottom,
-				linkTop: link.getBoundingClientRect().top,
-			};
-		} );
-		expect( wizardLinkPlacement ).not.toBeNull();
-		expect( wizardLinkPlacement!.linkTop ).toBeGreaterThan(
-			wizardLinkPlacement!.statusCardsBottom
+		const statusCards = await Promise.all(
+			[ 'ActivityPub', 'Bluesky' ].map( async ( provider ) => {
+				const box = await getProviderStatusCard(
+					page,
+					provider
+				).boundingBox();
+				expect( box ).not.toBeNull();
+				return box!;
+			} )
+		);
+		const wizardLink = await page
+			.getByRole( 'link', { name: 'Run the wizard' } )
+			.boundingBox();
+		expect( wizardLink ).not.toBeNull();
+		expect( wizardLink!.y ).toBeGreaterThan(
+			Math.max( ...statusCards.map( ( box ) => box.y + box.height ) )
 		);
 
 		expect(
-			await numericCssValue(
-				page,
-				'.fosse-admin-page__title',
+			await numericCssValueFor(
+				page.getByRole( 'heading', { name: 'FOSSE Status' } ),
 				'letter-spacing'
 			)
 		).toBe( 0 );
 		expect(
-			await numericCssValue(
-				page,
-				'.fosse-status-summary__label',
+			await numericCssValueFor(
+				page.getByText( 'Provider status', { exact: true } ),
 				'letter-spacing'
 			)
 		).toBe( 0 );
 		expect(
-			await numericCssValue(
-				page,
-				'.fosse-status-summary',
+			await numericCssValueFor(
+				page
+					.getByText( 'Provider status', { exact: true } )
+					.locator( 'xpath=ancestor::div[2]' ),
 				'border-radius'
 			)
 		).toBeLessThanOrEqual( 8 );
 		expect(
-			await numericCssValue( page, '.fosse-status-card', 'border-radius' )
+			await numericCssValueFor(
+				getProviderStatusCard( page, 'ActivityPub' ),
+				'border-radius'
+			)
 		).toBeLessThanOrEqual( 8 );
-		await expect( page.locator( '.fosse-status-summary' ) ).toHaveCSS(
-			'background-image',
-			'none'
-		);
+		await expect(
+			page
+				.getByText( 'Provider status', { exact: true } )
+				.locator( 'xpath=ancestor::div[2]' )
+		).toHaveCSS( 'background-image', 'none' );
 
 		await page.setViewportSize( { width: 390, height: 720 } );
 		await page.goto( '/wp-admin/admin.php?page=fosse-status' );
@@ -267,8 +246,8 @@ test.describe( 'Status page polish', () => {
 		await page.goto( '/wp-admin/admin.php?page=fosse-status' );
 
 		await expect(
-			page.locator( '.fosse-status-summary__count' )
-		).toContainText( '1 of 2 providers connected' );
+			page.getByText( '1 of 2 providers connected' )
+		).toBeVisible();
 
 		const manageConnections = page.getByRole( 'link', {
 			name: 'Manage connections',
@@ -279,9 +258,7 @@ test.describe( 'Status page polish', () => {
 			/admin\.php\?page=fosse#fosse-connections$/
 		);
 
-		const blueskyCard = page
-			.locator( '.fosse-status-card' )
-			.filter( { hasText: 'Bluesky' } );
+		const blueskyCard = getProviderStatusCard( page, 'Bluesky' );
 		const openBlueskySettings = blueskyCard.getByRole( 'link', {
 			name: 'Open Bluesky settings',
 		} );
