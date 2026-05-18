@@ -493,15 +493,15 @@ class Setup_PageTest extends BaseTestCase {
 	}
 
 	/**
-	 * The first-run wizard prompt should use the FOSSE card/callout visual
-	 * language instead of a generic WordPress info notice.
+	 * The first-run wizard prompt should render as a guided setup note instead
+	 * of a generic WordPress info notice.
 	 */
-	public function test_render_guided_setup_prompt_uses_fosse_callout(): void {
+	public function test_render_guided_setup_prompt_uses_accessible_note(): void {
 		$this->become_admin();
 
 		$output = $this->capture_render();
 
-		$this->assertStringContainsString( 'fosse-guided-setup', $output );
+		$this->assertStringContainsString( 'role="note"', $output );
 		$this->assertStringContainsString( 'Want a guided setup?', $output );
 		$this->assertStringContainsString( 'Run the setup wizard', $output );
 		$this->assertStringNotContainsString( 'Need a guided setup?', $output );
@@ -523,15 +523,13 @@ class Setup_PageTest extends BaseTestCase {
 		$output = $this->capture_render();
 
 		$connections_position = strpos( $output, 'id="fosse-connections"' );
-		$link_position        = strpos( $output, 'fosse-admin-page__footer-action' );
+		$link_position        = strpos( $output, 'Run the wizard' );
 
 		$this->assertIsInt( $connections_position );
 		$this->assertIsInt( $link_position );
 		$this->assertGreaterThan( $connections_position, $link_position );
-		$this->assertStringContainsString( 'fosse-admin-page__footer-action', $output );
-		$this->assertStringContainsString( 'fosse-admin-page__secondary-link', $output );
 		$this->assertStringContainsString( 'Run the wizard', $output );
-		$this->assertStringNotContainsString( 'fosse-guided-setup', $output );
+		$this->assertStringNotContainsString( 'Want a guided setup?', $output );
 		$this->assertStringNotContainsString( 'Run the setup wizard', $output );
 		$this->assertMatchesRegularExpression(
 			'/<a[^>]*href="[^"]*page=fosse-wizard[^"]*"[^>]*>\\s*Run the wizard\\s*<\\/a>/',
@@ -566,11 +564,9 @@ class Setup_PageTest extends BaseTestCase {
 		$this->assertStringContainsString( 'id="fosse-federation-settings"', $output );
 		$this->assertStringContainsString( 'id="fosse-settings-actions"', $output );
 		$this->assertStringContainsString( 'id="fosse-connections"', $output );
-		$this->assertStringContainsString( 'fosse-admin-card', $output );
-		$this->assertStringContainsString( 'fosse-card-header', $output );
-		$this->assertStringContainsString( 'fosse-card-body', $output );
-		$this->assertStringContainsString( 'fosse-card-footer', $output );
-		$this->assertStringContainsString( 'fosse-action-bar', $output );
+		$this->assertStringContainsString( 'Publishing settings', $output );
+		$this->assertStringContainsString( 'Save settings', $output );
+		$this->assertStringContainsString( 'Connections', $output );
 		$this->assertStringContainsString( 'id="fosse-provider-activitypub-connection"', $output );
 
 		$form_position        = strpos( $output, 'id="fosse-settings"' );
@@ -598,9 +594,9 @@ class Setup_PageTest extends BaseTestCase {
 		$output = $this->capture_render();
 
 		$this->assertStringContainsString( 'id="fosse-section-general"', $output );
-		$this->assertStringContainsString( 'fosse-field-stack', $output );
-		$this->assertStringContainsString( 'fosse-field', $output );
-		$this->assertStringContainsString( 'fosse-checkbox-grid', $output );
+		$this->assertStringContainsString( 'Content types', $output );
+		$this->assertStringContainsString( 'Posts', $output );
+		$this->assertStringContainsString( 'ActivityPub profile', $output );
 		$this->assertStringContainsString( 'name="activitypub_support_post_types[]"', $output );
 		$this->assertStringContainsString( 'name="activitypub_actor_mode"', $output );
 		$this->assertStringNotContainsString( 'class="form-table"', $output );
@@ -635,11 +631,11 @@ class Setup_PageTest extends BaseTestCase {
 		$output = $this->capture_render();
 
 		$this->assertStringNotContainsString( 'is-selected', $output );
-		$this->assertStringContainsString( 'fosse-choice-card', $output );
-		$this->assertStringContainsString( 'class="fosse-choice-card__input"', $output );
-		$this->assertStringContainsString( 'class="fosse-choice-card__body"', $output );
+		$this->assertStringContainsString( 'Author profiles', $output );
+		$this->assertStringContainsString( 'Blog profile', $output );
+		$this->assertStringContainsString( 'Both author and blog profiles', $output );
 		$this->assertMatchesRegularExpression(
-			'/id="fosse-activitypub-actor-mode-actor"[\s\S]+?class="fosse-choice-card__body"/',
+			'/<input\b(?=[^>]*\bid="fosse-activitypub-actor-mode-actor")(?=[^>]*\bname="activitypub_actor_mode")(?=[^>]*\bvalue="actor")[^>]*>/',
 			$output
 		);
 	}

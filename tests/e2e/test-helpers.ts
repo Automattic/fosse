@@ -1,4 +1,9 @@
-import { type Browser, expect, type Page } from '@playwright/test';
+import {
+	type Browser,
+	expect,
+	type Locator,
+	type Page,
+} from '@playwright/test';
 
 /**
  * Assert the current document is not wider than the viewport.
@@ -18,27 +23,35 @@ export const expectNoHorizontalOverflow = async ( page: Page ) => {
 };
 
 /**
- * Read a numeric CSS value from the first matching element.
+ * Read a numeric CSS value from a semantic locator.
  *
- * @param {Page}   page     Playwright page.
- * @param {string} selector CSS selector.
- * @param {string} prop     CSS property name.
+ * @param {Locator} locator Playwright locator.
+ * @param {string}  prop    CSS property name.
  * @return {Promise<number>} Parsed CSS value, with `normal` treated as 0.
  */
-export const numericCssValue = async (
-	page: Page,
-	selector: string,
-	prop: string
-) =>
+export const numericCssValueFor = async ( locator: Locator, prop: string ) =>
+	locator.evaluate( readNumericCssValue, prop );
+
+const readNumericCssValue = ( el: Element, property: string ) => {
+	const value = window.getComputedStyle( el ).getPropertyValue( property );
+	return 'normal' === value ? 0 : Number.parseFloat( value );
+};
+
+/**
+ * Return a provider status card by anchoring on the visible provider heading.
+ *
+ * The status-card containers do not have their own accessible names, so this
+ * helper starts from the semantic heading and walks to the card wrapper without
+ * binding the tests to presentation-layer class names.
+ *
+ * @param {Page}   page    Playwright page.
+ * @param {string} heading Visible provider heading text.
+ * @return {Locator} Provider card locator.
+ */
+export const getProviderStatusCard = ( page: Page, heading: string ): Locator =>
 	page
-		.locator( selector )
-		.first()
-		.evaluate( ( el, property ) => {
-			const value = window
-				.getComputedStyle( el )
-				.getPropertyValue( property );
-			return 'normal' === value ? 0 : Number.parseFloat( value );
-		}, prop );
+		.getByRole( 'heading', { name: heading, exact: true } )
+		.locator( 'xpath=ancestor::div[2]' );
 
 /**
  * Seed the Atmosphere connection state via the e2e REST helper.
