@@ -3,7 +3,7 @@
  * Plugin Name: FOSSE
  * Plugin URI:  https://github.com/Automattic/fosse
  * Description: Social Web
- * Version:     0.1.0
+ * Version:     0.1.1
  * Requires at least: 6.9
  * Tested up to: 7.0
  * Requires PHP: 8.2
@@ -25,7 +25,7 @@ defined( 'ABSPATH' ) || exit;
  * `ACTIVITYPUB_PLUGIN_VERSION` / `ATMOSPHERE_VERSION` pattern of the
  * bundled backends. Keep in sync with the `Version:` header above.
  */
-define( 'FOSSE_VERSION', '0.1.0' );
+define( 'FOSSE_VERSION', '0.1.1' );
 
 if ( file_exists( __DIR__ . '/vendor/autoload_packages.php' ) ) {
 	require_once __DIR__ . '/vendor/autoload_packages.php';
