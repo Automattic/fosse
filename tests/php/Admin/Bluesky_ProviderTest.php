@@ -2687,7 +2687,7 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		$this->assertStringContainsString( 'alice.bsky.social', $output );
 		$this->assertIsInt( $note_position );
 		$this->assertIsInt( $button_position );
-		$this->assertLessThan( $button_position, $note_position );
+		$this->assertGreaterThan( $note_position, $button_position );
 	}
 
 	/**
