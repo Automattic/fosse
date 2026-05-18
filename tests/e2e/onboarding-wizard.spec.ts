@@ -306,15 +306,27 @@ test( 'Appearance step swaps the visible address preview when the actor mode cha
 	await expect(
 		page.getByText( 'Your fediverse address:', { exact: true } )
 	).toBeHidden();
+	await expect( page.getByText( 'As you:', { exact: true } ) ).toBeHidden();
+	await expect(
+		page.getByText( 'As your site:', { exact: true } )
+	).toBeHidden();
 	await expect( page.getByLabel( 'Site handle' ) ).toBeVisible();
 
-	// "Both" reveals the actor_blog container instead.
+	// "Both" reveals the actor_blog container and keeps the inline Site
+	// handle row available for the blog actor.
 	await page.getByText( 'Both', { exact: true } ).click();
 
 	await expect( page.getByText( 'As you:', { exact: true } ) ).toBeVisible();
 	await expect(
 		page.getByText( 'As your site:', { exact: true } )
 	).toBeVisible();
+	await expect(
+		page.getByText( 'Your fediverse address:', { exact: true } )
+	).toBeHidden();
+	await expect(
+		page.getByText( 'Site fediverse address:', { exact: true } )
+	).toBeHidden();
+	await expect( page.getByLabel( 'Site handle' ) ).toBeVisible();
 
 	// Returning to "As you" hides the inline site handle row again — it
 	// only applies when the mode publishes from a blog actor.
@@ -323,6 +335,13 @@ test( 'Appearance step swaps the visible address preview when the actor mode cha
 	await expect(
 		page.getByText( 'Your fediverse address:', { exact: true } )
 	).toBeVisible();
+	await expect(
+		page.getByText( 'Site fediverse address:', { exact: true } )
+	).toBeHidden();
+	await expect( page.getByText( 'As you:', { exact: true } ) ).toBeHidden();
+	await expect(
+		page.getByText( 'As your site:', { exact: true } )
+	).toBeHidden();
 	await expect( page.getByLabel( 'Site handle' ) ).toBeHidden();
 } );
 
