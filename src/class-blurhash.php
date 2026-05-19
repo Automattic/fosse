@@ -86,6 +86,31 @@ class Blurhash {
 	private const ENCODE_SIZE = 'thumbnail';
 
 	/**
+	 * Hard upper bound on the longest edge fed to the encoder. Even
+	 * when {@see self::resolve_encode_path()} returns the original
+	 * (no intermediate, fallback path, misconfigured thumbnail size),
+	 * the GD image is downscaled to this max edge before the per-pixel
+	 * array is built. Keeps the PHP array allocation bounded — without
+	 * this cap, a 4000×3000 original would build a 12M-cell nested
+	 * array (~960 MB) and OOM the cron worker.
+	 *
+	 * @var int
+	 */
+	private const MAX_ENCODE_EDGE = 64;
+
+	/**
+	 * Hard upper bound on the byte size of the source file fed into
+	 * GD. Defends against pathological cases where {@see self::resolve_encode_path()}
+	 * resolves to a huge original (or, via filterable
+	 * `image_get_intermediate_size`, a path that's not actually an
+	 * image at all). 8 MiB comfortably accommodates any realistic
+	 * web-photo upload at full quality.
+	 *
+	 * @var int
+	 */
+	private const MAX_ENCODE_BYTES = 8388608;
+
+	/**
 	 * Register all hooks. Called from `fosse.php` on `init`, same
 	 * posture as the sibling projectors.
 	 */
@@ -157,6 +182,15 @@ class Blurhash {
 			return null;
 		}
 
+		// Fast-fail before reading bytes. A pathological source
+		// (huge original, non-image file slipped through a filterable
+		// metadata path) gets rejected without allocating PHP memory
+		// for the read.
+		$size = @\filesize( $path ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged -- stat failure returns false and we handle.
+		if ( false === $size || $size < 1 || $size > self::MAX_ENCODE_BYTES ) {
+			return null;
+		}
+
 		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents, WordPress.PHP.NoSilencedErrors.Discouraged -- local absolute path read; corrupt/missing file returns false and we handle.
 		$bytes = @file_get_contents( $path );
 		if ( false === $bytes || '' === $bytes ) {
@@ -174,6 +208,22 @@ class Blurhash {
 			$height = \imagesy( $image );
 			if ( $width < 1 || $height < 1 ) {
 				return null;
+			}
+
+			// Defensive downscale before the per-pixel loop. The
+			// nested array grows quadratically with edge length, so
+			// any source larger than MAX_ENCODE_EDGE gets sampled
+			// down — perceptually identical output, bounded memory.
+			if ( $width > self::MAX_ENCODE_EDGE || $height > self::MAX_ENCODE_EDGE ) {
+				$scaled = \imagescale( $image, self::MAX_ENCODE_EDGE, -1 );
+				if ( false !== $scaled ) {
+					$image  = $scaled;
+					$width  = \imagesx( $image );
+					$height = \imagesy( $image );
+					if ( $width < 1 || $height < 1 ) {
+						return null;
+					}
+				}
 			}
 
 			$pixels = array();
@@ -205,19 +255,58 @@ class Blurhash {
 	 * @return string|null Absolute file path, or null when nothing readable resolved.
 	 */
 	private static function resolve_encode_path( int $attachment_id ): ?string {
+		$upload       = \wp_upload_dir();
+		$basedir_real = ( \is_array( $upload ) && ! empty( $upload['basedir'] ) )
+			? \realpath( $upload['basedir'] )
+			: false;
+
 		$sized = \image_get_intermediate_size( $attachment_id, self::ENCODE_SIZE );
-		if ( \is_array( $sized ) && ! empty( $sized['path'] ) ) {
-			$upload = \wp_upload_dir();
-			if ( \is_array( $upload ) && ! empty( $upload['basedir'] ) ) {
-				$path = \trailingslashit( $upload['basedir'] ) . $sized['path'];
-				if ( \is_readable( $path ) ) {
-					return $path;
-				}
+		if ( \is_array( $sized ) && ! empty( $sized['path'] ) && false !== $basedir_real ) {
+			$candidate = \trailingslashit( $upload['basedir'] ) . $sized['path'];
+			$resolved  = self::contain_under_basedir( $candidate, $basedir_real );
+			if ( null !== $resolved ) {
+				return $resolved;
 			}
 		}
 
-		$path = \get_attached_file( $attachment_id );
-		return ( \is_string( $path ) && \is_readable( $path ) ) ? $path : null;
+		$attached = \get_attached_file( $attachment_id );
+		if ( \is_string( $attached ) && '' !== $attached ) {
+			// The fallback can return paths outside the uploads dir
+			// (e.g. shared media), so containment is best-effort: we
+			// accept readable real paths but skip the basedir prefix
+			// check, while still rejecting unreadable / non-existent
+			// targets.
+			$resolved = \realpath( $attached );
+			if ( false !== $resolved && \is_readable( $resolved ) ) {
+				return $resolved;
+			}
+		}
+
+		return null;
+	}
+
+	/**
+	 * Realpath-resolve `$candidate` and verify it sits under
+	 * `$basedir_real`. Returns the resolved path on success, null on
+	 * any failure (unresolvable, traversal outside the basedir,
+	 * unreadable). Defends the encoder against filterable
+	 * `image_get_intermediate_size` returning a `path` that contains
+	 * `..` segments or an absolute symlink target outside uploads.
+	 *
+	 * @param string $candidate    Path to resolve.
+	 * @param string $basedir_real Already-resolved (realpath) basedir.
+	 * @return string|null
+	 */
+	private static function contain_under_basedir( string $candidate, string $basedir_real ): ?string {
+		$resolved = \realpath( $candidate );
+		if ( false === $resolved ) {
+			return null;
+		}
+		$prefix = \rtrim( $basedir_real, \DIRECTORY_SEPARATOR ) . \DIRECTORY_SEPARATOR;
+		if ( ! \str_starts_with( $resolved, $prefix ) ) {
+			return null;
+		}
+		return \is_readable( $resolved ) ? $resolved : null;
 	}
 
 	/**

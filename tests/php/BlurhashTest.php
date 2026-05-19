@@ -97,9 +97,11 @@ class BlurhashTest extends BaseTestCase {
 	 * `get_attached_file` filter pointing at the returned path.
 	 *
 	 * @param bool $corrupt If true, write garbage bytes instead of a real PNG.
+	 * @param int  $width   Pixel width of the generated image.
+	 * @param int  $height  Pixel height of the generated image.
 	 * @return string|null Absolute file path, or null if GD unavailable.
 	 */
-	private function generate_fixture_image( bool $corrupt = false ): ?string {
+	private function generate_fixture_image( bool $corrupt = false, int $width = 16, int $height = 16 ): ?string {
 		if ( ! function_exists( 'imagecreatetruecolor' ) ) {
 			return null;
 		}
@@ -118,10 +120,15 @@ class BlurhashTest extends BaseTestCase {
 			return $path;
 		}
 
-		$im = imagecreatetruecolor( 16, 16 );
-		for ( $y = 0; $y < 16; $y++ ) {
-			for ( $x = 0; $x < 16; $x++ ) {
-				$color = imagecolorallocate( $im, $x * 16, $y * 16, ( $x + $y ) * 8 );
+		$im      = imagecreatetruecolor( $width, $height );
+		$scale_x = max( 1, (int) ( 255 / max( 1, $width - 1 ) ) );
+		$scale_y = max( 1, (int) ( 255 / max( 1, $height - 1 ) ) );
+		for ( $y = 0; $y < $height; $y++ ) {
+			for ( $x = 0; $x < $width; $x++ ) {
+				$r     = min( 255, $x * $scale_x );
+				$g     = min( 255, $y * $scale_y );
+				$b     = min( 255, ( $x + $y ) * ( ( $scale_x + $scale_y ) / 2 ) );
+				$color = imagecolorallocate( $im, $r, $g, (int) $b );
 				imagesetpixel( $im, $x, $y, $color );
 			}
 		}
@@ -277,6 +284,91 @@ class BlurhashTest extends BaseTestCase {
 		$hash = Blurhash::encode_from_attachment( $id );
 		$this->assertIsString( $hash );
 		$this->assertNotSame( '', $hash );
+	}
+
+	/**
+	 * Oversized sources get downscaled before the per-pixel loop
+	 * runs, so the encoder doesn't allocate a pathological PHP
+	 * pixel array when a fallback path lands on a multi-megapixel
+	 * original. Generates a 256×256 fixture (4× the MAX_ENCODE_EDGE
+	 * of 64) and asserts the encode still completes with a hash.
+	 */
+	public function test_encode_caps_oversized_image_dimensions(): void {
+		$this->require_gd();
+
+		$id   = $this->insert_image_attachment();
+		$path = $this->generate_fixture_image( false, 256, 256 );
+		$this->point_attachment_at( $id, $path );
+
+		$hash = Blurhash::encode_from_attachment( $id );
+		$this->assertIsString( $hash );
+		$this->assertNotSame( '', $hash );
+	}
+
+	/**
+	 * Files larger than MAX_ENCODE_BYTES (8 MiB) are rejected
+	 * before any read — defends against a pathological original
+	 * or a filterable-metadata path pointing at a giant non-image
+	 * blob. Uses a sparse-friendly stub: a tempfile padded past
+	 * the cap, encoder must return null without OOMing.
+	 */
+	public function test_encode_returns_null_for_oversized_file(): void {
+		$this->require_gd();
+
+		$id  = $this->insert_image_attachment();
+		$tmp = tempnam( sys_get_temp_dir(), 'fosse-blurhash-big-' );
+		$this->assertNotFalse( $tmp );
+		$path                  = $tmp . '.png';
+		$this->fixture_files[] = $tmp;
+		$this->fixture_files[] = $path;
+
+		// 9 MiB of zeros — well past the 8 MiB MAX_ENCODE_BYTES.
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- test fixture write to tempdir.
+		file_put_contents( $path, str_repeat( "\0", 9 * 1024 * 1024 ) );
+		$this->point_attachment_at( $id, $path );
+
+		$this->assertNull( Blurhash::encode_from_attachment( $id ) );
+	}
+
+	/**
+	 * Path traversal in the intermediate-size branch is rejected
+	 * by the basedir containment check — defends against a
+	 * malicious or buggy `image_get_intermediate_size` filter
+	 * return value escaping the uploads root via `..` segments.
+	 *
+	 * We seed `_wp_attachment_metadata` with a `file` containing
+	 * traversal segments. Without the basedir containment check,
+	 * the encoder would resolve to a path outside `wp_upload_dir`'s
+	 * basedir and read whatever is there.
+	 */
+	public function test_resolve_rejects_intermediate_path_outside_basedir(): void {
+		$this->require_gd();
+
+		$id = $this->insert_image_attachment();
+		update_post_meta(
+			$id,
+			'_wp_attachment_metadata',
+			array(
+				'width'  => 16,
+				'height' => 16,
+				'file'   => 'fixture.png',
+				'sizes'  => array(
+					'thumbnail' => array(
+						'file'      => '../../../../etc/passwd',
+						'width'     => 16,
+						'height'    => 16,
+						'mime-type' => 'image/png',
+					),
+				),
+			)
+		);
+
+		// No get_attached_file filter — fallback is purely realpath()
+		// + is_readable() against whatever path WP resolves the
+		// attachment to, which for an attachment with no real file
+		// is unreadable. So the traversal branch is the only path
+		// that could leak something, and it must reject.
+		$this->assertNull( Blurhash::encode_from_attachment( $id ) );
 	}
 
 	/**
