@@ -111,6 +111,25 @@ class Blurhash {
 	private const MAX_ENCODE_BYTES = 8388608;
 
 	/**
+	 * Raster MIME types GD can decode via `imagecreatefromstring`.
+	 * Used as the early gate that splits "we don't encode this"
+	 * (skip silently) from "encoder failed" (emit warning, count
+	 * against exit status). SVG/XML, ICO, and other formats either
+	 * GD can't read or aren't raster get filtered out before the
+	 * encoder runs.
+	 *
+	 * @var array<int, string>
+	 */
+	private const ENCODABLE_MIME_TYPES = array(
+		'image/jpeg',
+		'image/png',
+		'image/gif',
+		'image/webp',
+		'image/avif',
+		'image/bmp',
+	);
+
+	/**
 	 * Register all hooks. Called from `fosse.php` on `init`, same
 	 * posture as the sibling projectors.
 	 */
@@ -169,7 +188,7 @@ class Blurhash {
 	 * @return string|null
 	 */
 	public static function encode_from_attachment( int $attachment_id ): ?string {
-		if ( ! \wp_attachment_is_image( $attachment_id ) ) {
+		if ( ! self::is_encodable_attachment( $attachment_id ) ) {
 			return null;
 		}
 
@@ -321,10 +340,30 @@ class Blurhash {
 	 */
 	public static function schedule_encode( $metadata, $attachment_id ) {
 		$attachment_id = (int) $attachment_id;
-		if ( $attachment_id > 0 && \wp_attachment_is_image( $attachment_id ) ) {
+		if ( $attachment_id > 0 && self::is_encodable_attachment( $attachment_id ) ) {
 			self::schedule( $attachment_id );
 		}
 		return $metadata;
+	}
+
+	/**
+	 * Whether an attachment is something the encoder will attempt.
+	 * True for `wp_attachment_is_image` attachments whose mime is in
+	 * {@see self::ENCODABLE_MIME_TYPES}; false for SVG, non-image
+	 * media, and deleted/nonexistent IDs. Shared gate used by the
+	 * upload-scheduling path, the CLI backfill (to count "we don't
+	 * encode this" as a skip rather than a failure), and the encoder
+	 * itself.
+	 *
+	 * @param int $attachment_id Attachment post ID.
+	 * @return bool
+	 */
+	public static function is_encodable_attachment( int $attachment_id ): bool {
+		if ( $attachment_id < 1 || ! \wp_attachment_is_image( $attachment_id ) ) {
+			return false;
+		}
+		$mime = \get_post_mime_type( $attachment_id );
+		return \is_string( $mime ) && \in_array( $mime, self::ENCODABLE_MIME_TYPES, true );
 	}
 
 	/**
