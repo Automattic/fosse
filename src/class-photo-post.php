@@ -235,16 +235,24 @@ class Photo_Post {
 		// block parser, which returns a single blank-blockName block
 		// for empty content and would otherwise classify it as not a
 		// photo post.
-		// `$post->post_content` round-trips through WP's storage layer
-		// with kses-applied slashes intact ("\"id\":42") — fine for
-		// rendering, but `parse_blocks()` then deserializes block
-		// attributes as `null` because the embedded JSON is malformed.
-		// Unslashing here gives the block parser the same view of the
-		// post as the editor sees, so attribute-driven checks
-		// (`block_resolves_locally()` reads `attrs.id`) work
-		// consistently across stored, autosaved, and revisioned
-		// content.
-		$content = (string) \wp_unslash( $post->post_content );
+		// Parse the post body the same way bundled AP's
+		// `get_block_attachments()` does — directly off
+		// `$post->post_content` without unslashing. Deliberately:
+		// for non-admin authors (Contributors, multisite Authors
+		// lacking `unfiltered_html`), `wp_filter_post_kses` slashes
+		// block-attribute JSON in storage, so `parse_blocks()`
+		// returns `null` attrs. A detector that unslashed before
+		// parsing would find `attrs.id`, classify the post as
+		// photo, and force `Note` — but bundled AP would then
+		// extract zero attachments from the still-slashed
+		// post_content, leaving a caption-only Note with no image.
+		// Matching the view AP's extractor uses guarantees the
+		// two stay in sync: when AP can't surface an image, FOSSE
+		// doesn't either, and the post federates as an article
+		// with its image markup intact in the body. Restoring
+		// photo treatment for slashed content is upstream work in
+		// bundled AP.
+		$content = (string) $post->post_content;
 
 		if ( $has_thumbnail && '' === \trim( $content ) ) {
 			return true;
@@ -351,9 +359,15 @@ class Photo_Post {
 	 * attachment is dropped silently downstream rather than blocking
 	 * federation).
 	 *
-	 * For `core/gallery`: any positive id in the top-level `ids`
-	 * attribute counts; for WP 5.9+ block-nested galleries, recurse
-	 * into `innerBlocks`.
+	 * For `core/gallery`: only WP 5.9+ block-nested galleries
+	 * (innerBlocks containing `core/image` children) count.
+	 * Legacy galleries with a top-level `attrs.ids` array are NOT
+	 * recognized — bundled AP's `get_media_from_blocks()` does not
+	 * extract from `core/gallery` `attrs.ids` either (only
+	 * `jetpack/slideshow` / `jetpack/tiled-gallery` and inner
+	 * `core/image` blocks), so detecting on `ids` here would
+	 * misclassify the post as photo while AP emits no
+	 * attachment.
 	 *
 	 * For `core/post-featured-image`: defer to `has_image_thumbnail`,
 	 * which validates the thumbnail attachment still exists.
@@ -374,17 +388,12 @@ class Photo_Post {
 		}
 
 		if ( 'core/gallery' === $name ) {
-			$ids = $block['attrs']['ids'] ?? array();
-			if ( \is_array( $ids ) ) {
-				foreach ( $ids as $id ) {
-					if ( (int) $id > 0 ) {
-						return true;
-					}
-				}
-			}
 			// WP 5.9+ galleries wrap individual `core/image` blocks
-			// in `innerBlocks` rather than listing ids on the
-			// gallery itself.
+			// in `innerBlocks`. Bundled AP recurses into innerBlocks
+			// for any block type, so any federatable image in the
+			// gallery's children is enough to classify here too.
+			// Legacy galleries (top-level `attrs.ids`) are
+			// intentionally NOT recognized — see class docblock.
 			$inner_blocks = $block['innerBlocks'] ?? array();
 			if ( \is_array( $inner_blocks ) ) {
 				foreach ( $inner_blocks as $sub_block ) {

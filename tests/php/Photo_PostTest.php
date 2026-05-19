@@ -50,6 +50,17 @@ class Photo_PostTest extends BaseTestCase {
 		// default empty-content rejection so `wp_insert_post` returns
 		// an id for those cases too.
 		add_filter( 'wp_insert_post_empty_content', '__return_false' );
+
+		// WorDBless installs the kses `content_save_pre` filter
+		// regardless of user context, so every `wp_insert_post`
+		// would slash block-attribute JSON — but in production
+		// admin users (with `unfiltered_html`) skip that filter
+		// entirely. Strip it here so test inserts represent the
+		// admin-authored path. The `test_slashed_block_attributes_*`
+		// case re-introduces slashes explicitly via `addslashes()`
+		// when it needs to exercise the non-admin storage shape.
+		remove_filter( 'content_save_pre', 'wp_filter_post_kses' );
+		remove_filter( 'content_filtered_save_pre', 'wp_filter_post_kses' );
 	}
 
 	/**
@@ -299,14 +310,24 @@ class Photo_PostTest extends BaseTestCase {
 	 * @return array<string, array{0:string, 1:bool}>
 	 */
 	public static function block_shape_cases(): array {
-		// Block fixtures use `id` / `ids` attributes that signal a
+		// Block fixtures use `id` attributes that signal a
 		// local attachment to `Photo_Post::block_resolves_locally`.
-		// External-URL image blocks (no `id`) and post-featured-image
-		// blocks (which require a real thumbnail) are exercised in
-		// dedicated test methods below — the data provider is static
-		// and cannot wire up per-case thumbnail state.
+		// Galleries use the WP 5.9+ block-nested shape (innerBlocks
+		// containing `core/image` children) — legacy galleries with
+		// only a top-level `attrs.ids` array are intentionally not
+		// recognized because bundled AP's extractor doesn't read
+		// that path either. External-URL image blocks (no `id`) and
+		// post-featured-image blocks (which require a real
+		// thumbnail) are exercised in dedicated test methods below —
+		// the data provider is static and cannot wire up per-case
+		// thumbnail state.
 		$image     = '<!-- wp:image {"id":42} --><figure class="wp-block-image"><img src="https://example.test/a.jpg" alt=""/></figure><!-- /wp:image -->';
-		$gallery   = '<!-- wp:gallery {"ids":[42,43]} --><figure class="wp-block-gallery"></figure><!-- /wp:gallery -->';
+		$gallery   = '<!-- wp:gallery -->'
+			. '<figure class="wp-block-gallery">'
+			. '<!-- wp:image {"id":42} --><figure class="wp-block-image"><img/></figure><!-- /wp:image -->'
+			. '<!-- wp:image {"id":43} --><figure class="wp-block-image"><img/></figure><!-- /wp:image -->'
+			. '</figure>'
+			. '<!-- /wp:gallery -->';
 		$paragraph = '<!-- wp:paragraph --><p>caption text</p><!-- /wp:paragraph -->';
 		$heading   = '<!-- wp:heading --><h2>headline</h2><!-- /wp:heading -->';
 		$spacer    = '<!-- wp:spacer --><div class="wp-block-spacer"></div><!-- /wp:spacer -->';
@@ -1133,22 +1154,40 @@ class Photo_PostTest extends BaseTestCase {
 
 	/**
 	 * `wp_filter_post_kses` slashes block-attribute JSON in
-	 * post_content for users without `unfiltered_html` (Contributors,
-	 * multisite Authors). Without the `wp_unslash()` call in
-	 * `Photo_Post::detect()`, `parse_blocks()` deserializes attrs as
-	 * `null` from the slashed JSON and `block_resolves_locally()`
-	 * misses the `id` — the post then falls through to article shape
-	 * even though it's a legitimate photo post.
-	 *
-	 * This test mutates the stored `post_content` to the slashed form
-	 * a non-admin author would produce and asserts detection still
-	 * fires. Without `wp_unslash`, the assertion fails.
+	 * post_content for non-admin authors (Contributors, multisite
+	 * Authors lacking `unfiltered_html`). `parse_blocks()` then
+	 * returns `null` attrs for the slashed JSON, so both FOSSE's
+	 * detector and bundled AP's `get_block_attachments()` extractor
+	 * fail to read `attrs.id` — and that's the contract. The
+	 * detector deliberately uses the same raw `post_content` view
+	 * AP's extractor uses: when AP can't surface an image attachment,
+	 * the post must NOT be classified as a photo post, otherwise the
+	 * federated Note would be caption-only with no image. Slashed
+	 * content falls through to article shape; the image markup stays
+	 * in the body for receivers to render inline.
 	 */
-	public function test_detection_handles_slashed_block_attributes(): void {
+	public function test_slashed_block_attributes_do_not_detect(): void {
 		$slashed_body = \addslashes( '<!-- wp:image {"id":42} --><figure class="wp-block-image"><img src="https://example.test/a.jpg"/></figure><!-- /wp:image -->' );
 		$post         = $this->make_post( $slashed_body );
 
-		$this->assertTrue( Photo_Post::is_photo_post( $post ) );
+		$this->assertFalse( Photo_Post::is_photo_post( $post ) );
+	}
+
+	/**
+	 * Legacy WP <5.9 galleries store image IDs in `attrs.ids` rather
+	 * than nesting `core/image` blocks. Bundled AP's extractor
+	 * doesn't read this path for `core/gallery` (only for
+	 * jetpack/slideshow + jetpack/tiled-gallery), so classifying the
+	 * post as a photo here would force `Note` while AP emits no
+	 * attachment — caption-only Note with no image. Detection falls
+	 * through to article behavior, keeping the gallery markup intact
+	 * in the body where receivers can still render the images.
+	 */
+	public function test_legacy_gallery_ids_attribute_does_not_detect(): void {
+		$legacy_gallery = '<!-- wp:gallery {"ids":[42,43]} --><figure class="wp-block-gallery"></figure><!-- /wp:gallery -->';
+		$post           = $this->make_post( $legacy_gallery );
+
+		$this->assertFalse( Photo_Post::is_photo_post( $post ) );
 	}
 
 	/**
