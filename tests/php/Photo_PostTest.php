@@ -299,9 +299,14 @@ class Photo_PostTest extends BaseTestCase {
 	 * @return array<string, array{0:string, 1:bool}>
 	 */
 	public static function block_shape_cases(): array {
+		// Block fixtures use `id` / `ids` attributes that signal a
+		// local attachment to `Photo_Post::block_resolves_locally`.
+		// External-URL image blocks (no `id`) and post-featured-image
+		// blocks (which require a real thumbnail) are exercised in
+		// dedicated test methods below — the data provider is static
+		// and cannot wire up per-case thumbnail state.
 		$image     = '<!-- wp:image {"id":42} --><figure class="wp-block-image"><img src="https://example.test/a.jpg" alt=""/></figure><!-- /wp:image -->';
-		$gallery   = '<!-- wp:gallery --><figure class="wp-block-gallery"></figure><!-- /wp:gallery -->';
-		$featured  = '<!-- wp:post-featured-image /-->';
+		$gallery   = '<!-- wp:gallery {"ids":[42,43]} --><figure class="wp-block-gallery"></figure><!-- /wp:gallery -->';
 		$paragraph = '<!-- wp:paragraph --><p>caption text</p><!-- /wp:paragraph -->';
 		$heading   = '<!-- wp:heading --><h2>headline</h2><!-- /wp:heading -->';
 		$spacer    = '<!-- wp:spacer --><div class="wp-block-spacer"></div><!-- /wp:spacer -->';
@@ -309,20 +314,18 @@ class Photo_PostTest extends BaseTestCase {
 		$empty_p   = '<!-- wp:paragraph --><p></p><!-- /wp:paragraph -->';
 
 		return array(
-			'image only'                     => array( $image, true ),
-			'image plus single paragraph'    => array( $image . $paragraph, true ),
-			'image plus two paragraphs'      => array( $image . $paragraph . $paragraph, false ),
-			'paragraph only'                 => array( $paragraph, false ),
-			'gallery only'                   => array( $gallery, true ),
-			'gallery plus paragraph'         => array( $gallery . $paragraph, true ),
-			'featured image block only'      => array( $featured, true ),
-			'featured image block plus para' => array( $featured . $paragraph, true ),
-			'image plus heading'             => array( $image . $heading, false ),
-			'two images'                     => array( $image . $image, false ),
-			'image plus empty paragraph'     => array( $image . $empty_p, true ),
-			'image plus spacer plus para'    => array( $image . $spacer . $paragraph, true ),
-			'image plus separator'           => array( $image . $separator, true ),
-			'empty content'                  => array( '', false ),
+			'image only'                  => array( $image, true ),
+			'image plus single paragraph' => array( $image . $paragraph, true ),
+			'image plus two paragraphs'   => array( $image . $paragraph . $paragraph, false ),
+			'paragraph only'              => array( $paragraph, false ),
+			'gallery only'                => array( $gallery, true ),
+			'gallery plus paragraph'      => array( $gallery . $paragraph, true ),
+			'image plus heading'          => array( $image . $heading, false ),
+			'two images'                  => array( $image . $image, false ),
+			'image plus empty paragraph'  => array( $image . $empty_p, true ),
+			'image plus spacer plus para' => array( $image . $spacer . $paragraph, true ),
+			'image plus separator'        => array( $image . $separator, true ),
+			'empty content'               => array( '', false ),
 		);
 	}
 
@@ -336,7 +339,7 @@ class Photo_PostTest extends BaseTestCase {
 	 * Caption." to still count.
 	 */
 	public function test_title_does_not_suppress_detection(): void {
-		$image = '<!-- wp:image --><figure class="wp-block-image"><img src="https://example.test/a.jpg"/></figure><!-- /wp:image -->';
+		$image = '<!-- wp:image {"id":42} --><figure class="wp-block-image"><img src="https://example.test/a.jpg"/></figure><!-- /wp:image -->';
 		$post  = $this->make_post( $image, 'My Photo Title' );
 
 		$this->assertTrue( Photo_Post::is_photo_post( $post ) );
@@ -551,6 +554,7 @@ class Photo_PostTest extends BaseTestCase {
 		wp_update_attachment_metadata(
 			$attachment_id,
 			array(
+				'file'   => 'a.jpg',
 				'width'  => 2048,
 				'height' => 1365,
 			)
@@ -864,5 +868,136 @@ class Photo_PostTest extends BaseTestCase {
 		$post = $this->make_post( '', '', '', -1 );
 
 		$this->assertFalse( Photo_Post::is_photo_post( $post ) );
+	}
+
+	// ---------------------------------------------------------------
+	// Detection: image block must resolve to local attachment.
+	// ---------------------------------------------------------------
+
+	/**
+	 * A `core/image` block carrying an external URL has no `id`
+	 * attribute. Bundled AP's attachment extraction skips it, so
+	 * forcing photo-post treatment would strip the markup from
+	 * content AND ship no attachment — caption-only Note with no
+	 * image. Treat as not-a-photo so the external URL stays in the
+	 * body for receivers to render inline.
+	 */
+	public function test_external_url_image_block_does_not_detect(): void {
+		$external_image = '<!-- wp:image --><figure class="wp-block-image"><img src="https://elsewhere.test/foo.jpg"/></figure><!-- /wp:image -->';
+		$post           = $this->make_post( $external_image );
+
+		$this->assertFalse( Photo_Post::is_photo_post( $post ) );
+	}
+
+	/**
+	 * A WP 5.9+ gallery wraps individual `core/image` blocks in its
+	 * `innerBlocks` rather than listing ids on the gallery itself.
+	 * The resolver must recurse into innerBlocks so block-nested
+	 * galleries still detect.
+	 */
+	public function test_gallery_with_inner_image_blocks_detects(): void {
+		$nested_gallery = '<!-- wp:gallery -->'
+			. '<figure class="wp-block-gallery">'
+			. '<!-- wp:image {"id":42} --><figure class="wp-block-image"><img/></figure><!-- /wp:image -->'
+			. '<!-- wp:image {"id":43} --><figure class="wp-block-image"><img/></figure><!-- /wp:image -->'
+			. '</figure>'
+			. '<!-- /wp:gallery -->';
+		$post           = $this->make_post( $nested_gallery );
+
+		$this->assertTrue( Photo_Post::is_photo_post( $post ) );
+	}
+
+	/**
+	 * A gallery with neither `ids` attribute nor block-nested images
+	 * has no federatable content. Same degradation as the external-URL
+	 * image case: classify as not-a-photo.
+	 */
+	public function test_empty_gallery_does_not_detect(): void {
+		$empty_gallery = '<!-- wp:gallery --><figure class="wp-block-gallery"></figure><!-- /wp:gallery -->';
+		$post          = $this->make_post( $empty_gallery );
+
+		$this->assertFalse( Photo_Post::is_photo_post( $post ) );
+	}
+
+	// ---------------------------------------------------------------
+	// Detection: post-featured-image block requires a real thumbnail.
+	// ---------------------------------------------------------------
+
+	/**
+	 * `core/post-featured-image` block with a real Featured Image set
+	 * federates the same way as Rule 3's empty-body case — count it
+	 * as a photo post when there's a thumbnail to actually emit.
+	 */
+	public function test_featured_image_block_with_thumbnail_detects(): void {
+		$featured = '<!-- wp:post-featured-image /-->';
+		$post     = $this->make_post( $featured, '', '', 1 );
+
+		$this->assertTrue( Photo_Post::is_photo_post( $post ) );
+	}
+
+	/**
+	 * Same block plus a caption paragraph also detects. Matches the
+	 * "headline + photo + caption" shape the discriminator targets.
+	 */
+	public function test_featured_image_block_plus_paragraph_with_thumbnail_detects(): void {
+		$featured  = '<!-- wp:post-featured-image /-->';
+		$paragraph = '<!-- wp:paragraph --><p>caption</p><!-- /wp:paragraph -->';
+		$post      = $this->make_post( $featured . $paragraph, '', '', 1 );
+
+		$this->assertTrue( Photo_Post::is_photo_post( $post ) );
+	}
+
+	/**
+	 * The block in the body without a real Featured Image set on the
+	 * post resolves to nothing federation-side — classify as not a
+	 * photo post so detection falls through to article behavior.
+	 */
+	public function test_featured_image_block_without_thumbnail_does_not_detect(): void {
+		$featured = '<!-- wp:post-featured-image /-->';
+		$post     = $this->make_post( $featured );
+
+		$this->assertFalse( Photo_Post::is_photo_post( $post ) );
+	}
+
+	// ---------------------------------------------------------------
+	// AP hook: dimensions full-size fallback only fires on real path.
+	// ---------------------------------------------------------------
+
+	/**
+	 * The full-size fallback is now gated on the URL ending with
+	 * `meta['file']`. A CDN URL that preserves the basename but
+	 * doesn't include the upload subpath must NOT inherit the
+	 * recorded original dimensions — Pixelfed would then enforce the
+	 * mismatch and reject the post. Verify by setting up metadata for
+	 * a "/2026/05/original.jpg" file but passing a URL that ends in
+	 * just "/original.jpg".
+	 */
+	public function test_attachment_filter_skips_full_size_when_path_mismatches(): void {
+		$attachment_id = wp_insert_post(
+			array(
+				'post_type'      => 'attachment',
+				'post_status'    => 'inherit',
+				'post_mime_type' => 'image/jpeg',
+			)
+		);
+		wp_update_attachment_metadata(
+			$attachment_id,
+			array(
+				'file'   => '2026/05/original.jpg',
+				'width'  => 4000,
+				'height' => 3000,
+			)
+		);
+
+		$input = array(
+			'type'      => 'Image',
+			'url'       => 'https://cdn.example.test/cached/original.jpg',
+			'mediaType' => 'image/jpeg',
+		);
+
+		$out = apply_filters( 'activitypub_attachment', $input, $attachment_id );
+
+		$this->assertArrayNotHasKey( 'width', $out );
+		$this->assertArrayNotHasKey( 'height', $out );
 	}
 }

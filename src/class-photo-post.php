@@ -235,11 +235,22 @@ class Photo_Post {
 		// block parser, which returns a single blank-blockName block
 		// for empty content and would otherwise classify it as not a
 		// photo post.
-		if ( $has_thumbnail && '' === \trim( (string) $post->post_content ) ) {
+		// `$post->post_content` round-trips through WP's storage layer
+		// with kses-applied slashes intact ("\"id\":42") — fine for
+		// rendering, but `parse_blocks()` then deserializes block
+		// attributes as `null` because the embedded JSON is malformed.
+		// Unslashing here gives the block parser the same view of the
+		// post as the editor sees, so attribute-driven checks
+		// (`block_resolves_locally()` reads `attrs.id`) work
+		// consistently across stored, autosaved, and revisioned
+		// content.
+		$content = (string) \wp_unslash( $post->post_content );
+
+		if ( $has_thumbnail && '' === \trim( $content ) ) {
 			return true;
 		}
 
-		$blocks = \parse_blocks( $post->post_content );
+		$blocks = \parse_blocks( $content );
 		if ( empty( $blocks ) ) {
 			return false;
 		}
@@ -270,7 +281,21 @@ class Photo_Post {
 			}
 
 			if ( \in_array( $name, self::IMAGE_LIKE_BLOCKS, true ) ) {
-				++$image_count;
+				// Image-like blocks only count toward photo-post
+				// detection when they resolve to local content
+				// bundled AP can actually federate. An image block
+				// with an external URL (no `id` attribute) would
+				// have its markup stripped by `filter_content()` but
+				// produce no attachment in the AP envelope — the
+				// receiver sees a caption-only Note with no photo.
+				// Treat unresolvable image blocks as "other" content
+				// so detection falls through to article behavior and
+				// the external URL stays in the body.
+				if ( self::block_resolves_locally( $block, $post ) ) {
+					++$image_count;
+				} else {
+					++$other_count;
+				}
 				continue;
 			}
 
@@ -326,6 +351,75 @@ class Photo_Post {
 			return false;
 		}
 		return (bool) \wp_attachment_is_image( $thumbnail_id );
+	}
+
+	/**
+	 * True when an image-like block resolves to local content bundled
+	 * AP can federate as an `attachment[]` entry.
+	 *
+	 * Block-shape detection without this gate would classify a
+	 * `core/image` block carrying an external URL as a photo-post
+	 * trigger, but bundled AP's attachment extraction (see
+	 * `bundled/activitypub/includes/transformer/class-post.php::get_block_attachments`)
+	 * only emits items with a resolvable local attachment id. The
+	 * federated Note would then have its image markup stripped by
+	 * `filter_content()` AND carry no attachment — the user loses the
+	 * image entirely. Falling back to article behavior keeps the
+	 * external URL intact in the body so receivers can still render
+	 * it inline.
+	 *
+	 * For `core/image`: presence of a positive `id` attribute is
+	 * enough — we intentionally do NOT verify the attachment still
+	 * exists, mirroring bundled AP's own posture (a deleted-but-id'd
+	 * attachment is dropped silently downstream rather than blocking
+	 * federation).
+	 *
+	 * For `core/gallery`: any positive id in the top-level `ids`
+	 * attribute counts; for WP 5.9+ block-nested galleries, recurse
+	 * into `innerBlocks`.
+	 *
+	 * For `core/post-featured-image`: defer to `has_image_thumbnail`,
+	 * which validates the thumbnail attachment still exists.
+	 *
+	 * @param array<string, mixed> $block The parsed block.
+	 * @param \WP_Post             $post  The post being evaluated.
+	 * @return bool True when the block contributes a federatable image.
+	 */
+	private static function block_resolves_locally( array $block, WP_Post $post ): bool {
+		$name = $block['blockName'] ?? '';
+
+		if ( 'core/post-featured-image' === $name ) {
+			return self::has_image_thumbnail( $post );
+		}
+
+		if ( 'core/image' === $name ) {
+			return (int) ( $block['attrs']['id'] ?? 0 ) > 0;
+		}
+
+		if ( 'core/gallery' === $name ) {
+			$ids = $block['attrs']['ids'] ?? array();
+			if ( \is_array( $ids ) ) {
+				foreach ( $ids as $id ) {
+					if ( (int) $id > 0 ) {
+						return true;
+					}
+				}
+			}
+			// WP 5.9+ galleries wrap individual `core/image` blocks
+			// in `innerBlocks` rather than listing ids on the
+			// gallery itself.
+			$inner_blocks = $block['innerBlocks'] ?? array();
+			if ( \is_array( $inner_blocks ) ) {
+				foreach ( $inner_blocks as $sub_block ) {
+					if ( \is_array( $sub_block ) && self::block_resolves_locally( $sub_block, $post ) ) {
+						return true;
+					}
+				}
+			}
+			return false;
+		}
+
+		return false;
 	}
 
 	/**
@@ -617,8 +711,26 @@ class Photo_Post {
 		}
 
 		// Pass 3: full-size original. Reached when neither the
-		// filename suffix nor any registered intermediate matches —
-		// the URL most likely points at the original upload.
+		// filename suffix nor any registered intermediate matches.
+		// Confirm the URL actually points at `$meta['file']` before
+		// falling back — otherwise a CDN rewrite that preserves the
+		// basename, or an `activitypub_get_image` callback that
+		// substitutes a derivative URL without the size suffix, would
+		// reintroduce the original/derivative dimension mismatch this
+		// helper exists to prevent. Match against the URL's path
+		// component only so query strings / fragments don't fool the
+		// `str_ends_with` check.
+		$file = (string) ( $meta['file'] ?? '' );
+		if ( '' === $file ) {
+			return null;
+		}
+
+		$parsed = \wp_parse_url( $url );
+		$path   = (string) ( $parsed['path'] ?? '' );
+		if ( '' === $path || ! \str_ends_with( $path, $file ) ) {
+			return null;
+		}
+
 		$width  = (int) ( $meta['width'] ?? 0 );
 		$height = (int) ( $meta['height'] ?? 0 );
 		if ( $width > 0 && $height > 0 ) {
