@@ -8,8 +8,8 @@
 
 /* Local aliases for FOSSE-owned admin surfaces. Keep these stable for the
    server-rendered PHP templates. The wizard intentionally keeps the richer
-   defaults below;
-   non-wizard admin pages override radius/shadow in `.fosse-admin-page`. */
+   defaults below. Non-wizard admin pages override radius/shadow in
+   `.fosse-admin-page`. */
 .fosse-admin-page,
 .fosse-wizard {
 	--fosse-ui-surface: #fff;
@@ -36,6 +36,14 @@
 
 .fosse-admin-page {
 	--fosse-ui-accent: var(--wp-admin-theme-color, #3858e9);
+	--fosse-ui-accent-soft: rgba(
+		var(--wp-admin-theme-color--rgb, 56, 88, 233),
+		0.08
+	);
+	--fosse-ui-accent-soft-border: rgba(
+		var(--wp-admin-theme-color--rgb, 56, 88, 233),
+		0.38
+	);
 	--fosse-ui-radius: 4px;
 	--fosse-ui-radius-small: 4px;
 	--fosse-ui-shadow: none;

@@ -48,9 +48,18 @@ if ( 0 === $connected_count ) {
 	</header>
 
 	<?php if ( ! empty( $available ) ) : ?>
-		<div class="fosse-status-summary fosse-admin-card<?php echo esc_attr( $connected_count < $available_count ? ' has-attention' : '' ); ?>">
+		<div
+			class="fosse-status-summary fosse-admin-card<?php echo esc_attr( $connected_count < $available_count ? ' has-attention' : '' ); ?>"
+			role="group"
+			aria-labelledby="fosse-status-summary-label"
+		>
 			<div class="fosse-status-summary__body fosse-card-body">
-				<p class="fosse-status-summary__label"><?php esc_html_e( 'Provider status', 'fosse' ); ?></p>
+				<p
+					id="fosse-status-summary-label"
+					class="fosse-status-summary__label"
+				>
+					<?php esc_html_e( 'Provider status', 'fosse' ); ?>
+				</p>
 				<p class="fosse-status-summary__count">
 					<?php
 					printf(

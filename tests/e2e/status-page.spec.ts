@@ -197,7 +197,9 @@ test.describe( 'Status page polish', () => {
 		expect( wizardLink!.y ).toBeGreaterThan(
 			Math.max( ...statusCards.map( ( box ) => box.y + box.height ) )
 		);
-		const statusSummary = page.locator( '.fosse-status-summary' );
+		const statusSummary = page.getByRole( 'group', {
+			name: 'Provider status',
+		} );
 		await expect( statusSummary ).toHaveCount( 1 );
 
 		expect(
