@@ -441,14 +441,127 @@ class Photo_Post_AtmosphereTest extends BaseTestCase {
 	 * `images` embed.
 	 */
 	public function test_transform_filter_passes_through_when_all_uploads_fail(): void {
-		// Don't stub any blob: the interception filter returns null
-		// for every attachment, matching real-world upload failure.
+		// Don't stub any blob: the interception filter returns `false`
+		// for every attachment, which the upload_blob() contract
+		// treats as "skip without falling through to Atmosphere."
 		$post = $this->make_post( '', $this->image_id );
 
 		$record = $this->apply_transform_filter( $post );
 
 		$this->assertSame( 'baseline caption', $record['text'] );
 		$this->assertArrayNotHasKey( 'embed', $record );
+	}
+
+	/**
+	 * Featured image upload failing aborts the whole projection.
+	 * Featured image is the hero shot; shipping a gallery missing it
+	 * is worse than shipping no embed at all. Asserts the new
+	 * fast-fail path on the first attachment when it matches the
+	 * featured-image id.
+	 */
+	public function test_transform_filter_aborts_when_featured_image_upload_fails(): void {
+		// Two-image post: featured image (no blob stub → upload fails)
+		// + body image (blob stubbed → would upload). The projector
+		// must NOT ship just the body image; it must return the
+		// record unchanged.
+		$this->stub_blob_for( $this->image_id_alt );
+
+		$content = '<!-- wp:image {"id":' . $this->image_id_alt . '} --><figure class="wp-block-image"><img/></figure><!-- /wp:image -->';
+		$post    = $this->make_post( $content, $this->image_id );
+
+		$record = $this->apply_transform_filter( $post );
+
+		$this->assertSame( 'baseline caption', $record['text'] );
+		$this->assertArrayNotHasKey( 'embed', $record );
+	}
+
+	/**
+	 * Non-featured upload failure drops just that attachment from the
+	 * embed while the rest ship. The hero shot is preserved; a partial
+	 * gallery is acceptable degradation.
+	 */
+	public function test_transform_filter_drops_non_featured_failed_upload_but_ships_rest(): void {
+		// Featured stubbed (uploads cleanly), body image not stubbed
+		// (upload fails). Expect the embed to ship with one image —
+		// the featured one — and the body image silently dropped.
+		$this->stub_blob_for( $this->image_id, 'bafyhero' );
+
+		$content = '<!-- wp:image {"id":' . $this->image_id_alt . '} --><figure class="wp-block-image"><img/></figure><!-- /wp:image -->';
+		$post    = $this->make_post( $content, $this->image_id );
+
+		$record = $this->apply_transform_filter( $post );
+
+		$this->assertArrayHasKey( 'embed', $record );
+		$this->assertSame( 'app.bsky.embed.images', $record['embed']['$type'] );
+		$this->assertCount( 1, $record['embed']['images'] );
+		$this->assertSame( array( '$link' => 'bafyhero' ), $record['embed']['images'][0]['image']['ref'] );
+	}
+
+	/**
+	 * Filter returns a malformed blob-ref array (missing `$type`):
+	 * projector treats as a failed upload and drops the attachment.
+	 * Protects the federation envelope from a third-party filter that
+	 * returns an arbitrary array.
+	 */
+	public function test_transform_filter_rejects_malformed_blob_ref_from_filter(): void {
+		// Override the per-test stub with one that returns a malformed
+		// array for the featured image.
+		add_filter(
+			'fosse_photo_post_atmosphere_upload_blob',
+			static function () {
+				return array(
+					// Missing $type key — should be rejected.
+					'ref'      => array( '$link' => 'bafyforged' ),
+					'mimeType' => 'image/jpeg',
+					'size'     => 12345,
+				);
+			},
+			20
+		);
+
+		$post = $this->make_post( '', $this->image_id );
+
+		$record = $this->apply_transform_filter( $post );
+
+		// Malformed featured-image return = failed upload = featured
+		// fast-fail path = unchanged record.
+		$this->assertSame( 'baseline caption', $record['text'] );
+		$this->assertArrayNotHasKey( 'embed', $record );
+	}
+
+	/**
+	 * Filter throws: projector catches the exception per-attachment
+	 * and treats it as a failed upload. Asserts a misbehaving filter
+	 * listener can't crater the whole federation event.
+	 */
+	public function test_transform_filter_catches_filter_exception_per_attachment(): void {
+		// Featured stubbed cleanly. Add a second filter (higher
+		// priority so it runs after our stub) that throws for the
+		// body image only.
+		$this->stub_blob_for( $this->image_id, 'bafyhero' );
+
+		add_filter(
+			'fosse_photo_post_atmosphere_upload_blob',
+			function ( $pre, int $attachment_id ) {
+				if ( $attachment_id === $this->image_id_alt ) {
+					throw new \RuntimeException( 'simulated filter crash' );
+				}
+				return $pre;
+			},
+			20,
+			2
+		);
+
+		$content = '<!-- wp:image {"id":' . $this->image_id_alt . '} --><figure class="wp-block-image"><img/></figure><!-- /wp:image -->';
+		$post    = $this->make_post( $content, $this->image_id );
+
+		$record = $this->apply_transform_filter( $post );
+
+		// Throwing on the body image only drops that attachment;
+		// featured still ships.
+		$this->assertArrayHasKey( 'embed', $record );
+		$this->assertCount( 1, $record['embed']['images'] );
+		$this->assertSame( array( '$link' => 'bafyhero' ), $record['embed']['images'][0]['image']['ref'] );
 	}
 
 	/**
@@ -503,7 +616,10 @@ class Photo_Post_AtmosphereTest extends BaseTestCase {
 	}
 
 	/**
-	 * Text exceeding Bluesky's 300-grapheme cap is truncated.
+	 * Text exceeding Bluesky's 300-grapheme cap is truncated. Asserts
+	 * the truncation actually fired (text length is exactly 300, not
+	 * just <= 300) so a regression that skips truncation entirely
+	 * surfaces here instead of silently passing.
 	 */
 	public function test_transform_filter_truncates_caption_to_text_budget(): void {
 		$this->stub_blob_for( $this->image_id );
@@ -516,7 +632,39 @@ class Photo_Post_AtmosphereTest extends BaseTestCase {
 
 		$record = $this->apply_transform_filter( $post );
 
-		$this->assertLessThanOrEqual( 300, mb_strlen( $record['text'] ) );
+		$this->assertSame( 300, mb_strlen( $record['text'] ) );
+	}
+
+	/**
+	 * URL straddling the 300-grapheme truncation boundary: the facet
+	 * for it must be dropped from the record. A facet whose byteEnd
+	 * exceeds the final text length would either fail PDS validation
+	 * or render as a wrong-target link in Bluesky's UI.
+	 */
+	public function test_transform_filter_drops_facets_past_truncation_boundary(): void {
+		$this->stub_blob_for( $this->image_id );
+
+		// Pad text so a URL starts in-bounds (under 300 graphemes) but
+		// extends past 300. The padding is just enough to push the
+		// URL's tail past the truncation budget.
+		$padding = str_repeat( 'word ', 58 ); // ~290 chars
+		$url     = 'https://example.test/some/long/path/that/will/be/cut';
+		$content = '<!-- wp:image {"id":' . $this->image_id . '} --><figure class="wp-block-image"><img/></figure><!-- /wp:image -->'
+			. '<!-- wp:paragraph --><p>' . $padding . $url . '</p><!-- /wp:paragraph -->';
+
+		$post = $this->make_post( $content, $this->image_id );
+
+		$record = $this->apply_transform_filter( $post );
+
+		$this->assertSame( 300, mb_strlen( $record['text'] ) );
+
+		// Every surviving facet must have byteEnd within the final
+		// text. A truncated URL would have byteEnd past the boundary,
+		// which the projector drops.
+		$final_byte_length = strlen( $record['text'] );
+		foreach ( ( $record['facets'] ?? array() ) as $facet ) {
+			$this->assertLessThanOrEqual( $final_byte_length, (int) $facet['index']['byteEnd'] );
+		}
 	}
 
 	/**

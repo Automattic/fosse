@@ -866,7 +866,46 @@ class Photo_Post {
 	 * @return string Plain-text caption with image markup removed.
 	 */
 	public static function caption_text( WP_Post $post ): string {
-		$rendered = \apply_filters( 'the_content', $post->post_content ); // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- Core WordPress filter.
+		// `the_content` callbacks (blocks, shortcodes, oEmbed) read
+		// `$GLOBALS['post']` via `get_the_ID()` and similar helpers;
+		// running this filter outside The Loop — which is exactly
+		// what federation hot paths do, on cron and REST — would let
+		// those callbacks resolve against whichever post happens to
+		// be in the global, not the one we're rendering. Snapshot
+		// the prior global so we can restore it on the way out, then
+		// set up the global ourselves so the caption matches the
+		// front-end render byte-for-byte.
+		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Read-and-restore of the WP loop global.
+		$previous_global = $GLOBALS['post'] ?? null;
+		\setup_postdata( $post );
+
+		try {
+			$rendered = \apply_filters( 'the_content', $post->post_content ); // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- Core WordPress filter.
+		} catch ( \Throwable $e ) {
+			// A misbehaving `the_content` listener shouldn't crater
+			// the federation event — fall back to an empty caption
+			// so the AT projector ships images with no caption, and
+			// the AP projector ships caption-less content.
+			// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- Surface third-party filter crashes so operators can spot the bad plugin.
+			\error_log(
+				\sprintf(
+					'[fosse:photo-post] the_content filter threw while building caption for post %d: %s',
+					$post->ID,
+					$e->getMessage()
+				)
+			);
+			$rendered = '';
+		} finally {
+			\wp_reset_postdata();
+			if ( null !== $previous_global ) {
+				// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Restoring the prior global we explicitly captured.
+				$GLOBALS['post'] = $previous_global;
+			} else {
+				// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Cleaning up the global we created.
+				unset( $GLOBALS['post'] );
+			}
+		}
+
 		$stripped = '' === \trim( (string) $rendered ) ? '' : self::strip_image_block_markup( (string) $rendered );
 		$plain    = \wp_strip_all_tags( $stripped );
 
