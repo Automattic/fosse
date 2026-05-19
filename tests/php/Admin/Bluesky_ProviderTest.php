@@ -56,6 +56,7 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		delete_option( 'atmosphere_connection' );
 		delete_option( 'atmosphere_auto_publish' );
 		delete_option( Bluesky_Domain_Handle::OPTION_PREVIOUS_HANDLE );
+		delete_transient( 'fosse_bluesky_profile_' . md5( 'did:plc:test123' ) );
 
 		// Reset the one-shot revert hand-off so a prior test's successful
 		// revert can't surface a ghost snapshot in this test's reads.
@@ -432,7 +433,7 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		$this->provider->render_connection_actions();
 		$output = ob_get_clean();
 
-		$this->assertStringNotContainsString( 'https://bsky.app/', $output );
+		$this->assertStringNotContainsString( 'Create one', $output );
 		$this->assertStringNotContainsString( 'Need a Bluesky account', $output );
 	}
 
@@ -591,6 +592,62 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		$output = ob_get_clean();
 
 		$this->assertStringNotContainsString( 'Open Bluesky settings', $output );
+	}
+
+	/**
+	 * Connected status card links the Bluesky handle to the public profile.
+	 */
+	public function test_render_status_card_links_handle_to_public_profile(): void {
+		$this->seed_connected_atmosphere_connection();
+
+		ob_start();
+		$this->provider->render_status_card();
+		$output = ob_get_clean();
+
+		$this->assertMatchesRegularExpression(
+			'~<a[^>]+href="https://bsky\.app/profile/alice\.bsky\.social"[^>]*>\s*<code class="fosse-token fosse-status-card__token fosse-token--handle fosse-status-card__token--handle">@alice\.<wbr>bsky\.<wbr>social</code>\s*</a>~',
+			$output
+		);
+	}
+
+	/**
+	 * Connected settings panel links the Bluesky handle and includes the cached
+	 * follower count from the Bluesky profile response.
+	 */
+	public function test_render_connection_actions_connected_links_handle_and_shows_followers(): void {
+		$this->seed_api_capable_atmosphere_connection();
+		$request_count = $this->mock_bluesky_profile_followers( 1234 );
+
+		ob_start();
+		$this->provider->render_connection_actions();
+		$output = ob_get_clean();
+
+		$this->assertMatchesRegularExpression(
+			'~<a[^>]+href="https://bsky\.app/profile/alice\.bsky\.social"[^>]*>\s*<code class="fosse-token fosse-admin-token fosse-token--handle fosse-admin-token--handle">@alice\.<wbr>bsky\.<wbr>social</code>\s*</a>~',
+			$output
+		);
+		$this->assertMatchesRegularExpression( '~<dt[^>]*>\s*Followers\s*</dt>\s*<dd[^>]*>\s*1,234\s*</dd>~', $output );
+
+		ob_start();
+		$this->provider->render_connection_actions();
+		ob_get_clean();
+
+		$this->assertSame( 1, $request_count(), 'The second render should use the cached Bluesky profile count.' );
+	}
+
+	/**
+	 * Connected status card includes the cached Bluesky follower count too, so
+	 * the Settings and Status surfaces expose the same account summary.
+	 */
+	public function test_render_status_card_shows_followers(): void {
+		$this->seed_api_capable_atmosphere_connection();
+		$this->mock_bluesky_profile_followers( 9876 );
+
+		ob_start();
+		$this->provider->render_status_card();
+		$output = ob_get_clean();
+
+		$this->assertMatchesRegularExpression( '~<dt[^>]*>\s*Followers\s*</dt>\s*<dd[^>]*>\s*9,876\s*</dd>~', $output );
 	}
 
 	/**
@@ -2015,6 +2072,70 @@ class Bluesky_ProviderTest extends BaseTestCase {
 				'access_token' => Encryption::encrypt( 'token' ),
 			)
 		);
+	}
+
+	/**
+	 * Seed a connected Atmosphere connection with the DPoP key required for
+	 * authenticated profile API calls.
+	 *
+	 * @return void
+	 */
+	private function seed_api_capable_atmosphere_connection(): void {
+		update_option(
+			'atmosphere_connection',
+			array(
+				'did'          => 'did:plc:test123',
+				'handle'       => 'alice.bsky.social',
+				'pds_endpoint' => 'https://bsky.social',
+				'access_token' => Encryption::encrypt( 'token' ),
+				'dpop_jwk'     => Encryption::encrypt( wp_json_encode( \Atmosphere\OAuth\DPoP::generate_key(), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT ) ),
+			)
+		);
+	}
+
+	/**
+	 * Mock the Bluesky profile API response and expose how often it was called.
+	 *
+	 * @param int $followers Followers count to return.
+	 * @return callable(): int
+	 */
+	private function mock_bluesky_profile_followers( int $followers ): callable {
+		$requests = 0;
+
+		add_filter(
+			'pre_http_request',
+			static function ( $preempt, $parsed_args, $url ) use ( &$requests, $followers ) { // phpcs:ignore VariableAnalysis.CodeAnalysis.VariableAnalysis.UnusedVariable -- pre_http_request signature.
+				if ( false === strpos( (string) $url, '/xrpc/app.bsky.actor.getProfile' ) ) {
+					return $preempt;
+				}
+
+				++$requests;
+
+				return array(
+					'headers'  => array(),
+					'body'     => wp_json_encode(
+						array(
+							'did'            => 'did:plc:test123',
+							'handle'         => 'alice.bsky.social',
+							'followersCount' => $followers,
+						),
+						JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT
+					),
+					'response' => array(
+						'code'    => 200,
+						'message' => 'OK',
+					),
+					'cookies'  => array(),
+					'filename' => null,
+				);
+			},
+			10,
+			3
+		);
+
+		return static function () use ( &$requests ): int {
+			return $requests;
+		};
 	}
 
 	/**
