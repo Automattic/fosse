@@ -669,6 +669,103 @@ class Photo_Post {
 	}
 
 	/**
+	 * Ordered list of resolvable image attachment ids for a photo post.
+	 *
+	 * Order is deterministic so downstream projectors emit attachments
+	 * in a stable sequence across federation passes:
+	 *
+	 *   1. Featured image (when it resolves to a live image attachment),
+	 *      since the Featured Image is the post's canonical hero shot
+	 *      whether or not the body also embeds a `core/post-featured-image`
+	 *      block.
+	 *   2. Image-like blocks in document order: `core/image` ids,
+	 *      `core/post-featured-image` (skipped because the featured
+	 *      image is already first — avoids double-counting), and
+	 *      `core/gallery` inner `core/image` ids walked left-to-right.
+	 *
+	 * Deduplicated: a post that includes its featured image both as
+	 * postmeta and via a `core/image` block (a common publish path)
+	 * yields one attachment id, not two.
+	 *
+	 * Only "resolves locally" blocks contribute — mirrors the
+	 * detection-time gate so the projector can't propose an attachment
+	 * that bundled AP / Atmosphere would later silently drop. External
+	 * `core/image` blocks (no `id` attribute, URL points off-site)
+	 * intentionally fall through here; they're handled by the
+	 * detection-time disqualification, not the attachment list.
+	 *
+	 * @param WP_Post $post The photo post.
+	 * @return int[] Resolvable image attachment ids in projection order.
+	 */
+	public static function collect_image_attachment_ids( WP_Post $post ): array {
+		$ordered = array();
+
+		$thumbnail_id = (int) \get_post_thumbnail_id( $post );
+		if ( $thumbnail_id > 0 && \wp_attachment_is_image( $thumbnail_id ) ) {
+			$ordered[] = $thumbnail_id;
+		}
+
+		$content = (string) ( $post->post_content ?? '' );
+		if ( '' !== \trim( $content ) ) {
+			$blocks = \function_exists( 'parse_blocks' ) ? \parse_blocks( $content ) : array();
+			if ( \is_array( $blocks ) ) {
+				foreach ( $blocks as $block ) {
+					if ( \is_array( $block ) ) {
+						$ordered = \array_merge( $ordered, self::block_image_ids( $block, $post ) );
+					}
+				}
+			}
+		}
+
+		// Dedup while preserving order — the featured image may also
+		// appear as a `core/image` block by id.
+		return \array_values( \array_unique( $ordered ) );
+	}
+
+	/**
+	 * Recursive helper: gather resolvable image attachment ids from a
+	 * single parsed block. Mirrors the resolution rules in
+	 * {@see self::block_resolves_locally()} but yields ids rather than
+	 * a boolean.
+	 *
+	 * `core/post-featured-image` is intentionally elided — the
+	 * featured image id is contributed by the caller's thumbnail pass,
+	 * so reading it again here would double-add. `core/gallery` walks
+	 * its `innerBlocks` recursively; legacy `attrs.ids` galleries are
+	 * not recognized, matching detection.
+	 *
+	 * @param array<string, mixed> $block A parsed block.
+	 * @param WP_Post              $post  The post being walked (for context).
+	 * @return int[] Resolvable attachment ids contributed by this block.
+	 */
+	private static function block_image_ids( array $block, WP_Post $post ): array {
+		$name = $block['blockName'] ?? '';
+
+		if ( 'core/image' === $name ) {
+			$id = (int) ( $block['attrs']['id'] ?? 0 );
+			if ( $id > 0 && \wp_attachment_is_image( $id ) ) {
+				return array( $id );
+			}
+			return array();
+		}
+
+		if ( 'core/gallery' === $name ) {
+			$ids          = array();
+			$inner_blocks = $block['innerBlocks'] ?? array();
+			if ( \is_array( $inner_blocks ) ) {
+				foreach ( $inner_blocks as $sub_block ) {
+					if ( \is_array( $sub_block ) ) {
+						$ids = \array_merge( $ids, self::block_image_ids( $sub_block, $post ) );
+					}
+				}
+			}
+			return $ids;
+		}
+
+		return array();
+	}
+
+	/**
 	 * Force `type: "Note"` for photo posts. Hooked on
 	 * `activitypub_post_object_type`.
 	 *
@@ -746,6 +843,34 @@ class Photo_Post {
 		}
 
 		return self::strip_image_block_markup( $content );
+	}
+
+	/**
+	 * Caption text for a photo post: rendered post content with all
+	 * image-block markup stripped and tags removed.
+	 *
+	 * Shared helper used by both the AP `activitypub_the_content` path
+	 * (where it lands as `content`) and the AT Protocol projector
+	 * (where it lands as `text` on a `app.bsky.feed.post` record next
+	 * to an `app.bsky.embed.images` embed). Renders the post body
+	 * through `the_content`, runs the same DOM-strip the AP filter
+	 * uses, and then collapses to plain text — caption-shaped output
+	 * suitable for either an HTML-tolerant or plain-text backend.
+	 *
+	 * Untrimmed return preserves whitespace inside the caption (line
+	 * breaks between paragraphs) so callers can do their own truncation
+	 * against an external character cap (Bluesky's 300, for instance)
+	 * before normalizing.
+	 *
+	 * @param WP_Post $post The photo post.
+	 * @return string Plain-text caption with image markup removed.
+	 */
+	public static function caption_text( WP_Post $post ): string {
+		$rendered = \apply_filters( 'the_content', $post->post_content ); // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- Core WordPress filter.
+		$stripped = '' === \trim( (string) $rendered ) ? '' : self::strip_image_block_markup( (string) $rendered );
+		$plain    = \wp_strip_all_tags( $stripped );
+
+		return \trim( (string) $plain );
 	}
 
 	/**
