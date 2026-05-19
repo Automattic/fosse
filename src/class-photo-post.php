@@ -293,6 +293,21 @@ class Photo_Post {
 					++$other_count;
 					continue;
 				}
+
+				// Count substantive `<p>` paragraphs to catch the
+				// `<p>Line 1.</p><p>Line 2.</p>` shape — multiple
+				// paragraphs are article content, not a single
+				// caption. Drop empty `<p></p>` shells first so
+				// editor padding doesn't inflate the count.
+				$cleaned = (string) \preg_replace( '#<p\b[^>]*>\s*</p>#i', '', $inner_html );
+				$opens   = \preg_match_all( '#<p\b#i', $cleaned );
+
+				// Zero `<p>` tags means a wrapper-less freeform
+				// line — still one logical paragraph for Rule 3.
+				if ( ( $opens > 0 ? (int) $opens : 1 ) > 1 ) {
+					++$other_count;
+					continue;
+				}
 				++$paragraph_count;
 				continue;
 			}
@@ -366,11 +381,14 @@ class Photo_Post {
 	 * external URL intact in the body so receivers can still render
 	 * it inline.
 	 *
-	 * For `core/image`: presence of a positive `id` attribute is
-	 * enough — we intentionally do NOT verify the attachment still
-	 * exists, mirroring bundled AP's own posture (a deleted-but-id'd
-	 * attachment is dropped silently downstream rather than blocking
-	 * federation).
+	 * For `core/image`: the `id` attribute must point at an
+	 * attachment that still resolves to an image
+	 * (`wp_attachment_is_image()`). Without this guard a
+	 * deleted-but-id'd attachment would slip through detection and
+	 * force `Note` shape, but bundled AP's `transform_attachment()`
+	 * would drop the broken attachment silently — caption-only Note
+	 * with no image. Mirrors the `has_image_thumbnail` posture for
+	 * Rule 3.
 	 *
 	 * For `core/gallery`: only WP 5.9+ block-nested galleries
 	 * (innerBlocks containing `core/image` children) count.
@@ -397,7 +415,8 @@ class Photo_Post {
 		}
 
 		if ( 'core/image' === $name ) {
-			return (int) ( $block['attrs']['id'] ?? 0 ) > 0;
+			$id = (int) ( $block['attrs']['id'] ?? 0 );
+			return $id > 0 && (bool) \wp_attachment_is_image( $id );
 		}
 
 		if ( 'core/gallery' === $name ) {

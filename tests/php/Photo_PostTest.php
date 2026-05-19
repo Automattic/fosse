@@ -8,6 +8,7 @@
 namespace Automattic\Fosse\Tests;
 
 use Automattic\Fosse\Photo_Post;
+use PHPUnit\Framework\Attributes\After;
 use PHPUnit\Framework\Attributes\Before;
 use PHPUnit\Framework\Attributes\DataProvider;
 use WorDBless\BaseTestCase;
@@ -25,6 +26,43 @@ use WP_Post;
  * load-bearing instead of poking the helpers in isolation.
  */
 class Photo_PostTest extends BaseTestCase {
+
+	/**
+	 * Whether `wp_filter_post_kses` was hooked on
+	 * `content_save_pre` before `reset_state()` ran. Tracked so the
+	 * after-hook can restore the original filter chain when the
+	 * test class is done — otherwise sibling test classes inherit
+	 * the kses-less state and may produce unexpected escaping.
+	 *
+	 * @var bool
+	 */
+	private bool $had_content_save_pre_kses = false;
+
+	/**
+	 * Mirror of {@see self::$had_content_save_pre_kses} for the
+	 * `content_filtered_save_pre` filter.
+	 *
+	 * @var bool
+	 */
+	private bool $had_content_filtered_save_pre_kses = false;
+
+	/**
+	 * Attachment id of the canonical image fixture created per test.
+	 * Block-shape tests substitute this into fixture markup
+	 * (`{"id":PHOTO_ID}`) so `wp_attachment_is_image()` resolves to
+	 * true inside `Photo_Post::block_resolves_locally()`.
+	 *
+	 * @var int
+	 */
+	private int $image_id = 0;
+
+	/**
+	 * Secondary image fixture id for tests that need two distinct
+	 * resolvable images (gallery cases, two-image scenarios).
+	 *
+	 * @var int
+	 */
+	private int $image_id_alt = 0;
 
 	/**
 	 * Reset filter / cache state before each test and register the
@@ -59,8 +97,90 @@ class Photo_PostTest extends BaseTestCase {
 		// admin-authored path. The `test_slashed_block_attributes_*`
 		// case re-introduces slashes explicitly via `addslashes()`
 		// when it needs to exercise the non-admin storage shape.
-		remove_filter( 'content_save_pre', 'wp_filter_post_kses' );
-		remove_filter( 'content_filtered_save_pre', 'wp_filter_post_kses' );
+		// Track removal status so the after-hook can restore the
+		// original chain — leaking the kses-less state into sibling
+		// test classes would cause silent corruption when their
+		// fixtures depend on default escaping.
+		$this->had_content_save_pre_kses          = false !== has_filter( 'content_save_pre', 'wp_filter_post_kses' );
+		$this->had_content_filtered_save_pre_kses = false !== has_filter( 'content_filtered_save_pre', 'wp_filter_post_kses' );
+		if ( $this->had_content_save_pre_kses ) {
+			remove_filter( 'content_save_pre', 'wp_filter_post_kses' );
+		}
+		if ( $this->had_content_filtered_save_pre_kses ) {
+			remove_filter( 'content_filtered_save_pre', 'wp_filter_post_kses' );
+		}
+
+		// Create canonical image attachments for block fixtures.
+		// `Photo_Post::block_resolves_locally()` now requires the
+		// `id` on a `core/image` block to resolve via
+		// `wp_attachment_is_image()`, so block-shape fixtures that
+		// reference image ids need real attachment posts with image
+		// MIME types behind them. Fixtures use the `PHOTO_ID` /
+		// `PHOTO_ID_ALT` placeholders; the
+		// {@see self::resolve_image_placeholders()} helper swaps in
+		// these real ids at use time.
+		$this->image_id     = $this->insert_image_attachment( 'fixture-primary.jpg' );
+		$this->image_id_alt = $this->insert_image_attachment( 'fixture-alt.jpg' );
+	}
+
+	/**
+	 * Restore the kses filter chain when the test class is done so
+	 * later classes don't inherit our kses-less state. Idempotent —
+	 * `add_filter` dedupes identical callable registrations, so
+	 * re-adding the filter when the chain is already healthy is
+	 * harmless.
+	 *
+	 * @after
+	 */
+	#[After]
+	public function restore_kses_filters(): void {
+		if ( $this->had_content_save_pre_kses ) {
+			add_filter( 'content_save_pre', 'wp_filter_post_kses' );
+		}
+		if ( $this->had_content_filtered_save_pre_kses ) {
+			add_filter( 'content_filtered_save_pre', 'wp_filter_post_kses' );
+		}
+	}
+
+	/**
+	 * Insert a real image attachment WorDBless will resolve through
+	 * `wp_attachment_is_image()`. Both the `post_mime_type` (which
+	 * the function inspects directly) and the `_wp_attached_file`
+	 * postmeta (which `get_attached_file()` requires before
+	 * `wp_attachment_is()` will return true) are populated.
+	 *
+	 * @param string $filename The attachment file basename.
+	 * @return int The attachment post id.
+	 */
+	private function insert_image_attachment( string $filename ): int {
+		$attachment_id = wp_insert_post(
+			array(
+				'post_type'      => 'attachment',
+				'post_status'    => 'inherit',
+				'post_mime_type' => 'image/jpeg',
+				'post_title'     => 'fixture',
+			)
+		);
+		update_post_meta( $attachment_id, '_wp_attached_file', $filename );
+		return $attachment_id;
+	}
+
+	/**
+	 * Substitute `PHOTO_ID` / `PHOTO_ID_ALT` placeholders in block
+	 * markup with the per-test attachment ids. Lets static data
+	 * providers stay pure (they can't reach instance state) while
+	 * keeping the block fixtures wired to real attachments the new
+	 * `wp_attachment_is_image()` guard will accept.
+	 *
+	 * @param string $content Block markup with placeholders.
+	 * @return string Content with placeholders replaced.
+	 */
+	private function resolve_image_placeholders( string $content ): string {
+		return \str_replace(
+			array( 'PHOTO_ID_ALT', 'PHOTO_ID' ),
+			array( (string) $this->image_id_alt, (string) $this->image_id ),
+			$content
+		);
 	}
 
 	/**
@@ -299,7 +419,7 @@ class Photo_PostTest extends BaseTestCase {
 	 */
 	#[DataProvider( 'block_shape_cases' )]
 	public function test_block_shape_drives_detection( string $content, bool $expected ): void {
-		$post = $this->make_post( $content );
+		$post = $this->make_post( $this->resolve_image_placeholders( $content ) );
 
 		$this->assertSame( $expected, Photo_Post::is_photo_post( $post ) );
 	}
@@ -321,11 +441,11 @@ class Photo_PostTest extends BaseTestCase {
 		// thumbnail) are exercised in dedicated test methods below —
 		// the data provider is static and cannot wire up per-case
 		// thumbnail state.
-		$image     = '<!-- wp:image {"id":42} --><figure class="wp-block-image"><img src="https://example.test/a.jpg" alt=""/></figure><!-- /wp:image -->';
+		$image     = '<!-- wp:image {"id":PHOTO_ID} --><figure class="wp-block-image"><img src="https://example.test/a.jpg" alt=""/></figure><!-- /wp:image -->';
 		$gallery   = '<!-- wp:gallery -->'
 			. '<figure class="wp-block-gallery">'
-			. '<!-- wp:image {"id":42} --><figure class="wp-block-image"><img/></figure><!-- /wp:image -->'
-			. '<!-- wp:image {"id":43} --><figure class="wp-block-image"><img/></figure><!-- /wp:image -->'
+			. '<!-- wp:image {"id":PHOTO_ID} --><figure class="wp-block-image"><img/></figure><!-- /wp:image -->'
+			. '<!-- wp:image {"id":PHOTO_ID_ALT} --><figure class="wp-block-image"><img/></figure><!-- /wp:image -->'
 			. '</figure>'
 			. '<!-- /wp:gallery -->';
 		$paragraph = '<!-- wp:paragraph --><p>caption text</p><!-- /wp:paragraph -->';
@@ -360,7 +480,9 @@ class Photo_PostTest extends BaseTestCase {
 	 * Caption." to still count.
 	 */
 	public function test_title_does_not_suppress_detection(): void {
-		$image = '<!-- wp:image {"id":42} --><figure class="wp-block-image"><img src="https://example.test/a.jpg"/></figure><!-- /wp:image -->';
+		$image = $this->resolve_image_placeholders(
+			'<!-- wp:image {"id":PHOTO_ID} --><figure class="wp-block-image"><img src="https://example.test/a.jpg"/></figure><!-- /wp:image -->'
+		);
 		$post  = $this->make_post( $image, 'My Photo Title' );
 
 		$this->assertTrue( Photo_Post::is_photo_post( $post ) );
@@ -917,12 +1039,14 @@ class Photo_PostTest extends BaseTestCase {
 	 * galleries still detect.
 	 */
 	public function test_gallery_with_inner_image_blocks_detects(): void {
-		$nested_gallery = '<!-- wp:gallery -->'
+		$nested_gallery = $this->resolve_image_placeholders(
+			'<!-- wp:gallery -->'
 			. '<figure class="wp-block-gallery">'
-			. '<!-- wp:image {"id":42} --><figure class="wp-block-image"><img/></figure><!-- /wp:image -->'
-			. '<!-- wp:image {"id":43} --><figure class="wp-block-image"><img/></figure><!-- /wp:image -->'
+			. '<!-- wp:image {"id":PHOTO_ID} --><figure class="wp-block-image"><img/></figure><!-- /wp:image -->'
+			. '<!-- wp:image {"id":PHOTO_ID_ALT} --><figure class="wp-block-image"><img/></figure><!-- /wp:image -->'
 			. '</figure>'
-			. '<!-- /wp:gallery -->';
+			. '<!-- /wp:gallery -->'
+		);
 		$post           = $this->make_post( $nested_gallery );
 
 		$this->assertTrue( Photo_Post::is_photo_post( $post ) );
@@ -1219,13 +1343,65 @@ class Photo_PostTest extends BaseTestCase {
 	 * federated post entirely. Falling back to article behavior
 	 * keeps every figure in the body intact.
 	 */
+	/**
+	 * A `core/image` block whose `id` attribute points at an
+	 * attachment that no longer exists (deleted media library
+	 * entry, never-imported id from a migration, etc.) must NOT
+	 * classify as a photo post. Without the
+	 * `wp_attachment_is_image()` guard the detector would force
+	 * `Note` and strip the image markup, but bundled AP's
+	 * `transform_attachment()` would drop the broken id — leaving
+	 * the user with a caption-only Note and no image. Falling back
+	 * to article behavior keeps the figure intact in the body
+	 * (where the broken image renders as a placeholder, but at
+	 * least carries the intent).
+	 */
+	public function test_image_block_with_nonexistent_id_does_not_detect(): void {
+		$ghost_image = '<!-- wp:image {"id":99999999} --><figure class="wp-block-image"><img src="https://example.test/ghost.jpg"/></figure><!-- /wp:image -->';
+		$post        = $this->make_post( $ghost_image );
+
+		$this->assertFalse( Photo_Post::is_photo_post( $post ) );
+	}
+
+	/**
+	 * Multi-paragraph classic body + Featured Image = article, not
+	 * photo. The freeform branch counts substantive `<p>` opens, so
+	 * `<p>One.</p><p>Two.</p>` registers as two paragraphs and
+	 * disqualifies Rule 3 even though the heuristic's structural-tag
+	 * blacklist (img/figure/heading/list/table/blockquote/pre/hr)
+	 * doesn't match either body.
+	 */
+	public function test_featured_thumbnail_with_classic_multi_paragraph_does_not_detect(): void {
+		$post = $this->make_post( '<p>One.</p><p>Two.</p>', '', '', 1 );
+
+		$this->assertFalse( Photo_Post::is_photo_post( $post ) );
+	}
+
+	/**
+	 * A gallery whose innerBlocks mix local-id `core/image` children
+	 * with external-URL `core/image` children must NOT classify as a
+	 * photo post. Bundled AP would extract only the local-id
+	 * children, and the content filter would strip the entire
+	 * gallery wrapper — the external images would disappear from
+	 * the federated post entirely. Falling back to article behavior
+	 * keeps every figure in the body intact.
+	 */
 	public function test_mixed_local_and_external_gallery_does_not_detect(): void {
-		$mixed_gallery = '<!-- wp:gallery -->'
+		// First child resolves locally (real attachment id from the
+		// fixture pool); second child is an external-URL image block
+		// with no `id`. The rejection must fire because of the mix —
+		// otherwise both children would be unresolvable and the
+		// gallery would return false for the trivial reason. Using
+		// a real id forces the "one resolvable, one not" path that
+		// the rule actually targets.
+		$mixed_gallery = $this->resolve_image_placeholders(
+			'<!-- wp:gallery -->'
 			. '<figure class="wp-block-gallery">'
-			. '<!-- wp:image {"id":42} --><figure class="wp-block-image"><img/></figure><!-- /wp:image -->'
+			. '<!-- wp:image {"id":PHOTO_ID} --><figure class="wp-block-image"><img/></figure><!-- /wp:image -->'
 			. '<!-- wp:image --><figure class="wp-block-image"><img src="https://elsewhere.test/a.jpg"/></figure><!-- /wp:image -->'
 			. '</figure>'
-			. '<!-- /wp:gallery -->';
+			. '<!-- /wp:gallery -->'
+		);
 		$post          = $this->make_post( $mixed_gallery );
 
 		$this->assertFalse( Photo_Post::is_photo_post( $post ) );
