@@ -219,14 +219,31 @@ class Photo_Post {
 	 *
 	 * Returns true when any of:
 	 *
-	 *   1. The post format is `image` or `gallery`.
+	 *   1. The post format is `image` or `gallery` AND the body
+	 *      carries a federatable image source (a resolvable
+	 *      image-like block OR a live featured image) AND no
+	 *      unresolvable image markup. Post format alone is not
+	 *      enough — bare format would force `Note` even when
+	 *      bundled AP can't emit any attachment, leaving a
+	 *      caption-only Note with no photo.
 	 *   2. The block content boils down to "one image-like block,
 	 *      optionally followed by a single paragraph block,"
 	 *      ignoring purely structural blocks (spacer, separator).
-	 *   3. The post has a featured image and the body has at most
-	 *      one paragraph block (so "set featured image, type one
-	 *      sentence, hit publish" works without the user having to
-	 *      know about Post Formats).
+	 *      The image-like block must resolve to a local attachment
+	 *      (`wp_attachment_is_image`); external-URL image blocks
+	 *      don't qualify.
+	 *   3. The post has a featured image (validated via
+	 *      `wp_attachment_is_image`, not just postmeta) and the body
+	 *      has at most one paragraph block — so "set featured image,
+	 *      type one sentence, hit publish" works without the user
+	 *      having to know about Post Formats.
+	 *
+	 * All three rules also enforce the
+	 * `activitypub_max_image_attachments` cap. When the body
+	 * carries more images than bundled AP will emit, detection
+	 * falls through to article behavior so the overflow stays
+	 * inline. A cap of 0 (attachments disabled) rejects photo
+	 * treatment entirely.
 	 *
 	 * Rule 2 is the catch-most-cases path for users who don't use
 	 * Post Formats at all (modern block-editor flow). Rule 3 handles
@@ -777,9 +794,30 @@ class Photo_Post {
 		$figures = $xpath->query( $figure_query );
 		if ( $figures instanceof \DOMNodeList ) {
 			foreach ( \iterator_to_array( $figures ) as $figure ) {
-				if ( $figure->parentNode ) {
-					$figure->parentNode->removeChild( $figure );
+				if ( ! $figure->parentNode ) {
+					continue;
 				}
+
+				// Image-block figures often nest a `<figcaption>`
+				// that carries the user's caption text — losing it
+				// when we strip the figure would mangle the user's
+				// intent (Pixelfed and Mastodon both render figcaption
+				// content alongside attached media). Lift each non-
+				// empty figcaption out as a `<p>` in the figure's
+				// place before removing the wrapper so the caption
+				// survives stripping.
+				$figcaptions = $figure->getElementsByTagName( 'figcaption' );
+				foreach ( \iterator_to_array( $figcaptions ) as $figcaption ) {
+					$caption_text = \trim( (string) $figcaption->textContent );
+					if ( '' === $caption_text ) {
+						continue;
+					}
+					$paragraph = $doc->createElement( 'p' );
+					$paragraph->appendChild( $doc->createTextNode( $caption_text ) );
+					$figure->parentNode->insertBefore( $paragraph, $figure );
+				}
+
+				$figure->parentNode->removeChild( $figure );
 			}
 		}
 

@@ -1231,6 +1231,41 @@ class Photo_PostTest extends BaseTestCase {
 	}
 
 	/**
+	 * `<figcaption>` inside an image/gallery figure carries the
+	 * user's caption text. Dropping the figure wrapper without
+	 * preserving the figcaption would mangle the user's intent —
+	 * Pixelfed and Mastodon both render figcaption alongside
+	 * attached media. The stripper lifts each non-empty figcaption
+	 * out as a `<p>` in the figure's place before removing the
+	 * wrapper.
+	 */
+	public function test_content_filter_preserves_figcaption_text(): void {
+		$post     = $this->make_post( '', '', 'image', 1 );
+		$content  = '<figure class="wp-block-image"><img src="https://example.test/a.jpg"/><figcaption>Sunset over the bay.</figcaption></figure>';
+		$filtered = apply_filters( 'activitypub_the_content', $content, $post );
+
+		$this->assertStringNotContainsString( '<img', $filtered );
+		$this->assertStringNotContainsString( '<figure', $filtered );
+		$this->assertStringNotContainsString( '<figcaption', $filtered );
+		$this->assertStringContainsString( 'Sunset over the bay.', $filtered );
+	}
+
+	/**
+	 * Empty `<figcaption>` shells (no user-supplied text) must not
+	 * leak through as blank paragraphs after stripping.
+	 */
+	public function test_content_filter_drops_empty_figcaption(): void {
+		$post     = $this->make_post( '', '', 'image', 1 );
+		$content  = '<figure class="wp-block-image"><img src="https://example.test/a.jpg"/><figcaption></figcaption></figure><p>Real caption.</p>';
+		$filtered = apply_filters( 'activitypub_the_content', $content, $post );
+
+		$this->assertStringNotContainsString( '<figcaption', $filtered );
+		// No leading empty `<p>` from the missing figcaption.
+		$this->assertStringNotContainsString( '<p></p>', $filtered );
+		$this->assertStringContainsString( 'Real caption.', $filtered );
+	}
+
+	/**
 	 * Single-quoted class attributes — uncommon but valid HTML — must
 	 * also strip. The DOM walker reads `@class` regardless of which
 	 * quote style the input used.
