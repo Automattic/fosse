@@ -212,6 +212,25 @@ add_action(
 );
 
 /*
+ * Photo-post AT Protocol federation-shape projector.
+ *
+ * Sibling of the AP-side Photo_Post projector. Routes a photo-shaped
+ * WP post into Atmosphere's short-form path and replaces the default
+ * external link card with a native `app.bsky.embed.images` embed so
+ * Flashes / Pinksky render it as a native photo post. See
+ * `DOTCOM-17143` and `class-photo-post-atmosphere.php`.
+ */
+add_action(
+	'init',
+	static function () {
+		if ( ! class_exists( \Automattic\Fosse\Photo_Post_Atmosphere::class ) ) {
+			return;
+		}
+		\Automattic\Fosse\Photo_Post_Atmosphere::register();
+	}
+);
+
+/*
  * Cross-network post-type projector.
  *
  * Feeds ActivityPub's stored `activitypub_support_post_types` option into
