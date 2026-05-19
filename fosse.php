@@ -190,6 +190,28 @@ add_action(
 );
 
 /*
+ * Photo-post detection + AP federation-shape projector.
+ *
+ * Detects when a WP post is shaped like a photo post (post format
+ * `image`/`gallery`, or block content that boils down to "image
+ * block + optional caption paragraph," or a featured image with
+ * minimal body) and forces the outbound ActivityPub envelope into
+ * the shape Pixelfed and other IG-style photo clients render
+ * natively — `type: Note` with caption-only content and dimensionally
+ * complete image attachments. See `DOTCOM-17143`. Same registration
+ * posture as the bridges above.
+ */
+add_action(
+	'init',
+	static function () {
+		if ( ! class_exists( \Automattic\Fosse\Photo_Post::class ) ) {
+			return;
+		}
+		\Automattic\Fosse\Photo_Post::register();
+	}
+);
+
+/*
  * Cross-network post-type projector.
  *
  * Feeds ActivityPub's stored `activitypub_support_post_types` option into

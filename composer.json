@@ -5,6 +5,7 @@
 	"license": "GPL-2.0-or-later",
 	"require": {
 		"php": ">=8.2",
+		"ext-dom": "*",
 		"automattic/jetpack-autoloader": "*"
 	},
 	"require-dev": {
