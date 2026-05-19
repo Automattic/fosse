@@ -6,6 +6,10 @@
  * wp-admin forms and notices.
  */
 
+/* Local aliases for FOSSE-owned admin surfaces. Keep these stable for the
+   server-rendered PHP templates. The wizard intentionally keeps the richer
+   defaults below. Non-wizard admin pages override radius/shadow in
+   `.fosse-admin-page`. */
 .fosse-admin-page,
 .fosse-wizard {
 	--fosse-ui-surface: #fff;
@@ -19,6 +23,10 @@
 	--fosse-ui-accent-soft-border: rgba(56, 88, 233, 0.38);
 	--fosse-ui-success: #287340;
 	--fosse-ui-success-soft: #edf8f1;
+	--fosse-admin-danger: #b32d2e;
+	--fosse-admin-danger-soft: #fcf0f1;
+	--fosse-admin-warning: #8a6200;
+	--fosse-admin-warning-soft: #fff7e3;
 	--fosse-ui-text: #1d2327;
 	--fosse-ui-muted: #646970;
 	--fosse-ui-radius: 8px;
@@ -27,17 +35,25 @@
 }
 
 .fosse-admin-page {
-	--fosse-admin-danger: #b32d2e;
-	--fosse-admin-danger-soft: #fcf0f1;
-	--fosse-admin-warning: #8a6200;
-	--fosse-admin-warning-soft: #fff7e3;
+	--fosse-ui-accent: var(--wp-admin-theme-color, #3858e9);
+	--fosse-ui-accent-soft: rgba(
+		var(--wp-admin-theme-color--rgb, 56, 88, 233),
+		0.08
+	);
+	--fosse-ui-accent-soft-border: rgba(
+		var(--wp-admin-theme-color--rgb, 56, 88, 233),
+		0.38
+	);
+	--fosse-ui-radius: 4px;
+	--fosse-ui-radius-small: 4px;
+	--fosse-ui-shadow: none;
 
 	max-width: 1120px;
 	color: var(--fosse-ui-text);
 }
 
 .fosse-admin-page__header {
-	margin: 14px 0 24px;
+	margin: 10px 0 20px;
 }
 
 .fosse-admin-page__eyebrow {
@@ -53,18 +69,18 @@
 .fosse-admin-page .fosse-admin-page__title {
 	max-width: 760px;
 	margin: 0;
-	font-size: 32px;
+	font-size: 24px;
 	font-weight: 600;
-	line-height: 1.18;
+	line-height: 1.3;
 	letter-spacing: 0;
 	color: var(--fosse-ui-text);
 }
 
 .fosse-admin-page__description {
 	max-width: 700px;
-	margin: 12px 0 0;
-	font-size: 15px;
-	line-height: 1.6;
+	margin: 8px 0 0;
+	font-size: 14px;
+	line-height: 1.5;
 	color: var(--fosse-ui-muted);
 }
 
@@ -769,11 +785,11 @@
 	background: var(--fosse-ui-surface);
 }
 
-.fosse-status-summary::before {
+.fosse-status-summary.fosse-admin-card::before {
 	display: none;
 }
 
-.fosse-status-summary.has-attention {
+.fosse-status-summary.fosse-admin-card.has-attention {
 	border-color: rgba(138, 98, 0, 0.24);
 	background: var(--fosse-ui-surface);
 }
@@ -818,10 +834,6 @@
 @media (max-width: 782px) {
 	.fosse-admin-page {
 		max-width: none;
-	}
-
-	.fosse-admin-page .fosse-admin-page__title {
-		font-size: 26px;
 	}
 
 	.fosse-status-summary {

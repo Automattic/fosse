@@ -197,7 +197,17 @@ test.describe( 'Status page polish', () => {
 		expect( wizardLink!.y ).toBeGreaterThan(
 			Math.max( ...statusCards.map( ( box ) => box.y + box.height ) )
 		);
+		const statusSummary = page.getByRole( 'group', {
+			name: 'Provider status',
+		} );
+		await expect( statusSummary ).toHaveCount( 1 );
 
+		expect(
+			await numericCssValueFor(
+				page.getByRole( 'heading', { name: 'FOSSE Status' } ),
+				'font-size'
+			)
+		).toBeLessThanOrEqual( 24 );
 		expect(
 			await numericCssValueFor(
 				page.getByRole( 'heading', { name: 'FOSSE Status' } ),
@@ -211,28 +221,30 @@ test.describe( 'Status page polish', () => {
 			)
 		).toBe( 0 );
 		expect(
-			await numericCssValueFor(
-				page
-					.getByText( 'Provider status', { exact: true } )
-					.locator( 'xpath=ancestor::div[2]' ),
-				'border-radius'
-			)
-		).toBeLessThanOrEqual( 8 );
+			await numericCssValueFor( statusSummary, 'border-radius' )
+		).toBeLessThanOrEqual( 4 );
 		expect(
 			await numericCssValueFor(
 				getProviderStatusCard( page, 'ActivityPub' ),
 				'border-radius'
 			)
-		).toBeLessThanOrEqual( 8 );
-		await expect(
-			page
-				.getByText( 'Provider status', { exact: true } )
-				.locator( 'xpath=ancestor::div[2]' )
-		).toHaveCSS( 'background-image', 'none' );
+		).toBeLessThanOrEqual( 4 );
+		await expect( statusSummary ).toHaveCSS( 'box-shadow', 'none' );
+		await expect( getProviderStatusCard( page, 'ActivityPub' ) ).toHaveCSS(
+			'box-shadow',
+			'none'
+		);
+		await expect( statusSummary ).toHaveCSS( 'background-image', 'none' );
 
 		await page.setViewportSize( { width: 390, height: 720 } );
 		await page.goto( '/wp-admin/admin.php?page=fosse-status' );
 		await expectNoHorizontalOverflow( page );
+		expect(
+			await numericCssValueFor(
+				page.getByRole( 'heading', { name: 'FOSSE Status' } ),
+				'font-size'
+			)
+		).toBeLessThanOrEqual( 24 );
 	} );
 
 	test( 'partial-connected state links to connection management', async ( {
