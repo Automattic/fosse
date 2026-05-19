@@ -1500,6 +1500,22 @@ class Onboarding_WizardTest extends BaseTestCase {
 	}
 
 	/**
+	 * The `blog` fallback shows the site host only when AP cannot resolve a
+	 * real blog actor. It must not render that host as `@example.org`, which
+	 * looks like a fediverse address with no local-part.
+	 */
+	public function test_complete_summary_blog_fallback_host_does_not_render_as_fediverse_address(): void {
+		$output = $this->call_format_mode_label( 'blog', '', '' );
+
+		$this->assertStringContainsString( 'As your site', $output );
+		$this->assertStringContainsString(
+			'<code class="fosse-token fosse-admin-token fosse-token--handle fosse-admin-token--handle">example.<wbr>org</code>',
+			$output
+		);
+		$this->assertStringNotContainsString( '@example', $output );
+	}
+
+	/**
 	 * In `actor` mode the user handle stays with the "As you" label so the
 	 * single-value summary reads as one phrase.
 	 */
@@ -2100,6 +2116,19 @@ class Onboarding_WizardTest extends BaseTestCase {
 	private function call_normalize( string $handle ): string {
 		$method = new ReflectionMethod( Onboarding_Wizard::class, 'normalize_handle_preview' );
 		return (string) $method->invoke( null, $handle );
+	}
+
+	/**
+	 * Invoke the private format_mode_label() helper via reflection.
+	 *
+	 * @param string $mode        Actor mode value.
+	 * @param string $user_handle Normalized `@user@host` for the current user, or empty.
+	 * @param string $blog_handle Normalized `@blog@host` for the site, or empty.
+	 * @return string
+	 */
+	private function call_format_mode_label( string $mode, string $user_handle, string $blog_handle ): string {
+		$method = new ReflectionMethod( Onboarding_Wizard::class, 'format_mode_label' );
+		return (string) $method->invoke( null, $mode, $user_handle, $blog_handle );
 	}
 
 	/**

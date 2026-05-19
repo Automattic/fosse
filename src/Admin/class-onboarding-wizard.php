@@ -731,7 +731,7 @@ class Onboarding_Wizard {
 				}
 				$site_host = wp_parse_url( home_url(), PHP_URL_HOST );
 				return esc_html__( 'As your site', 'fosse' )
-					. ' ' . self::format_complete_identity_token( $site_host ? $site_host : 'yoursite.com', 'handle' );
+					. ' ' . self::format_complete_identity_token( $site_host ? $site_host : 'yoursite.com', 'host' );
 
 			case 'actor_blog':
 				$lines = array( esc_html__( 'Both (site + authors)', 'fosse' ) );
@@ -753,7 +753,7 @@ class Onboarding_Wizard {
 	 * Format a completion-summary identity token using shared admin token styles.
 	 *
 	 * @param string $value Raw handle or fediverse address.
-	 * @param string $type  Token type: `ap-address` or `handle`.
+	 * @param string $type  Token type: `ap-address`, `handle`, or `host`.
 	 * @return string Escaped HTML safe for `wp_kses`.
 	 */
 	private static function format_complete_identity_token( string $value, string $type ): string {
@@ -766,7 +766,7 @@ class Onboarding_Wizard {
 		} else {
 			$classes[] = 'fosse-token--handle';
 			$classes[] = 'fosse-admin-token--handle';
-			$content   = '@' . Status_Formatter::handle( ltrim( $value, '@' ) );
+			$content   = ( 'host' === $type ? '' : '@' ) . Status_Formatter::handle( ltrim( $value, '@' ) );
 		}
 
 		return sprintf(
