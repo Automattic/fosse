@@ -51,6 +51,7 @@ class BlurhashTest extends BaseTestCase {
 		remove_all_filters( 'activitypub_attachment' );
 		remove_all_filters( 'get_attached_file' );
 		remove_all_actions( Blurhash::CRON_HOOK );
+		wp_clear_scheduled_hook( Blurhash::CRON_HOOK );
 
 		Blurhash::register();
 	}
@@ -133,7 +134,6 @@ class BlurhashTest extends BaseTestCase {
 			}
 		}
 		imagepng( $im, $path );
-		// PHP 8.0+ collects GdImage when it leaves scope; no manual imagedestroy() needed.
 		return $path;
 	}
 
@@ -157,10 +157,20 @@ class BlurhashTest extends BaseTestCase {
 	}
 
 	/**
-	 * Helper: assert GD is available, else skip.
+	 * Helper: assert GD's decode-from-string and encode-to-PNG are
+	 * both available, else skip. Checks the exact functions
+	 * production uses (`imagecreatefromstring` in the encoder,
+	 * `imagecreatetruecolor` + `imagepng` in the fixture builder)
+	 * rather than a stand-in — a CI host missing one but not the
+	 * other would otherwise see a confusing failure instead of a
+	 * skip.
 	 */
 	private function require_gd(): void {
-		if ( ! function_exists( 'imagecreatetruecolor' ) ) {
+		if (
+			! function_exists( 'imagecreatefromstring' )
+			|| ! function_exists( 'imagecreatetruecolor' )
+			|| ! function_exists( 'imagepng' )
+		) {
 			$this->markTestSkipped( 'GD extension required for this test.' );
 		}
 	}
@@ -328,6 +338,65 @@ class BlurhashTest extends BaseTestCase {
 		$this->point_attachment_at( $id, $path );
 
 		$this->assertNull( Blurhash::encode_from_attachment( $id ) );
+	}
+
+	/**
+	 * The thumbnail-primary branch of `resolve_encode_path` is
+	 * exercised when `image_get_intermediate_size` returns a real
+	 * sized variant under the uploads basedir. Without this test,
+	 * every encode test reaches the encoder via the
+	 * `get_attached_file` fallback (because `point_attachment_at`
+	 * only hooks that filter) and the primary branch is uncovered.
+	 *
+	 * Stubs `image_get_intermediate_size` directly via filter so the
+	 * test doesn't depend on WP actually generating sized variants
+	 * — WorDBless's media pipeline doesn't.
+	 */
+	public function test_encode_uses_thumbnail_path_when_intermediate_exists(): void {
+		$this->require_gd();
+
+		$id   = $this->insert_image_attachment();
+		$path = $this->generate_fixture_image();
+		$this->assertNotNull( $path );
+
+		// Build an intermediate-size shape pointing at our fixture.
+		// `wp_upload_dir()` basedir under WorDBless is in
+		// `wp-content/uploads`, so we splice our absolute tempfile
+		// path back to relative against that. If the basedir
+		// containment check rejects (tempfile lives outside the
+		// uploads tree), the fallback path takes over via the
+		// `get_attached_file` filter — so we set BOTH for
+		// belt-and-suspenders coverage that the primary branch is
+		// at least entered.
+		$upload  = wp_upload_dir();
+		$basedir = is_array( $upload ) ? rtrim( $upload['basedir'] ?? '', '/' ) : '';
+
+		add_filter(
+			'image_get_intermediate_size',
+			static function ( $sized, $attachment_id, $size ) use ( $id, $basedir, $path ) {
+				if ( (int) $attachment_id !== $id || 'thumbnail' !== $size ) {
+					return $sized;
+				}
+				return array(
+					'path'      => ltrim( str_replace( $basedir, '', $path ), '/' ),
+					'file'      => basename( $path ),
+					'width'     => 16,
+					'height'    => 16,
+					'mime-type' => 'image/png',
+				);
+			},
+			10,
+			3
+		);
+
+		// Fallback also in place — covers the test environment
+		// where the tempfile isn't actually under basedir and the
+		// containment check rejects.
+		$this->point_attachment_at( $id, $path );
+
+		$hash = Blurhash::encode_from_attachment( $id );
+		$this->assertIsString( $hash );
+		$this->assertNotSame( '', $hash );
 	}
 
 	/**
@@ -598,7 +667,29 @@ class BlurhashTest extends BaseTestCase {
 	public function test_run_encode_no_op_for_invalid_attachment_id(): void {
 		Blurhash::run_encode( 0 );
 		Blurhash::run_encode( -5 );
-		$this->assertTrue( true ); // assertion presence; the test passes if no warnings escape.
+
+		// Both early-return guards: no `fosse_blurhash_encode_failed`
+		// action fires (would otherwise indicate run_encode reached
+		// the encoder), and stored hash remains absent. Assert
+		// directly so a regression that removed the early-return
+		// would fail the test (the prior `assertTrue(true)` made
+		// the test vacuous).
+		$failed_calls = 0;
+		add_action(
+			'fosse_blurhash_encode_failed',
+			static function () use ( &$failed_calls ) {
+				++$failed_calls;
+			}
+		);
+
+		Blurhash::run_encode( 0 );
+		Blurhash::run_encode( -5 );
+
+		$this->assertSame( 0, $failed_calls );
+		$this->assertNull( Blurhash::get( 0 ) );
+		$this->assertNull( Blurhash::get( -5 ) );
+
+		remove_all_actions( 'fosse_blurhash_encode_failed' );
 	}
 
 	// ---------------------------------------------------------------

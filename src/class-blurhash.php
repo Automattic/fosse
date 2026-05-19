@@ -32,13 +32,15 @@ use kornrunner\Blurhash\Blurhash as Encoder;
  * file, encoder exception, deleted attachment): never blocks the
  * upload, never blocks federation.
  *
- * The bundled ActivityPub `Activity::JSON_LD_CONTEXT` declares the
- * `toot:` namespace but does NOT map a `blurhash` term — a follow-up
- * one-line upstream change in `wordpress-activitypub` adds
- * `'blurhash' => 'toot:blurhash'` to make this strictly correct
- * JSON-LD. Real-world consumers (Mastodon, Pixelfed) read the
- * property at the application layer regardless, so this ships
- * working today without the upstream change.
+ * The bundled ActivityPub `Base_Object::JSON_LD_CONTEXT` (the
+ * constant actually consulted for outbound `Image` objects) does
+ * not declare the `toot:` namespace or map a `blurhash` term —
+ * upstream PR Automattic/wordpress-activitypub#3327 adds both, and
+ * a `tools/sync-bundled.sh` pass will pull it in once it lands.
+ * Real-world consumers (Mastodon, Pixelfed) read the property at
+ * the application layer regardless of strict JSON-LD compaction,
+ * so this projector ships working today with or without that
+ * upstream change.
  */
 class Blurhash {
 
@@ -271,7 +273,6 @@ class Blurhash {
 		} catch ( \Throwable $e ) {
 			return null;
 		}
-		// PHP 8.0+ collects GdImage when it leaves scope; no manual imagedestroy() needed.
 	}
 
 	/**
