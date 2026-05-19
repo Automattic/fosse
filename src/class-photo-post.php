@@ -290,6 +290,13 @@ class Photo_Post {
 		// individually so the `max_image_attachments` cap can be
 		// compared against what bundled AP will really emit.
 		$total_image_count = 0;
+		// True when a `core/post-featured-image` block is present in
+		// the body. Bundled AP unshifts the post thumbnail into the
+		// media list AND extracts the featured-image block via
+		// `get_block_attachments`, then dedupes by id — both resolve
+		// to the same attachment. Tracking this lets the cap check
+		// avoid double-counting one image as two.
+		$has_featured_image_block = false;
 
 		foreach ( $blocks as $block ) {
 			$name = $block['blockName'] ?? null;
@@ -315,6 +322,16 @@ class Photo_Post {
 				}
 				if ( \preg_match( '#<(?:img|figure|h[1-6]|ul|ol|li|table|blockquote|pre|hr)\b#i', $inner_html ) ) {
 					++$other_count;
+					// Inline `<img>` / `<figure>` in freeform content
+					// gets stripped by `filter_content()`'s orphan-img
+					// pass and figure-class walker, but bundled AP
+					// can't extract it (no `attrs.id`) — same cascade
+					// as an unresolvable `core/image` block. Bump the
+					// gate so Rule 1's format bypass treats this as
+					// disqualifying.
+					if ( \preg_match( '#<(?:img|figure)\b#i', $inner_html ) ) {
+						++$unresolvable_image_count;
+					}
 					continue;
 				}
 
@@ -354,6 +371,9 @@ class Photo_Post {
 				if ( self::block_resolves_locally( $block, $post ) ) {
 					++$image_count;
 					$total_image_count += self::count_resolvable_images( $block, $post );
+					if ( 'core/post-featured-image' === $name ) {
+						$has_featured_image_block = true;
+					}
 				} else {
 					++$other_count;
 					++$unresolvable_image_count;
@@ -387,16 +407,28 @@ class Photo_Post {
 		// Effective attachment count: resolvable images in the body
 		// PLUS the featured image when set (bundled AP unshifts the
 		// thumbnail into the media list before walking blocks).
-		// `core/post-featured-image` in the body is already counted
-		// via `count_resolvable_images`, so don't double-count when
-		// the user includes both the block and a separate thumbnail.
+		// Skip the thumbnail bump when a `core/post-featured-image`
+		// block is already in the body — that block resolves to the
+		// same attachment id, and bundled AP dedupes by id before
+		// emitting attachments. Counting it twice would over-report
+		// against the cap and reject otherwise-valid single-photo
+		// posts when the cap is set tight (e.g., 1).
 		$effective_image_count = $total_image_count;
-		if ( $has_thumbnail ) {
+		if ( $has_thumbnail && ! $has_featured_image_block ) {
 			++$effective_image_count;
 		}
 
+		// Bundled AP supports disabling attachments entirely via
+		// `activitypub_max_image_attachments = 0`. Photo treatment
+		// makes no sense in that mode — the content stripper would
+		// remove every image figure while AP emits zero attachments,
+		// leaving a caption-only Note with no image. Reject before
+		// any rule fires.
 		$max_attachments = self::get_max_image_attachments( $post );
-		if ( $max_attachments > 0 && $effective_image_count > $max_attachments ) {
+		if ( $max_attachments <= 0 ) {
+			return false;
+		}
+		if ( $effective_image_count > $max_attachments ) {
 			return false;
 		}
 

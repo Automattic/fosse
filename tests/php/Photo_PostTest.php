@@ -563,6 +563,70 @@ class Photo_PostTest extends BaseTestCase {
 	 * gallery sail through even when a hypothetical site-level
 	 * cap would block it.
 	 */
+	/**
+	 * `core/post-featured-image` block + thumbnail resolve to the
+	 * same attachment id; bundled AP dedupes by id and emits one
+	 * attachment. The cap check must not double-count. With cap=1,
+	 * a single-featured-image photo post must still detect.
+	 */
+	public function test_featured_image_block_with_thumbnail_does_not_double_count_against_cap(): void {
+		add_filter(
+			'activitypub_max_image_attachments',
+			static function () {
+				return 1;
+			}
+		);
+
+		$featured = '<!-- wp:post-featured-image /-->';
+		$post     = $this->make_post( $featured, '', 'image', 1 );
+
+		$this->assertTrue( Photo_Post::is_photo_post( $post ) );
+	}
+
+	/**
+	 * `activitypub_max_image_attachments = 0` disables attachments
+	 * entirely in bundled AP. Photo treatment in that mode would
+	 * strip image figures while AP emits nothing — caption-only
+	 * Note with no image. Detection must reject before any rule
+	 * fires.
+	 */
+	public function test_zero_attachment_cap_rejects_photo_treatment(): void {
+		add_filter(
+			'activitypub_max_image_attachments',
+			static function () {
+				return 0;
+			}
+		);
+
+		$image = $this->resolve_image_placeholders(
+			'<!-- wp:image {"id":PHOTO_ID} --><figure class="wp-block-image"><img/></figure><!-- /wp:image -->'
+		);
+		$post  = $this->make_post( $image );
+
+		$this->assertFalse( Photo_Post::is_photo_post( $post ) );
+	}
+
+	/**
+	 * Freeform / classic-editor body with an inline `<img>` (no
+	 * block wrapper, no `attrs.id` — typically an external URL)
+	 * must NOT pass Rule 1 even when a Featured Image anchors
+	 * detection. The content stripper's orphan-img pass removes
+	 * standalone `<img>` tags, so allowing this combination would
+	 * silently drop the inline image. Mirrors the
+	 * `core/image`-with-external-URL guard for freeform bodies.
+	 */
+	public function test_image_format_with_thumbnail_plus_freeform_inline_img_does_not_detect(): void {
+		$post = $this->make_post( '<p>See <img src="https://elsewhere.test/inline.jpg"/> the photo.</p>', '', 'image', 1 );
+
+		$this->assertFalse( Photo_Post::is_photo_post( $post ) );
+	}
+
+	/**
+	 * Per-post `activitypub_max_image_attachments` postmeta wins
+	 * over the site-level option/filter (mirrors bundled AP's read
+	 * order). A two-image gallery passes when the per-post override
+	 * raises the cap even if the site-level cap would block it.
+	 */
 	public function test_image_count_with_per_post_cap_override_detects(): void {
 		$two_image_gallery = $this->resolve_image_placeholders(
 			'<!-- wp:gallery -->'
