@@ -45,12 +45,6 @@ class Photo_PostTest extends BaseTestCase {
 		Photo_Post::reset_cache_for_testing();
 		Photo_Post::register();
 
-		// `register_post_format_support()` normally runs on
-		// `after_setup_theme`, which has already fired by the time
-		// PHPUnit gets here — call it directly so format-aware
-		// detection sees `get_post_format()` consulting the term.
-		Photo_Post::register_post_format_support();
-
 		// Empty bodies are valid photo posts (Featured Image + no
 		// caption, or "image format with zero text"). Override WP's
 		// default empty-content rejection so `wp_insert_post` returns
@@ -59,7 +53,8 @@ class Photo_PostTest extends BaseTestCase {
 	}
 
 	/**
-	 * Build a real WP post with optional title and post format.
+	 * Build a real WP post with optional title, post format, and a
+	 * featured-image thumbnail.
 	 *
 	 * Post format is injected via a `get_the_terms` filter rather than
 	 * `set_post_format()` — WorDBless's database-less storage layer
@@ -70,15 +65,28 @@ class Photo_PostTest extends BaseTestCase {
 	 * same code path `get_post_format()` actually uses (the
 	 * `get_the_terms` filter chain) and works under WorDBless.
 	 *
+	 * When `$thumbnail_id` is non-zero, we also need
+	 * `wp_attachment_is_image()` to return true — that check runs an
+	 * `attachment.mime_type` lookup, so we insert a real attachment
+	 * post with an image MIME type. Pass a negative `$thumbnail_id`
+	 * to simulate a deleted thumbnail (postmeta survives, attachment
+	 * does not).
+	 *
 	 * Each call generates a fresh post id so the per-post memoization
 	 * cache doesn't leak between cases.
 	 *
-	 * @param string $content     Raw post content.
-	 * @param string $title       Optional post title.
-	 * @param string $post_format Optional post format slug (image, gallery, status, …).
+	 * @param string $content      Raw post content.
+	 * @param string $title        Optional post title.
+	 * @param string $post_format  Optional post format slug (image, gallery, status, …).
+	 * @param int    $thumbnail_id 0 = no thumbnail; >0 = create attachment + meta; <0 = postmeta only (simulates deleted attachment).
 	 * @return WP_Post
 	 */
-	private function make_post( string $content, string $title = '', string $post_format = '' ): WP_Post {
+	private function make_post(
+		string $content,
+		string $title = '',
+		string $post_format = '',
+		int $thumbnail_id = 0
+	): WP_Post {
 		$post_id = wp_insert_post(
 			array(
 				'post_title'   => $title,
@@ -109,32 +117,22 @@ class Photo_PostTest extends BaseTestCase {
 			);
 		}
 
-		return get_post( $post_id );
-	}
-
-	/**
-	 * Insert a real post and (optionally) attach a thumbnail meta. Used
-	 * for featured-image-aware detection cases where `has_post_thumbnail`
-	 * needs to consult postmeta. We do not need an actual attachment
-	 * post — `has_post_thumbnail` only checks for a non-zero
-	 * `_thumbnail_id` meta value.
-	 *
-	 * @param string $content       Post content.
-	 * @param bool   $with_thumbnail Whether to set `_thumbnail_id`.
-	 * @return WP_Post
-	 */
-	private function insert_post_with_thumbnail( string $content, bool $with_thumbnail = true ): WP_Post {
-		$post_id = wp_insert_post(
-			array(
-				'post_title'   => '',
-				'post_content' => $content,
-				'post_status'  => 'publish',
-				'post_type'    => 'post',
-			)
-		);
-
-		if ( $with_thumbnail ) {
-			update_post_meta( $post_id, '_thumbnail_id', 999 );
+		if ( $thumbnail_id > 0 ) {
+			$attachment_id = wp_insert_post(
+				array(
+					'post_type'      => 'attachment',
+					'post_status'    => 'inherit',
+					'post_mime_type' => 'image/jpeg',
+					'post_title'     => 'thumb',
+				)
+			);
+			// `wp_attachment_is_image()` calls `get_attached_file()`,
+			// which reads `_wp_attached_file`. Without it the helper
+			// returns false even on a properly-MIMEd attachment row.
+			update_post_meta( $attachment_id, '_wp_attached_file', 'thumb.jpg' );
+			update_post_meta( $post_id, '_thumbnail_id', $attachment_id );
+		} elseif ( $thumbnail_id < 0 ) {
+			update_post_meta( $post_id, '_thumbnail_id', 999999 );
 		}
 
 		return get_post( $post_id );
@@ -354,7 +352,7 @@ class Photo_PostTest extends BaseTestCase {
 	 * `parse_blocks('')` yields nothing.
 	 */
 	public function test_featured_thumbnail_with_empty_body_detects(): void {
-		$post = $this->insert_post_with_thumbnail( '' );
+		$post = $this->make_post( '', '', '', 1 );
 
 		$this->assertTrue( Photo_Post::is_photo_post( $post ) );
 	}
@@ -365,7 +363,7 @@ class Photo_PostTest extends BaseTestCase {
 	 */
 	public function test_featured_thumbnail_with_single_paragraph_detects(): void {
 		$paragraph = '<!-- wp:paragraph --><p>Caption.</p><!-- /wp:paragraph -->';
-		$post      = $this->insert_post_with_thumbnail( $paragraph );
+		$post      = $this->make_post( $paragraph, '', '', 1 );
 
 		$this->assertTrue( Photo_Post::is_photo_post( $post ) );
 	}
@@ -377,7 +375,7 @@ class Photo_PostTest extends BaseTestCase {
 	 */
 	public function test_featured_thumbnail_with_two_paragraphs_does_not_detect(): void {
 		$paragraph = '<!-- wp:paragraph --><p>A line.</p><!-- /wp:paragraph -->';
-		$post      = $this->insert_post_with_thumbnail( $paragraph . $paragraph );
+		$post      = $this->make_post( $paragraph . $paragraph, '', '', 1 );
 
 		$this->assertFalse( Photo_Post::is_photo_post( $post ) );
 	}
@@ -389,7 +387,7 @@ class Photo_PostTest extends BaseTestCase {
 	 */
 	public function test_single_paragraph_without_thumbnail_does_not_detect(): void {
 		$paragraph = '<!-- wp:paragraph --><p>Caption.</p><!-- /wp:paragraph -->';
-		$post      = $this->insert_post_with_thumbnail( $paragraph, false );
+		$post      = $this->make_post( $paragraph );
 
 		$this->assertFalse( Photo_Post::is_photo_post( $post ) );
 	}
@@ -624,5 +622,247 @@ class Photo_PostTest extends BaseTestCase {
 
 		$this->assertArrayNotHasKey( 'width', $out );
 		$this->assertArrayNotHasKey( 'height', $out );
+	}
+
+	// ---------------------------------------------------------------
+	// AP hook: attachment dimensions — URL/size matching.
+	// ---------------------------------------------------------------
+
+	/**
+	 * Bundled AP emits image URLs at the `large` derivative
+	 * (`wp_get_attachment_image_src( $id, 'large' )`). The dimensions
+	 * we attach must describe THAT file, not the 4000-pixel original
+	 * sitting on disk — Pixelfed enforces dimensions server-side and
+	 * rejects mismatched values. Resized derivatives carry a
+	 * `-WIDTHxHEIGHT.<ext>` suffix in the filename, which is the
+	 * stable signal we key off.
+	 */
+	public function test_attachment_filter_uses_filename_suffix_dimensions(): void {
+		$input = array(
+			'type'      => 'Image',
+			'url'       => 'https://example.test/wp-content/uploads/2026/05/sunset-1024x683.jpg',
+			'mediaType' => 'image/jpeg',
+		);
+
+		$out = apply_filters( 'activitypub_attachment', $input, 0 );
+
+		$this->assertSame( 1024, $out['width'] );
+		$this->assertSame( 683, $out['height'] );
+	}
+
+	/**
+	 * The suffix match must tolerate a query string (CDN cache-bust)
+	 * or fragment (rare but valid). Real-world CDN rewrites tack
+	 * `?ver=…` onto image URLs frequently.
+	 */
+	public function test_attachment_filter_filename_suffix_with_query_string(): void {
+		$input = array(
+			'type'      => 'Image',
+			'url'       => 'https://cdn.example.test/sunset-800x600.webp?ver=42',
+			'mediaType' => 'image/webp',
+		);
+
+		$out = apply_filters( 'activitypub_attachment', $input, 0 );
+
+		$this->assertSame( 800, $out['width'] );
+		$this->assertSame( 600, $out['height'] );
+	}
+
+	/**
+	 * When the URL points at the original (no `-WIDTHxHEIGHT` suffix)
+	 * and no intermediate size matches, fall back to full-size
+	 * metadata. Mirrors the behavior `Image` consumers expect when
+	 * bundled AP emits the original file as the URL.
+	 */
+	public function test_attachment_filter_falls_back_to_full_metadata(): void {
+		$attachment_id = wp_insert_post(
+			array(
+				'post_type'      => 'attachment',
+				'post_status'    => 'inherit',
+				'post_mime_type' => 'image/jpeg',
+				'post_title'     => 'orig',
+			)
+		);
+		wp_update_attachment_metadata(
+			$attachment_id,
+			array(
+				'file'   => '2026/05/original.jpg',
+				'width'  => 4000,
+				'height' => 3000,
+			)
+		);
+
+		$input = array(
+			'type'      => 'Image',
+			'url'       => 'https://example.test/wp-content/uploads/2026/05/original.jpg',
+			'mediaType' => 'image/jpeg',
+		);
+
+		$out = apply_filters( 'activitypub_attachment', $input, $attachment_id );
+
+		$this->assertSame( 4000, $out['width'] );
+		$this->assertSame( 3000, $out['height'] );
+	}
+
+	/**
+	 * Metadata with non-positive `width` is malformed — Pixelfed
+	 * rejects width-0 attachments in `verifyAttachments`, so omit
+	 * the keys rather than emit an invalid pair.
+	 */
+	public function test_attachment_filter_omits_non_positive_dimensions(): void {
+		$attachment_id = wp_insert_post(
+			array(
+				'post_type'      => 'attachment',
+				'post_status'    => 'inherit',
+				'post_mime_type' => 'image/jpeg',
+			)
+		);
+		wp_update_attachment_metadata(
+			$attachment_id,
+			array(
+				'width'  => 0,
+				'height' => 0,
+			)
+		);
+
+		$input = array(
+			'type'      => 'Image',
+			'url'       => 'https://example.test/orig.jpg',
+			'mediaType' => 'image/jpeg',
+		);
+
+		$out = apply_filters( 'activitypub_attachment', $input, $attachment_id );
+
+		$this->assertArrayNotHasKey( 'width', $out );
+		$this->assertArrayNotHasKey( 'height', $out );
+	}
+
+	/**
+	 * SVGs and other formats without dimensions stored in metadata
+	 * land here. Without `width`/`height` keys present, the
+	 * attachment passes through untouched.
+	 */
+	public function test_attachment_filter_skips_when_metadata_lacks_dimensions(): void {
+		$attachment_id = wp_insert_post(
+			array(
+				'post_type'      => 'attachment',
+				'post_status'    => 'inherit',
+				'post_mime_type' => 'image/svg+xml',
+			)
+		);
+		wp_update_attachment_metadata( $attachment_id, array( 'file' => 'logo.svg' ) );
+
+		$input = array(
+			'type'      => 'Image',
+			'url'       => 'https://example.test/logo.svg',
+			'mediaType' => 'image/svg+xml',
+		);
+
+		$out = apply_filters( 'activitypub_attachment', $input, $attachment_id );
+
+		$this->assertArrayNotHasKey( 'width', $out );
+		$this->assertArrayNotHasKey( 'height', $out );
+	}
+
+	/**
+	 * A non-array first arg must not crash and must not be coerced
+	 * into something a downstream callback could mishandle. Returning
+	 * an empty array is intentional: it signals "nothing to attach"
+	 * to bundled AP's `array_filter` after the per-attachment filter
+	 * runs, so the malformed value is dropped from the final
+	 * attachment list.
+	 */
+	public function test_attachment_filter_handles_non_array_input(): void {
+		$out = apply_filters( 'activitypub_attachment', 'not-an-array', 0 );
+
+		$this->assertSame( array(), $out );
+	}
+
+	// ---------------------------------------------------------------
+	// AP hook: content filter — guard tests + nested gallery.
+	// ---------------------------------------------------------------
+
+	/**
+	 * Non-WP_Post second arg must pass content through unchanged.
+	 * `activitypub_the_content` also fires from
+	 * `bundled/activitypub/includes/transformer/class-comment.php` with
+	 * a `WP_Comment`, so the guard prevents a stray photo-strip on
+	 * comment content.
+	 */
+	public function test_content_filter_passes_through_on_non_wp_post(): void {
+		$content  = '<p>caption text</p>';
+		$filtered = apply_filters( 'activitypub_the_content', $content, null );
+
+		$this->assertSame( $content, $filtered );
+	}
+
+	/**
+	 * Nested gallery markup — `<figure class="wp-block-gallery">`
+	 * wrapping multiple `<figure class="wp-block-image">` children —
+	 * must strip cleanly without leaving orphan `</figure>` tags.
+	 * This was the regression a naive non-greedy `.*?</figure>` regex
+	 * would emit; the DOM-based stripper handles it because it
+	 * removes the outermost matching figure as a node.
+	 */
+	public function test_content_filter_strips_nested_gallery_cleanly(): void {
+		$post     = $this->make_post( '', '', 'gallery' );
+		$content  = '<figure class="wp-block-gallery">'
+			. '<figure class="wp-block-image"><img src="https://example.test/a.jpg"/></figure>'
+			. '<figure class="wp-block-image"><img src="https://example.test/b.jpg"/></figure>'
+			. '</figure>'
+			. '<p>Trip recap.</p>';
+		$filtered = apply_filters( 'activitypub_the_content', $content, $post );
+
+		$this->assertStringNotContainsString( '<figure', $filtered );
+		$this->assertStringNotContainsString( '</figure>', $filtered );
+		$this->assertStringNotContainsString( '<img', $filtered );
+		$this->assertStringContainsString( 'Trip recap.', $filtered );
+	}
+
+	/**
+	 * Single-quoted class attributes — uncommon but valid HTML — must
+	 * also strip. The DOM walker reads `@class` regardless of which
+	 * quote style the input used.
+	 */
+	public function test_content_filter_handles_single_quoted_class(): void {
+		$post     = $this->make_post( '', '', 'image' );
+		$content  = "<figure class='wp-block-image'><img src='https://example.test/a.jpg'/></figure><p>Caption.</p>";
+		$filtered = apply_filters( 'activitypub_the_content', $content, $post );
+
+		$this->assertStringNotContainsString( '<img', $filtered );
+		$this->assertStringContainsString( 'Caption.', $filtered );
+	}
+
+	// ---------------------------------------------------------------
+	// Detection: classic / freeform content + deleted thumbnail guard.
+	// ---------------------------------------------------------------
+
+	/**
+	 * Classic-editor / freeform content emits a single null-blockName
+	 * block from `parse_blocks()` whose `innerHTML` is the raw body.
+	 * If non-empty, the detector must classify the post as "other"
+	 * content (not a photo post). Without coverage, the rule-3 path
+	 * could silently misclassify classic blog posts with featured
+	 * images as photo posts.
+	 */
+	public function test_classic_freeform_body_does_not_detect(): void {
+		$post = $this->make_post( '<p>Plain classic body without a wp:block wrapper.</p>' );
+
+		$this->assertFalse( Photo_Post::is_photo_post( $post ) );
+	}
+
+	/**
+	 * A featured image whose underlying attachment has been deleted
+	 * (postmeta survives) must not classify the post as a photo post —
+	 * bundled AP would silently drop the broken attachment, leaving a
+	 * Note that promises a photo and delivers nothing. Falling back to
+	 * article behavior is the less surprising degradation.
+	 */
+	public function test_deleted_thumbnail_does_not_detect(): void {
+		// $thumbnail_id < 0 in make_post() sets the postmeta to a
+		// non-existent attachment id, simulating deletion.
+		$post = $this->make_post( '', '', '', -1 );
+
+		$this->assertFalse( Photo_Post::is_photo_post( $post ) );
 	}
 }

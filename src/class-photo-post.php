@@ -120,39 +120,9 @@ class Photo_Post {
 	 * @return void
 	 */
 	public static function register(): void {
-		\add_action( 'after_setup_theme', array( self::class, 'register_post_format_support' ), 99 );
 		\add_filter( 'activitypub_post_object_type', array( self::class, 'filter_object_type' ), 10, 2 );
 		\add_filter( 'activitypub_the_content', array( self::class, 'filter_content' ), 10, 2 );
 		\add_filter( 'activitypub_attachment', array( self::class, 'filter_attachment_dimensions' ), 10, 2 );
-	}
-
-	/**
-	 * Ensure the `post` post type supports post formats so
-	 * `get_post_format()` doesn't short-circuit before consulting the
-	 * `post_format` taxonomy term — Rule 1 of `detect()` depends on
-	 * that term being readable. Block themes increasingly skip
-	 * `add_theme_support( 'post-formats', … )` in their setup, which
-	 * silently disables `get_post_format()` even when the term is set.
-	 *
-	 * Runs at `after_setup_theme` priority 99 so the active theme has
-	 * already had its chance to declare any post-type / theme support
-	 * of its own. `add_post_type_support` is idempotent and additive —
-	 * registering it here on top of a theme that already declared it
-	 * is a no-op.
-	 *
-	 * Intentionally narrow: we register the *post-type* support flag
-	 * that `get_post_format()` checks, but do NOT call
-	 * `add_theme_support( 'post-formats', [...] )` to populate the
-	 * Gutenberg format picker's dropdown. Doing so would either
-	 * overwrite the theme's curated list or require a brittle merge.
-	 * The federation-shape contract only needs the term to be
-	 * readable; surfacing format UI for users on opinionated themes
-	 * is a separate UX concern.
-	 *
-	 * @return void
-	 */
-	public static function register_post_format_support(): void {
-		\add_post_type_support( 'post', 'post-formats' );
 	}
 
 	/**
@@ -258,7 +228,7 @@ class Photo_Post {
 			return true;
 		}
 
-		$has_thumbnail = \has_post_thumbnail( $post );
+		$has_thumbnail = self::has_image_thumbnail( $post );
 
 		// Empty body + featured image = "Set thumbnail, hit publish"
 		// flow (Rule 3 with zero paragraphs). Catch this before the
@@ -336,6 +306,29 @@ class Photo_Post {
 	}
 
 	/**
+	 * True when the post has a Featured Image that still resolves to a
+	 * live image attachment. `has_post_thumbnail()` only checks for a
+	 * non-zero `_thumbnail_id` postmeta — the meta survives deletion of
+	 * the underlying attachment, so it can be true for a featured image
+	 * whose file is gone. Rule 3 would then classify the post as a
+	 * photo post and force `Note` shape, but bundled AP's
+	 * `transform_attachment` silently drops the broken attachment,
+	 * leaving the user with a Note that says "look at my photo" but has
+	 * no photo. Falling back to article behavior is the less surprising
+	 * degradation.
+	 *
+	 * @param \WP_Post $post The post being evaluated.
+	 * @return bool True when the featured image attachment exists and is an image.
+	 */
+	private static function has_image_thumbnail( WP_Post $post ): bool {
+		$thumbnail_id = (int) \get_post_thumbnail_id( $post );
+		if ( $thumbnail_id <= 0 ) {
+			return false;
+		}
+		return (bool) \wp_attachment_is_image( $thumbnail_id );
+	}
+
+	/**
 	 * Force `type: "Note"` for photo posts. Hooked on
 	 * `activitypub_post_object_type`.
 	 *
@@ -374,11 +367,17 @@ class Photo_Post {
 	 * full `the_content` chain — blocks are already expanded to HTML.
 	 * Image blocks render with stable wrapper classes
 	 * (`wp-block-image`, `wp-block-gallery`,
-	 * `wp-block-post-featured-image`), so a class-anchored regex pass
-	 * is enough to remove them along with any nested `<img>` /
-	 * `<figcaption>`. After stripping, we also drop standalone `<img>`
-	 * tags as a defensive measure and clean up empty paragraph
-	 * wrappers left behind by the editor.
+	 * `wp-block-post-featured-image`), so a DOM walk that removes
+	 * any matching `<figure>` plus its descendants handles nested
+	 * gallery markup (gallery wraps individual image figures)
+	 * without leaving orphan closing tags — the failure mode of a
+	 * naive `.*?</figure>` regex on the same input.
+	 *
+	 * After the figure pass we also drop standalone `<img>` tags (a
+	 * defensive measure for classic-editor inline images, or
+	 * themes/plugins that wrap images differently) and clean up
+	 * paragraph shells the editor leaves behind once their only
+	 * child was the image we just removed.
 	 *
 	 * Why strip at all: Pixelfed accepts HTML in `content` and would
 	 * happily render the figure markup inline, but the photo-grid
@@ -402,23 +401,99 @@ class Photo_Post {
 			return $content;
 		}
 
-		// Drop the entire figure wrapper produced by core image-like blocks,
-		// including any nested <img> / <figcaption>.
-		$content = (string) \preg_replace(
-			'#<figure\b[^>]*class="[^"]*\bwp-block-(?:image|gallery|post-featured-image)\b[^"]*"[^>]*>.*?</figure>#is',
-			'',
-			$content
-		);
+		if ( '' === \trim( $content ) ) {
+			return $content;
+		}
 
-		// Defensive: strip any orphan <img> that survived (classic-editor
-		// inline images, or themes/plugins that wrap images differently).
-		$content = (string) \preg_replace( '#<img\b[^>]*>#is', '', $content );
+		return self::strip_image_block_markup( $content );
+	}
 
-		// Clean up empty paragraph shells the editor leaves behind once the
-		// only child was the image we just removed.
-		$content = (string) \preg_replace( '#<p\b[^>]*>\s*</p>#is', '', $content );
+	/**
+	 * DOM-walk pass that removes image-block figures, orphan `<img>`,
+	 * and empty paragraph shells from rendered HTML. Returns the
+	 * input unchanged if parsing fails — better to ship the caption
+	 * alongside the image markup than to drop the content entirely on
+	 * a parser hiccup.
+	 *
+	 * @param string $content Rendered HTML.
+	 * @return string Content with image-block markup removed.
+	 */
+	private static function strip_image_block_markup( string $content ): string {
+		// phpcs:disable WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase -- The DOM API exposes camelCase properties (parentNode, childNodes); these are upstream PHP names, not ones we control.
+		$doc                      = new \DOMDocument();
+		$previous_internal_errors = \libxml_use_internal_errors( true );
 
-		return \trim( $content );
+		// Wrap with a UTF-8 hint so libxml doesn't mangle non-ASCII
+		// captions, and with a <body> so we have a single root to
+		// serialize children from. LIBXML_HTML_NOIMPLIED stops
+		// libxml from wrapping the input in an <html>/<body> shell
+		// of its own.
+		$wrapped = '<?xml encoding="UTF-8"?><body>' . $content . '</body>';
+		$loaded  = $doc->loadHTML( $wrapped, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD );
+
+		\libxml_clear_errors();
+		\libxml_use_internal_errors( $previous_internal_errors );
+
+		if ( ! $loaded ) {
+			return $content;
+		}
+
+		$xpath = new \DOMXPath( $doc );
+
+		// Match figures whose class list contains any of the image-like
+		// block tokens. `concat(' ', normalize-space(@class), ' ')` is
+		// the XPath idiom for whole-token matching — it sidesteps the
+		// "wp-block-image-rounded" false-match a plain `contains()`
+		// would hit.
+		$figure_query = '//figure['
+			. 'contains(concat(" ", normalize-space(@class), " "), " wp-block-image ") or '
+			. 'contains(concat(" ", normalize-space(@class), " "), " wp-block-gallery ") or '
+			. 'contains(concat(" ", normalize-space(@class), " "), " wp-block-post-featured-image ")'
+			. ']';
+
+		$figures = $xpath->query( $figure_query );
+		if ( $figures instanceof \DOMNodeList ) {
+			foreach ( \iterator_to_array( $figures ) as $figure ) {
+				if ( $figure->parentNode ) {
+					$figure->parentNode->removeChild( $figure );
+				}
+			}
+		}
+
+		// Drop any orphan <img> that survived (classic-editor inline
+		// images, or themes that wrap images outside <figure>).
+		$imgs = $doc->getElementsByTagName( 'img' );
+		foreach ( \iterator_to_array( $imgs ) as $img ) {
+			if ( $img->parentNode ) {
+				$img->parentNode->removeChild( $img );
+			}
+		}
+
+		// Empty paragraph shells left behind by the editor.
+		$empty_paragraphs = $xpath->query( '//p[not(normalize-space())]' );
+		if ( $empty_paragraphs instanceof \DOMNodeList ) {
+			foreach ( \iterator_to_array( $empty_paragraphs ) as $paragraph ) {
+				if ( $paragraph->parentNode ) {
+					$paragraph->parentNode->removeChild( $paragraph );
+				}
+			}
+		}
+
+		$body = $doc->getElementsByTagName( 'body' )->item( 0 );
+		if ( null === $body ) {
+			return $content;
+		}
+
+		$result = '';
+		foreach ( $body->childNodes as $child ) {
+			$serialized = $doc->saveHTML( $child );
+			if ( false !== $serialized ) {
+				$result .= $serialized;
+			}
+		}
+
+		return \trim( $result );
+		// phpcs:enable WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
 	}
 
 	/**
@@ -432,16 +507,34 @@ class Photo_Post {
 	 * already emits them for video/audio. Adding them for images
 	 * closes a gap without changing any other behavior.
 	 *
-	 * The bundled transformer shapes images like
-	 * `{type:"Image", url, mediaType, name?, exifData?}` — we add
-	 * `width` / `height` from `wp_get_attachment_metadata()` when
-	 * present and skip silently when missing (e.g. external images
-	 * with no local attachment ID, or attachments whose metadata
-	 * hasn't been generated yet).
+	 * Dimensions must match the URL bundled AP emitted, not the
+	 * original attachment's metadata. Bundled AP defaults to the
+	 * `large` derivative for image URLs
+	 * (`wp_get_attachment_image_src( $id, 'large' )`), so populating
+	 * `width`/`height` from `wp_get_attachment_metadata()` on a 4000-pixel
+	 * original yields values that don't describe the linked 1024-pixel
+	 * file — Pixelfed enforces dimensions server-side against the
+	 * delivered bytes and rejects the mismatch. We resolve dimensions
+	 * in three passes:
+	 *
+	 *   1. WP's resized-image filename suffix (`-WIDTHxHEIGHT.ext`).
+	 *      Stable across core, Photon, and most CDN rewrites that
+	 *      preserve the source filename.
+	 *   2. The attachment's registered intermediate sizes (`sizes[]`
+	 *      from `wp_get_attachment_metadata`), matching by filename
+	 *      against the URL.
+	 *   3. The attachment's original (full-size) metadata, used only
+	 *      when neither suffix nor any intermediate size matches the
+	 *      URL — i.e. the URL points at the original file.
+	 *
+	 * Zero / negative values are dropped rather than emitted: a
+	 * width-0 image attachment is one Pixelfed will reject in
+	 * `verifyAttachments` anyway, and Mastodon falls back to a
+	 * sensible default when the keys are absent.
 	 *
 	 * @param array $attachment The AP attachment array.
 	 * @param mixed $id         The WP attachment ID being transformed.
-	 * @return array The attachment with width/height when available.
+	 * @return array The attachment with width/height when resolvable.
 	 */
 	public static function filter_attachment_dimensions( $attachment, $id ): array {
 		if ( ! \is_array( $attachment ) ) {
@@ -456,23 +549,83 @@ class Photo_Post {
 			return $attachment;
 		}
 
-		if ( ! \is_numeric( $id ) ) {
+		$url = (string) ( $attachment['url'] ?? '' );
+		if ( '' === $url ) {
 			return $attachment;
+		}
+
+		$dims = self::dimensions_for_url( $url, $id );
+		if ( null === $dims ) {
+			return $attachment;
+		}
+
+		$attachment['width']  = $dims[0];
+		$attachment['height'] = $dims[1];
+
+		return $attachment;
+	}
+
+	/**
+	 * Resolve dimensions for an image URL. Returns `[width, height]`
+	 * when both are positive integers, or `null` when the URL can't
+	 * be confidently matched to a known size.
+	 *
+	 * @param string $url The image URL bundled AP emitted.
+	 * @param mixed  $id  The WP attachment ID, if known.
+	 * @return array{0:int, 1:int}|null
+	 */
+	private static function dimensions_for_url( string $url, $id ): ?array {
+		// Pass 1: filename suffix. WP names resized derivatives
+		// `<base>-<W>x<H>.<ext>`; the suffix survives most CDN
+		// URL rewrites that keep the source basename intact.
+		if ( \preg_match( '/-(\d+)x(\d+)\.(?:jpe?g|png|gif|webp|avif)(?:$|[\?\#])/i', $url, $matches ) ) {
+			$width  = (int) $matches[1];
+			$height = (int) $matches[2];
+			if ( $width > 0 && $height > 0 ) {
+				return array( $width, $height );
+			}
+		}
+
+		if ( ! \is_numeric( $id ) ) {
+			return null;
 		}
 
 		$meta = \wp_get_attachment_metadata( (int) $id );
 		if ( ! \is_array( $meta ) ) {
-			return $attachment;
+			return null;
 		}
 
-		if ( ! isset( $meta['width'] ) || ! isset( $meta['height'] ) ) {
-			return $attachment;
+		// Pass 2: registered intermediate sizes. `sizes[name].file` is
+		// the basename of the resized file; matching it against the
+		// URL handles renamed derivatives that don't carry the
+		// `-WxH` suffix (e.g. some custom-size registrations).
+		if ( ! empty( $meta['sizes'] ) && \is_array( $meta['sizes'] ) ) {
+			foreach ( $meta['sizes'] as $size_data ) {
+				if ( ! \is_array( $size_data ) ) {
+					continue;
+				}
+				$file   = (string) ( $size_data['file'] ?? '' );
+				$width  = (int) ( $size_data['width'] ?? 0 );
+				$height = (int) ( $size_data['height'] ?? 0 );
+				if ( '' === $file || $width <= 0 || $height <= 0 ) {
+					continue;
+				}
+				if ( \str_contains( $url, $file ) ) {
+					return array( $width, $height );
+				}
+			}
 		}
 
-		$attachment['width']  = (int) $meta['width'];
-		$attachment['height'] = (int) $meta['height'];
+		// Pass 3: full-size original. Reached when neither the
+		// filename suffix nor any registered intermediate matches —
+		// the URL most likely points at the original upload.
+		$width  = (int) ( $meta['width'] ?? 0 );
+		$height = (int) ( $meta['height'] ?? 0 );
+		if ( $width > 0 && $height > 0 ) {
+			return array( $width, $height );
+		}
 
-		return $attachment;
+		return null;
 	}
 
 	/**
