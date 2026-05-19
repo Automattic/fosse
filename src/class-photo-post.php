@@ -331,29 +331,6 @@ class Photo_Post {
 	}
 
 	/**
-	 * True when the post has a Featured Image that still resolves to a
-	 * live image attachment. `has_post_thumbnail()` only checks for a
-	 * non-zero `_thumbnail_id` postmeta — the meta survives deletion of
-	 * the underlying attachment, so it can be true for a featured image
-	 * whose file is gone. Rule 3 would then classify the post as a
-	 * photo post and force `Note` shape, but bundled AP's
-	 * `transform_attachment` silently drops the broken attachment,
-	 * leaving the user with a Note that says "look at my photo" but has
-	 * no photo. Falling back to article behavior is the less surprising
-	 * degradation.
-	 *
-	 * @param \WP_Post $post The post being evaluated.
-	 * @return bool True when the featured image attachment exists and is an image.
-	 */
-	private static function has_image_thumbnail( WP_Post $post ): bool {
-		$thumbnail_id = (int) \get_post_thumbnail_id( $post );
-		if ( $thumbnail_id <= 0 ) {
-			return false;
-		}
-		return (bool) \wp_attachment_is_image( $thumbnail_id );
-	}
-
-	/**
 	 * True when an image-like block resolves to local content bundled
 	 * AP can federate as an `attachment[]` entry.
 	 *
@@ -420,6 +397,29 @@ class Photo_Post {
 		}
 
 		return false;
+	}
+
+	/**
+	 * True when the post has a Featured Image that still resolves to a
+	 * live image attachment. `has_post_thumbnail()` only checks for a
+	 * non-zero `_thumbnail_id` postmeta — the meta survives deletion of
+	 * the underlying attachment, so it can be true for a featured image
+	 * whose file is gone. Rule 3 would then classify the post as a
+	 * photo post and force `Note` shape, but bundled AP's
+	 * `transform_attachment` silently drops the broken attachment,
+	 * leaving the user with a Note that says "look at my photo" but has
+	 * no photo. Falling back to article behavior is the less surprising
+	 * degradation.
+	 *
+	 * @param \WP_Post $post The post being evaluated.
+	 * @return bool True when the featured image attachment exists and is an image.
+	 */
+	private static function has_image_thumbnail( WP_Post $post ): bool {
+		$thumbnail_id = (int) \get_post_thumbnail_id( $post );
+		if ( $thumbnail_id <= 0 ) {
+			return false;
+		}
+		return (bool) \wp_attachment_is_image( $thumbnail_id );
 	}
 
 	/**
@@ -669,10 +669,34 @@ class Photo_Post {
 	 * @return array{0:int, 1:int}|null
 	 */
 	private static function dimensions_for_url( string $url, $id ): ?array {
-		// Pass 1: filename suffix. WP names resized derivatives
-		// `<base>-<W>x<H>.<ext>`; the suffix survives most CDN
-		// URL rewrites that keep the source basename intact.
-		if ( \preg_match( '/-(\d+)x(\d+)\.(?:jpe?g|png|gif|webp|avif)(?:$|[\?\#])/i', $url, $matches ) ) {
+		$parsed = \wp_parse_url( $url );
+		$path   = (string) ( $parsed['path'] ?? '' );
+
+		// When we have a local attachment id, prefer metadata-driven
+		// resolution. Metadata describes the actual files on disk; the
+		// filename-suffix regex (below) is a heuristic that misfires
+		// when a user-uploaded original happens to be named
+		// `photo-1024x683.jpg` while its actual bytes are some other
+		// size. Falling through to Pass 3 (URL-suffix parsing) for
+		// local attachments only when metadata can't resolve keeps
+		// authoritative numbers winning over inference.
+		if ( \is_numeric( $id ) && (int) $id > 0 ) {
+			$meta = \wp_get_attachment_metadata( (int) $id );
+			if ( \is_array( $meta ) ) {
+				$dims = self::dimensions_from_metadata( $meta, $path );
+				if ( null !== $dims ) {
+					return $dims;
+				}
+			}
+		}
+
+		// Pass 3 (external-URL fallback): filename suffix `-WxH.ext`.
+		// WP names resized derivatives that way and the suffix
+		// survives most CDN rewrites that keep the source basename
+		// intact. This is the only resolution path for external
+		// images (no local attachment id), so we treat it as
+		// best-effort rather than authoritative.
+		if ( \preg_match( '/-(\d+)x(\d+)\.(?:jpe?g|png|gif|webp|avif|heic|heif|tiff?)(?:$|[\?\#])/i', $url, $matches ) ) {
 			$width  = (int) $matches[1];
 			$height = (int) $matches[2];
 			if ( $width > 0 && $height > 0 ) {
@@ -680,19 +704,35 @@ class Photo_Post {
 			}
 		}
 
-		if ( ! \is_numeric( $id ) ) {
+		return null;
+	}
+
+	/**
+	 * Resolve dimensions from an attachment's stored metadata when the
+	 * URL path matches a registered file. Returns `[width, height]` or
+	 * `null` when no size's filename appears in the URL path.
+	 *
+	 * Pass A walks the registered intermediate sizes (`sizes[name].file`
+	 * is the basename of each resized derivative); Pass B falls back
+	 * to the full-size original (`meta['file']` is the relative path
+	 * from `wp-content/uploads/`). Both passes anchor the basename
+	 * with a leading `/` so a URL like `/uploads/some-photo.jpg`
+	 * doesn't accidentally match a registered file named `photo.jpg`
+	 * — important on sites that disable the year/month upload subdir
+	 * option, where `meta['file']` is a bare basename.
+	 *
+	 * @param array<string, mixed> $meta The attachment metadata.
+	 * @param string               $path The URL's path component (no query/fragment).
+	 * @return array{0:int, 1:int}|null
+	 */
+	private static function dimensions_from_metadata( array $meta, string $path ): ?array {
+		if ( '' === $path ) {
 			return null;
 		}
 
-		$meta = \wp_get_attachment_metadata( (int) $id );
-		if ( ! \is_array( $meta ) ) {
-			return null;
-		}
-
-		// Pass 2: registered intermediate sizes. `sizes[name].file` is
-		// the basename of the resized file; matching it against the
-		// URL handles renamed derivatives that don't carry the
-		// `-WxH` suffix (e.g. some custom-size registrations).
+		// Pass A: registered intermediate sizes. Each entry's
+		// `file` is just the basename, so we anchor with a slash
+		// to require a directory boundary before the match.
 		if ( ! empty( $meta['sizes'] ) && \is_array( $meta['sizes'] ) ) {
 			foreach ( $meta['sizes'] as $size_data ) {
 				if ( ! \is_array( $size_data ) ) {
@@ -704,30 +744,18 @@ class Photo_Post {
 				if ( '' === $file || $width <= 0 || $height <= 0 ) {
 					continue;
 				}
-				if ( \str_contains( $url, $file ) ) {
+				if ( \str_ends_with( $path, '/' . \ltrim( $file, '/' ) ) ) {
 					return array( $width, $height );
 				}
 			}
 		}
 
-		// Pass 3: full-size original. Reached when neither the
-		// filename suffix nor any registered intermediate matches.
-		// Confirm the URL actually points at `$meta['file']` before
-		// falling back — otherwise a CDN rewrite that preserves the
-		// basename, or an `activitypub_get_image` callback that
-		// substitutes a derivative URL without the size suffix, would
-		// reintroduce the original/derivative dimension mismatch this
-		// helper exists to prevent. Match against the URL's path
-		// component only so query strings / fragments don't fool the
-		// `str_ends_with` check.
+		// Pass B: full-size original. `meta['file']` is the
+		// relative path under uploads (e.g. `2026/05/photo.jpg`),
+		// but on sites with year/month folders disabled it's a
+		// bare basename — anchor with `/` either way.
 		$file = (string) ( $meta['file'] ?? '' );
-		if ( '' === $file ) {
-			return null;
-		}
-
-		$parsed = \wp_parse_url( $url );
-		$path   = (string) ( $parsed['path'] ?? '' );
-		if ( '' === $path || ! \str_ends_with( $path, $file ) ) {
+		if ( '' === $file || ! \str_ends_with( $path, '/' . \ltrim( $file, '/' ) ) ) {
 			return null;
 		}
 

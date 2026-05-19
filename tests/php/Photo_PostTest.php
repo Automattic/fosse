@@ -964,6 +964,132 @@ class Photo_PostTest extends BaseTestCase {
 	// ---------------------------------------------------------------
 
 	/**
+	 * Pass 2 (registered intermediate sizes) was the dimension-
+	 * resolution path the round-1 fix added but no test exercised.
+	 * Custom-named derivatives (sizes registered without the standard
+	 * `-WxH` naming convention) only resolve through `sizes[]` lookup.
+	 * Set up metadata with a custom-named size, pass a URL ending in
+	 * that filename, and assert the matching dimensions come back.
+	 */
+	public function test_attachment_filter_uses_metadata_sizes_match(): void {
+		$attachment_id = wp_insert_post(
+			array(
+				'post_type'      => 'attachment',
+				'post_status'    => 'inherit',
+				'post_mime_type' => 'image/jpeg',
+			)
+		);
+		wp_update_attachment_metadata(
+			$attachment_id,
+			array(
+				'file'  => '2026/05/photo.jpg',
+				'sizes' => array(
+					'hero' => array(
+						'file'   => 'photo-hero.jpg',
+						'width'  => 1200,
+						'height' => 800,
+					),
+				),
+			)
+		);
+
+		$input = array(
+			'type'      => 'Image',
+			'url'       => 'https://example.test/wp-content/uploads/2026/05/photo-hero.jpg',
+			'mediaType' => 'image/jpeg',
+		);
+
+		$out = apply_filters( 'activitypub_attachment', $input, $attachment_id );
+
+		$this->assertSame( 1200, $out['width'] );
+		$this->assertSame( 800, $out['height'] );
+	}
+
+	/**
+	 * The full-size fallback's `str_ends_with` check anchors on a
+	 * leading `/` so a bare-basename `meta['file']` (sites that
+	 * disable year/month upload subdirs in Settings → Media) doesn't
+	 * collide with URLs that end in the basename as a suffix.
+	 * Without the anchor, `/wp-content/uploads/some-photo.jpg` ends
+	 * with `photo.jpg` and would inherit the wrong attachment's
+	 * dimensions.
+	 */
+	public function test_attachment_filter_skips_full_size_on_basename_collision(): void {
+		$attachment_id = wp_insert_post(
+			array(
+				'post_type'      => 'attachment',
+				'post_status'    => 'inherit',
+				'post_mime_type' => 'image/jpeg',
+			)
+		);
+		wp_update_attachment_metadata(
+			$attachment_id,
+			array(
+				'file'   => 'photo.jpg',
+				'width'  => 4000,
+				'height' => 3000,
+			)
+		);
+
+		$input = array(
+			'type'      => 'Image',
+			'url'       => 'https://example.test/wp-content/uploads/some-photo.jpg',
+			'mediaType' => 'image/jpeg',
+		);
+
+		$out = apply_filters( 'activitypub_attachment', $input, $attachment_id );
+
+		$this->assertArrayNotHasKey( 'width', $out );
+		$this->assertArrayNotHasKey( 'height', $out );
+	}
+
+	/**
+	 * HEIC, HEIF, and TIFF derivatives carry the same `-WIDTHxHEIGHT`
+	 * filename suffix as JPEG / PNG / WebP / AVIF. Mastodon now
+	 * accepts HEIC server-side, and Pixelfed enforces dimensions for
+	 * all image types — the suffix regex must cover the modern format
+	 * set or HEIC posts will ship without dimensions and (where the
+	 * receiver enforces them) get rejected.
+	 *
+	 * @param string $url      Image URL with a HEIC/HEIF/TIFF derivative suffix.
+	 * @param int    $expected_width Expected width parsed from the suffix.
+	 * @param int    $expected_height Expected height parsed from the suffix.
+	 *
+	 * @dataProvider modern_image_format_cases
+	 */
+	#[DataProvider( 'modern_image_format_cases' )]
+	public function test_attachment_filter_extracts_modern_format_dimensions(
+		string $url,
+		int $expected_width,
+		int $expected_height
+	): void {
+		$input = array(
+			'type'      => 'Image',
+			'url'       => $url,
+			'mediaType' => 'image/jpeg',
+		);
+
+		$out = apply_filters( 'activitypub_attachment', $input, 0 );
+
+		$this->assertSame( $expected_width, $out['width'] );
+		$this->assertSame( $expected_height, $out['height'] );
+	}
+
+	/**
+	 * Data provider for `test_attachment_filter_extracts_modern_format_dimensions`.
+	 *
+	 * @return array<string, array{0:string, 1:int, 2:int}>
+	 */
+	public static function modern_image_format_cases(): array {
+		return array(
+			'heic' => array( 'https://example.test/photo-1024x683.heic', 1024, 683 ),
+			'heif' => array( 'https://example.test/photo-800x600.heif', 800, 600 ),
+			'tif'  => array( 'https://example.test/photo-2000x1500.tif', 2000, 1500 ),
+			'tiff' => array( 'https://example.test/photo-4096x4096.tiff', 4096, 4096 ),
+		);
+	}
+
+	/**
 	 * The full-size fallback is now gated on the URL ending with
 	 * `meta['file']`. A CDN URL that preserves the basename but
 	 * doesn't include the upload subpath must NOT inherit the
@@ -999,5 +1125,49 @@ class Photo_PostTest extends BaseTestCase {
 
 		$this->assertArrayNotHasKey( 'width', $out );
 		$this->assertArrayNotHasKey( 'height', $out );
+	}
+
+	// ---------------------------------------------------------------
+	// Detection: wp_unslash regression + gallery innerBlocks edge case.
+	// ---------------------------------------------------------------
+
+	/**
+	 * `wp_filter_post_kses` slashes block-attribute JSON in
+	 * post_content for users without `unfiltered_html` (Contributors,
+	 * multisite Authors). Without the `wp_unslash()` call in
+	 * `Photo_Post::detect()`, `parse_blocks()` deserializes attrs as
+	 * `null` from the slashed JSON and `block_resolves_locally()`
+	 * misses the `id` — the post then falls through to article shape
+	 * even though it's a legitimate photo post.
+	 *
+	 * This test mutates the stored `post_content` to the slashed form
+	 * a non-admin author would produce and asserts detection still
+	 * fires. Without `wp_unslash`, the assertion fails.
+	 */
+	public function test_detection_handles_slashed_block_attributes(): void {
+		$slashed_body = \addslashes( '<!-- wp:image {"id":42} --><figure class="wp-block-image"><img src="https://example.test/a.jpg"/></figure><!-- /wp:image -->' );
+		$post         = $this->make_post( $slashed_body );
+
+		$this->assertTrue( Photo_Post::is_photo_post( $post ) );
+	}
+
+	/**
+	 * A WP 5.9+ gallery whose `innerBlocks` are all external-URL
+	 * image blocks (no `id` attribute) has no federatable content —
+	 * `block_resolves_locally` recurses through innerBlocks but every
+	 * sub-block fails the `id > 0` check. Result: gallery is treated
+	 * as "other" content, detection falls through to article
+	 * behavior, and the external URLs stay in the body.
+	 */
+	public function test_gallery_with_only_external_inner_image_blocks_does_not_detect(): void {
+		$external_gallery = '<!-- wp:gallery -->'
+			. '<figure class="wp-block-gallery">'
+			. '<!-- wp:image --><figure class="wp-block-image"><img src="https://elsewhere.test/a.jpg"/></figure><!-- /wp:image -->'
+			. '<!-- wp:image --><figure class="wp-block-image"><img src="https://elsewhere.test/b.jpg"/></figure><!-- /wp:image -->'
+			. '</figure>'
+			. '<!-- /wp:gallery -->';
+		$post             = $this->make_post( $external_gallery );
+
+		$this->assertFalse( Photo_Post::is_photo_post( $post ) );
 	}
 }
