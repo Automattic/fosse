@@ -16,7 +16,7 @@ and should be reviewed together so Settings and Status stay visually coherent.
 
 ### Task 1: SDD docs and roadmap entry
 
-- **Status**: ✅ Done (this branch)
+- **Status**: ✅ Done (#158)
 - **Files**:
   - `sdd/admin-design-system-alignment/spec.md`
   - `sdd/admin-design-system-alignment/plan.md`
@@ -30,7 +30,7 @@ Prettier churn.
 
 ### Task 2: Playwright coverage
 
-- **Status**: ✅ Done (this branch)
+- **Status**: ✅ Done (#158)
 - **File**: `tests/e2e/status-page.spec.ts`
 
 Update the existing Status-page polish coverage so it asserts:
@@ -54,7 +54,7 @@ Observed RED run: `FOSSE Status` heading failed at `32px` against the new
 
 ### Task 3: CSS alignment
 
-- **Status**: ✅ Done (this branch)
+- **Status**: ✅ Done (#158)
 - **File**: `src/Admin/assets/css/admin.css`
 
 Make the smallest CSS-only alignment pass:
@@ -78,7 +78,7 @@ passed all 5 Status-page tests.
 
 ### Task 4: Verification
 
-- **Status**: ✅ Done (this branch)
+- **Status**: ✅ Done (#158)
 
 Run the cheap local gates before pushing:
 

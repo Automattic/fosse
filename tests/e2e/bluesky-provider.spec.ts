@@ -53,12 +53,12 @@ test.describe( 'Bluesky provider UI', () => {
 		await page.goto( '/wp-admin/admin.php?page=fosse' );
 		await expectNoCriticalText( page );
 
-		const federationSettings = page
-			.getByRole( 'heading', { name: 'Publishing settings' } )
-			.locator( 'xpath=ancestor::div[2]' );
-		const connections = page
-			.getByRole( 'heading', { name: 'Connections' } )
-			.locator( 'xpath=ancestor::div[2]' );
+		const federationSettings = page.getByRole( 'group', {
+			name: 'Publishing settings',
+		} );
+		const connections = page.getByRole( 'group', {
+			name: 'Connections',
+		} );
 		const guidedSetup = page
 			.getByRole( 'note' )
 			.filter( { hasText: 'Want a guided setup?' } );
@@ -206,7 +206,21 @@ test.describe( 'Bluesky provider UI', () => {
 		await expect(
 			page.getByRole( 'button', { name: 'Save settings' } )
 		).toBeVisible();
+		const federationSettings = page.getByRole( 'group', {
+			name: 'Publishing settings',
+		} );
+		const connections = page.getByRole( 'group', {
+			name: 'Connections',
+		} );
+		await expect( federationSettings ).toHaveCount( 1 );
+		await expect( connections ).toHaveCount( 1 );
 
+		expect(
+			await numericCssValueFor(
+				page.getByRole( 'heading', { name: 'FOSSE Settings' } ),
+				'font-size'
+			)
+		).toBeLessThanOrEqual( 24 );
 		expect(
 			await numericCssValueFor(
 				page.getByRole( 'heading', { name: 'FOSSE Settings' } ),
@@ -222,13 +236,11 @@ test.describe( 'Bluesky provider UI', () => {
 			)
 		).toBe( 0 );
 		expect(
-			await numericCssValueFor(
-				page
-					.getByRole( 'heading', { name: 'Publishing settings' } )
-					.locator( 'xpath=ancestor::div[2]' ),
-				'border-radius'
-			)
-		).toBeLessThanOrEqual( 8 );
+			await numericCssValueFor( federationSettings, 'border-radius' )
+		).toBeLessThanOrEqual( 4 );
+		expect(
+			await numericCssValueFor( connections, 'border-radius' )
+		).toBeLessThanOrEqual( 4 );
 		expect(
 			await numericCssValueFor(
 				page
@@ -236,12 +248,24 @@ test.describe( 'Bluesky provider UI', () => {
 					.locator( 'xpath=..' ),
 				'border-radius'
 			)
-		).toBeLessThanOrEqual( 8 );
+		).toBeLessThanOrEqual( 4 );
+		await expect( federationSettings ).toHaveCSS( 'box-shadow', 'none' );
+		await expect( connections ).toHaveCSS( 'box-shadow', 'none' );
+		await expect( federationSettings ).toHaveCSS(
+			'background-image',
+			'none'
+		);
 
 		await page.setViewportSize( { width: 390, height: 720 } );
 		await page.goto( '/wp-admin/admin.php?page=fosse' );
 		await expectNoCriticalText( page );
 		await expectNoHorizontalOverflow( page );
+		expect(
+			await numericCssValueFor(
+				page.getByRole( 'heading', { name: 'FOSSE Settings' } ),
+				'font-size'
+			)
+		).toBeLessThanOrEqual( 24 );
 		await expect(
 			page.getByRole( 'button', { name: 'Save settings' } )
 		).toBeVisible();

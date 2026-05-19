@@ -54,13 +54,20 @@ defined( 'ABSPATH' ) || exit;
 			</p>
 		</div>
 	<?php else : ?>
-		<div class="fosse-settings-panel fosse-admin-card" id="fosse-federation-settings">
+		<div
+			class="fosse-settings-panel fosse-admin-card"
+			id="fosse-federation-settings"
+			role="group"
+			aria-labelledby="fosse-publishing-settings-title"
+		>
 			<form id="fosse-settings" method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
 				<input type="hidden" name="action" value="<?php echo esc_attr( \Automattic\Fosse\Admin\Setup_Page::SAVE_ACTION ); ?>" />
 				<input type="hidden" name="_wpnonce" value="<?php echo esc_attr( $save_nonce ); ?>" />
 
 				<div class="fosse-settings-panel__header fosse-card-header">
-					<h2><?php esc_html_e( 'Publishing settings', 'fosse' ); ?></h2>
+					<h2 id="fosse-publishing-settings-title">
+						<?php esc_html_e( 'Publishing settings', 'fosse' ); ?>
+					</h2>
 					<p class="fosse-settings-panel__description">
 						<?php esc_html_e( 'Choose the content types FOSSE publishes and the fediverse identity people can follow.', 'fosse' ); ?>
 					</p>
@@ -216,9 +223,16 @@ defined( 'ABSPATH' ) || exit;
 			</form>
 		</div>
 
-		<div class="fosse-settings-panel fosse-admin-card" id="fosse-connections">
+		<div
+			class="fosse-settings-panel fosse-admin-card"
+			id="fosse-connections"
+			role="group"
+			aria-labelledby="fosse-connections-title"
+		>
 			<div class="fosse-settings-panel__header fosse-card-header">
-				<h2><?php esc_html_e( 'Connections', 'fosse' ); ?></h2>
+				<h2 id="fosse-connections-title">
+					<?php esc_html_e( 'Connections', 'fosse' ); ?>
+				</h2>
 				<p class="fosse-settings-panel__description">
 					<?php esc_html_e( 'Review connected accounts and connect or disconnect the networks FOSSE can publish to.', 'fosse' ); ?>
 				</p>

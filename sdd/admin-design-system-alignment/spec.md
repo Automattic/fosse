@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: shipped
 ---
 
 # Spec: Server-rendered admin design-system alignment
