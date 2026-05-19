@@ -636,6 +636,32 @@ class Bluesky_ProviderTest extends BaseTestCase {
 	}
 
 	/**
+	 * Connected settings panel omits the linked handle row when the stored
+	 * Atmosphere connection is partial and has no handle to name.
+	 */
+	public function test_render_connection_actions_connected_omits_handle_row_when_handle_empty(): void {
+		update_option(
+			'atmosphere_connection',
+			array(
+				'did'          => 'did:plc:test123',
+				'handle'       => '',
+				'pds_endpoint' => 'https://bsky.social',
+				'access_token' => Encryption::encrypt( 'token' ),
+			)
+		);
+
+		ob_start();
+		$this->provider->render_connection_actions();
+		$output = ob_get_clean();
+
+		$this->assertStringContainsString( 'Connected account', $output );
+		$this->assertStringContainsString( 'Account ID', $output );
+		$this->assertDoesNotMatchRegularExpression( '~<dt class="fosse-detail-list__term">\s*Bluesky handle\s*</dt>~', $output );
+		$this->assertStringNotContainsString( 'https://bsky.app/profile/"', $output );
+		$this->assertStringNotContainsString( '>@</code>', $output );
+	}
+
+	/**
 	 * Connected status card includes the cached Bluesky follower count too, so
 	 * the Settings and Status surfaces expose the same account summary.
 	 */

@@ -346,12 +346,14 @@ class Bluesky_Provider implements Connection_Provider {
 						<?php esc_html_e( 'FOSSE can share eligible WordPress posts with this Bluesky account.', 'fosse' ); ?>
 					</p>
 					<dl class="fosse-detail-list">
-						<dt class="fosse-detail-list__term"><?php esc_html_e( 'Bluesky handle', 'fosse' ); ?></dt>
-						<dd class="fosse-detail-list__description">
-							<?php
-							echo self::format_handle_link( $status['handle'], 'admin' ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- format_handle_link() escapes input and returns safe token/link markup.
-							?>
-						</dd>
+						<?php if ( ! empty( $status['handle'] ) ) : ?>
+							<dt class="fosse-detail-list__term"><?php esc_html_e( 'Bluesky handle', 'fosse' ); ?></dt>
+							<dd class="fosse-detail-list__description">
+								<?php
+								echo self::format_handle_link( $status['handle'], 'admin' ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- format_handle_link() escapes input and returns safe token/link markup.
+								?>
+							</dd>
+						<?php endif; ?>
 						<?php if ( null !== $followers_count ) : ?>
 							<dt class="fosse-detail-list__term"><?php esc_html_e( 'Followers', 'fosse' ); ?></dt>
 							<dd class="fosse-detail-list__description"><?php echo esc_html( number_format_i18n( $followers_count ) ); ?></dd>
