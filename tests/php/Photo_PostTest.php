@@ -372,7 +372,9 @@ class Photo_PostTest extends BaseTestCase {
 			}
 		);
 
-		$post = $this->make_post( '', '', 'image' );
+		// Format + thumbnail anchors Rule 1 in the new
+		// federation-aware detector; bare format isn't enough.
+		$post = $this->make_post( '', '', 'image', 1 );
 
 		$this->assertTrue( Photo_Post::is_photo_post( $post ) );
 	}
@@ -412,35 +414,89 @@ class Photo_PostTest extends BaseTestCase {
 	// ---------------------------------------------------------------
 
 	/**
-	 * Post Format `image` is the canonical "this is a photo" signal in
-	 * WordPress and maps 1:1 to Pixelfed's "this is a photo" gate.
+	 * Post Format `image` / `gallery` is the canonical "this is a
+	 * photo" signal in WordPress, but on its own isn't enough —
+	 * Rule 1 requires the body to carry an AP-resolvable image
+	 * source (block or featured image) so photo treatment doesn't
+	 * silently produce a Note with no attachment. This test uses a
+	 * body with no image content and no thumbnail to confirm bare
+	 * format alone does NOT drive detection on any slug.
 	 *
 	 * @param string $format Post format slug.
-	 * @param bool   $expected Whether the detector should flag the post.
 	 *
 	 * @dataProvider post_format_cases
 	 */
 	#[DataProvider( 'post_format_cases' )]
-	public function test_post_format_drives_detection( string $format, bool $expected ): void {
+	public function test_post_format_alone_does_not_drive_detection( string $format ): void {
 		$post = $this->make_post( '<!-- wp:paragraph --><p>caption</p><!-- /wp:paragraph -->', '', $format );
 
-		$this->assertSame( $expected, Photo_Post::is_photo_post( $post ) );
+		$this->assertFalse( Photo_Post::is_photo_post( $post ) );
 	}
 
 	/**
-	 * Data provider for `test_post_format_drives_detection`.
+	 * Data provider for `test_post_format_alone_does_not_drive_detection`.
 	 *
-	 * @return array<string, array{0:string, 1:bool}>
+	 * @return array<string, array{0:string}>
 	 */
 	public static function post_format_cases(): array {
 		return array(
-			'image format'    => array( 'image', true ),
-			'gallery format'  => array( 'gallery', true ),
-			'status format'   => array( 'status', false ),
-			'standard format' => array( 'standard', false ),
-			'video format'    => array( 'video', false ),
-			'audio format'    => array( 'audio', false ),
+			'image format'    => array( 'image' ),
+			'gallery format'  => array( 'gallery' ),
+			'status format'   => array( 'status' ),
+			'standard format' => array( 'standard' ),
+			'video format'    => array( 'video' ),
+			'audio format'    => array( 'audio' ),
 		);
+	}
+
+	/**
+	 * Rule 1 fires when `post_format = image` / `gallery` AND the
+	 * body carries a resolvable image block. The format hint
+	 * relaxes Rule 2's strict "exactly one image + ≤1 paragraph"
+	 * shape constraint — a user who explicitly opted in via post
+	 * format gets photo treatment even when the body has more
+	 * paragraphs or other non-image blocks alongside the photo.
+	 */
+	public function test_image_format_with_resolvable_block_detects(): void {
+		$image = $this->resolve_image_placeholders(
+			'<!-- wp:image {"id":PHOTO_ID} --><figure class="wp-block-image"><img/></figure><!-- /wp:image -->'
+		);
+		$post  = $this->make_post( $image, '', 'image' );
+
+		$this->assertTrue( Photo_Post::is_photo_post( $post ) );
+	}
+
+	/**
+	 * `post_format = image` plus a featured image is enough for
+	 * Rule 1 — the thumbnail is the federatable image source even
+	 * when the body itself has no image block. This relaxes Rule
+	 * 3's "≤1 paragraph" constraint for users who explicitly
+	 * signalled photo intent via post format.
+	 */
+	public function test_image_format_with_featured_image_detects(): void {
+		$post = $this->make_post(
+			'<!-- wp:paragraph --><p>First.</p><!-- /wp:paragraph --><!-- wp:paragraph --><p>Second.</p><!-- /wp:paragraph -->',
+			'',
+			'image',
+			1
+		);
+
+		$this->assertTrue( Photo_Post::is_photo_post( $post ) );
+	}
+
+	/**
+	 * `post_format = image` with ONLY external-URL image blocks
+	 * (no `id` attribute, no thumbnail) must NOT detect — bundled
+	 * AP would emit zero attachments and photo treatment would
+	 * strip the image markup, leaving the user's image gone
+	 * entirely. The body falls through to article behavior so the
+	 * external URLs remain inline.
+	 */
+	public function test_image_format_with_only_external_image_does_not_detect(): void {
+		$external = '<!-- wp:image --><figure class="wp-block-image"><img src="https://elsewhere.test/x.jpg"/></figure><!-- /wp:image -->';
+		$post     = $this->make_post( $external, '', 'image' );
+
+		$this->assertFalse( Photo_Post::is_photo_post( $post ) );
 	}
 
 	// ---------------------------------------------------------------
@@ -621,7 +677,9 @@ class Photo_PostTest extends BaseTestCase {
 	 * timeline rendering.
 	 */
 	public function test_object_type_filter_forces_note_for_photo_post(): void {
-		$post = $this->make_post( '', '', 'image' );
+		// Format + thumbnail anchors Rule 1 — bare format alone
+		// no longer drives detection.
+		$post = $this->make_post( '', '', 'image', 1 );
 
 		$type = apply_filters( 'activitypub_post_object_type', 'Article', $post );
 
@@ -658,7 +716,11 @@ class Photo_PostTest extends BaseTestCase {
 	 * caption only — the photo lives in `attachment[]`.
 	 */
 	public function test_content_filter_strips_image_block(): void {
-		$post     = $this->make_post( '', '', 'image' );
+		// Format + thumbnail anchors Rule 1 so the post is
+		// classified as a photo even though the body itself is
+		// rendered HTML (the test exercises the strip logic, not
+		// the block-shape detector).
+		$post     = $this->make_post( '', '', 'image', 1 );
 		$content  = '<figure class="wp-block-image"><img src="https://example.test/a.jpg" alt="Sunset"/></figure><p>Sunset over the bay.</p>';
 		$filtered = apply_filters( 'activitypub_the_content', $content, $post );
 
@@ -672,7 +734,7 @@ class Photo_PostTest extends BaseTestCase {
 	 * cleanly without leaving inner `<img>` orphans.
 	 */
 	public function test_content_filter_strips_gallery_block(): void {
-		$post     = $this->make_post( '', '', 'gallery' );
+		$post     = $this->make_post( '', '', 'gallery', 1 );
 		$content  = '<figure class="wp-block-gallery"><figure class="wp-block-image"><img src="https://example.test/a.jpg"/></figure></figure><p>Trip recap.</p>';
 		$filtered = apply_filters( 'activitypub_the_content', $content, $post );
 
@@ -686,7 +748,7 @@ class Photo_PostTest extends BaseTestCase {
 	 * must strip the same way.
 	 */
 	public function test_content_filter_strips_post_featured_image_block(): void {
-		$post     = $this->make_post( '', '', 'image' );
+		$post     = $this->make_post( '', '', 'image', 1 );
 		$content  = '<figure class="wp-block-post-featured-image"><img src="https://example.test/a.jpg"/></figure><p>Caption.</p>';
 		$filtered = apply_filters( 'activitypub_the_content', $content, $post );
 
@@ -700,7 +762,7 @@ class Photo_PostTest extends BaseTestCase {
 	 * content gets a leading `<p></p>` shell.
 	 */
 	public function test_content_filter_cleans_empty_paragraph_wrappers(): void {
-		$post     = $this->make_post( '', '', 'image' );
+		$post     = $this->make_post( '', '', 'image', 1 );
 		$content  = '<p><img src="https://example.test/a.jpg"/></p><p>Caption.</p>';
 		$filtered = apply_filters( 'activitypub_the_content', $content, $post );
 
@@ -996,7 +1058,7 @@ class Photo_PostTest extends BaseTestCase {
 	 * removes the outermost matching figure as a node.
 	 */
 	public function test_content_filter_strips_nested_gallery_cleanly(): void {
-		$post     = $this->make_post( '', '', 'gallery' );
+		$post     = $this->make_post( '', '', 'gallery', 1 );
 		$content  = '<figure class="wp-block-gallery">'
 			. '<figure class="wp-block-image"><img src="https://example.test/a.jpg"/></figure>'
 			. '<figure class="wp-block-image"><img src="https://example.test/b.jpg"/></figure>'
@@ -1016,7 +1078,7 @@ class Photo_PostTest extends BaseTestCase {
 	 * quote style the input used.
 	 */
 	public function test_content_filter_handles_single_quoted_class(): void {
-		$post     = $this->make_post( '', '', 'image' );
+		$post     = $this->make_post( '', '', 'image', 1 );
 		$content  = "<figure class='wp-block-image'><img src='https://example.test/a.jpg'/></figure><p>Caption.</p>";
 		$filtered = apply_filters( 'activitypub_the_content', $content, $post );
 

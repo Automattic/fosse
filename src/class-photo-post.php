@@ -237,11 +237,8 @@ class Photo_Post {
 	 * @return bool True if the post matches one of the built-in rules.
 	 */
 	private static function detect( WP_Post $post ): bool {
-		$format = \get_post_format( $post );
-		if ( 'image' === $format || 'gallery' === $format ) {
-			return true;
-		}
-
+		$format        = \get_post_format( $post );
+		$has_format    = 'image' === $format || 'gallery' === $format;
 		$has_thumbnail = self::has_image_thumbnail( $post );
 
 		// Empty body + featured image = "Set thumbnail, hit publish"
@@ -361,6 +358,21 @@ class Photo_Post {
 			}
 
 			++$other_count;
+		}
+
+		// Rule 1: explicit Image / Gallery post format. Fires only
+		// when the body has SOME federatable image source — a
+		// resolvable image-like block OR a live featured image.
+		// A bare post-format hint isn't enough: without
+		// federatable content, photo treatment would strip the
+		// image markup (if any) and bundled AP would emit zero
+		// attachments, leaving a Note with no photo. The thumbnail
+		// or block-image presence guarantees the receiver actually
+		// gets an image. Bypasses the `other_count > 0` gate so
+		// users who explicitly opt in via post format aren't held
+		// to Rule 2/3's strict body-shape constraints.
+		if ( $has_format && ( $image_count > 0 || $has_thumbnail ) ) {
+			return true;
 		}
 
 		if ( $other_count > 0 ) {
