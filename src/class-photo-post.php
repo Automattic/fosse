@@ -148,18 +148,23 @@ class Photo_Post {
 		// Reject obviously-unsupported input BEFORE handing off to
 		// `get_post()`. The core helper falls back to
 		// `$GLOBALS['post']` whenever its argument is empty — which
-		// includes `null`, `0`, `false`, and `''` — so calling it
-		// with those values during template rendering would silently
-		// resolve to the current loop post instead of returning the
-		// "no post" answer the discriminator's contract promises.
+		// includes `null`, `0`, `'0'`, `false`, and `''` — so calling
+		// it with those values during template rendering would
+		// silently resolve to the current loop post instead of
+		// returning the "no post" answer the discriminator's
+		// contract promises. The numeric branch also rejects zero
+		// since `is_numeric(0)` and `is_numeric('0')` are both true
+		// but `get_post(0)` triggers the same fallback.
 		if ( null === $post || false === $post || '' === $post ) {
 			return false;
 		}
-		if ( ! \is_numeric( $post ) && ! ( $post instanceof WP_Post ) ) {
+		if ( $post instanceof WP_Post ) {
+			$resolved = $post;
+		} elseif ( \is_numeric( $post ) && (int) $post > 0 ) {
+			$resolved = \get_post( (int) $post );
+		} else {
 			return false;
 		}
-
-		$resolved = \get_post( $post );
 		if ( ! $resolved instanceof WP_Post ) {
 			return false;
 		}
@@ -274,9 +279,17 @@ class Photo_Post {
 			return false;
 		}
 
-		$image_count     = 0;
-		$paragraph_count = 0;
-		$other_count     = 0;
+		$image_count              = 0;
+		$paragraph_count          = 0;
+		$other_count              = 0;
+		$unresolvable_image_count = 0;
+		// Flattened count of individual images that would actually
+		// federate as attachments. `image_count` counts image-like
+		// BLOCKS for Rule 2's shape check ("exactly one image-like
+		// block"), but `total_image_count` counts gallery children
+		// individually so the `max_image_attachments` cap can be
+		// compared against what bundled AP will really emit.
+		$total_image_count = 0;
 
 		foreach ( $blocks as $block ) {
 			$name = $block['blockName'] ?? null;
@@ -340,8 +353,10 @@ class Photo_Post {
 				// the external URL stays in the body.
 				if ( self::block_resolves_locally( $block, $post ) ) {
 					++$image_count;
+					$total_image_count += self::count_resolvable_images( $block, $post );
 				} else {
 					++$other_count;
+					++$unresolvable_image_count;
 				}
 				continue;
 			}
@@ -360,18 +375,45 @@ class Photo_Post {
 			++$other_count;
 		}
 
+		// Bundled AP caps attachment lists at
+		// `activitypub_max_image_attachments` (default 4). When the
+		// body carries more resolvable images than the cap, photo
+		// treatment would strip every image figure but only ship
+		// `cap` attachments — the overflow images vanish from the
+		// federated post. Falling back to article behavior keeps
+		// every figure inline AND still emits the first `cap`
+		// images as supplementary attachments, so receivers never
+		// see fewer images than the body declares.
+		// Effective attachment count: resolvable images in the body
+		// PLUS the featured image when set (bundled AP unshifts the
+		// thumbnail into the media list before walking blocks).
+		// `core/post-featured-image` in the body is already counted
+		// via `count_resolvable_images`, so don't double-count when
+		// the user includes both the block and a separate thumbnail.
+		$effective_image_count = $total_image_count;
+		if ( $has_thumbnail ) {
+			++$effective_image_count;
+		}
+
+		$max_attachments = self::get_max_image_attachments( $post );
+		if ( $max_attachments > 0 && $effective_image_count > $max_attachments ) {
+			return false;
+		}
+
 		// Rule 1: explicit Image / Gallery post format. Fires only
 		// when the body has SOME federatable image source — a
-		// resolvable image-like block OR a live featured image.
-		// A bare post-format hint isn't enough: without
-		// federatable content, photo treatment would strip the
-		// image markup (if any) and bundled AP would emit zero
-		// attachments, leaving a Note with no photo. The thumbnail
-		// or block-image presence guarantees the receiver actually
-		// gets an image. Bypasses the `other_count > 0` gate so
-		// users who explicitly opt in via post format aren't held
-		// to Rule 2/3's strict body-shape constraints.
-		if ( $has_format && ( $image_count > 0 || $has_thumbnail ) ) {
+		// resolvable image-like block OR a live featured image —
+		// AND no unresolvable image blocks. The latter gate is
+		// important: `filter_content()` strips every
+		// `wp-block-image` / `wp-block-gallery` /
+		// `wp-block-post-featured-image` figure regardless of
+		// resolvability, so allowing an unresolvable inline image
+		// block to coexist with a thumbnail-only Rule 1 trigger
+		// would silently drop that inline image from the federated
+		// post. Other "other_count" content (headings, lists,
+		// paragraphs the user wrote) is preserved by the stripper
+		// and so still allowed under the Rule 1 bypass.
+		if ( $has_format && ( $image_count > 0 || $has_thumbnail ) && 0 === $unresolvable_image_count ) {
 			return true;
 		}
 
@@ -390,6 +432,33 @@ class Photo_Post {
 		}
 
 		return false;
+	}
+
+	/**
+	 * Resolve the effective `activitypub_max_image_attachments` cap
+	 * for a post. Mirrors bundled AP's read order
+	 * (`bundled/activitypub/includes/transformer/class-post.php`
+	 * `get_attachment()`): per-post meta → site option → upstream
+	 * constant default, then run through the
+	 * `activitypub_max_image_attachments` filter. Returning 0
+	 * means attachments are disabled entirely.
+	 *
+	 * @param \WP_Post $post The post being evaluated.
+	 * @return int The effective attachment cap.
+	 */
+	private static function get_max_image_attachments( WP_Post $post ): int {
+		$meta = \get_post_meta( $post->ID, 'activitypub_max_image_attachments', true );
+		if ( false === $meta || '' === $meta ) {
+			$default = \defined( 'ACTIVITYPUB_MAX_IMAGE_ATTACHMENTS' ) ? ACTIVITYPUB_MAX_IMAGE_ATTACHMENTS : 4;
+			$max     = \get_option( 'activitypub_max_image_attachments', $default );
+		} else {
+			$max = $meta;
+		}
+
+		/** This filter is documented in bundled/activitypub/includes/transformer/class-post.php */
+		$max = \apply_filters( 'activitypub_max_image_attachments', (int) $max );
+
+		return (int) $max;
 	}
 
 	/**
@@ -485,6 +554,46 @@ class Photo_Post {
 		}
 
 		return false;
+	}
+
+	/**
+	 * Flattened count of individual resolvable images an image-like
+	 * block would contribute as AP attachments. For `core/image` and
+	 * `core/post-featured-image` that's 1; for `core/gallery` it's
+	 * the count of resolvable inner `core/image` children. Used for
+	 * the `activitypub_max_image_attachments` cap check — that cap
+	 * operates on individual images, not on image-bearing blocks.
+	 *
+	 * @param array<string, mixed> $block The parsed block.
+	 * @param \WP_Post             $post  The post being evaluated.
+	 * @return int Count of resolvable images contributed by the block.
+	 */
+	private static function count_resolvable_images( array $block, WP_Post $post ): int {
+		$name = $block['blockName'] ?? '';
+
+		if ( 'core/post-featured-image' === $name ) {
+			return self::has_image_thumbnail( $post ) ? 1 : 0;
+		}
+
+		if ( 'core/image' === $name ) {
+			$id = (int) ( $block['attrs']['id'] ?? 0 );
+			return $id > 0 && \wp_attachment_is_image( $id ) ? 1 : 0;
+		}
+
+		if ( 'core/gallery' === $name ) {
+			$count        = 0;
+			$inner_blocks = $block['innerBlocks'] ?? array();
+			if ( \is_array( $inner_blocks ) ) {
+				foreach ( $inner_blocks as $sub_block ) {
+					if ( \is_array( $sub_block ) ) {
+						$count += self::count_resolvable_images( $sub_block, $post );
+					}
+				}
+			}
+			return $count;
+		}
+
+		return 0;
 	}
 
 	/**

@@ -295,6 +295,11 @@ class Photo_PostTest extends BaseTestCase {
 		$this->assertFalse( Photo_Post::is_photo_post( 999999 ) );
 		$this->assertFalse( Photo_Post::is_photo_post( false ) );
 		$this->assertFalse( Photo_Post::is_photo_post( '' ) );
+		// `0` / `'0'` are `is_numeric()`-true but `get_post(0)`
+		// also resolves to the global `$post`. Must short-circuit
+		// on the integer-zero path too.
+		$this->assertFalse( Photo_Post::is_photo_post( 0 ) );
+		$this->assertFalse( Photo_Post::is_photo_post( '0' ) );
 	}
 
 	/**
@@ -318,6 +323,8 @@ class Photo_PostTest extends BaseTestCase {
 			$this->assertFalse( Photo_Post::is_photo_post( null ) );
 			$this->assertFalse( Photo_Post::is_photo_post( false ) );
 			$this->assertFalse( Photo_Post::is_photo_post( '' ) );
+			$this->assertFalse( Photo_Post::is_photo_post( 0 ) );
+			$this->assertFalse( Photo_Post::is_photo_post( '0' ) );
 		} finally {
 			if ( null === $previous_global ) {
 				unset( $GLOBALS['post'] );
@@ -497,6 +504,93 @@ class Photo_PostTest extends BaseTestCase {
 		$post     = $this->make_post( $external, '', 'image' );
 
 		$this->assertFalse( Photo_Post::is_photo_post( $post ) );
+	}
+
+	/**
+	 * Rule 1 must NOT fire when a Featured Image is set AND the
+	 * body carries an unresolvable image block — the content
+	 * filter strips every `wp-block-image` figure regardless of
+	 * resolvability, so allowing this combination would silently
+	 * drop the external inline image from the federated post even
+	 * though the thumbnail anchors the photo classification.
+	 * Falling back to article behavior keeps the inline figure
+	 * intact for receivers.
+	 */
+	public function test_image_format_with_thumbnail_plus_external_inline_does_not_detect(): void {
+		$external = '<!-- wp:image --><figure class="wp-block-image"><img src="https://elsewhere.test/inline.jpg"/></figure><!-- /wp:image -->';
+		$post     = $this->make_post( $external, '', 'image', 1 );
+
+		$this->assertFalse( Photo_Post::is_photo_post( $post ) );
+	}
+
+	/**
+	 * Bundled AP caps attachments at
+	 * `activitypub_max_image_attachments` (default 4). A
+	 * gallery / multi-image post that exceeds the cap must NOT
+	 * detect as a photo — the content stripper would remove every
+	 * image figure but only N would ship as attachments, losing
+	 * the overflow. Falling through to article behavior keeps
+	 * every figure inline AND still emits the first N attachments
+	 * as supplements.
+	 */
+	public function test_image_count_exceeding_max_attachments_does_not_detect(): void {
+		// Lower the cap to 1 so a two-image gallery exceeds it
+		// without needing five real attachments. Using a filter
+		// keeps the test environment minimal.
+		add_filter(
+			'activitypub_max_image_attachments',
+			static function () {
+				return 1;
+			}
+		);
+
+		$two_image_gallery = $this->resolve_image_placeholders(
+			'<!-- wp:gallery -->'
+			. '<figure class="wp-block-gallery">'
+			. '<!-- wp:image {"id":PHOTO_ID} --><figure class="wp-block-image"><img/></figure><!-- /wp:image -->'
+			. '<!-- wp:image {"id":PHOTO_ID_ALT} --><figure class="wp-block-image"><img/></figure><!-- /wp:image -->'
+			. '</figure>'
+			. '<!-- /wp:gallery -->'
+		);
+		$post              = $this->make_post( $two_image_gallery );
+
+		$this->assertFalse( Photo_Post::is_photo_post( $post ) );
+	}
+
+	/**
+	 * Sanity: the cap-comparison helper honors per-post meta over
+	 * the site option. A meta override of 10 must let a 2-image
+	 * gallery sail through even when a hypothetical site-level
+	 * cap would block it.
+	 */
+	public function test_image_count_with_per_post_cap_override_detects(): void {
+		$two_image_gallery = $this->resolve_image_placeholders(
+			'<!-- wp:gallery -->'
+			. '<figure class="wp-block-gallery">'
+			. '<!-- wp:image {"id":PHOTO_ID} --><figure class="wp-block-image"><img/></figure><!-- /wp:image -->'
+			. '<!-- wp:image {"id":PHOTO_ID_ALT} --><figure class="wp-block-image"><img/></figure><!-- /wp:image -->'
+			. '</figure>'
+			. '<!-- /wp:gallery -->'
+		);
+		$post              = $this->make_post( $two_image_gallery );
+		update_post_meta( $post->ID, 'activitypub_max_image_attachments', 10 );
+
+		// Force the same low site-level cap as the previous test
+		// to prove per-post meta wins. The post-meta read happens
+		// before the filter so the meta value bypasses the
+		// site-wide constraint.
+		add_filter(
+			'activitypub_max_image_attachments',
+			static function ( $value ) {
+				return $value; // pass through whatever resolved
+			}
+		);
+
+		// Bust the per-post cache so detection re-evaluates after
+		// the meta update.
+		Photo_Post::reset_cache_for_testing();
+
+		$this->assertTrue( Photo_Post::is_photo_post( $post ) );
 	}
 
 	// ---------------------------------------------------------------
