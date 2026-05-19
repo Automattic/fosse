@@ -86,7 +86,11 @@ class Photo_PostTest extends BaseTestCase {
 		// Empty bodies are valid photo posts (Featured Image + no
 		// caption, or "image format with zero text"). Override WP's
 		// default empty-content rejection so `wp_insert_post` returns
-		// an id for those cases too.
+		// an id for those cases too. The matching `#[After]` hook
+		// removes this callback so sibling test classes don't
+		// inherit it (their `wp_insert_post` calls should still see
+		// WP's default empty-content rejection unless they opt in
+		// explicitly).
 		add_filter( 'wp_insert_post_empty_content', '__return_false' );
 
 		// WorDBless installs the kses `content_save_pre` filter
@@ -140,6 +144,13 @@ class Photo_PostTest extends BaseTestCase {
 		if ( $this->had_content_filtered_save_pre_kses ) {
 			add_filter( 'content_filtered_save_pre', 'wp_filter_post_kses' );
 		}
+
+		// Drop the test-only empty-content override so later test
+		// classes see WP's default rejection again. Without this
+		// removal, any sibling that calls `wp_insert_post` with an
+		// empty body would get an id back instead of WP's normal
+		// no-content failure, masking real bugs in their fixtures.
+		remove_filter( 'wp_insert_post_empty_content', '__return_false' );
 	}
 
 	/**
@@ -282,6 +293,39 @@ class Photo_PostTest extends BaseTestCase {
 		$this->assertFalse( Photo_Post::is_photo_post( null ) );
 		$this->assertFalse( Photo_Post::is_photo_post( 'not-a-post' ) );
 		$this->assertFalse( Photo_Post::is_photo_post( 999999 ) );
+		$this->assertFalse( Photo_Post::is_photo_post( false ) );
+		$this->assertFalse( Photo_Post::is_photo_post( '' ) );
+	}
+
+	/**
+	 * `get_post()`'s contract: empty input (null, 0, false, '')
+	 * falls back to `$GLOBALS['post']`. The discriminator must
+	 * short-circuit on empty input BEFORE handing off, otherwise
+	 * calling `Photo_Post::is_photo_post( null )` during template
+	 * rendering would silently classify the current loop post — not
+	 * the "no post" answer the docblock promises. This test seeds
+	 * a global photo-format post and asserts the empty-input call
+	 * still returns false.
+	 */
+	public function test_discriminator_returns_false_when_global_post_is_set(): void {
+		$global_post = $this->make_post( '', '', 'image' );
+
+		$previous_global = $GLOBALS['post'] ?? null;
+		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
+		$GLOBALS['post'] = $global_post;
+
+		try {
+			$this->assertFalse( Photo_Post::is_photo_post( null ) );
+			$this->assertFalse( Photo_Post::is_photo_post( false ) );
+			$this->assertFalse( Photo_Post::is_photo_post( '' ) );
+		} finally {
+			if ( null === $previous_global ) {
+				unset( $GLOBALS['post'] );
+			} else {
+				// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
+				$GLOBALS['post'] = $previous_global;
+			}
+		}
 	}
 
 	// ---------------------------------------------------------------

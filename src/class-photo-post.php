@@ -145,6 +145,20 @@ class Photo_Post {
 	 * @return bool True if the post should federate as a photo post.
 	 */
 	public static function is_photo_post( $post ): bool {
+		// Reject obviously-unsupported input BEFORE handing off to
+		// `get_post()`. The core helper falls back to
+		// `$GLOBALS['post']` whenever its argument is empty — which
+		// includes `null`, `0`, `false`, and `''` — so calling it
+		// with those values during template rendering would silently
+		// resolve to the current loop post instead of returning the
+		// "no post" answer the discriminator's contract promises.
+		if ( null === $post || false === $post || '' === $post ) {
+			return false;
+		}
+		if ( ! \is_numeric( $post ) && ! ( $post instanceof WP_Post ) ) {
+			return false;
+		}
+
 		$resolved = \get_post( $post );
 		if ( ! $resolved instanceof WP_Post ) {
 			return false;
