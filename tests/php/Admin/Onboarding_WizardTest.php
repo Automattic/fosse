@@ -1388,6 +1388,7 @@ class Onboarding_WizardTest extends BaseTestCase {
 	 */
 	public function test_complete_summary_shows_connected_bluesky_account(): void {
 		Onboarding_Wizard::mark_complete();
+		update_option( 'activitypub_actor_mode', 'blog' );
 		$this->seed_bluesky_connection( 'alice.bsky.social', 'did:plc:alice123' );
 
 		$output = $this->render_wizard_step( 'complete' );
@@ -1396,8 +1397,25 @@ class Onboarding_WizardTest extends BaseTestCase {
 		$this->assertStringContainsString( '<dl', $output );
 		$this->assertStringContainsString( '<dt', $output );
 		$this->assertStringContainsString( '<dd', $output );
-		$this->assertStringContainsString( 'Connected as alice.bsky.social', $output );
+		$this->assertMatchesRegularExpression(
+			'~Connected as\s*<a[^>]+href="https://bsky\.app/profile/alice\.bsky\.social"[^>]*>\s*<code class="fosse-token fosse-admin-token fosse-token--handle fosse-admin-token--handle">@alice\.<wbr>bsky\.<wbr>social</code>\s*</a>~',
+			$output
+		);
+		$this->assertMatchesRegularExpression(
+			'~<dt class="fosse-detail-list__term">Fediverse identity</dt>\s*<dd class="fosse-detail-list__description">.*<code class="fosse-token fosse-admin-token fosse-token--ap-address fosse-admin-token--ap-address">~s',
+			$output
+		);
 		$this->assertStringNotContainsString( 'Not connected', $output );
+
+		$fediverse_row = strpos( $output, '<dt class="fosse-detail-list__term">Fediverse identity</dt>' );
+		$bluesky_row   = strpos( $output, '<dt class="fosse-detail-list__term">Bluesky</dt>' );
+		$content_row   = strpos( $output, '<dt class="fosse-detail-list__term">Content types</dt>' );
+
+		$this->assertNotFalse( $fediverse_row );
+		$this->assertNotFalse( $bluesky_row );
+		$this->assertNotFalse( $content_row );
+		$this->assertLessThan( $bluesky_row, $fediverse_row, 'Fediverse identity should appear before Bluesky.' );
+		$this->assertLessThan( $content_row, $bluesky_row, 'Bluesky should appear with the identity rows before Content types.' );
 	}
 
 	/**
@@ -1429,7 +1447,7 @@ class Onboarding_WizardTest extends BaseTestCase {
 
 		$this->assertStringContainsString( 'Fediverse only', $output );
 		$this->assertMatchesRegularExpression(
-			'~<dt[^>]*>Bluesky</dt>\s*<dd[^>]*>Connected as alice\.bsky\.social</dd>~',
+			'~<dt[^>]*>Bluesky</dt>\s*<dd[^>]*>\s*Connected as\s*<a[^>]+href="https://bsky\.app/profile/alice\.bsky\.social"[^>]*>\s*<code class="fosse-token fosse-admin-token fosse-token--handle fosse-admin-token--handle">@alice\.<wbr>bsky\.<wbr>social</code>\s*</a>\s*</dd>~',
 			$output,
 			'Connected Bluesky accounts must be reported even when the saved destination is Fediverse-only.'
 		);
@@ -1454,11 +1472,11 @@ class Onboarding_WizardTest extends BaseTestCase {
 		$this->assertStringContainsString( 'Both (site + authors)', $output );
 		$this->assertStringContainsString( 'As you:', $output );
 		$this->assertStringContainsString( 'As your site:', $output );
-		// Fediverse handle markup should be wrapped in <code>, with a
-		// `<br />` between the label and the handle so long handles don't
-		// wrap mid-token (#72).
-		$this->assertMatchesRegularExpression( '~As you:<br\s*/?>\s*<code>@[^<]+@[^<]+</code>~', $output );
-		$this->assertMatchesRegularExpression( '~As your site:<br\s*/?>\s*<code>@[^<]+@[^<]+</code>~', $output );
+		// Fediverse handle markup should be wrapped in token-styled <code>,
+		// with a `<br />` between the label and the handle so long handles
+		// don't wrap mid-token (#72).
+		$this->assertMatchesRegularExpression( '~As you:<br\s*/?>\s*<code class="fosse-token fosse-admin-token fosse-token--ap-address fosse-admin-token--ap-address">@[^<]+<wbr>@[^<]+(?:<wbr>[^<]+)*</code>~', $output );
+		$this->assertMatchesRegularExpression( '~As your site:<br\s*/?>\s*<code class="fosse-token fosse-admin-token fosse-token--ap-address fosse-admin-token--ap-address">@[^<]+<wbr>@[^<]+(?:<wbr>[^<]+)*</code>~', $output );
 	}
 
 	/**
@@ -1473,7 +1491,7 @@ class Onboarding_WizardTest extends BaseTestCase {
 		$output = $this->render_wizard_step( 'complete' );
 
 		$this->assertStringContainsString( 'As your site', $output );
-		$this->assertMatchesRegularExpression( '~As your site\s*<code>@[^<]+@[^<]+</code>~', $output );
+		$this->assertMatchesRegularExpression( '~As your site\s*<code class="fosse-token fosse-admin-token fosse-token--ap-address fosse-admin-token--ap-address">@[^<]+<wbr>@[^<]+(?:<wbr>[^<]+)*</code>~', $output );
 		// Mirror the actor-mode guard so a future revert of the inline-space
 		// change in `format_mode_label()` (back to `<br /><code>`) is caught
 		// for the blog branch too — the assertion above's `\s*` accepts both
@@ -1497,7 +1515,7 @@ class Onboarding_WizardTest extends BaseTestCase {
 		}
 
 		$this->assertStringContainsString( 'As you', $output );
-		$this->assertMatchesRegularExpression( '~As you\s*<code>@[^<]+@[^<]+</code>~', $output );
+		$this->assertMatchesRegularExpression( '~As you\s*<code class="fosse-token fosse-admin-token fosse-token--ap-address fosse-admin-token--ap-address">@[^<]+<wbr>@[^<]+(?:<wbr>[^<]+)*</code>~', $output );
 		// The pre-fix wrapper used parens around the handle on the same line;
 		// guard against the parenthesized shape regressing here.
 		$this->assertDoesNotMatchRegularExpression( '~As you \(<code>~', $output );

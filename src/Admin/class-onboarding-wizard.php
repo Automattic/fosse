@@ -708,7 +708,7 @@ class Onboarding_Wizard {
 	 * Returns an HTML string. Single-identity branches inline the handle
 	 * after a space; the multi-identity `actor_blog` branch separates
 	 * label and handle with `<br />` and joins lines with `<br />`. The
-	 * consumer escapes via `wp_kses` with `code` and `br` allowed.
+	 * consumer escapes via `wp_kses` with `code`, `br`, and `wbr` allowed.
 	 *
 	 * @param string $mode        Actor mode value.
 	 * @param string $user_handle Normalized `@user@host` for the current user, or empty.
@@ -720,33 +720,60 @@ class Onboarding_Wizard {
 			case 'actor':
 				if ( '' !== $user_handle ) {
 					return esc_html__( 'As you', 'fosse' )
-						. ' <code>' . esc_html( $user_handle ) . '</code>';
+						. ' ' . self::format_complete_identity_token( $user_handle, 'ap-address' );
 				}
 				return esc_html__( 'As you (author profiles)', 'fosse' );
 
 			case 'blog':
 				if ( '' !== $blog_handle ) {
 					return esc_html__( 'As your site', 'fosse' )
-						. ' <code>' . esc_html( $blog_handle ) . '</code>';
+						. ' ' . self::format_complete_identity_token( $blog_handle, 'ap-address' );
 				}
 				$site_host = wp_parse_url( home_url(), PHP_URL_HOST );
 				return esc_html__( 'As your site', 'fosse' )
-					. ' <code>' . esc_html( $site_host ? $site_host : 'yoursite.com' ) . '</code>';
+					. ' ' . self::format_complete_identity_token( $site_host ? $site_host : 'yoursite.com', 'handle' );
 
 			case 'actor_blog':
 				$lines = array( esc_html__( 'Both (site + authors)', 'fosse' ) );
 				if ( '' !== $user_handle ) {
 					$lines[] = esc_html__( 'As you:', 'fosse' )
-						. '<br /><code>' . esc_html( $user_handle ) . '</code>';
+						. '<br />' . self::format_complete_identity_token( $user_handle, 'ap-address' );
 				}
 				if ( '' !== $blog_handle ) {
 					$lines[] = esc_html__( 'As your site:', 'fosse' )
-						. '<br /><code>' . esc_html( $blog_handle ) . '</code>';
+						. '<br />' . self::format_complete_identity_token( $blog_handle, 'ap-address' );
 				}
 				return implode( '<br />', $lines );
 		}
 
 		return esc_html( $mode );
+	}
+
+	/**
+	 * Format a completion-summary identity token using shared admin token styles.
+	 *
+	 * @param string $value Raw handle or fediverse address.
+	 * @param string $type  Token type: `ap-address` or `handle`.
+	 * @return string Escaped HTML safe for `wp_kses`.
+	 */
+	private static function format_complete_identity_token( string $value, string $type ): string {
+		$classes = array( 'fosse-token', 'fosse-admin-token' );
+
+		if ( 'ap-address' === $type ) {
+			$classes[] = 'fosse-token--ap-address';
+			$classes[] = 'fosse-admin-token--ap-address';
+			$content   = Status_Formatter::ap_address( $value );
+		} else {
+			$classes[] = 'fosse-token--handle';
+			$classes[] = 'fosse-admin-token--handle';
+			$content   = '@' . Status_Formatter::handle( ltrim( $value, '@' ) );
+		}
+
+		return sprintf(
+			'<code class="%1$s">%2$s</code>',
+			esc_attr( implode( ' ', $classes ) ),
+			$content
+		);
 	}
 
 	/**
@@ -1657,9 +1684,13 @@ class Onboarding_Wizard {
 		if ( $bluesky['connected'] ) {
 			$bluesky_summary = $bluesky['handle']
 				? sprintf(
-					/* translators: %s: Bluesky handle. */
+					/* translators: %s: linked Bluesky handle. */
 					__( 'Connected as %s', 'fosse' ),
-					$bluesky['handle']
+					sprintf(
+						'<a href="%1$s" target="_blank" rel="noopener noreferrer">%2$s</a>',
+						esc_url( 'https://bsky.app/profile/' . rawurlencode( ltrim( $bluesky['handle'], '@' ) ) ),
+						self::format_complete_identity_token( (string) $bluesky['handle'], 'handle' )
+					)
 				)
 				: __( 'Connected', 'fosse' );
 		} elseif ( ! $bluesky['available'] && $includes_bluesky ) {
@@ -1707,16 +1738,36 @@ class Onboarding_Wizard {
 						echo wp_kses(
 							$mode_label,
 							array(
-								'code' => array(),
+								'code' => array(
+									'class' => array(),
+								),
 								'br'   => array(),
+								'wbr'  => array(),
+							)
+						);
+						?>
+					</dd>
+					<dt class="fosse-detail-list__term"><?php esc_html_e( 'Bluesky', 'fosse' ); ?></dt>
+					<dd class="fosse-detail-list__description<?php echo $bluesky['connected'] ? '' : ' fosse-detail-list__description--muted'; ?>">
+						<?php
+						echo wp_kses(
+							$bluesky_summary,
+							array(
+								'a'    => array(
+									'href'   => array(),
+									'target' => array(),
+									'rel'    => array(),
+								),
+								'code' => array(
+									'class' => array(),
+								),
+								'wbr'  => array(),
 							)
 						);
 						?>
 					</dd>
 					<dt class="fosse-detail-list__term"><?php esc_html_e( 'Content types', 'fosse' ); ?></dt>
 					<dd class="fosse-detail-list__description"><?php echo esc_html( implode( ', ', $type_labels ) ); ?></dd>
-					<dt class="fosse-detail-list__term"><?php esc_html_e( 'Bluesky', 'fosse' ); ?></dt>
-					<dd class="fosse-detail-list__description<?php echo $bluesky['connected'] ? '' : ' fosse-detail-list__description--muted'; ?>"><?php echo esc_html( $bluesky_summary ); ?></dd>
 				</dl>
 
 				<div class="fosse-wizard__hint">
