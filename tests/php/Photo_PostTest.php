@@ -1209,4 +1209,75 @@ class Photo_PostTest extends BaseTestCase {
 
 		$this->assertFalse( Photo_Post::is_photo_post( $post ) );
 	}
+
+	/**
+	 * A gallery whose innerBlocks mix local-id `core/image` children
+	 * with external-URL `core/image` children must NOT classify as a
+	 * photo post. Bundled AP would extract only the local-id
+	 * children, and the content filter would strip the entire
+	 * gallery wrapper — the external images would disappear from the
+	 * federated post entirely. Falling back to article behavior
+	 * keeps every figure in the body intact.
+	 */
+	public function test_mixed_local_and_external_gallery_does_not_detect(): void {
+		$mixed_gallery = '<!-- wp:gallery -->'
+			. '<figure class="wp-block-gallery">'
+			. '<!-- wp:image {"id":42} --><figure class="wp-block-image"><img/></figure><!-- /wp:image -->'
+			. '<!-- wp:image --><figure class="wp-block-image"><img src="https://elsewhere.test/a.jpg"/></figure><!-- /wp:image -->'
+			. '</figure>'
+			. '<!-- /wp:gallery -->';
+		$post          = $this->make_post( $mixed_gallery );
+
+		$this->assertFalse( Photo_Post::is_photo_post( $post ) );
+	}
+
+	/**
+	 * Rule 3 (Featured Image + ≤1 paragraph) explicitly targets the
+	 * mobile WP-app / classic-editor flow where the body is just a
+	 * classic-shape caption like `<p>Caption.</p>` (no block-comment
+	 * wrapper). `parse_blocks()` emits that as a single freeform
+	 * block with `blockName: null`, and the detector recognizes the
+	 * paragraph-shaped innerHTML as one caption paragraph. Without
+	 * this recognition the documented flow would silently fail.
+	 */
+	public function test_featured_thumbnail_with_classic_caption_detects(): void {
+		$post = $this->make_post( '<p>Caption.</p>', '', '', 1 );
+
+		$this->assertTrue( Photo_Post::is_photo_post( $post ) );
+	}
+
+	/**
+	 * The classic-caption heuristic must NOT promote substantive
+	 * freeform bodies. Anything containing `<img>`, `<figure>`,
+	 * headings, lists, tables, blockquotes, `<pre>`, or `<hr>` is
+	 * article content, not a caption — those posts stay as articles
+	 * even when a Featured Image is set.
+	 */
+	public function test_featured_thumbnail_with_classic_article_does_not_detect(): void {
+		$post = $this->make_post( '<p>Intro.</p><h2>Heading</h2><p>More body.</p>', '', '', 1 );
+
+		$this->assertFalse( Photo_Post::is_photo_post( $post ) );
+	}
+
+	/**
+	 * The Pass-3 URL-suffix regex matches against the path component,
+	 * not the full URL. A non-resized image URL whose query string
+	 * happens to contain `-WIDTHxHEIGHT.ext` (e.g. a redirect target,
+	 * tracker, or signed-URL param pointing at a different resized
+	 * derivative) must NOT pick up those dimensions — the actual
+	 * media is the URL's path file, not whatever the query string
+	 * references.
+	 */
+	public function test_attachment_filter_ignores_suffix_in_query_string(): void {
+		$input = array(
+			'type'      => 'Image',
+			'url'       => 'https://example.test/wp-content/uploads/2026/05/original.jpg?next=photo-1024x768.jpg',
+			'mediaType' => 'image/jpeg',
+		);
+
+		$out = apply_filters( 'activitypub_attachment', $input, 0 );
+
+		$this->assertArrayNotHasKey( 'width', $out );
+		$this->assertArrayNotHasKey( 'height', $out );
+	}
 }

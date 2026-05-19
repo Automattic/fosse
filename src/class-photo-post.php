@@ -272,15 +272,28 @@ class Photo_Post {
 
 			// `parse_blocks()` emits a null-blockName entry for any
 			// freeform / classic content sandwiched between blocks
-			// (or for a post that's entirely classic content). Treat
-			// whitespace-only freeform as ignorable; substantive
-			// freeform counts as "other" content that disqualifies.
+			// (or for a post that's entirely classic content). The
+			// mobile WP-app and classic-editor "set featured image,
+			// type a one-line caption" flow lands here as a single
+			// freeform block whose innerHTML is just `<p>Caption.</p>`
+			// (no block-comment wrappers). Rule 3 explicitly targets
+			// this shape, so we mirror the paragraph-block heuristic:
+			// if the freeform body strips to plain text wrapped at
+			// most in `<p>` / `<br>` (no figures, images, headings,
+			// lists, tables — the structural tags that signal an
+			// article body), count it as one paragraph. Otherwise
+			// treat as "other" content that disqualifies.
 			if ( null === $name ) {
-				$inner = \trim( $block['innerHTML'] ?? '' );
-				if ( '' === $inner ) {
+				$inner_html = $block['innerHTML'] ?? '';
+				$inner_text = \trim( \wp_strip_all_tags( $inner_html ) );
+				if ( '' === $inner_text ) {
 					continue;
 				}
-				++$other_count;
+				if ( \preg_match( '#<(?:img|figure|h[1-6]|ul|ol|li|table|blockquote|pre|hr)\b#i', $inner_html ) ) {
+					++$other_count;
+					continue;
+				}
+				++$paragraph_count;
 				continue;
 			}
 
@@ -389,20 +402,41 @@ class Photo_Post {
 
 		if ( 'core/gallery' === $name ) {
 			// WP 5.9+ galleries wrap individual `core/image` blocks
-			// in `innerBlocks`. Bundled AP recurses into innerBlocks
-			// for any block type, so any federatable image in the
-			// gallery's children is enough to classify here too.
-			// Legacy galleries (top-level `attrs.ids`) are
-			// intentionally NOT recognized — see class docblock.
+			// in `innerBlocks`. Legacy galleries (top-level
+			// `attrs.ids`) are intentionally NOT recognized — see
+			// class docblock.
+			//
+			// Require EVERY image-like child to resolve, not just
+			// one: if a gallery mixes local and external images,
+			// declaring it a photo post would strip the entire
+			// gallery from content while bundled AP only emits
+			// attachments for the local-id children — the external
+			// images would silently disappear from the federated
+			// post. Falling back to article behavior keeps every
+			// figure intact in the body where receivers can render
+			// the externally-hosted images inline. Children that
+			// aren't image-like (paragraph captions, spacers
+			// occasionally found inside galleries) are ignored.
 			$inner_blocks = $block['innerBlocks'] ?? array();
-			if ( \is_array( $inner_blocks ) ) {
-				foreach ( $inner_blocks as $sub_block ) {
-					if ( \is_array( $sub_block ) && self::block_resolves_locally( $sub_block, $post ) ) {
-						return true;
-					}
+			if ( ! \is_array( $inner_blocks ) || empty( $inner_blocks ) ) {
+				return false;
+			}
+
+			$has_image = false;
+			foreach ( $inner_blocks as $sub_block ) {
+				if ( ! \is_array( $sub_block ) ) {
+					continue;
+				}
+				$sub_name = $sub_block['blockName'] ?? '';
+				if ( ! \in_array( $sub_name, self::IMAGE_LIKE_BLOCKS, true ) ) {
+					continue;
+				}
+				$has_image = true;
+				if ( ! self::block_resolves_locally( $sub_block, $post ) ) {
+					return false;
 				}
 			}
-			return false;
+			return $has_image;
 		}
 
 		return false;
@@ -702,10 +736,15 @@ class Photo_Post {
 		// Pass 3 (external-URL fallback): filename suffix `-WxH.ext`.
 		// WP names resized derivatives that way and the suffix
 		// survives most CDN rewrites that keep the source basename
-		// intact. This is the only resolution path for external
+		// intact. Match against the URL's path component only —
+		// matching against the full URL would pick up a `-WxH.ext`
+		// fragment in a query string (e.g. a redirect / tracker
+		// param `?next=photo-1024x768.jpg`), emitting dimensions
+		// that describe a different image than the one actually
+		// linked. This is the only resolution path for external
 		// images (no local attachment id), so we treat it as
 		// best-effort rather than authoritative.
-		if ( \preg_match( '/-(\d+)x(\d+)\.(?:jpe?g|png|gif|webp|avif|heic|heif|tiff?)(?:$|[\?\#])/i', $url, $matches ) ) {
+		if ( '' !== $path && \preg_match( '/-(\d+)x(\d+)\.(?:jpe?g|png|gif|webp|avif|heic|heif|tiff?)$/i', $path, $matches ) ) {
 			$width  = (int) $matches[1];
 			$height = (int) $matches[2];
 			if ( $width > 0 && $height > 0 ) {
