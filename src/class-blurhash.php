@@ -57,21 +57,31 @@ class Blurhash {
 	public const CRON_HOOK = 'fosse_blurhash_compute';
 
 	/**
-	 * X-component count passed to the encoder. Wolt's reference
-	 * recommends 4–5 for landscape and lower for portrait; 4 is the
-	 * middle ground Mastodon also defaults to. Hash length grows with
-	 * the product of X*Y, so 4×4 keeps the encoded string short.
+	 * DCT component count passed to the encoder as BOTH the X and
+	 * Y dimensions — kept as a single number because the two
+	 * dimensions are always equal in this encoder and splitting
+	 * them implies a tuning surface that doesn't exist. Wolt's
+	 * reference recommends 4–5 for landscape and lower for
+	 * portrait; 4 is the middle ground Mastodon also defaults to.
+	 * Hash length grows with the product, so 4×4 keeps the encoded
+	 * string short.
 	 *
 	 * @var int
 	 */
-	private const COMPONENTS_X = 4;
+	private const COMPONENTS = 4;
 
 	/**
-	 * Y-component count. Mirror of {@see self::COMPONENTS_X}.
+	 * Upper bound on stored blurhash string length, in characters.
+	 * A 4×4 component grid produces a 30-character hash; the
+	 * theoretical max for the 9×9 component grid the spec supports
+	 * is 99 characters. We cap a little above that as a defense
+	 * against postmeta poisoning — anyone with `edit_post_meta` on
+	 * an attachment could otherwise write arbitrary bytes that we
+	 * would then federate straight into the AP envelope.
 	 *
 	 * @var int
 	 */
-	private const COMPONENTS_Y = 4;
+	private const MAX_HASH_LENGTH = 128;
 
 	/**
 	 * Image size used as the encoder's source. Blurhash encoding is
@@ -256,7 +266,7 @@ class Blurhash {
 				$pixels[] = $row;
 			}
 
-			$hash = Encoder::encode( $pixels, self::COMPONENTS_X, self::COMPONENTS_Y );
+			$hash = Encoder::encode( $pixels, self::COMPONENTS, self::COMPONENTS );
 			return \is_string( $hash ) && '' !== $hash ? $hash : null;
 		} catch ( \Throwable $e ) {
 			return null;
@@ -388,9 +398,13 @@ class Blurhash {
 		if ( $attachment_id < 1 ) {
 			return;
 		}
-		if ( false !== \wp_next_scheduled( self::CRON_HOOK, array( $attachment_id ) ) ) {
-			return;
-		}
+		// Rely on WP's own duplicate-event guard inside
+		// `wp_schedule_single_event` (rejects matching args within
+		// the 10-minute window) rather than running an explicit
+		// `wp_next_scheduled` check first. The explicit check did
+		// nothing the underlying scheduler doesn't already do and
+		// added a needless read against the autoloaded cron option
+		// on every attachment metadata regen.
 		\wp_schedule_single_event( \time(), self::CRON_HOOK, array( $attachment_id ) );
 	}
 
@@ -444,6 +458,14 @@ class Blurhash {
 	 * anything else (non-image attachments, missing meta, malformed
 	 * arrays) so non-photo federation paths are untouched.
 	 *
+	 * Sanitizes the stored hash before injection. The encoder's own
+	 * output is base83 by construction, but anyone with
+	 * `edit_post_meta` on an attachment could rewrite `_fosse_blurhash`
+	 * to arbitrary bytes — including non-UTF-8 bytes that would
+	 * break `wp_json_encode` and drop the entire AP envelope on the
+	 * floor. Length cap + base83 charset filter constrains the
+	 * field to what real-world consumers expect.
+	 *
 	 * @param mixed $attachment    The attachment array as built by bundled AP.
 	 * @param mixed $attachment_id The attachment post ID (mixed because the upstream filter is loosely typed).
 	 * @return mixed
@@ -456,10 +478,33 @@ class Blurhash {
 			return $attachment;
 		}
 		$hash = self::get( (int) $attachment_id );
-		if ( null === $hash ) {
+		if ( null === $hash || ! self::is_well_formed_hash( $hash ) ) {
 			return $attachment;
 		}
 		$attachment['blurhash'] = $hash;
 		return $attachment;
+	}
+
+	/**
+	 * Validate a stored hash against the blurhash spec's character
+	 * set and our length bound. Treat any out-of-bounds value as
+	 * absent rather than coerce — preserves the "no blurhash is
+	 * better than a wrong blurhash" posture the rest of the class
+	 * follows. The base83 alphabet is defined by the spec at
+	 * {@link https://github.com/woltapp/blurhash/blob/master/Algorithm.md#base-83}.
+	 *
+	 * @param string $hash Candidate hash string.
+	 * @return bool
+	 */
+	private static function is_well_formed_hash( string $hash ): bool {
+		$length = \strlen( $hash );
+		if ( $length < 6 || $length > self::MAX_HASH_LENGTH ) {
+			return false;
+		}
+		// Base83 alphabet — same character set the encoder library
+		// emits, conservative enough to reject any byte sequence
+		// that would surprise a downstream JSON encoder or client
+		// decoder.
+		return 1 === \preg_match( '/\A[0-9A-Za-z#$%*+,\-.:;=?@\[\]\^_{|}~]+\z/', $hash );
 	}
 }

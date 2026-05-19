@@ -717,6 +717,51 @@ class BlurhashTest extends BaseTestCase {
 		$this->assertSame( 'LEHV6nWB2yk8pyo0adR*.7kCMdnj', $filtered['blurhash'] );
 	}
 
+	/**
+	 * Stored hash containing non-base83 bytes (NUL, control chars,
+	 * invalid UTF-8) is treated as absent rather than federated. A
+	 * postmeta-poisoning attacker with `edit_post_meta` could
+	 * otherwise inject bytes that break `wp_json_encode` and drop
+	 * the entire AP envelope on the floor.
+	 */
+	public function test_inject_rejects_postmeta_with_invalid_characters(): void {
+		$id = $this->insert_image_attachment();
+		// Valid prefix + NUL + control bytes — the sort of payload
+		// a malicious actor would set to weaponize the federation
+		// path against itself.
+		update_post_meta( $id, Blurhash::META_KEY, "LEHV6nWB\x00<script>" );
+
+		$attachment = array(
+			'type' => 'Image',
+			'url'  => 'https://example.test/photo.jpg',
+		);
+
+		$filtered = apply_filters( 'activitypub_attachment', $attachment, $id );
+
+		$this->assertArrayNotHasKey( 'blurhash', $filtered );
+	}
+
+	/**
+	 * Stored hash exceeding the spec's maximum component grid
+	 * length is treated as absent. The 9×9 grid the spec supports
+	 * produces a 99-char hash; our cap (128) is comfortably above
+	 * that. A 10 KB postmeta value would otherwise be federated
+	 * verbatim into the wire envelope.
+	 */
+	public function test_inject_rejects_oversized_postmeta(): void {
+		$id = $this->insert_image_attachment();
+		update_post_meta( $id, Blurhash::META_KEY, str_repeat( 'L', 200 ) );
+
+		$attachment = array(
+			'type' => 'Image',
+			'url'  => 'https://example.test/photo.jpg',
+		);
+
+		$filtered = apply_filters( 'activitypub_attachment', $attachment, $id );
+
+		$this->assertArrayNotHasKey( 'blurhash', $filtered );
+	}
+
 	// ---------------------------------------------------------------
 	// register().
 	// ---------------------------------------------------------------
