@@ -231,6 +231,44 @@ add_action(
 );
 
 /*
+ * Blurhash placeholder encoder + AP attachment injector.
+ *
+ * Computes a Blurhash string at upload time (cron-scheduled off
+ * `wp_generate_attachment_metadata` so the upload UI isn't blocked)
+ * and adds the result to outbound ActivityPub `attachment[].blurhash`
+ * via the `activitypub_attachment` filter, so Pixelfed and Mastodon
+ * paint the colored-blur preview while the full image loads. Sites
+ * without GD just skip silently — federation is unaffected. See
+ * `DOTCOM-17159` and `class-blurhash.php`. Same degradation posture
+ * as the projectors above.
+ */
+add_action(
+	'init',
+	static function () {
+		if ( ! class_exists( \Automattic\Fosse\Blurhash::class ) ) {
+			return;
+		}
+		\Automattic\Fosse\Blurhash::register();
+	}
+);
+
+/*
+ * WP-CLI: `wp fosse blurhash …` — backfill encoder for sites with
+ * pre-existing media uploaded before the blurhash feature was active.
+ * Register-time guard inside the class is a no-op when WP-CLI isn't
+ * loaded, so this incurs zero overhead on web requests.
+ */
+add_action(
+	'init',
+	static function () {
+		if ( ! class_exists( \Automattic\Fosse\Blurhash_CLI::class ) ) {
+			return;
+		}
+		\Automattic\Fosse\Blurhash_CLI::register();
+	}
+);
+
+/*
  * Cross-network post-type projector.
  *
  * Feeds ActivityPub's stored `activitypub_support_post_types` option into

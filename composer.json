@@ -6,7 +6,8 @@
 	"require": {
 		"php": ">=8.2",
 		"ext-dom": "*",
-		"automattic/jetpack-autoloader": "*"
+		"automattic/jetpack-autoloader": "*",
+		"kornrunner/blurhash": "^1.2"
 	},
 	"require-dev": {
 		"automattic/wordbless": "dev-trunk",
