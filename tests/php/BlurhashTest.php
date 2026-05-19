@@ -459,22 +459,72 @@ class BlurhashTest extends BaseTestCase {
 	}
 
 	/**
-	 * Scheduling for the same attachment twice does not enqueue a
-	 * duplicate event — important because
+	 * Scheduling for the same attachment twice via the upload
+	 * filter does not enqueue a duplicate event — important because
 	 * `wp_generate_attachment_metadata` fires on every regen
-	 * (uploads, WP-CLI media regenerate, plugin-driven regen).
+	 * (uploads, WP-CLI media regenerate, plugin-driven regen). The
+	 * second call invalidates the prior hash but the cron event
+	 * itself is deduplicated by `wp_next_scheduled`.
 	 */
-	public function test_schedule_is_idempotent_for_same_attachment_id(): void {
+	public function test_schedule_encode_is_idempotent_for_same_attachment_id(): void {
 		$id = $this->insert_image_attachment();
 
-		Blurhash::schedule( $id );
+		Blurhash::schedule_encode( array(), $id );
 		$first_timestamp = wp_next_scheduled( Blurhash::CRON_HOOK, array( $id ) );
 
-		Blurhash::schedule( $id );
+		Blurhash::schedule_encode( array(), $id );
 		$second_timestamp = wp_next_scheduled( Blurhash::CRON_HOOK, array( $id ) );
 
 		$this->assertNotFalse( $first_timestamp );
 		$this->assertSame( $first_timestamp, $second_timestamp );
+	}
+
+	/**
+	 * `schedule_encode` invalidates any stored hash before queuing
+	 * the cron event, so a media-replace / crop / regen flow always
+	 * re-computes against the latest bytes rather than serving the
+	 * stale placeholder of the prior file forever. The codex C3
+	 * regression: prior behavior was "cron event fires, sees
+	 * existing meta, bails — replaced image keeps the old hash."
+	 */
+	public function test_schedule_encode_invalidates_existing_hash(): void {
+		$id = $this->insert_image_attachment();
+		Blurhash::set( $id, 'hash-from-original-bytes' );
+
+		Blurhash::schedule_encode( array(), $id );
+
+		$this->assertNull( Blurhash::get( $id ) );
+		$this->assertNotFalse( wp_next_scheduled( Blurhash::CRON_HOOK, array( $id ) ) );
+	}
+
+	/**
+	 * The runtime emits `fosse_blurhash_encode_failed` (action)
+	 * when the encoder returns null and no hash was previously
+	 * stored — gives monitoring integrations a hook to count
+	 * transient encode failures instead of having them silently
+	 * disappear.
+	 */
+	public function test_run_encode_fires_failed_action_on_null_return(): void {
+		$id = $this->insert_image_attachment( 'missing.jpg' );
+		$this->point_attachment_at( $id, '/tmp/fosse-blurhash-no-such-file-' . uniqid() . '.png' );
+
+		$captured = array();
+		add_action(
+			'fosse_blurhash_encode_failed',
+			static function ( $failed_id ) use ( &$captured ) {
+				$captured[] = (int) $failed_id;
+			}
+		);
+
+		// The error_log call inside run_encode would otherwise dump
+		// to the test runner's stderr. WorDBless doesn't capture it
+		// but the line is unavoidable noise — accept it for the
+		// observability contract this test exercises.
+		Blurhash::run_encode( $id );
+
+		$this->assertSame( array( $id ), $captured );
+
+		remove_all_actions( 'fosse_blurhash_encode_failed' );
 	}
 
 	/**

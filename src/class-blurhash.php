@@ -340,9 +340,18 @@ class Blurhash {
 	 */
 	public static function schedule_encode( $metadata, $attachment_id ) {
 		$attachment_id = (int) $attachment_id;
-		if ( $attachment_id > 0 && self::is_encodable_attachment( $attachment_id ) ) {
-			self::schedule( $attachment_id );
+		if ( $attachment_id < 1 || ! self::is_encodable_attachment( $attachment_id ) ) {
+			return $metadata;
 		}
+
+		// Invalidate any prior hash so cron will re-encode against
+		// the latest bytes. `wp_generate_attachment_metadata` fires
+		// on initial upload AND on media-replace / crop / regen, so
+		// without this delete a replaced image would keep federating
+		// the placeholder for its prior bytes.
+		self::delete( $attachment_id );
+
+		self::schedule( $attachment_id );
 		return $metadata;
 	}
 
@@ -368,11 +377,17 @@ class Blurhash {
 
 	/**
 	 * Queue (or skip, if already queued) a cron event to compute
-	 * the blurhash for an attachment.
+	 * the blurhash for an attachment. Internal helper for
+	 * {@see self::schedule_encode()} — callers should go through
+	 * that filter callback so the metadata-regen invalidation pass
+	 * stays load-bearing.
 	 *
 	 * @param int $attachment_id Attachment post ID.
 	 */
-	public static function schedule( int $attachment_id ): void {
+	private static function schedule( int $attachment_id ): void {
+		if ( $attachment_id < 1 ) {
+			return;
+		}
 		if ( false !== \wp_next_scheduled( self::CRON_HOOK, array( $attachment_id ) ) ) {
 			return;
 		}
@@ -382,7 +397,15 @@ class Blurhash {
 	/**
 	 * Cron callback: compute and store the blurhash. No-op when a
 	 * hash is already stored; callers wanting a re-encode delete
-	 * the postmeta first ({@see self::delete()}).
+	 * the postmeta first ({@see self::delete()}) — that's what
+	 * {@see self::schedule_encode()} does before scheduling, so the
+	 * media-replace path always recomputes.
+	 *
+	 * Emits `fosse_blurhash_encode_failed` (action) and an
+	 * `error_log` line when the encoder returns null without a
+	 * pre-existing stored hash, so transient failures (NFS hiccup,
+	 * S3 lag, GD blip) leave a signal for monitoring instead of
+	 * silently never producing a placeholder.
 	 *
 	 * @param int $attachment_id Attachment post ID.
 	 */
@@ -397,7 +420,22 @@ class Blurhash {
 		$hash = self::encode_from_attachment( $attachment_id );
 		if ( null !== $hash ) {
 			self::set( $attachment_id, $hash );
+			return;
 		}
+
+		// Silent-failure guard — surface the gap so an operator can
+		// investigate (or wire monitoring against the action).
+		// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- intentional plugin diagnostics; cron path only.
+		\error_log( "[fosse:blurhash] encode failed for attachment {$attachment_id}; placeholder will be absent until backfill." );
+
+		/**
+		 * Fires when the cron-deferred encoder fails to produce a
+		 * hash for an attachment. Monitoring integrations can hook
+		 * this to count blurhash-encode failures over time.
+		 *
+		 * @param int $attachment_id The attachment ID that failed to encode.
+		 */
+		\do_action( 'fosse_blurhash_encode_failed', $attachment_id );
 	}
 
 	/**

@@ -231,16 +231,24 @@ add_action(
 );
 
 /*
- * Blurhash placeholder encoder + AP attachment injector.
+ * Blurhash placeholder encoder + AP attachment injector, plus the
+ * `wp fosse blurhash …` WP-CLI backfill surface.
  *
- * Computes a Blurhash string at upload time (cron-scheduled off
- * `wp_generate_attachment_metadata` so the upload UI isn't blocked)
- * and adds the result to outbound ActivityPub `attachment[].blurhash`
- * via the `activitypub_attachment` filter, so Pixelfed and Mastodon
- * paint the colored-blur preview while the full image loads. Sites
- * without GD just skip silently — federation is unaffected. See
- * `DOTCOM-17159` and `class-blurhash.php`. Same degradation posture
- * as the projectors above.
+ * Runtime path: computes a Blurhash string at upload time
+ * (cron-scheduled off `wp_generate_attachment_metadata` so the upload
+ * UI isn't blocked) and adds the result to outbound ActivityPub
+ * `attachment[].blurhash` via the `activitypub_attachment` filter,
+ * so Pixelfed and Mastodon paint the colored-blur preview while the
+ * full image loads. Sites without GD just skip silently — federation
+ * is unaffected. See `DOTCOM-17159` and `class-blurhash.php`.
+ *
+ * The CLI surface (`Blurhash_CLI`) is gated on `WP_CLI` *before* the
+ * `class_exists` autoload probe so the CLI file is never read on web
+ * requests — keeps the registration overhead on a normal page load
+ * to a single passed-through `class_exists` check.
+ *
+ * Same degradation posture as the projectors above — if FOSSE's
+ * autoload is missing entirely, both classes silently skip.
  */
 add_action(
 	'init',
@@ -249,22 +257,10 @@ add_action(
 			return;
 		}
 		\Automattic\Fosse\Blurhash::register();
-	}
-);
 
-/*
- * WP-CLI: `wp fosse blurhash …` — backfill encoder for sites with
- * pre-existing media uploaded before the blurhash feature was active.
- * Register-time guard inside the class is a no-op when WP-CLI isn't
- * loaded, so this incurs zero overhead on web requests.
- */
-add_action(
-	'init',
-	static function () {
-		if ( ! class_exists( \Automattic\Fosse\Blurhash_CLI::class ) ) {
-			return;
+		if ( defined( 'WP_CLI' ) && WP_CLI && class_exists( \Automattic\Fosse\Blurhash_CLI::class ) ) {
+			\Automattic\Fosse\Blurhash_CLI::register();
 		}
-		\Automattic\Fosse\Blurhash_CLI::register();
 	}
 );
 
