@@ -708,7 +708,8 @@ class Onboarding_Wizard {
 	 * Returns an HTML string. Single-identity branches inline the handle
 	 * after a space; the multi-identity `actor_blog` branch separates
 	 * label and handle with `<br />` and joins lines with `<br />`. The
-	 * consumer escapes via `wp_kses` with `code`, `br`, and `wbr` allowed.
+	 * consumer escapes via `wp_kses` with `code` (allowing the `class`
+	 * attribute that the token markup carries), `br`, and `wbr` allowed.
 	 *
 	 * @param string $mode        Actor mode value.
 	 * @param string $user_handle Normalized `@user@host` for the current user, or empty.
@@ -752,21 +753,37 @@ class Onboarding_Wizard {
 	/**
 	 * Format a completion-summary identity token using shared admin token styles.
 	 *
+	 * The `host` and `handle` types both produce a domain-shaped token, but the
+	 * `host` variant omits the leading `@` so a bare site host (e.g.
+	 * `example.org`) isn't mistaken for a Fediverse address with no local-part.
+	 *
 	 * @param string $value Raw handle or fediverse address.
-	 * @param string $type  Token type: `ap-address`, `handle`, or `host`.
+	 * @param string $type  Token type: `ap-address`, `handle`, or `host`. Unknown
+	 *                      types fall back to the `handle` shape.
 	 * @return string Escaped HTML safe for `wp_kses`.
 	 */
 	private static function format_complete_identity_token( string $value, string $type ): string {
 		$classes = array( 'fosse-token', 'fosse-admin-token' );
 
-		if ( 'ap-address' === $type ) {
-			$classes[] = 'fosse-token--ap-address';
-			$classes[] = 'fosse-admin-token--ap-address';
-			$content   = Status_Formatter::ap_address( $value );
-		} else {
-			$classes[] = 'fosse-token--handle';
-			$classes[] = 'fosse-admin-token--handle';
-			$content   = ( 'host' === $type ? '' : '@' ) . Status_Formatter::handle( ltrim( $value, '@' ) );
+		switch ( $type ) {
+			case 'ap-address':
+				$classes[] = 'fosse-token--ap-address';
+				$classes[] = 'fosse-admin-token--ap-address';
+				$content   = Status_Formatter::ap_address( $value );
+				break;
+
+			case 'host':
+				$classes[] = 'fosse-token--host';
+				$classes[] = 'fosse-admin-token--host';
+				$content   = Status_Formatter::handle( ltrim( $value, '@' ) );
+				break;
+
+			case 'handle':
+			default:
+				$classes[] = 'fosse-token--handle';
+				$classes[] = 'fosse-admin-token--handle';
+				$content   = '@' . Status_Formatter::handle( ltrim( $value, '@' ) );
+				break;
 		}
 
 		return sprintf(
@@ -1682,17 +1699,26 @@ class Onboarding_Wizard {
 		);
 
 		if ( $bluesky['connected'] ) {
-			$bluesky_summary = $bluesky['handle']
-				? sprintf(
-					/* translators: %s: linked Bluesky handle. */
-					__( 'Connected as %s', 'fosse' ),
-					sprintf(
-						'<a href="%1$s" target="_blank" rel="noopener noreferrer">%2$s</a>',
-						esc_url( 'https://bsky.app/profile/' . rawurlencode( ltrim( $bluesky['handle'], '@' ) ) ),
-						self::format_complete_identity_token( (string) $bluesky['handle'], 'handle' )
-					)
-				)
-				: __( 'Connected', 'fosse' );
+			$bluesky_handle     = is_string( $bluesky['handle'] ?? null ) ? $bluesky['handle'] : '';
+			$bluesky_normalized = ltrim( $bluesky_handle, '@' );
+
+			if ( '' !== $bluesky_normalized ) {
+				$bluesky_link = sprintf(
+					'<a href="%1$s" target="_blank" rel="noopener noreferrer">%2$s</a>',
+					esc_url( 'https://bsky.app/profile/' . rawurlencode( $bluesky_normalized ) ),
+					self::format_complete_identity_token( $bluesky_handle, 'handle' )
+				);
+
+				/* translators: %s: linked Bluesky handle. */
+				$bluesky_template = __( 'Connected as %s', 'fosse' );
+
+				// `str_replace` instead of `sprintf` so a translation that
+				// adds, drops, or renumbers placeholders cannot crash the
+				// completion step on PHP 8.
+				$bluesky_summary = str_replace( '%s', $bluesky_link, $bluesky_template );
+			} else {
+				$bluesky_summary = __( 'Connected', 'fosse' );
+			}
 		} elseif ( ! $bluesky['available'] && $includes_bluesky ) {
 			$bluesky_summary = __( 'Unavailable', 'fosse' );
 		} else {

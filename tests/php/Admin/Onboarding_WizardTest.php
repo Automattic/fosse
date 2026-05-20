@@ -1419,6 +1419,67 @@ class Onboarding_WizardTest extends BaseTestCase {
 	}
 
 	/**
+	 * A stored Bluesky handle that includes a leading `@` must still produce
+	 * a correct `bsky.app/profile/...` URL — `@` is stripped before
+	 * percent-encoding so the link does not become `bsky.app/profile/%40alice...`.
+	 */
+	public function test_complete_summary_strips_leading_at_from_stored_bluesky_handle_in_link(): void {
+		Onboarding_Wizard::mark_complete();
+		update_option( 'activitypub_actor_mode', 'blog' );
+		$this->seed_bluesky_connection( '@alice.bsky.social', 'did:plc:alice123' );
+
+		$output = $this->render_wizard_step( 'complete' );
+
+		$this->assertStringContainsString(
+			'href="https://bsky.app/profile/alice.bsky.social"',
+			$output
+		);
+		$this->assertStringNotContainsString( 'profile/%40', $output );
+		$this->assertStringNotContainsString( 'profile/@', $output );
+	}
+
+	/**
+	 * A degenerate stored Bluesky handle (e.g. a bare `@` left over from a
+	 * partial connection) must fall back to the plain "Connected" string
+	 * instead of rendering a `@` token linked to an empty bsky.app profile.
+	 */
+	public function test_complete_summary_bluesky_degenerate_handle_falls_back_to_bare_connected(): void {
+		Onboarding_Wizard::mark_complete();
+		update_option( 'activitypub_actor_mode', 'blog' );
+		$this->seed_bluesky_connection( '@', 'did:plc:alice123' );
+
+		$output = $this->render_wizard_step( 'complete' );
+
+		$this->assertMatchesRegularExpression( '~<dt[^>]*>Bluesky</dt>\s*<dd[^>]*>\s*Connected\s*</dd>~', $output );
+		$this->assertStringNotContainsString( 'href="https://bsky.app/profile/"', $output );
+	}
+
+	/**
+	 * A corrupted `atmosphere_connection` record where `handle` is non-string
+	 * (e.g. an array) must not throw a `TypeError` and must not render a
+	 * broken link. The wizard treats the missing-handle case as a bare
+	 * "Connected" state.
+	 */
+	public function test_complete_summary_bluesky_non_string_handle_does_not_fatal(): void {
+		Onboarding_Wizard::mark_complete();
+		update_option( 'activitypub_actor_mode', 'blog' );
+		update_option(
+			'atmosphere_connection',
+			array(
+				'did'          => 'did:plc:alice123',
+				'handle'       => array( 'unexpected', 'array' ),
+				'pds_endpoint' => 'https://bsky.social',
+				'access_token' => Encryption::encrypt( 'token' ),
+			)
+		);
+
+		$output = $this->render_wizard_step( 'complete' );
+
+		$this->assertMatchesRegularExpression( '~<dt[^>]*>Bluesky</dt>\s*<dd[^>]*>\s*Connected\s*</dd>~', $output );
+		$this->assertStringNotContainsString( 'bsky.app/profile/', $output );
+	}
+
+	/**
 	 * The Review summary includes the selected destination and skipped Bluesky state.
 	 */
 	public function test_complete_summary_shows_fediverse_only_destination_and_skipped_bluesky(): void {
@@ -1502,14 +1563,16 @@ class Onboarding_WizardTest extends BaseTestCase {
 	/**
 	 * The `blog` fallback shows the site host only when AP cannot resolve a
 	 * real blog actor. It must not render that host as `@example.org`, which
-	 * looks like a fediverse address with no local-part.
+	 * looks like a fediverse address with no local-part. The token also
+	 * carries a `--host` modifier (not `--handle`) so the class list reflects
+	 * the value's actual shape.
 	 */
 	public function test_complete_summary_blog_fallback_host_does_not_render_as_fediverse_address(): void {
 		$output = $this->call_format_mode_label( 'blog', '', '' );
 
 		$this->assertStringContainsString( 'As your site', $output );
 		$this->assertStringContainsString(
-			'<code class="fosse-token fosse-admin-token fosse-token--handle fosse-admin-token--handle">example.<wbr>org</code>',
+			'<code class="fosse-token fosse-admin-token fosse-token--host fosse-admin-token--host">example.<wbr>org</code>',
 			$output
 		);
 		$this->assertStringNotContainsString( '@example', $output );
