@@ -143,6 +143,7 @@ This matches how wp.com handles other sticker-gated mu-plugins (e.g., `enable-ac
 | `fosse_onboarding_completed` | FOSSE wizard | Delete |
 | `fosse_onboarding_destination` | FOSSE wizard (destination-first flow) | Delete |
 | `fosse_activation_redirect` option/transient | FOSSE activation redirect | Delete |
+| `fosse_deactivation_handoff_pending` transient | FOSSE deactivation handoff (defensive — design retired, name retained for cleanup of stale values from earlier dev builds) | Delete |
 | `fosse_bundled_ap_bootstrapped` | FOSSE bundled activation shim | Delete |
 | `fosse_bundled_atmosphere_bootstrapped` | FOSSE bundled activation shim | Delete |
 | `fosse_canonical_options_migrated` | FOSSE canonical-options migration completion flag | Delete |
