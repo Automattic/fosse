@@ -17,7 +17,7 @@ Based on: `sdd/deactivation-lifecycle/spec.md`
 
 ### Task 1: Add lifecycle uninstall cleanup tests
 
-- **Status**: ✅ Done (this branch)
+- **Status**: ✅ Done (#92)
 - **Files**:
   - Create: `tests/php/LifecycleTest.php`
 - **Do**:
@@ -35,7 +35,7 @@ Based on: `sdd/deactivation-lifecycle/spec.md`
 
 ### Task 2: Implement FOSSE-only uninstall cleanup
 
-- **Status**: ✅ Done (this branch)
+- **Status**: ✅ Done (#92)
 - **Files**:
   - Create: `src/class-lifecycle.php`
   - Modify: `tests/php/LifecycleTest.php`
@@ -55,7 +55,7 @@ Based on: `sdd/deactivation-lifecycle/spec.md`
 
 ### Task 3: Add Plugins-screen handoff row tests
 
-- **Status**: ✅ Done (this branch)
+- **Status**: ✅ Done (#92)
 - **Files**:
   - Create: `tests/php/Admin/Standalone_Handoff_NoticeTest.php`
 - **Do**:
@@ -73,7 +73,7 @@ Based on: `sdd/deactivation-lifecycle/spec.md`
 
 ### Task 4: Implement Plugins-screen handoff row
 
-- **Status**: ✅ Done (this branch)
+- **Status**: ✅ Done (#92)
 - **Files**:
   - Create: `src/Admin/class-standalone-handoff-notice.php`
   - Modify: `src/Admin/class-menu.php` (register the row on `after_plugin_row_fosse/fosse.php`)
@@ -93,7 +93,7 @@ Based on: `sdd/deactivation-lifecycle/spec.md`
 
 ### Task 5: Add uninstall entrypoint
 
-- **Status**: ✅ Done (this branch)
+- **Status**: ✅ Done (#92)
 - **Files**:
   - Create: `uninstall.php`
   - Modify: `tests/php/PluginLoadsTest.php`
@@ -113,7 +113,7 @@ Based on: `sdd/deactivation-lifecycle/spec.md`
 
 ### Task 6: Extend e2e lifecycle/conflict coverage
 
-- **Status**: ✅ Done (this branch)
+- **Status**: ✅ Done (#92)
 - **Files**:
   - Modify: `tests/e2e/bundled-backends.spec.ts`
 - **Do**:
@@ -127,7 +127,7 @@ Based on: `sdd/deactivation-lifecycle/spec.md`
 
 ### Task 7: Update SDD implementation notes
 
-- **Status**: ✅ Done (this branch)
+- **Status**: ✅ Done (#92)
 - **Files**:
   - Create: `sdd/deactivation-lifecycle/implementation-notes.md`
   - Modify: `sdd/deactivation-lifecycle/plan.md`
@@ -142,7 +142,7 @@ Based on: `sdd/deactivation-lifecycle/spec.md`
 
 ### Task 8: Run verification
 
-- **Status**: ✅ Done (this branch)
+- **Status**: ✅ Done (#92)
 - **Files**:
   - No new files
 - **Do**:
