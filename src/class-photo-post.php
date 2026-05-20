@@ -59,13 +59,11 @@ use WP_Post;
  *     images here is a strict superset.
  *
  * Out of scope (separate tickets):
- *   - `blurhash`: needs a PHP encoder dep + background job at
- *     upload time, can't run synchronously on the federation hot
- *     path.
- *   - AT-protocol `app.bsky.embed.images`: Atmosphere today only
- *     emits `app.bsky.embed.external` link cards. Switching photo
- *     posts to native image embeds is its own project (uploadBlob,
- *     blob caching, 4-image cap with overflow strategy).
+ *   - `blurhash`: handled by the sibling {@see Blurhash} class —
+ *     computed at upload time off `wp_generate_attachment_metadata`,
+ *     stored as postmeta, injected via its own
+ *     `activitypub_attachment` callback. Decoupled from this
+ *     projector so non-photo image attachments also gain the field.
  *   - `sensitive` / `summary` (content warnings): needs UX decision
  *     on the source of truth — taxonomy, postmeta, or per-network.
  */
