@@ -57,10 +57,18 @@ class Bluesky_Provider implements Connection_Provider {
 	 *
 	 * A sentinel value of -1 is written into the transient so subsequent
 	 * admin page renders during a sustained PDS outage skip the live HTTP
-	 * call (Atmosphere's wp_remote_request timeout is 30s) instead of
-	 * blocking every render until the network catches up.
+	 * call until the negative cache expires.
 	 */
 	private const PROFILE_FAILURE_TTL = 2 * MINUTE_IN_SECONDS;
+
+	/**
+	 * HTTP timeout (seconds) for the optional follower-count enrichment.
+	 *
+	 * Overrides Atmosphere's 30s default. The Followers row is decorative
+	 * and is omitted entirely on failure, so admin rendering should not
+	 * wait longer than this for it even on the first uncached request.
+	 */
+	private const PROFILE_REQUEST_TIMEOUT = 5;
 
 	/**
 	 * Hook into fosse_register_providers to self-register.
@@ -248,13 +256,19 @@ class Bluesky_Provider implements Connection_Provider {
 	/**
 	 * Fetch the connected Bluesky follower count from the profile API.
 	 *
-	 * Successful counts are cached for {@see self::PROFILE_SUCCESS_TTL} so
-	 * Settings and Status rendering does not turn every admin page load
-	 * into a PDS request. Remote-call failures are negative-cached for
-	 * {@see self::PROFILE_FAILURE_TTL} using a `-1` sentinel; without that
-	 * a sustained PDS outage would block every admin page render on the
-	 * 30s wp_remote_request timeout. The UI omits the optional row in
-	 * both the null-return and negative-cache hit cases.
+	 * The Followers row is an optional UI enrichment, so the fetch uses
+	 * {@see Atmosphere\API::request()} directly with a short
+	 * {@see self::PROFILE_REQUEST_TIMEOUT} override instead of the
+	 * `::get()` helper that inherits Atmosphere's 30s default — a slow
+	 * PDS must not stall the entire Settings/Status render for a row
+	 * that the UI omits on failure anyway.
+	 *
+	 * Successful counts are cached for {@see self::PROFILE_SUCCESS_TTL}.
+	 * Remote-call failures are negative-cached for
+	 * {@see self::PROFILE_FAILURE_TTL} using a `-1` sentinel so a
+	 * sustained outage cannot turn every uncached admin render into a
+	 * fresh HTTP wait. The UI omits the row in both the null-return and
+	 * negative-cache-hit cases.
 	 *
 	 * @param array<string, mixed> $status Bluesky status snapshot.
 	 * @return int|null Followers count, or null when unavailable.
@@ -272,11 +286,12 @@ class Bluesky_Provider implements Connection_Provider {
 			return $cached_int < 0 ? null : $cached_int;
 		}
 
-		if ( ! class_exists( '\Atmosphere\API' ) || ! method_exists( '\Atmosphere\API', 'get' ) ) {
+		if ( ! class_exists( '\Atmosphere\API' ) || ! method_exists( '\Atmosphere\API', 'request' ) ) {
 			return null;
 		}
 
-		$result = \Atmosphere\API::get( '/xrpc/app.bsky.actor.getProfile', array( 'actor' => (string) $status['did'] ) );
+		$endpoint = '/xrpc/app.bsky.actor.getProfile?' . http_build_query( array( 'actor' => (string) $status['did'] ) );
+		$result   = \Atmosphere\API::request( 'GET', $endpoint, array( 'timeout' => self::PROFILE_REQUEST_TIMEOUT ) );
 		if ( is_wp_error( $result ) || ! is_array( $result ) || ! array_key_exists( 'followersCount', $result ) || ! is_numeric( $result['followersCount'] ) ) {
 			set_transient( $cache_key, -1, self::PROFILE_FAILURE_TTL );
 			return null;
