@@ -1599,6 +1599,18 @@ class Onboarding_WizardTest extends BaseTestCase {
 				'access_token' => Encryption::encrypt( 'token' ),
 			)
 		);
+		// Seed identity directly so Atmosphere\get_identity() short-circuits
+		// instead of running its lazy migration (which would cast the corrupt
+		// array handle to string and emit an "Array to string conversion"
+		// warning — the wizard's own defenses kick in further downstream).
+		update_option(
+			'atmosphere_identity',
+			array(
+				'did'          => 'did:plc:alice123',
+				'handle'       => '',
+				'pds_endpoint' => 'https://bsky.social',
+			)
+		);
 
 		$output = $this->render_wizard_step( 'complete' );
 

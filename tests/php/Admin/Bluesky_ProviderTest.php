@@ -2385,7 +2385,13 @@ class Bluesky_ProviderTest extends BaseTestCase {
 	): void {
 		set_transient( 'atmosphere_oauth_state', $state, HOUR_IN_SECONDS );
 		set_transient( 'atmosphere_oauth_verifier', 'test-verifier-' . uniqid( '', true ), HOUR_IN_SECONDS );
-		set_transient( 'atmosphere_oauth_dpop_jwk', \Atmosphere\OAuth\DPoP::generate_key(), HOUR_IN_SECONDS );
+		set_transient(
+			'atmosphere_oauth_dpop_jwk',
+			\Atmosphere\OAuth\Encryption::encrypt(
+				(string) wp_json_encode( \Atmosphere\OAuth\DPoP::generate_key() ) // phpcs:ignore Jetpack.Functions.JsonEncodeFlags.Missing -- test fixture.
+			),
+			HOUR_IN_SECONDS
+		);
 		set_transient(
 			'atmosphere_oauth_resolved',
 			array(
