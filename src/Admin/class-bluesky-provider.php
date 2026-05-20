@@ -864,7 +864,7 @@ class Bluesky_Provider implements Connection_Provider {
 		);
 
 		$handle = sanitize_text_field( wp_unslash( $_POST['bluesky_handle'] ?? '' ) );
-		$handle = strtolower( trim( ltrim( trim( $handle ), '@' ) ) );
+		$handle = self::normalize_submitted_handle( $handle );
 
 		if ( empty( $handle ) ) {
 			self::record_connection_failed( 'bluesky', $source, 'invalid_handle' );
@@ -977,6 +977,32 @@ class Bluesky_Provider implements Connection_Provider {
 		}
 
 		$this->redirect_with_notice( __( 'Disconnected from Bluesky.', 'fosse' ), 'info' );
+	}
+
+	/**
+	 * Normalize a submitted Bluesky handle before validation.
+	 *
+	 * @param string $handle Raw sanitized handle from the form submission.
+	 * @return string Normalized handle.
+	 */
+	private static function normalize_submitted_handle( string $handle ): string {
+		$handle = preg_replace( '/\p{Cf}+/u', '', $handle );
+		if ( ! is_string( $handle ) ) {
+			return '';
+		}
+
+		$handle = preg_replace( '/^\s+|\s+$/u', '', $handle );
+		if ( ! is_string( $handle ) ) {
+			return '';
+		}
+
+		$handle = ltrim( $handle, '@' );
+		$handle = preg_replace( '/^\s+|\s+$/u', '', $handle );
+		if ( ! is_string( $handle ) ) {
+			return '';
+		}
+
+		return strtolower( $handle );
 	}
 
 	/**

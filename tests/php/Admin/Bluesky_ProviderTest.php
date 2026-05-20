@@ -1890,6 +1890,54 @@ class Bluesky_ProviderTest extends BaseTestCase {
 	}
 
 	/**
+	 * Invisible Unicode formatting bytes from copied handles are stripped
+	 * before validation. They are visually indistinguishable from a valid
+	 * handle, but the ASCII handle regex rejects them if they survive.
+	 */
+	public function test_handle_connect_strips_invisible_unicode_formatting() {
+		$this->become_admin();
+
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
+		$_POST    = array(
+			'_wpnonce'       => wp_create_nonce( 'fosse_connect_bluesky' ),
+			'bluesky_handle' => "devdotdev.bsky.social\u{202C}",
+		);
+		$_REQUEST = $_POST;
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+
+		$captured_handle = null;
+		add_filter(
+			'pre_http_request',
+			static function ( $preempt, $args, $url ) use ( &$captured_handle ) {
+				$captured_handle = $url;
+				return new \WP_Error( 'fosse_test_intercept', 'intercepted' );
+			},
+			10,
+			3
+		);
+
+		add_filter(
+			'wp_redirect',
+			static function () {
+				throw new RedirectFired( 'redirect' );
+			}
+		);
+
+		try {
+			$this->provider->handle_connect();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$this->assertNotNull(
+			$captured_handle,
+			'Expected pre_http_request to fire from Client::authorize() after removing invisible formatting bytes.'
+		);
+		$this->assertStringContainsString( 'devdotdev.bsky.social', $captured_handle );
+		$this->assertStringNotContainsString( '%E2%80%AC', $captured_handle );
+	}
+
+	/**
 	 * Provider registers the expected hooks. Settings save is centralized
 	 * in {@see Setup_Page::handle_save()} so the provider's own
 	 * `register_hooks()` does NOT register an admin-post handler for it.
