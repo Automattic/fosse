@@ -4,37 +4,38 @@ Based on: `sdd/deactivation-lifecycle/spec.md`
 
 ## Progress
 
-- [ ] Task 1: Add lifecycle uninstall cleanup tests
-- [ ] Task 2: Implement FOSSE-only uninstall cleanup
-- [ ] Task 3: Add deactivation handoff notice tests
-- [ ] Task 4: Implement deactivation handoff notice
-- [ ] Task 5: Add uninstall entrypoint
-- [ ] Task 6: Extend e2e lifecycle/conflict coverage
-- [ ] Task 7: Update SDD implementation notes
-- [ ] Task 8: Run verification
+- [x] Task 1: Add lifecycle uninstall cleanup tests
+- [x] Task 2: Implement FOSSE-only uninstall cleanup
+- [x] Task 3: Add Plugins-screen handoff row tests
+- [x] Task 4: Implement Plugins-screen handoff row
+- [x] Task 5: Add uninstall entrypoint
+- [x] Task 6: Extend e2e lifecycle/conflict coverage
+- [x] Task 7: Update SDD implementation notes
+- [x] Task 8: Run verification
 
 ## Tasks
 
 ### Task 1: Add lifecycle uninstall cleanup tests
 
-- **Status**: Not started
+- **Status**: ✅ Done (this branch)
 - **Files**:
   - Create: `tests/php/LifecycleTest.php`
 - **Do**:
   1. Create a WorDBless test class for `Automattic\Fosse\Lifecycle`.
-  2. Seed FOSSE-owned options: `fosse_object_type`, `fosse_long_form_strategy`, `fosse_onboarding_completed`, `fosse_activation_redirect`, `fosse_bundled_ap_bootstrapped`, `fosse_bundled_atmosphere_bootstrapped`, `fosse_metrics_consent`, `fosse_metrics_last_observed_at`, `fosse_metrics_first_observed_at`, `fosse_metrics_funnel`.
+  2. Seed FOSSE-owned options: `fosse_object_type`, `fosse_long_form_strategy`, `fosse_onboarding_completed`, `fosse_onboarding_destination`, `fosse_activation_redirect`, `fosse_bundled_ap_bootstrapped`, `fosse_bundled_atmosphere_bootstrapped`, `fosse_canonical_options_migrated`, `fosse_metrics_consent`, `fosse_metrics_last_observed_at`, `fosse_metrics_first_observed_at`, `fosse_metrics_funnel`.
   3. Seed FOSSE-owned transients: `fosse_activation_redirect` and `fosse_bluesky_oauth_return_123`.
-  4. Seed upstream-owned options that must survive: `activitypub_actor_mode`, `activitypub_support_post_types`, `activitypub_blog_identifier`, `atmosphere_connection`, `atmosphere_auto_publish`.
-  5. Call `Lifecycle::uninstall()`.
-  6. Assert FOSSE-owned options/transients are gone and upstream-owned options retain exact seeded values.
-  7. Add a second test that calls `Lifecycle::uninstall()` with no seeded FOSSE options and expects no warnings or errors.
+  4. Seed FOSSE-owned user meta: `_fosse_wizard_started_emitted` for a test user id.
+  5. Seed upstream-owned options that must survive: `activitypub_actor_mode`, `activitypub_support_post_types`, `activitypub_blog_identifier`, `atmosphere_connection`, `atmosphere_auto_publish`.
+  6. Call `Lifecycle::uninstall()`.
+  7. Assert FOSSE-owned options/transients/user meta are gone and upstream-owned options retain exact seeded values.
+  8. Add a second test that calls `Lifecycle::uninstall()` with no seeded FOSSE options and expects no warnings or errors.
 - **Verify**:
   - `composer run-script test-php -- --filter LifecycleTest` fails because `Automattic\Fosse\Lifecycle` does not exist yet.
 - **Depends on**: none
 
 ### Task 2: Implement FOSSE-only uninstall cleanup
 
-- **Status**: Not started
+- **Status**: ✅ Done (this branch)
 - **Files**:
   - Create: `src/class-lifecycle.php`
   - Modify: `tests/php/LifecycleTest.php`
@@ -52,47 +53,47 @@ Based on: `sdd/deactivation-lifecycle/spec.md`
   - `composer run-script lint-php -- src/class-lifecycle.php tests/php/LifecycleTest.php`
 - **Depends on**: Task 1
 
-### Task 3: Add deactivation handoff notice tests
+### Task 3: Add Plugins-screen handoff row tests
 
-- **Status**: Not started
+- **Status**: ✅ Done (this branch)
 - **Files**:
   - Create: `tests/php/Admin/Standalone_Handoff_NoticeTest.php`
 - **Do**:
-  1. Add tests for an admin notice class that renders a one-line confirmation when FOSSE was deactivated AND a standalone AP or Atmosphere plugin is currently active.
+  1. Add tests for a class that renders a small descriptive row under FOSSE on the Plugins screen via `after_plugin_row_fosse/fosse.php`, telling the user what will happen if they deactivate FOSSE while a standalone backend is active.
   2. Cover these states:
-     - FOSSE was deactivated, standalone AP active → notice renders, references "ActivityPub plugin".
-     - FOSSE was deactivated, standalone Atmosphere active → notice renders, references "Atmosphere plugin".
-     - FOSSE was deactivated, both standalone plugins active → notice mentions both.
-     - FOSSE was deactivated, neither standalone active → notice does NOT render.
-     - FOSSE never deactivated (or notice already dismissed/seen) → notice does NOT render.
-  3. The "FOSSE was deactivated" signal can be a transient set in a `register_deactivation_hook` callback that the notice consumes once and clears.
+     - Standalone AP active → row renders, references "ActivityPub" singular.
+     - Standalone Atmosphere active → row renders, references "Atmosphere" singular.
+     - Both standalone plugins active → row mentions both, joined naturally.
+     - Neither standalone active → row does NOT render.
+     - User without `activate_plugins` capability → row does NOT render.
+  3. The class's render method takes the active-plugin list as an explicit argument so the test doesn't have to mutate WordPress' `active_plugins` option directly.
 - **Verify**:
-  - `composer run-script test-php -- --filter Standalone_Handoff_NoticeTest` fails because the notice class does not exist yet.
+  - `composer run-script test-php -- --filter Standalone_Handoff_NoticeTest` fails because the class does not exist yet.
 - **Depends on**: none
 
-### Task 4: Implement deactivation handoff notice
+### Task 4: Implement Plugins-screen handoff row
 
-- **Status**: Not started
+- **Status**: ✅ Done (this branch)
 - **Files**:
   - Create: `src/Admin/class-standalone-handoff-notice.php`
-  - Modify: `fosse.php` (register the deactivation hook that sets the handoff transient)
-  - Modify: `src/Admin/class-menu.php` (register the notice on `admin_notices`)
+  - Modify: `src/Admin/class-menu.php` (register the row on `after_plugin_row_fosse/fosse.php`)
   - Modify: `tests/php/Admin/Standalone_Handoff_NoticeTest.php`
 - **Do**:
   1. Add `Automattic\Fosse\Admin\Standalone_Handoff_Notice`.
-  2. Register a `register_deactivation_hook` callback in `fosse.php` that sets a short-lived transient (`fosse_deactivation_handoff_pending`) marking that FOSSE was just deactivated.
-  3. The notice class checks for that transient on `admin_notices`, inspects whether `ACTIVITYPUB_PLUGIN_VERSION` or `ATMOSPHERE_VERSION` is defined (i.e. a standalone backend is active), and if so renders one notice. The notice clears the transient once shown (one-shot UX).
-  4. Notice content: "FOSSE deactivated. Federation will continue via the standalone <plugin name> plugin." Singular or plural based on which standalone backends are active.
-  5. Restrict to users with `activate_plugins`.
-  6. The notice lives at the global admin level (it surfaces on the next admin page load after deactivation, regardless of which screen the user lands on).
+  2. Register the row callback in `Menu::register()` on `after_plugin_row_<FOSSE basename>`. Use `plugin_basename( FOSSE plugin file )` so the hook name matches the actual install path; don't hard-code `fosse/fosse.php`.
+  3. The callback runs `current_user_can( 'activate_plugins' )` first; bails silently otherwise.
+  4. The callback inspects `is_plugin_active( 'activitypub/activitypub.php' )` and `is_plugin_active( 'atmosphere/atmosphere.php' )` to decide which standalones are active, and bails silently when neither is.
+  5. Row content: "Federation will continue via the standalone ActivityPub plugin if you deactivate FOSSE." (singular) / "Federation will continue via the standalone Atmosphere plugin…" / "Federation will continue via the standalone ActivityPub and Atmosphere plugins…" (both).
+  6. Render as a WordPress-standard `<tr class="plugin-update-tr active"><td colspan="N">…</td></tr>` row beneath FOSSE.
+  7. Skip the original `register_deactivation_hook` transient design; it can't reach a next-request render and was struck from the spec. Document the design pivot in `sdd/deactivation-lifecycle/implementation-notes.md` (Task 7).
 - **Verify**:
   - `composer run-script test-php -- --filter Standalone_Handoff_NoticeTest`
-  - `composer run-script lint-php -- src/Admin/class-standalone-handoff-notice.php src/Admin/class-menu.php fosse.php`
+  - `composer run-script lint-php -- src/Admin/class-standalone-handoff-notice.php src/Admin/class-menu.php`
 - **Depends on**: Task 3
 
 ### Task 5: Add uninstall entrypoint
 
-- **Status**: Not started
+- **Status**: ✅ Done (this branch)
 - **Files**:
   - Create: `uninstall.php`
   - Modify: `tests/php/PluginLoadsTest.php`
@@ -112,21 +113,21 @@ Based on: `sdd/deactivation-lifecycle/spec.md`
 
 ### Task 6: Extend e2e lifecycle/conflict coverage
 
-- **Status**: Not started
+- **Status**: ✅ Done (this branch)
 - **Files**:
   - Modify: `tests/e2e/bundled-backends.spec.ts`
 - **Do**:
   1. Keep the existing assertions that FOSSE hides native ActivityPub menu entries while active and direct backend settings URLs remain accessible.
   2. Add a no-fatal assertion for the Plugins screen after backend detection runs.
-  3. Add a deactivation-handoff e2e: activate FOSSE → activate standalone AP → deactivate FOSSE → assert the handoff notice appears on the next admin page load and references the standalone plugin by name.
-  4. Add a no-handoff-notice case: activate FOSSE → deactivate FOSSE without a standalone backend installed → assert no handoff notice surfaces.
+  3. Add a Plugins-screen handoff row case (best-effort under Playground — skip if a standalone AP/Atmo install isn't reachable in the blueprint): activate FOSSE with standalone AP active → assert the handoff row appears under FOSSE on the Plugins screen and references "ActivityPub" by name.
+  4. Add a no-handoff-row case: activate FOSSE without a standalone backend → assert no handoff row surfaces under the FOSSE plugin row.
 - **Verify**:
   - `pnpm exec playwright test tests/e2e/bundled-backends.spec.ts`
 - **Depends on**: Task 4
 
 ### Task 7: Update SDD implementation notes
 
-- **Status**: Not started
+- **Status**: ✅ Done (this branch)
 - **Files**:
   - Create: `sdd/deactivation-lifecycle/implementation-notes.md`
   - Modify: `sdd/deactivation-lifecycle/plan.md`
@@ -141,7 +142,7 @@ Based on: `sdd/deactivation-lifecycle/spec.md`
 
 ### Task 8: Run verification
 
-- **Status**: Not started
+- **Status**: ✅ Done (this branch)
 - **Files**:
   - No new files
 - **Do**:

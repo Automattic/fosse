@@ -1,3 +1,7 @@
+---
+status: in-progress
+---
+
 # Spec: Deactivation Lifecycle
 
 ## Goal
@@ -28,16 +32,21 @@ Deleting FOSSE will remove FOSSE-owned lifecycle, projector, and temporary state
 - `fosse_object_type`
 - `fosse_long_form_strategy`
 - `fosse_onboarding_completed`
+- `fosse_onboarding_destination`
 - `fosse_activation_redirect`
 - `fosse_bundled_ap_bootstrapped`
 - `fosse_bundled_atmosphere_bootstrapped`
+- `fosse_canonical_options_migrated`
 - `fosse_metrics_consent`
 - `fosse_metrics_last_observed_at`
 - `fosse_metrics_first_observed_at`
 - `fosse_metrics_funnel`
 - Legacy transient storage for `fosse_activation_redirect`
 - Per-user OAuth return-context transients with prefix `fosse_bluesky_oauth_return_`
+- `_fosse_wizard_started_emitted` user meta (per-user wizard analytics dedup flag)
 - Future FOSSE user meta keys, if any are introduced before implementation
+
+V1 does NOT delete `_fosse_metrics_ap_dispatch_state` post meta. It's per-post telemetry state attached to user posts, deletion scales with N posts (different cost class than option deletes), and the value is harmless when its readers stop loading. If a future SDD adds a network-wide retention requirement, revisit.
 
 Deleting FOSSE will not remove:
 
@@ -84,7 +93,7 @@ The implementation must preserve FOSSE's current bare-clone degradation behavior
 
 When standalone ActivityPub or Atmosphere is active and successfully loaded, FOSSE treats it as the backend. FOSSE's admin UI can remain the unified surface while FOSSE is active, and the native menus reappear when FOSSE is deactivated. No data migration is needed because option keys are upstream-identical.
 
-**On FOSSE deactivation while standalone AP/Atmosphere is active**, surface a one-line confirmation notice on the next admin page load: "FOSSE deactivated. Federation will continue via the standalone ActivityPub/Atmosphere plugin." This is a confirmation, not a warning — the user already chose to deactivate; the notice just makes the handoff legible. Notice does NOT render when no standalone backend is active (silent deactivation is fine; the user knows what they did).
+**Make the handoff legible *before* deactivation, not after.** The original draft proposed a post-deactivation admin notice ("FOSSE deactivated. Federation will continue via the standalone ActivityPub/Atmosphere plugin."). That design cannot be implemented from FOSSE alone: once a user deactivates FOSSE, no FOSSE code runs on subsequent requests to read a transient and render a notice. Instead, when FOSSE is active and at least one standalone backend (`activitypub/activitypub.php` or `atmosphere/atmosphere.php`) is also active, render a small descriptive row under FOSSE on the Plugins screen via `after_plugin_row_fosse/fosse.php`: "Federation will continue via the standalone ActivityPub/Atmosphere plugin if you deactivate FOSSE." The message is plural-aware and only renders for users who can `activate_plugins`. When no standalone backend is present the row is silent — there is nothing meaningful to hand off to and the user already understands deactivation will stop federation.
 
 ### 6. Per-Provider Disable Is Deferred
 
@@ -118,28 +127,32 @@ This matches how wp.com handles other sticker-gated mu-plugins (e.g., `enable-ac
 | FOSSE active, no standalone AP/Atmosphere files | FOSSE loads bundled backends, bootstraps upstream activation side effects once per version, hides native menus, shows FOSSE UI. |
 | FOSSE active, standalone AP/Atmosphere active | FOSSE skips bundled copy, uses standalone backend APIs/options, hides native menus while active, keeps direct URL access. |
 | FOSSE active, standalone AP/Atmosphere files present but inactive | FOSSE skips bundled copy to avoid future redeclare fatal; provider may be unavailable. No notice — inactive plugins are not affecting behavior. |
-| FOSSE deactivated, standalone AP/Atmosphere active | FOSSE menus and suppressions disappear; native backend menus reappear; upstream options keep last configured values. One-line confirmation notice surfaces on next admin page load: "FOSSE deactivated. Federation will continue via the standalone ActivityPub/Atmosphere plugin." |
-| FOSSE deactivated, no standalone AP/Atmosphere active | Bundled backends stop loading; FOSSE and native backend menus are absent; stored options remain. No notice. |
+| FOSSE deactivated, standalone AP/Atmosphere active | FOSSE menus and suppressions disappear; native backend menus reappear; upstream options keep last configured values. The Plugins-screen row under FOSSE warned about this *before* deactivation (see Decision 5). |
+| FOSSE deactivated, no standalone AP/Atmosphere active | Bundled backends stop loading; FOSSE and native backend menus are absent; stored options remain. No pre-deactivation row. |
 | FOSSE deleted/uninstalled (self-hosted) | `uninstall.php` runs `Lifecycle::uninstall()`. FOSSE-owned state is deleted; AP/Atmosphere options and credentials remain. |
 | **wp.com Simple: `enable-fosse` sticker removed** | FOSSE stops loading on next request. No options deleted. `uninstall.php` does NOT fire. `Lifecycle::uninstall()` available for out-of-band cleanup if needed. |
 | **wp.com Simple: `disable-fosse` sticker added (per-blog kill)** | Same as sticker removal — FOSSE stops loading. The kill switch is reversible by removing the disable sticker; data persists across the toggle. |
-| User installs standalone backend after FOSSE | Existing filesystem skip prevents bundled load collisions. No new notice (inactive plugins do nothing). On next FOSSE deactivation, the standalone-handoff confirmation notice from Decision 5 fires. |
+| User installs standalone backend after FOSSE | Existing filesystem skip prevents bundled load collisions. No new notice (inactive plugins do nothing). Once standalone is *active*, the Plugins-screen handoff row from Decision 5 starts showing under FOSSE. |
 
 ## Data Ownership
 
 | Key / Prefix | Owner | Uninstall Action |
 | --- | --- | --- |
-| `fosse_object_type` | FOSSE projector | Delete |
-| `fosse_long_form_strategy` | FOSSE projector | Delete |
+| `fosse_object_type` | FOSSE projector (legacy; migrator deletes on first run, retained here defensively) | Delete |
+| `fosse_long_form_strategy` | FOSSE projector (legacy; migrator deletes on first run, retained here defensively) | Delete |
 | `fosse_onboarding_completed` | FOSSE wizard | Delete |
+| `fosse_onboarding_destination` | FOSSE wizard (destination-first flow) | Delete |
 | `fosse_activation_redirect` option/transient | FOSSE activation redirect | Delete |
 | `fosse_bundled_ap_bootstrapped` | FOSSE bundled activation shim | Delete |
 | `fosse_bundled_atmosphere_bootstrapped` | FOSSE bundled activation shim | Delete |
+| `fosse_canonical_options_migrated` | FOSSE canonical-options migration completion flag | Delete |
 | `fosse_metrics_consent` | FOSSE metrics consent | Delete |
 | `fosse_metrics_last_observed_at` | FOSSE metrics daily observation guard | Delete |
 | `fosse_metrics_first_observed_at` | FOSSE metrics first-observed timestamp | Delete |
 | `fosse_metrics_funnel` | FOSSE metrics first-post milestones | Delete |
 | `fosse_bluesky_oauth_return_*` transients | FOSSE wizard return context | Delete |
+| `_fosse_wizard_started_emitted` user meta | FOSSE wizard per-user analytics dedup | Delete |
+| `_fosse_metrics_ap_dispatch_state` post meta | FOSSE metrics per-post AP dispatch tracking | Preserve in v1 (see uninstall list above) |
 | `activitypub_*` | ActivityPub | Preserve |
 | `atmosphere_*` | Atmosphere | Preserve |
 
@@ -159,7 +172,7 @@ Required test coverage:
 
 - `tests/php/LifecycleTest.php`: `Lifecycle::uninstall()` deletes only FOSSE-owned options/transients and preserves seeded `activitypub_*` / `atmosphere_*` values.
 - `tests/php/LifecycleTest.php`: uninstall cleanup handles missing FOSSE options without warnings.
-- `tests/php/Admin/Standalone_Handoff_NoticeTest.php`: deactivation handoff notice renders only when standalone AP or Atmosphere is active at the moment of FOSSE deactivation; does NOT render when no standalone backend is active.
+- `tests/php/Admin/Standalone_Handoff_NoticeTest.php`: Plugins-screen handoff row renders only when standalone AP or Atmosphere is active; renders singular vs plural name based on which is active; does NOT render when no standalone backend is active; does NOT render for users without `activate_plugins`.
 - `tests/e2e/bundled-backends.spec.ts`: extend existing coverage to assert no fatal banner appears on backend pages and that native menu suppression remains unchanged while FOSSE is active.
 
 ## Open Questions
