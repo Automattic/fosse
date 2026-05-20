@@ -15,11 +15,17 @@ use WorDBless\BaseTestCase;
 use WP_Post;
 
 /**
- * Covers `Photo_Post_Atmosphere::filter_is_short_form_post()` and
- * `filter_transform_bsky_post()` through `apply_filters` round-trips
- * — keeps the contract "FOSSE projects onto Atmosphere's filters"
- * load-bearing in the tests, the same posture {@see Photo_PostTest}
- * uses for the AP-side hooks.
+ * Covers `Photo_Post_Atmosphere::filter_is_short_form_post()`,
+ * `filter_post_embed()`, and `filter_transform_bsky_post()` through
+ * `apply_filters` round-trips — keeps the contract "FOSSE projects onto
+ * Atmosphere's filters" load-bearing in the tests, the same posture
+ * {@see Photo_PostTest} uses for the AP-side hooks.
+ *
+ * The {@see self::apply_transform_filter()} helper simulates Atmosphere's
+ * own composition order — run `atmosphere_post_embed` first, attach
+ * the result onto the record, then run `atmosphere_transform_bsky_post`
+ * — so the embed-attached → text-rewritten chain mirrors what shipped
+ * Atmosphere actually does inside `Post::transform()`.
  *
  * Blob uploads are intercepted via the
  * `fosse_photo_post_atmosphere_upload_blob` extension filter so tests
@@ -79,6 +85,7 @@ class Photo_Post_AtmosphereTest extends BaseTestCase {
 	#[Before]
 	public function reset_state(): void {
 		remove_all_filters( 'atmosphere_is_short_form_post' );
+		remove_all_filters( 'atmosphere_post_embed' );
 		remove_all_filters( 'atmosphere_transform_bsky_post' );
 		remove_all_filters( 'fosse_pre_is_photo_post' );
 		remove_all_filters( 'fosse_is_photo_post' );
@@ -110,8 +117,8 @@ class Photo_Post_AtmosphereTest extends BaseTestCase {
 		// Reset stub state and install the interception filter.
 		// Unstubbed attachments return `false` so the projector
 		// treats them as failed uploads without falling through to
-		// Atmosphere's real `upload_thumbnail()` (which would try to
-		// read a real file and warn).
+		// Atmosphere's real `upload_image_blob()` (which would try
+		// to read a real file and warn).
 		$this->blob_stubs = array();
 		add_filter(
 			'fosse_photo_post_atmosphere_upload_blob',
@@ -225,12 +232,16 @@ class Photo_Post_AtmosphereTest extends BaseTestCase {
 	}
 
 	/**
-	 * Apply the `atmosphere_transform_bsky_post` filter against a
-	 * short-form record envelope.
+	 * Simulate Atmosphere's short-form composition: run
+	 * `atmosphere_post_embed` to build the embed, attach the result
+	 * onto the record if non-null, then run
+	 * `atmosphere_transform_bsky_post`. Mirrors the call order inside
+	 * shipped `Post::transform()` so the test pipeline exercises both
+	 * projector filters end-to-end the same way Atmosphere does.
 	 *
 	 * @param WP_Post $post      The post being transformed.
 	 * @param array   $overrides Optional record overrides.
-	 * @return array Filtered record.
+	 * @return array Final record after both filters.
 	 */
 	private function apply_transform_filter( WP_Post $post, array $overrides = array() ): array {
 		$record = array_merge(
@@ -242,6 +253,11 @@ class Photo_Post_AtmosphereTest extends BaseTestCase {
 			),
 			$overrides
 		);
+
+		$embed = apply_filters( 'atmosphere_post_embed', null, $post, 'short-form' );
+		if ( null !== $embed ) {
+			$record['embed'] = $embed;
+		}
 
 		return apply_filters(
 			'atmosphere_transform_bsky_post',
@@ -562,6 +578,58 @@ class Photo_Post_AtmosphereTest extends BaseTestCase {
 		$this->assertArrayHasKey( 'embed', $record );
 		$this->assertCount( 1, $record['embed']['images'] );
 		$this->assertSame( array( '$link' => 'bafyhero' ), $record['embed']['images'][0]['image']['ref'] );
+	}
+
+	/**
+	 * Defensive: a non-`short-form` strategy on the embed filter must
+	 * leave the input embed alone. Photo posts force
+	 * `is_short_form_post()` true so the link-card / teaser-thread
+	 * paths never see a photo post in practice, but if a third-party
+	 * filter forces a photo post off the short-form path we must not
+	 * attach `app.bsky.embed.images` to a teaser thread (which still
+	 * expects an external card on its terminal entry).
+	 */
+	public function test_post_embed_filter_passes_through_for_non_short_form_strategy(): void {
+		$this->stub_blob_for( $this->image_id );
+		$post = $this->make_post( '', $this->image_id );
+
+		$default_external = array(
+			'$type'    => 'app.bsky.embed.external',
+			'external' => array(
+				'uri'         => 'https://example.test/p/1',
+				'title'       => 'fallback',
+				'description' => '',
+			),
+		);
+
+		$this->assertSame(
+			$default_external,
+			apply_filters( 'atmosphere_post_embed', $default_external, $post, 'teaser-thread' )
+		);
+		$this->assertSame(
+			$default_external,
+			apply_filters( 'atmosphere_post_embed', $default_external, $post, 'link-card' )
+		);
+	}
+
+	/**
+	 * Defensive: a non-WP_Post second arg to the embed filter must
+	 * pass the input through unchanged. Same posture as the
+	 * `is_short_form` filter — a stray hook call (third-party plugin
+	 * that re-fires `atmosphere_post_embed` with the wrong shape) must
+	 * not crash the federation event.
+	 */
+	public function test_post_embed_filter_passes_through_on_non_wp_post(): void {
+		$this->assertNull( apply_filters( 'atmosphere_post_embed', null, null, 'short-form' ) );
+		$this->assertSame(
+			array( '$type' => 'app.bsky.embed.external' ),
+			apply_filters(
+				'atmosphere_post_embed',
+				array( '$type' => 'app.bsky.embed.external' ),
+				'not-a-post',
+				'short-form'
+			)
+		);
 	}
 
 	/**
