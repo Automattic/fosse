@@ -30,6 +30,22 @@ class Post extends Base {
 	public const META_TID = '_atmosphere_bsky_tid';
 
 	/**
+	 * Post meta key for the DID that minted the bsky TID.
+	 *
+	 * Persisted at the same time as `META_TID` so cleanup paths can
+	 * detect when a post's record was written under a different
+	 * account (disconnect → reconnect-to-different-DID flow,
+	 * `updateHandle` that triggered a migration, atproto account
+	 * migration). Without this, `applyWrites#delete` against the
+	 * currently-connected DID's repo silently succeeds for a TID that
+	 * doesn't exist there — leaving the original record orphaned on
+	 * the previous DID's PDS with no local pointer.
+	 *
+	 * @var string
+	 */
+	public const META_DID = '_atmosphere_bsky_did';
+
+	/**
 	 * Post meta key for the bsky post AT-URI.
 	 *
 	 * @var string
@@ -110,6 +126,8 @@ class Post extends Base {
 	 * @return array app.bsky.feed.post record.
 	 */
 	public function transform(): array {
+		$redacted = $this->is_redacted();
+
 		/**
 		 * Filters whether the post should be treated as short-form for Bluesky.
 		 *
@@ -124,20 +142,27 @@ class Post extends Base {
 		 * @param bool     $is_short Whether the post should be treated as short-form.
 		 * @param \WP_Post $post     The post being transformed.
 		 */
-		$is_short = \wp_validate_boolean(
-			\apply_filters(
-				'atmosphere_is_short_form_post',
-				$this->is_short_form( $this->object ),
-				$this->object
-			)
-		);
+		$is_short = true;
+		if ( ! $redacted ) {
+			$is_short = \wp_validate_boolean(
+				\apply_filters(
+					'atmosphere_is_short_form_post',
+					$this->is_short_form( $this->object ),
+					$this->object
+				)
+			);
+		}
 
-		$text  = $is_short ? $this->build_short_form_text() : '';
+		$text  = $redacted ? '' : ( $is_short ? $this->build_short_form_text() : '' );
 		$embed = null;
 
-		if ( '' === $text ) {
+		if ( ! $redacted && '' === $text ) {
 			$text  = $this->build_text();
 			$embed = $this->build_embed();
+		}
+
+		if ( ! $redacted ) {
+			$embed = $this->apply_post_embed_filter( $embed, $is_short ? 'short-form' : 'link-card' );
 		}
 
 		$record = array(
@@ -152,13 +177,22 @@ class Post extends Base {
 			$record['facets'] = $facets;
 		}
 
-		if ( $embed ) {
+		// `apply_post_embed_filter()` guarantees `$embed` is either null
+		// or a well-formed array with a `$type` key, so this matches
+		// the `null !== $embed` check in `record_for_thread_entry()`.
+		if ( null !== $embed ) {
 			$record['embed'] = $embed;
 		}
 
-		$tags = $this->collect_tags( $this->object );
-		if ( ! empty( $tags ) ) {
-			$record['tags'] = $tags;
+		if ( ! $redacted ) {
+			$tags = $this->collect_tags( $this->object );
+			if ( ! empty( $tags ) ) {
+				$record['tags'] = $tags;
+			}
+		}
+
+		if ( $redacted ) {
+			return $record;
 		}
 
 		/**
@@ -173,11 +207,15 @@ class Post extends Base {
 		 * lint hooks) should use the `$context` array to distinguish
 		 * single-post output from teaser-thread entries.
 		 *
+		 * Filters that return a non-array fall back to the pre-filter
+		 * record — protects the applyWrites batch from a misbehaving
+		 * listener.
+		 *
 		 * @param array    $record Bsky post record.
 		 * @param \WP_Post $post   WordPress post.
 		 * @param array    $context Additional composition context.
 		 */
-		return \apply_filters(
+		$filtered = \apply_filters(
 			'atmosphere_transform_bsky_post',
 			$record,
 			$this->object,
@@ -187,6 +225,17 @@ class Post extends Base {
 				'is_thread_reply' => false,
 			)
 		);
+
+		if ( ! \is_array( $filtered ) ) {
+			\_doing_it_wrong(
+				__METHOD__,
+				\esc_html__( 'atmosphere_transform_bsky_post must return an array; falling back to the unfiltered record.', 'atmosphere' ),
+				'1.0.0'
+			);
+			return $record;
+		}
+
+		return $filtered;
 	}
 
 	/**
@@ -200,6 +249,31 @@ class Post extends Base {
 	 * {@inheritDoc}
 	 */
 	public function get_rkey(): string {
+		/*
+		 * Persist DID provenance on every call, not only on first
+		 * reservation. After a disconnect+reconnect-to-different-DID,
+		 * `META_TID` already exists from the prior account, so a
+		 * one-shot reservation guard would never refresh `META_DID`
+		 * to the current account — letting the mismatch guard in
+		 * `delete_post()` later block a legitimate cleanup against
+		 * the current account.
+		 *
+		 * Written BEFORE `META_TID` so a partial-failure between the
+		 * two writes leaves the row in "DID set, no TID" state. The
+		 * cleanup gates skip that state cleanly; the inverse ("TID
+		 * set, no DID") would let the mismatch guard fall through to
+		 * `get_did()` and re-open the wrong-repo-delete bypass.
+		 *
+		 * Compare before writing so the read-path callers (the
+		 * `wp_head` document-link renderer) don't issue a DB write on
+		 * every pageload — only on the actual transition.
+		 */
+		$current_did = \Atmosphere\get_did();
+		$stored_did  = (string) \get_post_meta( $this->object->ID, self::META_DID, true );
+		if ( $stored_did !== $current_did ) {
+			\update_post_meta( $this->object->ID, self::META_DID, $current_did );
+		}
+
 		$rkey = \get_post_meta( $this->object->ID, self::META_TID, true );
 
 		if ( empty( $rkey ) ) {
@@ -216,6 +290,10 @@ class Post extends Base {
 	 * @return string
 	 */
 	private function build_text(): string {
+		if ( $this->is_redacted() ) {
+			return '';
+		}
+
 		$title     = sanitize_text( \get_the_title( $this->object ) );
 		$excerpt   = $this->get_excerpt( $this->object );
 		$permalink = \get_permalink( $this->object );
@@ -253,6 +331,10 @@ class Post extends Base {
 	 * @return array|null
 	 */
 	private function build_embed(): ?array {
+		if ( $this->is_redacted() ) {
+			return null;
+		}
+
 		$permalink   = \get_permalink( $this->object );
 		$title       = sanitize_text( \get_the_title( $this->object ) );
 		$description = $this->get_excerpt( $this->object, 55 );
@@ -278,12 +360,22 @@ class Post extends Base {
 	}
 
 	/**
-	 * Upload a thumbnail image and return the blob reference.
+	 * Upload an image attachment and return the blob reference.
+	 *
+	 * Used for any image that needs to land on the PDS — featured-image
+	 * thumbnails for link cards, publication icons, and (downstream)
+	 * native `app.bsky.embed.images` attachments. Blob refs are cached
+	 * in `_atmosphere_blob_ref` postmeta so a re-publish of the same
+	 * attachment skips the upload.
+	 *
+	 * If the original file exceeds AT Protocol's 1 MB blob cap, falls
+	 * back to the `large` intermediate size; returns null if even the
+	 * fallback is too large or unreadable.
 	 *
 	 * @param int $attachment_id WordPress attachment ID.
 	 * @return array|null Blob reference or null.
 	 */
-	public static function upload_thumbnail( int $attachment_id ): ?array {
+	public static function upload_image_blob( int $attachment_id ): ?array {
 		// Check cache first.
 		$cached = \get_post_meta( $attachment_id, '_atmosphere_blob_ref', true );
 		if ( ! empty( $cached ) ) {
@@ -324,6 +416,176 @@ class Post extends Base {
 	}
 
 	/**
+	 * Upload a thumbnail image and return the blob reference.
+	 *
+	 * Alias of `upload_image_blob()` retained so existing callers
+	 * (Publication icons, Document thumbnails, third-party integrations)
+	 * keep working. New call sites should prefer `upload_image_blob()`
+	 * for clarity — the body is attachment-agnostic and works for any
+	 * image, not just post thumbnails.
+	 *
+	 * @param int $attachment_id WordPress attachment ID.
+	 * @return array|null Blob reference or null.
+	 */
+	public static function upload_thumbnail( int $attachment_id ): ?array {
+		return self::upload_image_blob( $attachment_id );
+	}
+
+	/**
+	 * Read an image attachment's intrinsic dimensions.
+	 *
+	 * Returns the integer width / height pair from
+	 * `wp_get_attachment_metadata()`. The AT Protocol `app.bsky.embed.images`
+	 * lexicon expects integer pixel values in its `aspectRatio` field, so
+	 * callers can pass this dict through directly. Returns null when
+	 * metadata is missing or non-numeric — typical for newly-uploaded
+	 * attachments before WordPress has finished generating intermediates,
+	 * or for non-image MIME types.
+	 *
+	 * @param int $attachment_id WordPress attachment ID.
+	 * @return array|null `[ 'width' => int, 'height' => int ]` or null.
+	 */
+	public static function get_attachment_aspect_ratio( int $attachment_id ): ?array {
+		$meta = \wp_get_attachment_metadata( $attachment_id );
+
+		if ( ! \is_array( $meta ) ) {
+			return null;
+		}
+
+		/*
+		 * Validate with `is_numeric` BEFORE casting. The earlier shape
+		 * did `(int) $meta['width']`, which silently accepts strings
+		 * with a leading numeric prefix — `"1600px"` casts to `1600`
+		 * and passes the `> 0` gate. A misbehaving third-party metadata
+		 * filter could otherwise inject a unit-suffixed string and
+		 * have it propagate into the AT Protocol record's
+		 * `aspectRatio` field as a misleading integer. Requiring a
+		 * pure numeric input matches the docblock's "non-numeric"
+		 * contract.
+		 */
+		if ( ! isset( $meta['width'], $meta['height'] )
+			|| ! \is_numeric( $meta['width'] )
+			|| ! \is_numeric( $meta['height'] )
+		) {
+			return null;
+		}
+
+		$width  = (int) $meta['width'];
+		$height = (int) $meta['height'];
+
+		if ( $width <= 0 || $height <= 0 ) {
+			return null;
+		}
+
+		return array(
+			'width'  => $width,
+			'height' => $height,
+		);
+	}
+
+	/**
+	 * Apply the `atmosphere_post_embed` filter to a candidate embed.
+	 *
+	 * Centralizes the filter call so every composition path —
+	 * `transform()` (short-form and default), `record_for_link_card()`,
+	 * and the two teaser-thread embed sites in `build_long_form_records()`
+	 * — gives the same observable seam to downstream consumers.
+	 *
+	 * Valid filter returns: `null` (suppress the embed) or an array with
+	 * a non-empty string `$type` key. Anything else — non-array, empty
+	 * array, or array missing/with a non-string `$type` — is rejected
+	 * with `_doing_it_wrong` and the pre-filter value is used. Failing
+	 * loudly on half-formed returns keeps the three composition call
+	 * sites consistent (all use `null !== $embed`) and protects the
+	 * applyWrites batch from a malformed embed.
+	 *
+	 * @param array|null $embed    Default embed for this strategy
+	 *                             (null for short-form, an
+	 *                             `app.bsky.embed.external` card for the
+	 *                             link-card and teaser-thread strategies).
+	 * @param string     $strategy Composition strategy: 'short-form',
+	 *                             'link-card', or 'teaser-thread'.
+	 * @return array|null Final embed to attach to the record, or null.
+	 */
+	private function apply_post_embed_filter( ?array $embed, string $strategy ): ?array {
+		/**
+		 * Filters the embed attached to a Bluesky post record.
+		 *
+		 * Fires for every composition strategy, including short-form
+		 * (where the default is `null` — short-form posts ship without
+		 * an embed unless something opts in). Consumers can:
+		 *
+		 *   - Replace the default external link card with a richer
+		 *     embed type (`app.bsky.embed.images`, `app.bsky.embed.video`,
+		 *     `app.bsky.embed.record`).
+		 *   - Attach an embed to a short-form post that would otherwise
+		 *     ship plain.
+		 *   - Suppress the default embed by returning null.
+		 *
+		 * Valid returns are `null` or an array with a non-empty string
+		 * `$type` key. Non-array returns, empty arrays, and arrays
+		 * without a non-empty string `$type` are rejected with
+		 * `_doing_it_wrong` and the pre-filter value is restored —
+		 * protects the applyWrites batch from a misbehaving listener
+		 * and keeps every composition strategy treating half-formed
+		 * returns the same way.
+		 *
+		 * The filter is called *after* the default embed has been
+		 * built, so listeners can read the default before deciding to
+		 * replace it (e.g. a photo-projector that wants to fall back to
+		 * the external card when the post has zero image attachments).
+		 *
+		 * Not fired for redacted (password-protected) transforms — the
+		 * record carries no text or tags in that branch and exposing the
+		 * post object to embed filters would leak the protected payload.
+		 *
+		 * @param array|null $embed    Default embed for this strategy
+		 *                             (null for short-form, an
+		 *                             `app.bsky.embed.external` card
+		 *                             otherwise).
+		 * @param \WP_Post   $post     The post being transformed.
+		 * @param string     $strategy Composition strategy: 'short-form',
+		 *                             'link-card', or 'teaser-thread'.
+		 */
+		$filtered = \apply_filters( 'atmosphere_post_embed', $embed, $this->object, $strategy );
+
+		if ( null === $filtered ) {
+			return null;
+		}
+
+		if ( ! \is_array( $filtered ) ) {
+			\_doing_it_wrong(
+				__METHOD__,
+				\esc_html__( 'atmosphere_post_embed must return an array or null; falling back to the unfiltered embed.', 'atmosphere' ),
+				'unreleased'
+			);
+			return $embed;
+		}
+
+		/*
+		 * Reject empty arrays and arrays missing the `$type` key.
+		 * Without this gate the three call sites disagreed: the
+		 * `if ( $embed )` truthy checks in `transform()` and
+		 * `record_for_link_card()` silently dropped an empty-array
+		 * return, while `record_for_thread_entry()` used
+		 * `null !== $embed` and attached the malformed embed to the
+		 * record. Failing loudly here means every composition
+		 * strategy treats a half-formed filter return the same way,
+		 * and the call sites can use `null !== $embed` consistently.
+		 */
+		if ( empty( $filtered ) || empty( $filtered['$type'] ) || ! \is_string( $filtered['$type'] ) ) {
+			\_doing_it_wrong(
+				__METHOD__,
+				\esc_html__( 'atmosphere_post_embed must return an embed array with a non-empty $type string, or null; falling back to the unfiltered embed.', 'atmosphere' ),
+				'unreleased'
+			);
+			return $embed;
+		}
+
+		return $filtered;
+	}
+
+	/**
 	 * Whether the post should be treated as short-form for Bluesky.
 	 *
 	 * Mirrors the ActivityPub plugin's Post::get_type() discriminator so
@@ -355,6 +617,10 @@ class Post extends Base {
 	 * @return string
 	 */
 	private function build_short_form_text(): string {
+		if ( $this->is_redacted() ) {
+			return '';
+		}
+
 		return truncate_text( $this->render_post_content_plain( $this->object ), 300 );
 	}
 
@@ -366,9 +632,17 @@ class Post extends Base {
 	 * Publisher branch on short vs. long without reaching into the
 	 * transformer's private state.
 	 *
+	 * Redacted posts return true without invoking the filter so direct
+	 * transformer callers do not expose protected post objects to
+	 * subscribers.
+	 *
 	 * @return bool
 	 */
 	public function is_short_form_post(): bool {
+		if ( $this->is_redacted() ) {
+			return true;
+		}
+
 		return \wp_validate_boolean(
 			\apply_filters(
 				'atmosphere_is_short_form_post',
@@ -430,6 +704,20 @@ class Post extends Base {
 	 *                 the root / parent of any replies).
 	 */
 	public function build_long_form_records( int $stored_count = 0 ): array {
+		if ( $this->is_redacted() ) {
+			return array(
+				$this->record_for_thread_entry(
+					'',
+					true,
+					array(
+						'strategy'        => 'redacted',
+						'thread_index'    => 0,
+						'is_thread_reply' => false,
+					)
+				),
+			);
+		}
+
 		/**
 		 * Filters the long-form composition strategy for this post.
 		 *
@@ -510,7 +798,7 @@ class Post extends Base {
 								'thread_index'    => 0,
 								'is_thread_reply' => false,
 							),
-							$this->build_embed()
+							$this->apply_post_embed_filter( $this->build_embed(), 'teaser-thread' )
 						),
 					);
 				}
@@ -534,7 +822,7 @@ class Post extends Base {
 							'thread_index'    => $i,
 							'is_thread_reply' => 0 !== $i,
 						),
-						$i === $last ? $this->build_embed() : null
+						$i === $last ? $this->apply_post_embed_filter( $this->build_embed(), 'teaser-thread' ) : null
 					);
 				}
 				return $records;
@@ -779,7 +1067,7 @@ class Post extends Base {
 			\_doing_it_wrong(
 				'atmosphere_teaser_thread_posts',
 				\esc_html__( 'The atmosphere_teaser_thread_posts filter must return a non-empty array of strings; falling back to the default teaser-thread shape.', 'atmosphere' ),
-				'unreleased'
+				'1.0.0'
 			);
 			return $default;
 		}
@@ -801,7 +1089,7 @@ class Post extends Base {
 			\_doing_it_wrong(
 				'atmosphere_teaser_thread_posts',
 				\esc_html__( 'The atmosphere_teaser_thread_posts filter must return at least 2 string entries; falling back to the default teaser-thread shape.', 'atmosphere' ),
-				'unreleased'
+				'1.0.0'
 			);
 			return $default;
 		}
@@ -821,6 +1109,10 @@ class Post extends Base {
 	 * @return bool
 	 */
 	private function has_composable_body(): bool {
+		if ( $this->is_redacted() ) {
+			return false;
+		}
+
 		if ( ! empty( $this->object->post_excerpt )
 			&& \mb_strlen( sanitize_text( $this->object->post_excerpt ) ) >= 10
 		) {
@@ -828,6 +1120,15 @@ class Post extends Base {
 		}
 
 		return \mb_strlen( $this->render_post_content_plain( $this->object ) ) >= 10;
+	}
+
+	/**
+	 * Whether this post's fields must be redacted from AT Protocol records.
+	 *
+	 * @return bool
+	 */
+	private function is_redacted(): bool {
+		return $this->is_post_redacted( $this->object );
 	}
 
 	/**
@@ -983,11 +1284,15 @@ class Post extends Base {
 			$record['embed'] = $embed;
 		}
 
-		if ( $is_root ) {
+		if ( $is_root && ! $this->is_redacted() ) {
 			$tags = $this->collect_tags( $this->object );
 			if ( ! empty( $tags ) ) {
 				$record['tags'] = $tags;
 			}
+		}
+
+		if ( $this->is_redacted() ) {
+			return $record;
 		}
 
 		$context = \wp_parse_args(
@@ -1000,7 +1305,18 @@ class Post extends Base {
 		);
 
 		/** This filter is documented in Post::transform() above. */
-		return \apply_filters( 'atmosphere_transform_bsky_post', $record, $this->object, $context );
+		$filtered = \apply_filters( 'atmosphere_transform_bsky_post', $record, $this->object, $context );
+
+		if ( ! \is_array( $filtered ) ) {
+			\_doing_it_wrong(
+				__METHOD__,
+				\esc_html__( 'atmosphere_transform_bsky_post must return an array; falling back to the unfiltered record.', 'atmosphere' ),
+				'1.0.0'
+			);
+			return $record;
+		}
+
+		return $filtered;
 	}
 
 	/**
@@ -1014,8 +1330,13 @@ class Post extends Base {
 	 * @return array Bsky post record.
 	 */
 	private function record_for_link_card(): array {
-		$text  = $this->build_text();
-		$embed = $this->build_embed();
+		$text     = $this->build_text();
+		$redacted = $this->is_redacted();
+		$embed    = $this->build_embed();
+
+		if ( ! $redacted ) {
+			$embed = $this->apply_post_embed_filter( $embed, 'link-card' );
+		}
 
 		$record = array(
 			'$type'     => 'app.bsky.feed.post',
@@ -1029,17 +1350,26 @@ class Post extends Base {
 			$record['facets'] = $facets;
 		}
 
-		if ( $embed ) {
+		// `apply_post_embed_filter()` guarantees `$embed` is either null
+		// or a well-formed array with a `$type` key, so this matches
+		// the `null !== $embed` check in `record_for_thread_entry()`.
+		if ( null !== $embed ) {
 			$record['embed'] = $embed;
 		}
 
-		$tags = $this->collect_tags( $this->object );
-		if ( ! empty( $tags ) ) {
-			$record['tags'] = $tags;
+		if ( ! $redacted ) {
+			$tags = $this->collect_tags( $this->object );
+			if ( ! empty( $tags ) ) {
+				$record['tags'] = $tags;
+			}
+		}
+
+		if ( $redacted ) {
+			return $record;
 		}
 
 		/** This filter is documented in Post::transform() above. */
-		return \apply_filters(
+		$filtered = \apply_filters(
 			'atmosphere_transform_bsky_post',
 			$record,
 			$this->object,
@@ -1049,5 +1379,16 @@ class Post extends Base {
 				'is_thread_reply' => false,
 			)
 		);
+
+		if ( ! \is_array( $filtered ) ) {
+			\_doing_it_wrong(
+				__METHOD__,
+				\esc_html__( 'atmosphere_transform_bsky_post must return an array; falling back to the unfiltered record.', 'atmosphere' ),
+				'1.0.0'
+			);
+			return $record;
+		}
+
+		return $filtered;
 	}
 }
