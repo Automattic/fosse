@@ -1709,28 +1709,11 @@ class Onboarding_Wizard {
 					self::format_complete_identity_token( $bluesky_handle, 'handle' )
 				);
 
-				/* translators: %s: linked Bluesky handle. */
-				$bluesky_template = __( 'Connected as %s', 'fosse' );
-
-				// Replace the first `%s` or `%N$s` placeholder with the link.
-				// Using a regex (rather than `sprintf`) tolerates translations
-				// that use numbered placeholders (`%1$s`) and prevents a
-				// translation that drops, repeats, or otherwise malforms the
-				// placeholder from crashing the completion step on PHP 8.
-				// `preg_replace_callback` avoids backreference interpretation
-				// in the replacement value.
-				$bluesky_summary = preg_replace_callback(
-					'/%(?:\d+\$)?s/',
-					static function () use ( $bluesky_link ) {
-						return $bluesky_link;
-					},
-					$bluesky_template,
-					1
+				$bluesky_summary = sprintf(
+					/* translators: %s: linked Bluesky handle. */
+					__( 'Connected as %s', 'fosse' ),
+					$bluesky_link
 				);
-
-				if ( ! is_string( $bluesky_summary ) ) {
-					$bluesky_summary = __( 'Connected', 'fosse' );
-				}
 			} else {
 				$bluesky_summary = __( 'Connected', 'fosse' );
 			}

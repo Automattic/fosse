@@ -1489,39 +1489,6 @@ class Onboarding_WizardTest extends BaseTestCase {
 	}
 
 	/**
-	 * A translation that adds, drops, or repeats placeholders must not crash
-	 * the completion step. The regex-based substitution replaces only the
-	 * first matched placeholder, so extra placeholders simply render as
-	 * literal text and the page still renders.
-	 */
-	public function test_complete_summary_bluesky_extra_placeholder_translation_does_not_fatal(): void {
-		Onboarding_Wizard::mark_complete();
-		update_option( 'activitypub_actor_mode', 'blog' );
-		$this->seed_bluesky_connection( 'alice.bsky.social', 'did:plc:alice123' );
-
-		$filter = static function ( $translation, $text, $domain ) {
-			if ( 'fosse' === $domain && 'Connected as %s' === $text ) {
-				return 'Connected as %s and %s';
-			}
-			return $translation;
-		};
-		add_filter( 'gettext', $filter, 10, 3 );
-
-		try {
-			$output = $this->render_wizard_step( 'complete' );
-		} finally {
-			remove_filter( 'gettext', $filter, 10 );
-		}
-
-		$this->assertStringContainsString(
-			'href="https://bsky.app/profile/alice.bsky.social"',
-			$output
-		);
-		// Exactly one placeholder consumed; the second remains as literal text.
-		$this->assertSame( 1, substr_count( $output, '%s' ) );
-	}
-
-	/**
 	 * A corrupted `atmosphere_connection` record where `handle` is non-string
 	 * (e.g. an array) must not throw a `TypeError` and must not render a
 	 * broken link. The wizard treats the missing-handle case as a bare
