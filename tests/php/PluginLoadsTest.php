@@ -27,4 +27,18 @@ class PluginLoadsTest extends BaseTestCase {
 		$this->assertSame( 'FOSSE', $data['Name'] );
 		$this->assertSame( 'fosse', $data['TextDomain'] );
 	}
+
+	/**
+	 * `uninstall.php` is the entrypoint WordPress calls when the plugin is
+	 * deleted via the Plugins screen. It must exist at repo root, and it
+	 * must bail when invoked outside the WP uninstall context (so a casual
+	 * `php uninstall.php` doesn't wipe options).
+	 */
+	public function test_uninstall_php_exists_and_guards_on_wp_uninstall_plugin(): void {
+		$uninstall_path = __DIR__ . '/../../uninstall.php';
+		$this->assertFileExists( $uninstall_path, 'uninstall.php must exist at plugin root.' );
+
+		$contents = file_get_contents( $uninstall_path ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- reading a local source file in a test, not remote HTTP.
+		$this->assertStringContainsString( "defined( 'WP_UNINSTALL_PLUGIN' )", $contents, 'uninstall.php must guard on WP_UNINSTALL_PLUGIN.' );
+	}
 }
