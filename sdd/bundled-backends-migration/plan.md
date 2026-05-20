@@ -2,16 +2,16 @@
 
 Based on: [sdd/bundled-backends-migration/spec.md](./spec.md)
 
-## Status: PLANNING
+## Status: IN PROGRESS
 
-**No implementation tasks are scheduled in this PR.** The plan tracks the review work needed now that ATmosphere is available on WordPress.org and FOSSE can use WordPress-native plugin dependencies across its supported WordPress range.
+Implementation step 1 (runtime readiness checks) is in flight under [DOTCOM-17180](https://linear.app/a8c/issue/DOTCOM-17180). The remaining review tasks still gate the steps that change the public load model (header cutover, bundled removal, wp.com Simple ownership).
 
 ## Progress
 
 - [x] Refresh SDD assumptions.
 - [ ] Approve the public distribution strategy.
 - [ ] Choose the bundled-only install upgrade path.
-- [ ] Define backend compatibility gates.
+- [x] Define backend compatibility gates. (Anchored in [DOTCOM-17180](https://linear.app/a8c/issue/DOTCOM-17180); see `audits/2026-05-20-backend-dependency-delta.md` for the delta against released versions.)
 - [ ] Define wp.com Simple artifact ownership.
 - [ ] Choose dependency fixtures for CI and e2e.
 
@@ -32,9 +32,9 @@ Based on: [sdd/bundled-backends-migration/spec.md](./spec.md)
    - **Verify**: The implementation plan names the release sequence and the user-visible behavior for sites that rely on the current bundled copies.
 
 4. **Define backend compatibility gates.**
-   - **Status**: Not started
-   - **Decision needed**: Pick the ActivityPub minimum version and the ATmosphere minimum version or symbol set FOSSE requires.
-   - **Verify**: Runtime checks and tests can assert the chosen versions/symbols without relying on `bundled/` internals.
+   - **Status**: ✅ Done (anchored in [DOTCOM-17180](https://linear.app/a8c/issue/DOTCOM-17180); see `audits/2026-05-20-backend-dependency-delta.md`)
+   - **Decision recorded**: FOSSE tracks two minimum-version anchors in `Backend_Readiness::MIN_ACTIVITYPUB_VERSION` and `MIN_ATMOSPHERE_VERSION`. They point at the first upstream releases that contain the surface FOSSE relies on (AP: `toot:blurhash` JSON-LD context term from [PR 3327](https://github.com/Automattic/wordpress-activitypub/pull/3327); Atmosphere: `atmosphere_post_embed` filter from [PR 72](https://github.com/Automattic/wordpress-atmosphere/pull/72)). Neither is in a tagged release yet, so the constants are deliberate forward-pointers that fail today's released versions.
+   - **Verify**: `tests/php/Backend_ReadinessTest.php` covers the version comparison + source-detection logic without relying on `bundled/` internals.
 
 5. **Define wp.com Simple artifact ownership.**
    - **Status**: Not started
@@ -57,19 +57,19 @@ These are not implementation tasks; they're rules contributors should respect to
 - [ ] Land protocol-agnostic functionality in the upstream repos first (existing upstream-first policy).
 - [ ] Document the load contract at every coupling point - match the pattern set by the wp.com Simple load-order contract comment near the top of `fosse.php`.
 
-## Sketch of the implementation plan, after review approval
+## Implementation sub-issues
 
-When reviewers approve the migration direction, expand each of the following into a real task with files, dependencies, and verification steps. Until then, this is a sketch.
+Each step is tracked as a sub-issue under the umbrella [DOTCOM-16826](https://linear.app/a8c/issue/DOTCOM-16826).
 
-1. **Add runtime dependency readiness checks.** FOSSE detects missing, inactive, too-old, or API-incompatible ActivityPub and ATmosphere installs and reports provider availability without fatals.
-2. **Add dependency UX.** Missing ActivityPub shows clear action; missing ATmosphere shows clear action; installed-but-inactive and incompatible versions are distinguished from absent plugins; setup/status pages remain useful when one backend is unavailable.
-3. **Add standalone dependency fixtures.** PHPUnit and e2e install ActivityPub and ATmosphere as explicit standalone plugins from the approved source, and tests stop reading from `bundled/`.
-4. **Ship the approved upgrade sequence.** Either ship a warning release first or implement the one-step migration path reviewers approve.
-5. **Add the public dependency header.** Update `fosse.php` with `Requires Plugins: activitypub, atmosphere` only after dependency UX and upgrade sequencing are ready.
-6. **Define and implement wp.com Simple artifact path.** Coordinate with the platform owner on plugin dependencies, platform assembly, or temporary vendoring; document the load contract and rollback.
-7. **Remove checked-in backend source in a follow-up.** Separate PR after replacement behavior ships and has run for the approved release window; remove `bundled/`, `tools/sync-bundled.sh`, and bundle-specific export/linguist/tooling rules.
-8. **Keep package-based assembly only if selected.** If reviewers require a one-zip bridge, add a CI job that resolves AP and ATmosphere from versioned package inputs and assembles an installable FOSSE artifact without relying on checked-in `bundled/`.
+1. **Add runtime dependency readiness checks.** FOSSE detects missing, inactive, too-old, or API-incompatible ActivityPub and ATmosphere installs and reports provider availability without fatals. — [DOTCOM-17180](https://linear.app/a8c/issue/DOTCOM-17180) (in flight).
+2. **Add dependency UX.** Missing ActivityPub shows clear action; missing ATmosphere shows clear action; installed-but-inactive and incompatible versions are distinguished from absent plugins; setup/status pages remain useful when one backend is unavailable. — [DOTCOM-17181](https://linear.app/a8c/issue/DOTCOM-17181).
+3. **Add standalone dependency fixtures.** PHPUnit and e2e install ActivityPub and ATmosphere as explicit standalone plugins from the approved source, and tests stop reading from `bundled/`. — [DOTCOM-17182](https://linear.app/a8c/issue/DOTCOM-17182).
+4. **Ship the approved upgrade sequence.** Either ship a warning release first or implement the one-step migration path reviewers approve. — [DOTCOM-17183](https://linear.app/a8c/issue/DOTCOM-17183).
+5. **Add the public dependency header.** Update `fosse.php` with `Requires Plugins: activitypub, atmosphere` only after dependency UX and upgrade sequencing are ready, and only once upstream cuts releases that contain the surface FOSSE relies on. — [DOTCOM-17184](https://linear.app/a8c/issue/DOTCOM-17184).
+6. **Define and implement wp.com Simple artifact path.** Coordinate with the platform owner on plugin dependencies, platform assembly, or temporary vendoring; document the load contract and rollback. — [DOTCOM-17185](https://linear.app/a8c/issue/DOTCOM-17185).
+7. **Remove checked-in backend source in a follow-up.** Separate PR after replacement behavior ships and has run for the approved release window; remove `bundled/`, `tools/sync-bundled.sh`, and bundle-specific export/linguist/tooling rules. — [DOTCOM-17186](https://linear.app/a8c/issue/DOTCOM-17186).
+8. **Keep package-based assembly only if selected.** If reviewers require a one-zip bridge, add a CI job that resolves AP and ATmosphere from versioned package inputs and assembles an installable FOSSE artifact without relying on checked-in `bundled/`. — [DOTCOM-17187](https://linear.app/a8c/issue/DOTCOM-17187) (conditional).
 
 ## What to do right now
 
-Review the updated SDD. Do not remove `bundled/`, add dependency headers, or change loaders until reviewers approve the public dependency strategy, upgrade sequence, backend compatibility gates, and wp.com Simple artifact owner.
+Review the updated SDD. Land the readiness layer ([DOTCOM-17180](https://linear.app/a8c/issue/DOTCOM-17180)) — it touches no loader behavior and ships safely. Do not remove `bundled/`, add the dependency header, or change loaders until reviewers approve the public dependency strategy, upgrade sequence, and wp.com Simple artifact owner, and until upstream cuts the AP + Atmosphere releases the readiness anchors point at.
