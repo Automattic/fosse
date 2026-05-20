@@ -1481,6 +1481,7 @@ class Onboarding_WizardTest extends BaseTestCase {
 	 */
 	public function test_complete_summary_shows_connected_bluesky_account(): void {
 		Onboarding_Wizard::mark_complete();
+		update_option( 'activitypub_actor_mode', 'blog' );
 		$this->seed_bluesky_connection( 'alice.bsky.social', 'did:plc:alice123' );
 
 		$output = $this->render_wizard_step( 'complete' );
@@ -1489,8 +1490,120 @@ class Onboarding_WizardTest extends BaseTestCase {
 		$this->assertStringContainsString( '<dl', $output );
 		$this->assertStringContainsString( '<dt', $output );
 		$this->assertStringContainsString( '<dd', $output );
-		$this->assertStringContainsString( 'Connected as alice.bsky.social', $output );
+		$this->assertMatchesRegularExpression(
+			'~Connected as\s*<a[^>]+href="https://bsky\.app/profile/alice\.bsky\.social"[^>]*>\s*<code class="fosse-token fosse-admin-token fosse-token--handle fosse-admin-token--handle">@alice\.<wbr>bsky\.<wbr>social</code>\s*</a>~',
+			$output
+		);
+		$this->assertMatchesRegularExpression(
+			'~<dt class="fosse-detail-list__term">Fediverse identity</dt>\s*<dd class="fosse-detail-list__description">.*<code class="fosse-token fosse-admin-token fosse-token--ap-address fosse-admin-token--ap-address">~s',
+			$output
+		);
 		$this->assertStringNotContainsString( 'Not connected', $output );
+
+		$fediverse_row = strpos( $output, '<dt class="fosse-detail-list__term">Fediverse identity</dt>' );
+		$bluesky_row   = strpos( $output, '<dt class="fosse-detail-list__term">Bluesky</dt>' );
+		$sharing_row   = strpos( $output, '<dt class="fosse-detail-list__term">Sharing</dt>' );
+
+		$this->assertNotFalse( $fediverse_row );
+		$this->assertNotFalse( $bluesky_row );
+		$this->assertNotFalse( $sharing_row );
+		$this->assertLessThan( $bluesky_row, $fediverse_row, 'Fediverse identity should appear before Bluesky.' );
+		$this->assertLessThan( $sharing_row, $bluesky_row, 'Bluesky should appear with the identity rows before Sharing.' );
+	}
+
+	/**
+	 * A stored Bluesky handle that includes a leading `@` must still produce
+	 * a correct `bsky.app/profile/...` URL — `@` is stripped before
+	 * percent-encoding so the link does not become `bsky.app/profile/%40alice...`.
+	 */
+	public function test_complete_summary_strips_leading_at_from_stored_bluesky_handle_in_link(): void {
+		Onboarding_Wizard::mark_complete();
+		update_option( 'activitypub_actor_mode', 'blog' );
+		$this->seed_bluesky_connection( '@alice.bsky.social', 'did:plc:alice123' );
+
+		$output = $this->render_wizard_step( 'complete' );
+
+		$this->assertStringContainsString(
+			'href="https://bsky.app/profile/alice.bsky.social"',
+			$output
+		);
+		$this->assertStringNotContainsString( 'profile/%40', $output );
+		$this->assertStringNotContainsString( 'profile/@', $output );
+	}
+
+	/**
+	 * A degenerate stored Bluesky handle (e.g. a bare `@` left over from a
+	 * partial connection) must fall back to the plain "Connected" string
+	 * instead of rendering a `@` token linked to an empty bsky.app profile.
+	 */
+	public function test_complete_summary_bluesky_degenerate_handle_falls_back_to_bare_connected(): void {
+		Onboarding_Wizard::mark_complete();
+		update_option( 'activitypub_actor_mode', 'blog' );
+		$this->seed_bluesky_connection( '@', 'did:plc:alice123' );
+
+		$output = $this->render_wizard_step( 'complete' );
+
+		$this->assertMatchesRegularExpression( '~<dt[^>]*>Bluesky</dt>\s*<dd[^>]*>\s*Connected\s*</dd>~', $output );
+		$this->assertStringNotContainsString( 'href="https://bsky.app/profile/"', $output );
+	}
+
+	/**
+	 * A translation that uses a numbered placeholder (`%1$s`) — which is
+	 * legal sprintf syntax that WordPress translators routinely emit when
+	 * reordering substitutions — must still substitute the linked handle
+	 * instead of rendering the literal placeholder.
+	 */
+	public function test_complete_summary_bluesky_supports_numbered_translation_placeholder(): void {
+		Onboarding_Wizard::mark_complete();
+		update_option( 'activitypub_actor_mode', 'blog' );
+		$this->seed_bluesky_connection( 'alice.bsky.social', 'did:plc:alice123' );
+
+		$filter = static function ( $translation, $text, $domain ) {
+			if ( 'fosse' === $domain && 'Connected as %s' === $text ) {
+				return 'Conectado como %1$s';
+			}
+			return $translation;
+		};
+		add_filter( 'gettext', $filter, 10, 3 );
+
+		try {
+			$output = $this->render_wizard_step( 'complete' );
+		} finally {
+			remove_filter( 'gettext', $filter, 10 );
+		}
+
+		$this->assertStringContainsString( 'Conectado como', $output );
+		$this->assertStringContainsString(
+			'href="https://bsky.app/profile/alice.bsky.social"',
+			$output
+		);
+		$this->assertStringNotContainsString( '%1$s', $output );
+		$this->assertStringNotContainsString( '%s', $output );
+	}
+
+	/**
+	 * A corrupted `atmosphere_connection` record where `handle` is non-string
+	 * (e.g. an array) must not throw a `TypeError` and must not render a
+	 * broken link. The wizard treats the missing-handle case as a bare
+	 * "Connected" state.
+	 */
+	public function test_complete_summary_bluesky_non_string_handle_does_not_fatal(): void {
+		Onboarding_Wizard::mark_complete();
+		update_option( 'activitypub_actor_mode', 'blog' );
+		update_option(
+			'atmosphere_connection',
+			array(
+				'did'          => 'did:plc:alice123',
+				'handle'       => array( 'unexpected', 'array' ),
+				'pds_endpoint' => 'https://bsky.social',
+				'access_token' => Encryption::encrypt( 'token' ),
+			)
+		);
+
+		$output = $this->render_wizard_step( 'complete' );
+
+		$this->assertMatchesRegularExpression( '~<dt[^>]*>Bluesky</dt>\s*<dd[^>]*>\s*Connected\s*</dd>~', $output );
+		$this->assertStringNotContainsString( 'bsky.app/profile/', $output );
 	}
 
 	/**
@@ -1522,7 +1635,7 @@ class Onboarding_WizardTest extends BaseTestCase {
 
 		$this->assertStringContainsString( 'Fediverse only', $output );
 		$this->assertMatchesRegularExpression(
-			'~<dt[^>]*>Bluesky</dt>\s*<dd[^>]*>Connected as alice\.bsky\.social</dd>~',
+			'~<dt[^>]*>Bluesky</dt>\s*<dd[^>]*>\s*Connected as\s*<a[^>]+href="https://bsky\.app/profile/alice\.bsky\.social"[^>]*>\s*<code class="fosse-token fosse-admin-token fosse-token--handle fosse-admin-token--handle">@alice\.<wbr>bsky\.<wbr>social</code>\s*</a>\s*</dd>~',
 			$output,
 			'Connected Bluesky accounts must be reported even when the saved destination is Fediverse-only.'
 		);
@@ -1547,11 +1660,11 @@ class Onboarding_WizardTest extends BaseTestCase {
 		$this->assertStringContainsString( 'Both (site + authors)', $output );
 		$this->assertStringContainsString( 'As you:', $output );
 		$this->assertStringContainsString( 'As your site:', $output );
-		// Fediverse handle markup should be wrapped in <code>, with a
-		// `<br />` between the label and the handle so long handles don't
-		// wrap mid-token (#72).
-		$this->assertMatchesRegularExpression( '~As you:<br\s*/?>\s*<code>@[^<]+@[^<]+</code>~', $output );
-		$this->assertMatchesRegularExpression( '~As your site:<br\s*/?>\s*<code>@[^<]+@[^<]+</code>~', $output );
+		// Fediverse handle markup should be wrapped in token-styled <code>,
+		// with a `<br />` between the label and the handle so long handles
+		// don't wrap mid-token (#72).
+		$this->assertMatchesRegularExpression( '~As you:<br\s*/?>\s*<code class="fosse-token fosse-admin-token fosse-token--ap-address fosse-admin-token--ap-address">@[^<]+<wbr>@[^<]+(?:<wbr>[^<]+)*</code>~', $output );
+		$this->assertMatchesRegularExpression( '~As your site:<br\s*/?>\s*<code class="fosse-token fosse-admin-token fosse-token--ap-address fosse-admin-token--ap-address">@[^<]+<wbr>@[^<]+(?:<wbr>[^<]+)*</code>~', $output );
 	}
 
 	/**
@@ -1566,12 +1679,30 @@ class Onboarding_WizardTest extends BaseTestCase {
 		$output = $this->render_wizard_step( 'complete' );
 
 		$this->assertStringContainsString( 'As your site', $output );
-		$this->assertMatchesRegularExpression( '~As your site\s*<code>@[^<]+@[^<]+</code>~', $output );
+		$this->assertMatchesRegularExpression( '~As your site\s*<code class="fosse-token fosse-admin-token fosse-token--ap-address fosse-admin-token--ap-address">@[^<]+<wbr>@[^<]+(?:<wbr>[^<]+)*</code>~', $output );
 		// Mirror the actor-mode guard so a future revert of the inline-space
 		// change in `format_mode_label()` (back to `<br /><code>`) is caught
 		// for the blog branch too — the assertion above's `\s*` accepts both
 		// shapes and would not flag the regression on its own.
 		$this->assertDoesNotMatchRegularExpression( '~As your site<br\s*/?>~', $output );
+	}
+
+	/**
+	 * The `blog` fallback shows the site host only when AP cannot resolve a
+	 * real blog actor. It must not render that host as `@example.org`, which
+	 * looks like a fediverse address with no local-part. The token also
+	 * carries a `--host` modifier (not `--handle`) so the class list reflects
+	 * the value's actual shape.
+	 */
+	public function test_complete_summary_blog_fallback_host_does_not_render_as_fediverse_address(): void {
+		$output = $this->call_format_mode_label( 'blog', '', '' );
+
+		$this->assertStringContainsString( 'As your site', $output );
+		$this->assertStringContainsString(
+			'<code class="fosse-token fosse-admin-token fosse-token--host fosse-admin-token--host">example.<wbr>org</code>',
+			$output
+		);
+		$this->assertStringNotContainsString( '@example', $output );
 	}
 
 	/**
@@ -1590,7 +1721,7 @@ class Onboarding_WizardTest extends BaseTestCase {
 		}
 
 		$this->assertStringContainsString( 'As you', $output );
-		$this->assertMatchesRegularExpression( '~As you\s*<code>@[^<]+@[^<]+</code>~', $output );
+		$this->assertMatchesRegularExpression( '~As you\s*<code class="fosse-token fosse-admin-token fosse-token--ap-address fosse-admin-token--ap-address">@[^<]+<wbr>@[^<]+(?:<wbr>[^<]+)*</code>~', $output );
 		// The pre-fix wrapper used parens around the handle on the same line;
 		// guard against the parenthesized shape regressing here.
 		$this->assertDoesNotMatchRegularExpression( '~As you \(<code>~', $output );
@@ -2188,6 +2319,19 @@ class Onboarding_WizardTest extends BaseTestCase {
 	private function call_normalize( string $handle ): string {
 		$method = new ReflectionMethod( Onboarding_Wizard::class, 'normalize_handle_preview' );
 		return (string) $method->invoke( null, $handle );
+	}
+
+	/**
+	 * Invoke the private format_mode_label() helper via reflection.
+	 *
+	 * @param string $mode        Actor mode value.
+	 * @param string $user_handle Normalized `@user@host` for the current user, or empty.
+	 * @param string $blog_handle Normalized `@blog@host` for the site, or empty.
+	 * @return string
+	 */
+	private function call_format_mode_label( string $mode, string $user_handle, string $blog_handle ): string {
+		$method = new ReflectionMethod( Onboarding_Wizard::class, 'format_mode_label' );
+		return (string) $method->invoke( null, $mode, $user_handle, $blog_handle );
 	}
 
 	/**
