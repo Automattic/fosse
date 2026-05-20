@@ -232,6 +232,51 @@ class BlurhashTest extends BaseTestCase {
 	}
 
 	/**
+	 * Malformed-but-non-empty meta is treated as absent. Without
+	 * this contract, `run_encode()`'s "already stored" guard would
+	 * permanently short-circuit attachments whose `_fosse_blurhash`
+	 * was poisoned by a manual postmeta edit — and the federation
+	 * injector would refuse to emit the malformed value anyway, so
+	 * the attachment would be silently stuck with no placeholder
+	 * ever. Treating malformed as absent lets the cron re-encode
+	 * the next time `wp_generate_attachment_metadata` fires.
+	 */
+	public function test_get_returns_null_for_malformed_meta(): void {
+		$id = $this->insert_image_attachment();
+		// Non-empty but contains characters outside the base83 set.
+		update_post_meta( $id, Blurhash::META_KEY, "LEHV6nWB\x00<script>" );
+
+		$this->assertNull( Blurhash::get( $id ) );
+	}
+
+	/**
+	 * `run_encode()` overwrites poisoned meta with a fresh encode
+	 * when the cron fires — verifies the self-heal path end-to-end.
+	 */
+	public function test_run_encode_self_heals_malformed_meta(): void {
+		$this->require_gd();
+
+		$id   = $this->insert_image_attachment();
+		$path = $this->generate_fixture_image();
+		$this->point_attachment_at( $id, $path );
+
+		// Poison the postmeta with bytes that `is_well_formed_hash`
+		// rejects. Without the `get()` contract, `run_encode` would
+		// see "stored value present" and skip.
+		update_post_meta( $id, Blurhash::META_KEY, 'LEHV6nWB' . "\x00bad" );
+
+		Blurhash::run_encode( $id );
+
+		$updated = Blurhash::get( $id );
+		$this->assertIsString( $updated );
+		$this->assertNotSame( '', $updated );
+		// The poisoned value is gone — `get()` returned null
+		// previously, so the encode ran and the new value is now
+		// usable through `get()`.
+		$this->assertStringNotContainsString( "\x00", $updated );
+	}
+
+	/**
 	 * `delete()` removes the stored hash entirely (vs. leaving an
 	 * empty value behind).
 	 */
@@ -308,6 +353,40 @@ class BlurhashTest extends BaseTestCase {
 
 		$id   = $this->insert_image_attachment();
 		$path = $this->generate_fixture_image( false, 256, 256 );
+		$this->point_attachment_at( $id, $path );
+
+		$hash = Blurhash::encode_from_attachment( $id );
+		$this->assertIsString( $hash );
+		$this->assertNotSame( '', $hash );
+	}
+
+	/**
+	 * Portrait sources (height > width and > MAX_ENCODE_EDGE)
+	 * cap by the longer edge — `imagescale($image, MAX, -1)`
+	 * would have *upscaled* a 20×200 portrait to 64×640 (height
+	 * went UP, defeating the memory cap). Verifies the encode
+	 * succeeds without blowing the pixel-array bound.
+	 */
+	public function test_encode_caps_portrait_image_by_longest_edge(): void {
+		$this->require_gd();
+
+		$id   = $this->insert_image_attachment();
+		$path = $this->generate_fixture_image( false, 20, 200 );
+		$this->point_attachment_at( $id, $path );
+
+		$hash = Blurhash::encode_from_attachment( $id );
+		$this->assertIsString( $hash );
+		$this->assertNotSame( '', $hash );
+	}
+
+	/**
+	 * Landscape sources cap by width, mirror of the portrait case.
+	 */
+	public function test_encode_caps_landscape_image_by_longest_edge(): void {
+		$this->require_gd();
+
+		$id   = $this->insert_image_attachment();
+		$path = $this->generate_fixture_image( false, 200, 20 );
 		$this->point_attachment_at( $id, $path );
 
 		$hash = Blurhash::encode_from_attachment( $id );

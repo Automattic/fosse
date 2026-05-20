@@ -142,10 +142,17 @@ class Blurhash {
 	}
 
 	/**
-	 * Return the stored blurhash for an attachment, or null when
-	 * none is stored. Trims whitespace and treats an empty string as
-	 * absent so a manually-emptied postmeta doesn't leak into the
-	 * federation envelope.
+	 * Return the stored blurhash for an attachment, or null when no
+	 * usable value is stored. Empty/whitespace/non-string values are
+	 * treated as absent, AND values that fail
+	 * {@see self::is_well_formed_hash()} are too — so postmeta
+	 * poisoning (or an old encoder bug that wrote junk) doesn't
+	 * leak into the federation envelope AND doesn't permanently
+	 * stick the cron `run_encode` short-circuit (which keys off
+	 * this returning non-null). Net effect: a malformed row
+	 * self-heals on the next `wp_generate_attachment_metadata`
+	 * cycle because `get()` reports absent, `run_encode` proceeds,
+	 * and `set()` overwrites the malformed value.
 	 *
 	 * @param int $attachment_id Attachment post ID.
 	 * @return string|null
@@ -156,7 +163,10 @@ class Blurhash {
 			return null;
 		}
 		$value = trim( $value );
-		return '' === $value ? null : $value;
+		if ( '' === $value ) {
+			return null;
+		}
+		return self::is_well_formed_hash( $value ) ? $value : null;
 	}
 
 	/**
@@ -235,16 +245,29 @@ class Blurhash {
 			// nested array grows quadratically with edge length, so
 			// any source larger than MAX_ENCODE_EDGE gets sampled
 			// down — perceptually identical output, bounded memory.
+			//
+			// Scale by the LONGER edge so portrait images
+			// (`height > width`) don't get upscaled by a
+			// fixed-width call to `imagescale`. Target dimensions
+			// are computed explicitly so both edges land at or
+			// below the cap. If `imagescale` fails we bail rather
+			// than fall through to the per-pixel loop with the
+			// original (oversized) GD image.
 			if ( $width > self::MAX_ENCODE_EDGE || $height > self::MAX_ENCODE_EDGE ) {
-				$scaled = \imagescale( $image, self::MAX_ENCODE_EDGE, -1 );
-				if ( false !== $scaled ) {
-					$image  = $scaled;
-					$width  = \imagesx( $image );
-					$height = \imagesy( $image );
-					if ( $width < 1 || $height < 1 ) {
-						return null;
-					}
+				if ( $width >= $height ) {
+					$target_width  = self::MAX_ENCODE_EDGE;
+					$target_height = (int) \max( 1, \round( $height * ( self::MAX_ENCODE_EDGE / $width ) ) );
+				} else {
+					$target_height = self::MAX_ENCODE_EDGE;
+					$target_width  = (int) \max( 1, \round( $width * ( self::MAX_ENCODE_EDGE / $height ) ) );
 				}
+				$scaled = \imagescale( $image, $target_width, $target_height );
+				if ( false === $scaled ) {
+					return null;
+				}
+				$image  = $scaled;
+				$width  = $target_width;
+				$height = $target_height;
 			}
 
 			$pixels = array();
@@ -445,17 +468,13 @@ class Blurhash {
 
 	/**
 	 * `activitypub_attachment` filter callback. Injects `blurhash`
-	 * into image attachment arrays when postmeta exists. No-op on
-	 * anything else (non-image attachments, missing meta, malformed
-	 * arrays) so non-photo federation paths are untouched.
-	 *
-	 * Sanitizes the stored hash before injection. The encoder's own
-	 * output is base83 by construction, but anyone with
-	 * `edit_post_meta` on an attachment could rewrite `_fosse_blurhash`
-	 * to arbitrary bytes — including non-UTF-8 bytes that would
-	 * break `wp_json_encode` and drop the entire AP envelope on the
-	 * floor. Length cap + base83 charset filter constrains the
-	 * field to what real-world consumers expect.
+	 * into image attachment arrays when a usable postmeta value is
+	 * stored. No-op on anything else (non-image attachments, missing
+	 * meta, malformed meta, malformed arrays) so non-photo federation
+	 * paths are untouched. Sanitization is enforced inside
+	 * {@see self::get()} — anyone with `edit_post_meta` on an
+	 * attachment could otherwise rewrite `_fosse_blurhash` to bytes
+	 * that break `wp_json_encode` and drop the entire AP envelope.
 	 *
 	 * @param mixed $attachment    The attachment array as built by bundled AP.
 	 * @param mixed $attachment_id The attachment post ID (mixed because the upstream filter is loosely typed).
@@ -469,7 +488,7 @@ class Blurhash {
 			return $attachment;
 		}
 		$hash = self::get( (int) $attachment_id );
-		if ( null === $hash || ! self::is_well_formed_hash( $hash ) ) {
+		if ( null === $hash ) {
 			return $attachment;
 		}
 		$attachment['blurhash'] = $hash;

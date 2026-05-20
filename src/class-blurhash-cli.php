@@ -120,11 +120,26 @@ class Blurhash_CLI {
 			// never call `Blurhash::get()` per row in the loop (the
 			// N+1 the prior pagination shape had). `--force` skips
 			// the filter and walks everything in ID order.
+			//
+			// Candidate set is "key missing OR value empty". A
+			// non-empty-but-malformed row (postmeta poisoning, a
+			// truncated import) self-heals through the runtime
+			// cron path because {@see Blurhash::get()} reports
+			// malformed values as absent, so `run_encode()` will
+			// re-compute on the next `wp_generate_attachment_metadata`
+			// regen. Operators who need a one-shot rescue without
+			// waiting for a regen run the command with `--force`.
 			if ( ! $force ) {
 				$query_args['meta_query'] = array( // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query -- one-shot CLI backfill; not a web-path query.
+					'relation' => 'OR',
 					array(
 						'key'     => Blurhash::META_KEY,
 						'compare' => 'NOT EXISTS',
+					),
+					array(
+						'key'     => Blurhash::META_KEY,
+						'value'   => '',
+						'compare' => '=',
 					),
 				);
 			}

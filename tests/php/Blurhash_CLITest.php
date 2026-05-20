@@ -392,16 +392,15 @@ class Blurhash_CLITest extends BaseTestCase {
 	// ---------------------------------------------------------------
 
 	/**
-	 * `register()` is a no-op when `WP_CLI` is not the truthy
-	 * constant — the production guard against autoloading the
-	 * command file on web requests.
+	 * `register()` adds the `fosse blurhash` command when the
+	 * `WP_CLI` constant is truthy. The "noop when not truthy"
+	 * branch is the production guard against autoloading the
+	 * command file on web requests; we can't realistically
+	 * exercise the unset/false branch inside a PHPUnit run because
+	 * the constant is shared process state, so only the truthy
+	 * branch is asserted here.
 	 */
-	public function test_register_is_noop_when_wp_cli_constant_false(): void {
-		// We can't realistically test "WP_CLI is undefined" inside
-		// a PHPUnit run because the constant is shared process
-		// state. The behavior under test is the truthy-constant
-		// branch: when WP_CLI === true, the registration should
-		// fire and add_command should record the call.
+	public function test_register_adds_command_when_wp_cli_truthy(): void {
 		if ( ! defined( 'WP_CLI' ) ) {
 			define( 'WP_CLI', true );
 		}
