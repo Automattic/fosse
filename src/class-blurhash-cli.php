@@ -97,6 +97,17 @@ class Blurhash_CLI {
 		$force   = ! empty( $assoc_args['force'] );
 		$limit   = isset( $assoc_args['limit'] ) ? (int) $assoc_args['limit'] : 0;
 
+		// Fail fast when the encoder can't run on this host.
+		// Without this gate, the loop would emit a `WP_CLI::warning`
+		// per attachment and exit non-zero — noisy and unactionable.
+		// `--dry-run` still works (no encoding attempted), so
+		// operators can enumerate candidates from a GD-less host
+		// to decide whether to migrate the media.
+		if ( ! $dry_run && ! Blurhash::is_encoder_runnable() ) {
+			WP_CLI::error( 'Blurhash encoder requires GD (imagecreatefromstring/truecolor/scale). Install or enable GD and re-run.' );
+			return;
+		}
+
 		$encoded = 0;
 		$skipped = 0;
 		$failed  = 0;

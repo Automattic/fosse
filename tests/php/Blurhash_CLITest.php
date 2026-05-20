@@ -49,12 +49,23 @@ class Blurhash_CLITest extends BaseTestCase {
 
 	/**
 	 * Reset the WP_CLI shim's call buffers and the Blurhash hook
-	 * wiring before each test.
+	 * wiring before each test. Skips the whole test if the real
+	 * `WP_CLI` runtime is loaded in this PHPUnit environment —
+	 * the tests depend on the in-repo shim's `reset`/`commands`/
+	 * `last_success` helpers, which the real WP-CLI class doesn't
+	 * expose. The shim auto-loads only when `\WP_CLI` is undefined
+	 * (see `Helpers/class-wp-cli-stub.php`), so a real-WP-CLI
+	 * environment would otherwise fatal on the first helper call.
 	 *
 	 * @before
 	 */
 	#[Before]
 	public function reset_state(): void {
+		if ( ! method_exists( WP_CLI::class, 'reset' ) ) {
+			$this->markTestSkipped(
+				'Real WP-CLI runtime is loaded; these tests require the in-repo WP_CLI shim.'
+			);
+		}
 		WP_CLI::reset();
 		remove_all_filters( 'wp_generate_attachment_metadata' );
 		remove_all_filters( 'activitypub_attachment' );

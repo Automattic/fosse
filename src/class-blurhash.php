@@ -204,7 +204,7 @@ class Blurhash {
 			return null;
 		}
 
-		if ( ! \function_exists( 'imagecreatefromstring' ) ) {
+		if ( ! self::is_encoder_runnable() ) {
 			return null;
 		}
 
@@ -368,6 +368,15 @@ class Blurhash {
 			return $metadata;
 		}
 
+		// Skip both the invalidation AND the cron enqueue when the
+		// encoder can't actually run on this host. Without the gate,
+		// a metadata regen on a GD-less site would wipe a previously
+		// stored hash (computed on a different host, restored from
+		// backup, etc.) and queue a cron event guaranteed to fail.
+		if ( ! self::is_encoder_runnable() ) {
+			return $metadata;
+		}
+
 		// Invalidate any prior hash so cron will re-encode against
 		// the latest bytes. `wp_generate_attachment_metadata` fires
 		// on initial upload AND on media-replace / crop / regen, so
@@ -397,6 +406,21 @@ class Blurhash {
 		}
 		$mime = \get_post_mime_type( $attachment_id );
 		return \is_string( $mime ) && \in_array( $mime, self::ENCODABLE_MIME_TYPES, true );
+	}
+
+	/**
+	 * Whether the host has the GD primitives the encoder needs to
+	 * actually run. Public so the WP-CLI backfill can fail-fast with
+	 * one clear error message rather than emit a warning per
+	 * attachment, and so the upload/cron paths can short-circuit
+	 * without leaving cron noise behind on a GD-less host.
+	 *
+	 * @return bool
+	 */
+	public static function is_encoder_runnable(): bool {
+		return \function_exists( 'imagecreatefromstring' )
+			&& \function_exists( 'imagecreatetruecolor' )
+			&& \function_exists( 'imagescale' );
 	}
 
 	/**
@@ -442,6 +466,17 @@ class Blurhash {
 		if ( $attachment_id < 1 ) {
 			return;
 		}
+
+		// Predictable unencodability (system-wide GD missing,
+		// non-raster mime, deleted attachment) is silent — logging
+		// per-event would spam diagnostics on every scheduled run
+		// even though the reason is global. Only unexpected failures
+		// (encoder exception, missing file, decode failure) below
+		// fire the diagnostic action.
+		if ( ! self::is_encoder_runnable() || ! self::is_encodable_attachment( $attachment_id ) ) {
+			return;
+		}
+
 		if ( null !== self::get( $attachment_id ) ) {
 			return;
 		}
