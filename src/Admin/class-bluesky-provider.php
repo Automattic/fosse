@@ -43,6 +43,34 @@ class Bluesky_Provider implements Connection_Provider {
 	private const OAUTH_RETURN_TRANSIENT_PREFIX = 'fosse_bluesky_oauth_return_';
 
 	/**
+	 * Transient prefix for cached Bluesky profile data keyed by sanitized DID.
+	 */
+	private const PROFILE_TRANSIENT_PREFIX = 'fosse_bluesky_profile_';
+
+	/**
+	 * TTL applied when the profile fetch succeeds.
+	 */
+	private const PROFILE_SUCCESS_TTL = 15 * MINUTE_IN_SECONDS;
+
+	/**
+	 * Short negative-cache TTL applied when the profile fetch fails.
+	 *
+	 * A sentinel value of -1 is written into the transient so subsequent
+	 * admin page renders during a sustained PDS outage skip the live HTTP
+	 * call until the negative cache expires.
+	 */
+	private const PROFILE_FAILURE_TTL = 2 * MINUTE_IN_SECONDS;
+
+	/**
+	 * HTTP timeout (seconds) for the optional follower-count enrichment.
+	 *
+	 * Overrides Atmosphere's 30s default. The Followers row is decorative
+	 * and is omitted entirely on failure, so admin rendering should not
+	 * wait longer than this for it even on the first uncached request.
+	 */
+	private const PROFILE_REQUEST_TIMEOUT = 5;
+
+	/**
 	 * Hook into fosse_register_providers to self-register.
 	 *
 	 * @return void
@@ -184,6 +212,98 @@ class Bluesky_Provider implements Connection_Provider {
 	}
 
 	/**
+	 * Build a public bsky.app profile URL.
+	 *
+	 * Prefers the DID when available so the link survives a handle
+	 * reassignment on Bluesky's side (handles can be moved between
+	 * accounts; DIDs are stable). Falls back to the handle when no DID
+	 * is available — typically only the brief pre-OAuth window.
+	 *
+	 * @param string $did    Stable DID identifier (empty when unknown).
+	 * @param string $handle Bluesky handle.
+	 * @return string Escaped URL.
+	 */
+	private static function get_profile_url( string $did, string $handle ): string {
+		$identifier = '' !== $did ? $did : ltrim( $handle, '@' );
+
+		return esc_url( 'https://bsky.app/profile/' . rawurlencode( $identifier ) );
+	}
+
+	/**
+	 * Format a linked Bluesky handle token.
+	 *
+	 * Callers own the class set so this method stays free of per-surface
+	 * branching. The href is built from the DID when present (see
+	 * {@see self::get_profile_url()}) so handle reassignments don't point
+	 * the link at a different account than the one shown.
+	 *
+	 * @param array<string, mixed> $status  Bluesky status snapshot.
+	 * @param string[]             $classes CSS classes to apply to the inner <code> token.
+	 * @return string Escaped HTML safe to echo.
+	 */
+	private static function format_handle_link( array $status, array $classes ): string {
+		$did    = isset( $status['did'] ) ? (string) $status['did'] : '';
+		$handle = isset( $status['handle'] ) ? (string) $status['handle'] : '';
+
+		return sprintf(
+			'<a href="%1$s" target="_blank" rel="noopener noreferrer"><code class="%2$s">@%3$s</code></a>',
+			self::get_profile_url( $did, $handle ),
+			esc_attr( implode( ' ', $classes ) ),
+			Status_Formatter::handle( ltrim( $handle, '@' ) )
+		);
+	}
+
+	/**
+	 * Fetch the connected Bluesky follower count from the profile API.
+	 *
+	 * The Followers row is an optional UI enrichment, so the fetch uses
+	 * {@see Atmosphere\API::request()} directly with a short
+	 * {@see self::PROFILE_REQUEST_TIMEOUT} override instead of the
+	 * `::get()` helper that inherits Atmosphere's 30s default — a slow
+	 * PDS must not stall the entire Settings/Status render for a row
+	 * that the UI omits on failure anyway.
+	 *
+	 * Successful counts are cached for {@see self::PROFILE_SUCCESS_TTL}.
+	 * Remote-call failures are negative-cached for
+	 * {@see self::PROFILE_FAILURE_TTL} using a `-1` sentinel so a
+	 * sustained outage cannot turn every uncached admin render into a
+	 * fresh HTTP wait. The UI omits the row in both the null-return and
+	 * negative-cache-hit cases.
+	 *
+	 * @param array<string, mixed> $status Bluesky status snapshot.
+	 * @return int|null Followers count, or null when unavailable.
+	 */
+	private static function get_followers_count( array $status ): ?int {
+		if ( empty( $status['connected'] ) || empty( $status['did'] ) || ! empty( $status['token_error'] ) ) {
+			return null;
+		}
+
+		$cache_key = self::PROFILE_TRANSIENT_PREFIX . sanitize_key( (string) $status['did'] );
+		$cached    = get_transient( $cache_key );
+		if ( false !== $cached ) {
+			$cached_int = (int) $cached;
+
+			return $cached_int < 0 ? null : $cached_int;
+		}
+
+		if ( ! class_exists( '\Atmosphere\API' ) || ! method_exists( '\Atmosphere\API', 'request' ) ) {
+			return null;
+		}
+
+		$endpoint = '/xrpc/app.bsky.actor.getProfile?' . http_build_query( array( 'actor' => (string) $status['did'] ) );
+		$result   = \Atmosphere\API::request( 'GET', $endpoint, array( 'timeout' => self::PROFILE_REQUEST_TIMEOUT ) );
+		if ( is_wp_error( $result ) || ! is_array( $result ) || ! array_key_exists( 'followersCount', $result ) || ! is_numeric( $result['followersCount'] ) ) {
+			set_transient( $cache_key, -1, self::PROFILE_FAILURE_TTL );
+			return null;
+		}
+
+		$count = max( 0, (int) $result['followersCount'] );
+		set_transient( $cache_key, $count, self::PROFILE_SUCCESS_TTL );
+
+		return $count;
+	}
+
+	/**
 	 * Render Bluesky-specific settings inside the unified Settings form.
 	 *
 	 * Currently a no-op. The auto-publish toggle that used to render here
@@ -212,7 +332,8 @@ class Bluesky_Provider implements Connection_Provider {
 	 * @return void
 	 */
 	public function render_connection_actions(): void {
-		$status = $this->get_status();
+		$status          = $this->get_status();
+		$followers_count = self::get_followers_count( $status );
 		?>
 		<div class="fosse-connection-section fosse-admin-card" id="fosse-provider-bluesky">
 			<div class="fosse-card-header">
@@ -272,14 +393,21 @@ class Bluesky_Provider implements Connection_Provider {
 						<?php esc_html_e( 'FOSSE can share eligible WordPress posts with this Bluesky account.', 'fosse' ); ?>
 					</p>
 					<dl class="fosse-detail-list">
-						<dt class="fosse-detail-list__term"><?php esc_html_e( 'Bluesky handle', 'fosse' ); ?></dt>
-						<dd class="fosse-detail-list__description">
-							<strong class="fosse-token fosse-admin-token fosse-token--handle fosse-admin-token--handle">
+						<?php if ( ! empty( $status['handle'] ) ) : ?>
+							<dt class="fosse-detail-list__term"><?php esc_html_e( 'Bluesky handle', 'fosse' ); ?></dt>
+							<dd class="fosse-detail-list__description">
 								<?php
-								echo Status_Formatter::handle( $status['handle'] ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Status_Formatter::handle() escapes input and returns safe HTML with <wbr>.
+								echo self::format_handle_link( // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- format_handle_link() escapes input and returns safe token/link markup.
+									$status,
+									array( 'fosse-token', 'fosse-admin-token', 'fosse-token--handle', 'fosse-admin-token--handle' )
+								);
 								?>
-							</strong>
-						</dd>
+							</dd>
+						<?php endif; ?>
+						<?php if ( null !== $followers_count ) : ?>
+							<dt class="fosse-detail-list__term"><?php esc_html_e( 'Followers', 'fosse' ); ?></dt>
+							<dd class="fosse-detail-list__description"><?php echo esc_html( number_format_i18n( $followers_count ) ); ?></dd>
+						<?php endif; ?>
 						<dt class="fosse-detail-list__term"><?php esc_html_e( 'Account ID', 'fosse' ); ?></dt>
 						<dd class="fosse-detail-list__description">
 							<code class="fosse-token fosse-admin-token fosse-token--did fosse-admin-token--did">
@@ -442,9 +570,10 @@ class Bluesky_Provider implements Connection_Provider {
 	 * @return void
 	 */
 	public function render_status_card(): void {
-		$status       = $this->get_status();
-		$status_class = $status['connected'] ? 'connected' : 'disconnected';
-		$status_label = $status['connected'] ? __( 'Connected', 'fosse' ) : __( 'Disconnected', 'fosse' );
+		$status          = $this->get_status();
+		$status_class    = $status['connected'] ? 'connected' : 'disconnected';
+		$status_label    = $status['connected'] ? __( 'Connected', 'fosse' ) : __( 'Disconnected', 'fosse' );
+		$followers_count = self::get_followers_count( $status );
 		?>
 		<div class="fosse-status-card fosse-admin-card">
 			<div class="fosse-status-card__header fosse-card-header">
@@ -465,12 +594,17 @@ class Bluesky_Provider implements Connection_Provider {
 					<?php if ( $status['handle'] ) : ?>
 						<dt class="fosse-detail-list__term"><?php esc_html_e( 'Handle', 'fosse' ); ?></dt>
 						<dd class="fosse-detail-list__description">
-								<strong class="fosse-token fosse-status-card__token fosse-token--handle fosse-status-card__token--handle">
-									<?php
-									echo Status_Formatter::handle( $status['handle'] ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Status_Formatter::handle() escapes input and returns safe HTML with <wbr>.
-									?>
-								</strong>
+								<?php
+								echo self::format_handle_link( // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- format_handle_link() escapes input and returns safe token/link markup.
+									$status,
+									array( 'fosse-token', 'fosse-status-card__token', 'fosse-token--handle', 'fosse-status-card__token--handle' )
+								);
+								?>
 						</dd>
+					<?php endif; ?>
+					<?php if ( null !== $followers_count ) : ?>
+						<dt class="fosse-detail-list__term"><?php esc_html_e( 'Followers', 'fosse' ); ?></dt>
+						<dd class="fosse-detail-list__description"><?php echo esc_html( number_format_i18n( $followers_count ) ); ?></dd>
 					<?php endif; ?>
 					<?php if ( $status['did'] ) : ?>
 						<dt class="fosse-detail-list__term"><?php esc_html_e( 'DID', 'fosse' ); ?></dt>
