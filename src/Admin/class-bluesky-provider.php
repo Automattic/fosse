@@ -702,8 +702,8 @@ class Bluesky_Provider implements Connection_Provider {
 	 * Returns silently for unrelated paths, when the
 	 * `fosse_serve_atproto_did_well_known` filter opts out, and when
 	 * Atmosphere isn't loaded. Sends a 404 and exits when Atmosphere is
-	 * loaded but no DID is available; otherwise sends a `text/plain` body
-	 * containing the connected DID and exits.
+	 * loaded but no identity DID is available; otherwise sends a
+	 * `text/plain` body containing the DID and exits.
 	 *
 	 * @return void
 	 */
@@ -754,22 +754,33 @@ class Bluesky_Provider implements Connection_Provider {
 			return null;
 		}
 
-		if ( ! function_exists( '\Atmosphere\is_connected' ) ) {
+		$did = '';
+
+		if ( function_exists( '\Atmosphere\has_identity' ) && function_exists( '\Atmosphere\get_did' ) ) {
+			if ( ! \Atmosphere\has_identity() ) {
+				return array(
+					'status' => 404,
+					'did'    => '',
+				);
+			}
+
+			$did = \Atmosphere\get_did();
+		} elseif ( function_exists( '\Atmosphere\is_connected' ) && function_exists( '\Atmosphere\get_connection' ) ) {
+			if ( ! \Atmosphere\is_connected() ) {
+				return array(
+					'status' => 404,
+					'did'    => '',
+				);
+			}
+
+			$connection = \Atmosphere\get_connection();
+			$did        = isset( $connection['did'] ) ? (string) $connection['did'] : '';
+		} else {
 			// Atmosphere isn't loaded. That's a structural error, not a
 			// user-facing "no connection" state. Decline to handle so a
 			// normal 404 happens via WordPress's main request flow.
 			return null;
 		}
-
-		if ( ! \Atmosphere\is_connected() ) {
-			return array(
-				'status' => 404,
-				'did'    => '',
-			);
-		}
-
-		$connection = \Atmosphere\get_connection();
-		$did        = isset( $connection['did'] ) ? (string) $connection['did'] : '';
 
 		// Validate the DID against AT Proto syntax before promising to serve it.
 		// The response is plain text and a malformed value (newlines, control chars,

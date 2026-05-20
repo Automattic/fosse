@@ -54,6 +54,7 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		// invocation in the same PHP process if the static `$booted` flag leaked.
 		Provider_Loader::reset();
 		delete_option( 'atmosphere_connection' );
+		delete_option( 'atmosphere_identity' );
 		delete_option( 'atmosphere_auto_publish' );
 		delete_option( Bluesky_Domain_Handle::OPTION_PREVIOUS_HANDLE );
 		delete_transient( 'fosse_bluesky_profile_' . sanitize_key( 'did:plc:test123' ) );
@@ -881,9 +882,48 @@ class Bluesky_ProviderTest extends BaseTestCase {
 	}
 
 	/**
-	 * A stored DID is not enough to serve the well-known route without a connection.
+	 * The well-known route must keep serving the DID while a stored identity
+	 * needs OAuth reauthorization. Domain handles depend on this endpoint to
+	 * resolve before the reconnect flow can even redirect to the auth server.
 	 */
-	public function test_atproto_did_well_known_response_requires_connected_atmosphere() {
+	public function test_atproto_did_well_known_response_uses_identity_during_reauth() {
+		update_option(
+			'atmosphere_identity',
+			array(
+				'did'          => 'did:plc:test123',
+				'handle'       => 'example.com',
+				'pds_endpoint' => 'https://bsky.social',
+			)
+		);
+		update_option(
+			'atmosphere_connection',
+			array(
+				'did'          => 'did:plc:test123',
+				'handle'       => 'example.com',
+				'pds_endpoint' => 'https://bsky.social',
+				'access_token' => '',
+				'needs_reauth' => true,
+			)
+		);
+
+		$this->assertFalse( \Atmosphere\is_connected() );
+		$this->assertTrue( \Atmosphere\has_identity() );
+
+		$this->assertSame(
+			array(
+				'status' => 200,
+				'did'    => 'did:plc:test123',
+			),
+			$this->get_atproto_did_well_known_response( '/.well-known/atproto-did' )
+		);
+	}
+
+	/**
+	 * A legacy connection row with identity data still serves the DID even
+	 * without a live access token. Atmosphere lazily migrates this shape into
+	 * `atmosphere_identity`, and FOSSE should follow that source of truth.
+	 */
+	public function test_atproto_did_well_known_response_migrates_legacy_identity_without_live_connection() {
 		update_option(
 			'atmosphere_connection',
 			array(
@@ -892,6 +932,19 @@ class Bluesky_ProviderTest extends BaseTestCase {
 			)
 		);
 
+		$this->assertSame(
+			array(
+				'status' => 200,
+				'did'    => 'did:plc:test123',
+			),
+			$this->get_atproto_did_well_known_response( '/.well-known/atproto-did' )
+		);
+	}
+
+	/**
+	 * Sites without any persisted AT Protocol identity return 404.
+	 */
+	public function test_atproto_did_well_known_response_returns_404_without_identity() {
 		$this->assertSame(
 			array(
 				'status' => 404,
