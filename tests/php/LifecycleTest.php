@@ -15,30 +15,11 @@ use WorDBless\BaseTestCase;
  * Verifies `Lifecycle::uninstall()` deletes only FOSSE-owned state and leaves
  * upstream ActivityPub / Atmosphere options untouched.
  *
- * Mirrors the Data Ownership table in `sdd/deactivation-lifecycle/spec.md`.
- * If that table changes, this test must change in lockstep.
+ * Iterates `Lifecycle::FOSSE_OWNED_*` constants directly so a new FOSSE-owned
+ * key added to the canonical list is automatically exercised by the seed /
+ * preserve assertions — no test-side list to forget to update.
  */
 class LifecycleTest extends BaseTestCase {
-
-	/**
-	 * Exact FOSSE-owned options the spec says uninstall must delete.
-	 *
-	 * @var string[]
-	 */
-	private const FOSSE_OWNED_OPTIONS = array(
-		'fosse_object_type',
-		'fosse_long_form_strategy',
-		'fosse_onboarding_completed',
-		'fosse_onboarding_destination',
-		'fosse_activation_redirect',
-		'fosse_bundled_ap_bootstrapped',
-		'fosse_bundled_atmosphere_bootstrapped',
-		'fosse_canonical_options_migrated',
-		'fosse_metrics_consent',
-		'fosse_metrics_last_observed_at',
-		'fosse_metrics_first_observed_at',
-		'fosse_metrics_funnel',
-	);
 
 	/**
 	 * Upstream-owned options the spec says uninstall must preserve. Seeded
@@ -62,15 +43,16 @@ class LifecycleTest extends BaseTestCase {
 	 */
 	#[Before]
 	public function reset_state(): void {
-		foreach ( self::FOSSE_OWNED_OPTIONS as $key ) {
+		foreach ( Lifecycle::FOSSE_OWNED_OPTIONS as $key ) {
 			delete_option( $key );
 		}
 		foreach ( array_keys( self::UPSTREAM_OWNED_OPTIONS ) as $key ) {
 			delete_option( $key );
 		}
-		delete_transient( 'fosse_activation_redirect' );
-		delete_transient( 'fosse_bluesky_oauth_return_123' );
-		delete_transient( 'fosse_deactivation_handoff_pending' );
+		foreach ( Lifecycle::FOSSE_OWNED_TRANSIENTS as $transient ) {
+			delete_transient( $transient );
+		}
+		delete_transient( Lifecycle::FOSSE_TRANSIENT_PREFIX . '123' );
 	}
 
 	/**
@@ -78,14 +60,16 @@ class LifecycleTest extends BaseTestCase {
 	 * exactly as written.
 	 */
 	public function test_uninstall_removes_fosse_state_and_preserves_upstream_state(): void {
-		foreach ( self::FOSSE_OWNED_OPTIONS as $key ) {
+		foreach ( Lifecycle::FOSSE_OWNED_OPTIONS as $key ) {
 			update_option( $key, 'seeded-' . $key );
 		}
 		foreach ( self::UPSTREAM_OWNED_OPTIONS as $key => $value ) {
 			update_option( $key, $value );
 		}
-		set_transient( 'fosse_activation_redirect', '1', HOUR_IN_SECONDS );
-		set_transient( 'fosse_bluesky_oauth_return_123', 'return-context', HOUR_IN_SECONDS );
+		foreach ( Lifecycle::FOSSE_OWNED_TRANSIENTS as $transient ) {
+			set_transient( $transient, 'seeded-' . $transient, HOUR_IN_SECONDS );
+		}
+		set_transient( Lifecycle::FOSSE_TRANSIENT_PREFIX . '123', 'return-context', HOUR_IN_SECONDS );
 
 		$user_id = wp_insert_user(
 			array(
@@ -95,19 +79,25 @@ class LifecycleTest extends BaseTestCase {
 			)
 		);
 		$this->assertIsInt( $user_id, 'Test fixture user insert failed.' );
-		update_user_meta( $user_id, '_fosse_wizard_started_emitted', '1' );
+		foreach ( Lifecycle::FOSSE_OWNED_USER_META as $meta_key ) {
+			update_user_meta( $user_id, $meta_key, '1' );
+		}
 
 		Lifecycle::uninstall();
 
-		foreach ( self::FOSSE_OWNED_OPTIONS as $key ) {
+		foreach ( Lifecycle::FOSSE_OWNED_OPTIONS as $key ) {
 			$this->assertFalse( get_option( $key ), "FOSSE option {$key} should be deleted on uninstall." );
 		}
 		foreach ( self::UPSTREAM_OWNED_OPTIONS as $key => $value ) {
 			$this->assertSame( $value, get_option( $key ), "Upstream option {$key} must survive uninstall unchanged." );
 		}
-		$this->assertFalse( get_transient( 'fosse_activation_redirect' ) );
-		$this->assertFalse( get_transient( 'fosse_bluesky_oauth_return_123' ) );
-		$this->assertSame( '', get_user_meta( $user_id, '_fosse_wizard_started_emitted', true ) );
+		foreach ( Lifecycle::FOSSE_OWNED_TRANSIENTS as $transient ) {
+			$this->assertFalse( get_transient( $transient ), "FOSSE transient {$transient} should be deleted on uninstall." );
+		}
+		$this->assertFalse( get_transient( Lifecycle::FOSSE_TRANSIENT_PREFIX . '123' ) );
+		foreach ( Lifecycle::FOSSE_OWNED_USER_META as $meta_key ) {
+			$this->assertSame( '', get_user_meta( $user_id, $meta_key, true ), "FOSSE user meta {$meta_key} should be deleted on uninstall." );
+		}
 	}
 
 	/**
@@ -139,5 +129,43 @@ class LifecycleTest extends BaseTestCase {
 		Lifecycle::uninstall();
 
 		$this->assertFalse( get_option( 'fosse_onboarding_completed' ) );
+	}
+
+	/**
+	 * Calling uninstall twice in the same request must not warn or fatal.
+	 * The spec advertises out-of-band callability (wp.com Simple platform
+	 * tooling), where the second invocation may overlap a half-finished
+	 * first run if scheduling slips. `delete_option` / `delete_transient` /
+	 * `delete_metadata` all tolerate already-deleted state — this test
+	 * locks that property in.
+	 */
+	public function test_uninstall_is_idempotent_within_same_request(): void {
+		set_transient( 'fosse_bluesky_oauth_return_alice', 'alice-context', HOUR_IN_SECONDS );
+		update_option( 'fosse_onboarding_completed', '1' );
+
+		Lifecycle::uninstall();
+		Lifecycle::uninstall();
+
+		$this->assertFalse( get_option( 'fosse_onboarding_completed' ) );
+		$this->assertFalse( get_transient( 'fosse_bluesky_oauth_return_alice' ) );
+	}
+
+	/**
+	 * A misbehaving third-party `alloptions` filter that returns a non-array
+	 * must not TypeError under PHP 8 and abort uninstall mid-flight. The
+	 * guard short-circuits to an empty iteration so the SQL pass still runs.
+	 */
+	public function test_uninstall_survives_non_array_alloptions_filter(): void {
+		$poisoner = static function () {
+			return null;
+		};
+		add_filter( 'alloptions', $poisoner, PHP_INT_MAX );
+
+		try {
+			Lifecycle::uninstall();
+			$this->assertTrue( true, 'Uninstall completed without TypeError despite a non-array alloptions filter.' );
+		} finally {
+			remove_filter( 'alloptions', $poisoner, PHP_INT_MAX );
+		}
 	}
 }

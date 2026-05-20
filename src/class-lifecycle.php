@@ -30,10 +30,13 @@ class Lifecycle {
 	 * Keep in lockstep with the Data Ownership table in
 	 * `sdd/deactivation-lifecycle/spec.md`. Any new FOSSE-owned option
 	 * shipped by a sibling SDD must be appended here before that SDD lands.
+	 * Public so `LifecycleTest` (and a drift-detection test against the
+	 * `uninstall.php` procedural fallback) can iterate the canonical list
+	 * instead of re-declaring it.
 	 *
 	 * @var string[]
 	 */
-	private const FOSSE_OWNED_OPTIONS = array(
+	public const FOSSE_OWNED_OPTIONS = array(
 		'fosse_object_type',
 		'fosse_long_form_strategy',
 		'fosse_onboarding_completed',
@@ -51,9 +54,15 @@ class Lifecycle {
 	/**
 	 * Exact transient names FOSSE owns.
 	 *
+	 * Includes `fosse_deactivation_handoff_pending` defensively even though
+	 * the post-deactivation transient design was retired (the row beneath the
+	 * FOSSE plugin row replaced it — see implementation-notes.md). Keeping
+	 * the name here means a stale value written by an earlier dev build or a
+	 * future iteration that revives the pattern is still cleaned up.
+	 *
 	 * @var string[]
 	 */
-	private const FOSSE_OWNED_TRANSIENTS = array(
+	public const FOSSE_OWNED_TRANSIENTS = array(
 		'fosse_activation_redirect',
 		'fosse_deactivation_handoff_pending',
 	);
@@ -65,14 +74,14 @@ class Lifecycle {
 	 *
 	 * @var string
 	 */
-	private const FOSSE_TRANSIENT_PREFIXES = 'fosse_bluesky_oauth_return_';
+	public const FOSSE_TRANSIENT_PREFIX = 'fosse_bluesky_oauth_return_';
 
 	/**
 	 * FOSSE-owned user meta keys.
 	 *
 	 * @var string[]
 	 */
-	private const FOSSE_OWNED_USER_META = array(
+	public const FOSSE_OWNED_USER_META = array(
 		'_fosse_wizard_started_emitted',
 	);
 
@@ -94,7 +103,7 @@ class Lifecycle {
 			delete_transient( $transient );
 		}
 
-		self::delete_prefixed_transients( self::FOSSE_TRANSIENT_PREFIXES );
+		self::delete_prefixed_transients( self::FOSSE_TRANSIENT_PREFIX );
 
 		self::delete_user_meta_keys( self::FOSSE_OWNED_USER_META );
 	}
@@ -122,7 +131,15 @@ class Lifecycle {
 		$value_prefix   = '_transient_' . $prefix;
 		$timeout_prefix = '_transient_timeout_' . $prefix;
 
-		foreach ( array_keys( wp_load_alloptions() ) as $option_name ) {
+		// `wp_load_alloptions()` is filterable; a misbehaving third-party
+		// `alloptions` filter can return a non-array and abort uninstall
+		// mid-flight under PHP 8's strict typing. Defend before iterating.
+		$alloptions = wp_load_alloptions();
+		if ( ! is_array( $alloptions ) ) {
+			$alloptions = array();
+		}
+
+		foreach ( array_keys( $alloptions ) as $option_name ) {
 			$option_name = (string) $option_name;
 			if ( str_starts_with( $option_name, $value_prefix ) ) {
 				delete_transient( substr( $option_name, strlen( '_transient_' ) ) );

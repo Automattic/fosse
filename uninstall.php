@@ -71,7 +71,12 @@ foreach ( $fosse_owned_transients as $fosse_transient ) {
 
 $fosse_transient_prefix = 'fosse_bluesky_oauth_return_';
 
-foreach ( array_keys( wp_load_alloptions() ) as $fosse_option_name ) {
+$fosse_alloptions = wp_load_alloptions();
+if ( ! is_array( $fosse_alloptions ) ) {
+	$fosse_alloptions = array();
+}
+
+foreach ( array_keys( $fosse_alloptions ) as $fosse_option_name ) {
 	$fosse_option_name = (string) $fosse_option_name;
 	if ( str_starts_with( $fosse_option_name, '_transient_' . $fosse_transient_prefix ) ) {
 		delete_transient( substr( $fosse_option_name, strlen( '_transient_' ) ) );
