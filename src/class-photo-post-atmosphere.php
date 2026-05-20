@@ -215,10 +215,10 @@ class Photo_Post_Atmosphere {
 		$budget_deadline = $budget_seconds > 0 ? \microtime( true ) + (float) $budget_seconds : null;
 		$attached        = array();
 		$overflow        = array();
-		$attempted       = 0;
+		$index           = 0;
 
 		foreach ( $image_ids as $attachment_id ) {
-			if ( $attempted >= self::MAX_IMAGES ) {
+			if ( count( $attached ) >= self::MAX_IMAGES ) {
 				$overflow[] = $attachment_id;
 				continue;
 			}
@@ -238,7 +238,7 @@ class Photo_Post_Atmosphere {
 			$blob = self::upload_blob( $attachment_id );
 
 			if ( null === $blob ) {
-				if ( $has_featured && 0 === $attempted ) {
+				if ( $has_featured && 0 === $index ) {
 					// Featured image is the hero shot — refuse to ship
 					// a gallery missing it. Return `$embed` unchanged so
 					// Atmosphere falls back to short-form text and the
@@ -262,7 +262,7 @@ class Photo_Post_Atmosphere {
 					)
 				);
 
-				++$attempted;
+				++$index;
 				continue;
 			}
 
@@ -277,7 +277,7 @@ class Photo_Post_Atmosphere {
 			}
 
 			$attached[] = $image;
-			++$attempted;
+			++$index;
 		}
 
 		if ( empty( $attached ) ) {

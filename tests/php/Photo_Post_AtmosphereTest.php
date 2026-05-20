@@ -417,6 +417,54 @@ class Photo_Post_AtmosphereTest extends BaseTestCase {
 	}
 
 	/**
+	 * A non-featured mid-list upload failure must not eat one of the
+	 * MAX_IMAGES slots: when more uploadable attachments are available
+	 * the embed should still ship `MAX_IMAGES` successful blobs.
+	 * Counts successful attachments toward the cap, not raw attempts.
+	 */
+	public function test_transform_filter_fills_cap_after_non_featured_failure(): void {
+		add_filter( 'activitypub_max_image_attachments', static fn() => 6 );
+
+		// Six resolvable images: featured + five gallery children.
+		// We'll fail the second gallery image (index 2 in $image_ids)
+		// and expect the projector to still ship MAX_IMAGES = 4
+		// successful uploads, with the trailing attachment as overflow.
+		$image_ids = array( $this->image_id, $this->image_id_alt );
+		for ( $i = 0; $i < 4; $i++ ) {
+			$image_ids[] = $this->insert_image_attachment( "extra-{$i}.jpg", 1000, 1000 );
+		}
+		foreach ( $image_ids as $i => $id ) {
+			if ( 2 === $i ) {
+				continue;
+			}
+			$this->stub_blob_for( $id, 'bafy' . $i );
+		}
+
+		$inner = '';
+		foreach ( array_slice( $image_ids, 1 ) as $id ) {
+			$inner .= '<!-- wp:image {"id":' . $id . '} --><figure class="wp-block-image"><img/></figure><!-- /wp:image -->';
+		}
+		$content = '<!-- wp:gallery -->' . $inner . '<!-- /wp:gallery -->';
+
+		$overflow_payload = null;
+		add_action(
+			'fosse_photo_post_atmosphere_overflow',
+			static function ( $post, $overflow ) use ( &$overflow_payload ) {
+				$overflow_payload = $overflow;
+			},
+			10,
+			2
+		);
+
+		$post = $this->make_post( $content, $this->image_id );
+
+		$record = $this->apply_transform_filter( $post );
+
+		$this->assertCount( Photo_Post_Atmosphere::MAX_IMAGES, $record['embed']['images'] );
+		$this->assertSame( array( $image_ids[5] ), $overflow_payload );
+	}
+
+	/**
 	 * Aspect ratio is omitted when metadata is unavailable — the
 	 * `images` entry must still carry `image` + `alt`.
 	 */
