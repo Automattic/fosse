@@ -147,7 +147,7 @@ Linear:
 - **Depends on**: Task 1 merged upstream.
 
 ### Task 5 [FOSSE]: `Object_Type` projector + `fosse_object_type` option
-- **Status**: ✅ Done ([#21](https://github.com/Automattic/fosse/pull/21))
+- **Status**: ✅ Done ([#21](https://github.com/Automattic/fosse/pull/21)). Later refactored: [canonical-upstream-options](../canonical-upstream-options/) ([#109](https://github.com/Automattic/fosse/pull/109)) retired the `filter_ap` callback and `fosse_object_type` option in favor of bridging the canonical `activitypub_object_type` option directly. The current implementation in `src/class-object-type.php` only registers `atmosphere_is_short_form_post`.
 - **Repo**: `Automattic/fosse`
 - **Linear**: [DOTCOM-16840](https://linear.app/a8c/issue/DOTCOM-16840)
 - **Files**:

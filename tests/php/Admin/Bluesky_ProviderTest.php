@@ -8,12 +8,14 @@
 namespace Automattic\Fosse\Tests\Admin;
 
 use Atmosphere\OAuth\Encryption;
+use Automattic\Fosse\Admin\Bluesky_Domain_Handle;
 use Automattic\Fosse\Admin\Bluesky_Provider;
 use Automattic\Fosse\Admin\Connection_Provider_Registry;
 use Automattic\Fosse\Provider_Loader;
 use PHPUnit\Framework\Attributes\After;
 use PHPUnit\Framework\Attributes\Before;
 use PHPUnit\Framework\Attributes\DataProvider;
+use ReflectionClass;
 use ReflectionMethod;
 use WorDBless\BaseTestCase;
 
@@ -47,19 +49,36 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		$this->provider = new Bluesky_Provider();
 
 		Connection_Provider_Registry::reset();
+		// Reset the loader's idempotency flag too — `test_registers_through_provider_loader`
+		// calls `Provider_Loader::boot()`, which would silently no-op on a second test
+		// invocation in the same PHP process if the static `$booted` flag leaked.
+		Provider_Loader::reset();
 		delete_option( 'atmosphere_connection' );
 		delete_option( 'atmosphere_auto_publish' );
+		delete_option( Bluesky_Domain_Handle::OPTION_PREVIOUS_HANDLE );
+		delete_transient( 'fosse_bluesky_profile_' . sanitize_key( 'did:plc:test123' ) );
+
+		// Reset the one-shot revert hand-off so a prior test's successful
+		// revert can't surface a ghost snapshot in this test's reads.
+		$reflection = new ReflectionClass( Bluesky_Domain_Handle::class );
+		if ( $reflection->hasProperty( 'last_revert_snapshot' ) ) {
+			$reflection->getProperty( 'last_revert_snapshot' )->setValue( null, null );
+		}
 
 		remove_all_filters( 'fosse_register_providers' );
 		remove_all_filters( 'atmosphere_oauth_redirect_uri' );
 		remove_all_filters( 'wp_redirect' );
 		remove_all_filters( 'admin_post_fosse_connect_bluesky' );
 		remove_all_filters( 'admin_post_fosse_disconnect_bluesky' );
+		remove_all_filters( 'admin_post_fosse_set_bluesky_domain_handle' );
 		remove_all_filters( 'admin_init' );
 		remove_all_filters( 'fosse_serve_atproto_did_well_known' );
 		remove_all_filters( 'status_header' );
 		remove_all_filters( 'pre_http_request' );
 		remove_all_filters( 'pre_option_atmosphere_connection' );
+		remove_all_filters( Bluesky_Domain_Handle::FILTER_ENABLED );
+		remove_all_filters( Bluesky_Domain_Handle::FILTER_PRE_UPDATE );
+		remove_all_filters( 'home_url' );
 
 		global $wp_settings_errors;
 		$wp_settings_errors = array(); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited,WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedVariableFound -- reset core settings-error storage for test isolation.
@@ -131,7 +150,7 @@ class Bluesky_ProviderTest extends BaseTestCase {
 	}
 
 	/**
-	 * Default status is disconnected with auto-publish enabled.
+	 * Default status is disconnected with empty connection fields.
 	 */
 	public function test_status_disconnected_by_default() {
 		$status = $this->provider->get_status();
@@ -140,7 +159,6 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		$this->assertSame( '', $status['handle'] );
 		$this->assertSame( '', $status['did'] );
 		$this->assertSame( '', $status['pds_endpoint'] );
-		$this->assertTrue( $status['auto_publish'] );
 		$this->assertNull( $status['token_error'] );
 	}
 
@@ -157,7 +175,6 @@ class Bluesky_ProviderTest extends BaseTestCase {
 				'access_token' => Encryption::encrypt( 'token' ),
 			)
 		);
-		update_option( 'atmosphere_auto_publish', '0' );
 
 		$status = $this->provider->get_status();
 
@@ -165,8 +182,65 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		$this->assertSame( 'alice.bsky.social', $status['handle'] );
 		$this->assertSame( 'did:plc:test123', $status['did'] );
 		$this->assertSame( 'https://bsky.social', $status['pds_endpoint'] );
-		$this->assertFalse( $status['auto_publish'] );
 		$this->assertNull( $status['token_error'] );
+	}
+
+	/**
+	 * `get_status()` re-reads the connection state after the token-health
+	 * probe so a refresh that deletes `atmosphere_connection` mid-call
+	 * (e.g. permanent OAuth failure: `invalid_grant`, `invalid_client`,
+	 * `unauthorized_client`) is reflected in the returned status, not
+	 * frozen as the pre-deletion view. Otherwise the memo would freeze
+	 * `connected=true` for the rest of the request and the admin would
+	 * see a green status at the exact moment publishing credentials were
+	 * invalidated.
+	 *
+	 * Simulates the deletion side-effect via a one-shot
+	 * `pre_option_atmosphere_connection` filter: first read sees the
+	 * connection (so `is_connected()` returns true and we enter the
+	 * token-probe branch), then the filter wipes the option and returns
+	 * `array()` thereafter. The implementation under test calls
+	 * `is_connected()` → probe → `get_connection()` / `is_connected()`
+	 * a second time, which now sees the deleted state.
+	 */
+	public function test_status_re_reads_connection_after_token_probe_deletion(): void {
+		update_option(
+			'atmosphere_connection',
+			array(
+				'did'          => 'did:plc:test123',
+				'handle'       => 'alice.bsky.social',
+				'pds_endpoint' => 'https://bsky.social',
+				'access_token' => Encryption::encrypt( 'token' ),
+			)
+		);
+
+		// Mimic Atmosphere's refresh path deleting the connection during
+		// `access_token()`. Reads 1-2 return the live connection (so
+		// `is_connected()` returns true and the implementation enters the
+		// token-probe branch). Reads 3+ return empty — Atmosphere's
+		// permanent-failure deletion is what the implementation under
+		// test must observe when it re-reads after the probe.
+		$connected_payload = array(
+			'did'          => 'did:plc:test123',
+			'handle'       => 'alice.bsky.social',
+			'pds_endpoint' => 'https://bsky.social',
+			'access_token' => Encryption::encrypt( 'token' ),
+		);
+		$reads             = 0;
+		add_filter(
+			'pre_option_atmosphere_connection',
+			static function () use ( &$reads, $connected_payload ) {
+				++$reads;
+				return $reads <= 2 ? $connected_payload : array();
+			}
+		);
+
+		$status = $this->provider->get_status();
+
+		$this->assertFalse(
+			$status['connected'],
+			'After the token probe deletes the connection, get_status() must reflect the deletion — not the pre-delete view.'
+		);
 	}
 
 	/**
@@ -190,26 +264,28 @@ class Bluesky_ProviderTest extends BaseTestCase {
 	}
 
 	/**
-	 * The settings section is empty while disconnected — no auto-publish
-	 * toggle, no connect form. Connect/disconnect actions render via
-	 * `render_connection_actions()` outside the unified Settings form.
+	 * `render_setup_section()` is a no-op in both connected and disconnected
+	 * states. The auto-publish toggle that used to live here was removed
+	 * (Atmosphere has no per-post manual publish UI to back it up); the
+	 * connect / disconnect actions render via `render_connection_actions()`
+	 * outside the unified Settings form. Other interface methods (status
+	 * card, save_settings) keep working — this test just pins the
+	 * "nothing renders into the unified Settings form" contract.
 	 */
-	public function test_render_setup_section_disconnected_is_empty() {
+	public function test_render_setup_section_is_no_op_when_disconnected() {
 		ob_start();
 		$this->provider->render_setup_section();
 		$output = ob_get_clean();
 
 		$this->assertSame( '', trim( $output ) );
-		$this->assertStringNotContainsString( 'fosse_connect_bluesky', $output );
-		$this->assertStringNotContainsString( 'fosse_disconnect_bluesky', $output );
 	}
 
 	/**
-	 * Connected settings section exposes the auto-publish toggle as a
-	 * fields-only fragment (no opening `<form>` tag) so it can sit inside
-	 * the unified Settings form alongside General + AP fields.
+	 * Connected state also renders nothing — the toggle was the only thing
+	 * gated on `connected`, so removing it leaves no Bluesky-specific row
+	 * in the unified Settings form.
 	 */
-	public function test_render_setup_section_connected_renders_auto_publish_toggle() {
+	public function test_render_setup_section_is_no_op_when_connected() {
 		update_option(
 			'atmosphere_connection',
 			array(
@@ -224,68 +300,7 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		$this->provider->render_setup_section();
 		$output = ob_get_clean();
 
-		$this->assertStringContainsString( 'class="fosse-settings-section"', $output );
-		$this->assertStringContainsString( '<h3>Bluesky publishing</h3>', $output );
-		$this->assertStringContainsString( 'name="atmosphere_auto_publish"', $output );
-		$this->assertStringContainsString( 'Auto-publish', $output );
-		$this->assertStringNotContainsString( '<form', $output );
-		$this->assertStringNotContainsString( 'fosse_connect_bluesky', $output );
-		$this->assertStringNotContainsString( 'fosse_disconnect_bluesky', $output );
-	}
-
-	/**
-	 * Auto-publish checkbox reflects the stored option. With Atmosphere's
-	 * default ('1' = enabled), an unset option still renders the box checked.
-	 */
-	public function test_render_setup_section_auto_publish_checked_by_default() {
-		update_option(
-			'atmosphere_connection',
-			array(
-				'did'          => 'did:plc:test123',
-				'handle'       => 'alice.bsky.social',
-				'pds_endpoint' => 'https://bsky.social',
-				'access_token' => Encryption::encrypt( 'token' ),
-			)
-		);
-		delete_option( 'atmosphere_auto_publish' );
-
-		ob_start();
-		$this->provider->render_setup_section();
-		$output = ob_get_clean();
-
-		// WordPress's `checked()` may emit `checked='checked'` or a bare
-		// `checked` attribute depending on core version; match either form
-		// so the assertion stays stable across the supported floor.
-		$this->assertMatchesRegularExpression(
-			'~<input[^>]+name="atmosphere_auto_publish"[^>]+(checked(?:=\'checked\'|="checked")?)~',
-			$output
-		);
-	}
-
-	/**
-	 * When auto-publish is explicitly disabled ('0'), the checkbox renders
-	 * unchecked.
-	 */
-	public function test_render_setup_section_auto_publish_unchecked_when_disabled() {
-		update_option(
-			'atmosphere_connection',
-			array(
-				'did'          => 'did:plc:test123',
-				'handle'       => 'alice.bsky.social',
-				'pds_endpoint' => 'https://bsky.social',
-				'access_token' => Encryption::encrypt( 'token' ),
-			)
-		);
-		update_option( 'atmosphere_auto_publish', '0' );
-
-		ob_start();
-		$this->provider->render_setup_section();
-		$output = ob_get_clean();
-
-		$this->assertDoesNotMatchRegularExpression(
-			'~<input[^>]+name="atmosphere_auto_publish"[^>]+(checked(?:=\'checked\'|="checked")?)~',
-			$output
-		);
+		$this->assertSame( '', trim( $output ) );
 	}
 
 	/**
@@ -299,7 +314,6 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		$output = ob_get_clean();
 
 		$this->assertStringContainsString( 'id="fosse-provider-bluesky"', $output );
-		$this->assertStringContainsString( 'class="fosse-connection-section"', $output );
 		$this->assertStringContainsString( '<h3>Bluesky</h3>', $output );
 	}
 
@@ -313,6 +327,10 @@ class Bluesky_ProviderTest extends BaseTestCase {
 
 		$this->assertStringContainsString( 'fosse_connect_bluesky', $output );
 		$this->assertStringContainsString( 'bluesky_handle', $output );
+		$this->assertStringContainsString( 'Bluesky handle', $output );
+		$this->assertStringContainsString( 'Connect Bluesky', $output );
+		$this->assertStringContainsString( 'Disconnected', $output );
+		$this->assertStringNotContainsString( 'class="form-table"', $output );
 	}
 
 	/**
@@ -335,7 +353,51 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		$output = ob_get_clean();
 
 		$this->assertStringContainsString( 'fosse_disconnect_bluesky', $output );
+		$this->assertStringContainsString( 'Disconnect Bluesky', $output );
+		$this->assertStringContainsString( 'Connected account', $output );
+		$this->assertStringContainsString( 'Bluesky handle', $output );
 		$this->assertStringContainsString( 'alice.bsky.social', $output );
+		$this->assertStringContainsString( 'Account ID', $output );
+		$this->assertStringContainsString( 'PDS endpoint', $output );
+		$this->assertStringContainsString( 'Token health', $output );
+		$this->assertStringNotContainsString( 'class="form-table"', $output );
+	}
+
+	/**
+	 * When a snapshot exists for the connected DID and the current
+	 * handle no longer matches the site host, the Settings panel
+	 * surfaces drift-specific copy instead of the first-time setup
+	 * copy. Same CTA button — only the framing changes.
+	 */
+	public function test_render_connection_actions_renders_drift_copy_when_snapshot_exists() {
+		update_option(
+			'atmosphere_connection',
+			array(
+				'did'          => 'did:plc:test123',
+				'handle'       => 'oldhandle.example',
+				'pds_endpoint' => 'https://bsky.social',
+				'access_token' => Encryption::encrypt( 'token' ),
+			)
+		);
+		update_option(
+			Bluesky_Domain_Handle::OPTION_PREVIOUS_HANDLE,
+			array(
+				'did'    => 'did:plc:test123',
+				'handle' => 'alice.bsky.social',
+			),
+			false
+		);
+
+		ob_start();
+		$this->provider->render_connection_actions();
+		$output = ob_get_clean();
+
+		$this->assertStringContainsString( 'Realign your Bluesky handle with this site', $output );
+		$this->assertStringContainsString( 'FOSSE previously set your Bluesky handle', $output );
+		// First-time-setup copy must not also surface.
+		$this->assertStringNotContainsString( 'You can replace it with', $output );
+		// CTA button itself is unchanged.
+		$this->assertStringContainsString( 'fosse_set_bluesky_domain_handle', $output );
 	}
 
 	/**
@@ -347,9 +409,9 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		$this->provider->render_connection_actions();
 		$output = ob_get_clean();
 
-		$this->assertStringContainsString( 'fosse-bluesky-signup', $output );
 		$this->assertStringContainsString( 'https://bsky.app/', $output );
 		$this->assertStringContainsString( 'Need a Bluesky account', $output );
+		$this->assertStringContainsString( 'Create one', $output );
 	}
 
 	/**
@@ -371,8 +433,82 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		$this->provider->render_connection_actions();
 		$output = ob_get_clean();
 
-		$this->assertStringNotContainsString( 'fosse-bluesky-signup', $output );
-		$this->assertStringNotContainsString( 'https://bsky.app/', $output );
+		$this->assertStringNotContainsString( 'Create one', $output );
+		$this->assertStringNotContainsString( 'Need a Bluesky account', $output );
+	}
+
+	/**
+	 * `redirect_with_notice()` escapes the message before storing it in the
+	 * `'atmosphere'` settings-error group. The audit's escaping finding turns
+	 * on this — `settings_errors()` (and WP's auto-render via `admin_notices`)
+	 * output the stored `message` field as raw HTML, so any `WP_Error` text
+	 * from upstream OAuth/PDS/`sync_publication()` paths must be neutralized
+	 * at storage so every render site is safe.
+	 *
+	 * Drives the helper through reflection (it's private and ends in `exit`,
+	 * which the redirect trap converts to a thrown exception) and inspects
+	 * the resulting global to assert escape happened.
+	 */
+	public function test_redirect_with_notice_escapes_message_at_storage(): void {
+		$this->arm_redirect_trap();
+
+		try {
+			$this->invoke_redirect_with_notice( '<img src=x onerror="alert(1)">', 'error' );
+			$this->fail( 'Expected redirect_with_notice to redirect.' );
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$errors = get_settings_errors( 'atmosphere' );
+		$this->assertNotEmpty( $errors );
+
+		$message = (string) ( $errors[0]['message'] ?? '' );
+		$this->assertStringNotContainsString( '<img', $message );
+		$this->assertStringContainsString( '&lt;img', $message );
+		$this->assertSame( 'error', $errors[0]['type'] ?? '' );
+	}
+
+	/**
+	 * The escape applies on every type, not just errors. A success notice
+	 * with HTML from an upstream payload (unlikely but conceivable) is also
+	 * neutralized.
+	 */
+	public function test_redirect_with_notice_escapes_message_on_success_type(): void {
+		$this->arm_redirect_trap();
+
+		try {
+			$this->invoke_redirect_with_notice( '<b>Connected</b>', 'success' );
+			$this->fail( 'Expected redirect_with_notice to redirect.' );
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$errors = get_settings_errors( 'atmosphere' );
+		$this->assertNotEmpty( $errors );
+
+		$message = (string) ( $errors[0]['message'] ?? '' );
+		$this->assertStringNotContainsString( '<b>', $message );
+		$this->assertStringContainsString( '&lt;b&gt;', $message );
+	}
+
+	/**
+	 * Plain ASCII messages survive the escape unchanged so the routine
+	 * notices ("Disconnected from Bluesky.", "Successfully connected to
+	 * Bluesky.") still read naturally.
+	 */
+	public function test_redirect_with_notice_passes_plain_text_through(): void {
+		$this->arm_redirect_trap();
+
+		try {
+			$this->invoke_redirect_with_notice( 'Disconnected from Bluesky.', 'info' );
+			$this->fail( 'Expected redirect_with_notice to redirect.' );
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$errors = get_settings_errors( 'atmosphere' );
+		$this->assertNotEmpty( $errors );
+		$this->assertSame( 'Disconnected from Bluesky.', $errors[0]['message'] ?? '' );
 	}
 
 	/**
@@ -397,6 +533,7 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		$this->assertStringContainsString( 'Reconnect required', $output );
 		$this->assertStringContainsString( '#fosse-provider-bluesky', $output );
 		$this->assertStringContainsString( '<details', $output );
+		$this->assertSame( 1, substr_count( $output, 'Open Bluesky settings' ) );
 	}
 
 	/**
@@ -418,23 +555,245 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		$this->provider->render_status_card();
 		$output = ob_get_clean();
 
-		$this->assertMatchesRegularExpression( '/<td[^>]*>\s*OK\s*<\/td>/', $output );
+		$this->assertMatchesRegularExpression( '/<dt[^>]*>\s*Token Health\s*<\/dt>\s*<dd[^>]*>\s*OK\s*<\/dd>/', $output );
 		$this->assertStringNotContainsString( 'Reconnect required', $output );
 		$this->assertStringNotContainsString( '<details', $output );
 	}
 
 	/**
-	 * Status card no longer carries a "Manage Bluesky settings" deep link
-	 * (issue #74) — the sidebar Settings menu entry replaces those per-card
-	 * navigation affordances.
+	 * Disconnected status card links directly to Bluesky connection settings.
 	 */
-	public function test_render_status_card_omits_manage_settings_link() {
+	public function test_render_status_card_disconnected_state_links_to_settings() {
 		ob_start();
 		$this->provider->render_status_card();
 		$output = ob_get_clean();
 
-		$this->assertStringNotContainsString( 'Manage Bluesky settings', $output );
-		$this->assertStringNotContainsString( 'fosse-status-card__manage', $output );
+		$this->assertStringContainsString( 'Open Bluesky settings', $output );
+		$this->assertStringContainsString( 'admin.php?page=fosse#fosse-provider-bluesky', $output );
+	}
+
+	/**
+	 * Connected healthy status card keeps the settings link out of the card
+	 * action row; token-error recovery still renders inline with token health.
+	 */
+	public function test_render_status_card_connected_state_omits_settings_action_row() {
+		update_option(
+			'atmosphere_connection',
+			array(
+				'did'          => 'did:plc:test123',
+				'handle'       => 'alice.bsky.social',
+				'pds_endpoint' => 'https://bsky.social',
+				'access_token' => Encryption::encrypt( 'token' ),
+			)
+		);
+
+		ob_start();
+		$this->provider->render_status_card();
+		$output = ob_get_clean();
+
+		$this->assertStringNotContainsString( 'Open Bluesky settings', $output );
+	}
+
+	/**
+	 * Connected status card links the Bluesky handle to the public profile.
+	 */
+	public function test_render_status_card_links_handle_to_public_profile(): void {
+		$this->seed_connected_atmosphere_connection();
+
+		ob_start();
+		$this->provider->render_status_card();
+		$output = ob_get_clean();
+
+		$this->assertMatchesRegularExpression(
+			'~<a[^>]+href="https://bsky\.app/profile/did%3Aplc%3Atest123"[^>]*>\s*<code class="fosse-token fosse-status-card__token fosse-token--handle fosse-status-card__token--handle">@alice\.<wbr>bsky\.<wbr>social</code>\s*</a>~',
+			$output
+		);
+	}
+
+	/**
+	 * Connected settings panel links the Bluesky handle and includes the cached
+	 * follower count from the Bluesky profile response.
+	 */
+	public function test_render_connection_actions_connected_links_handle_and_shows_followers(): void {
+		$this->seed_api_capable_atmosphere_connection();
+		$request_count = $this->mock_bluesky_profile_followers( 1234 );
+
+		ob_start();
+		$this->provider->render_connection_actions();
+		$output = ob_get_clean();
+
+		$this->assertMatchesRegularExpression(
+			'~<a[^>]+href="https://bsky\.app/profile/did%3Aplc%3Atest123"[^>]*>\s*<code class="fosse-token fosse-admin-token fosse-token--handle fosse-admin-token--handle">@alice\.<wbr>bsky\.<wbr>social</code>\s*</a>~',
+			$output
+		);
+		$this->assertMatchesRegularExpression( '~<dt[^>]*>\s*Followers\s*</dt>\s*<dd[^>]*>\s*1,234\s*</dd>~', $output );
+
+		ob_start();
+		$this->provider->render_connection_actions();
+		ob_get_clean();
+
+		$this->assertSame( 1, $request_count(), 'The second render should use the cached Bluesky profile count.' );
+	}
+
+	/**
+	 * Connected settings panel omits the linked handle row when the stored
+	 * Atmosphere connection is partial and has no handle to name.
+	 */
+	public function test_render_connection_actions_connected_omits_handle_row_when_handle_empty(): void {
+		update_option(
+			'atmosphere_connection',
+			array(
+				'did'          => 'did:plc:test123',
+				'handle'       => '',
+				'pds_endpoint' => 'https://bsky.social',
+				'access_token' => Encryption::encrypt( 'token' ),
+			)
+		);
+
+		ob_start();
+		$this->provider->render_connection_actions();
+		$output = ob_get_clean();
+
+		$this->assertStringContainsString( 'Connected account', $output );
+		$this->assertStringContainsString( 'Account ID', $output );
+		$this->assertDoesNotMatchRegularExpression( '~<dt class="fosse-detail-list__term">\s*Bluesky handle\s*</dt>~', $output );
+		$this->assertStringNotContainsString( 'https://bsky.app/profile/"', $output );
+		$this->assertStringNotContainsString( '>@</code>', $output );
+	}
+
+	/**
+	 * Connected status card includes the cached Bluesky follower count too, so
+	 * the Settings and Status surfaces expose the same account summary.
+	 */
+	public function test_render_status_card_shows_followers(): void {
+		$this->seed_api_capable_atmosphere_connection();
+		$this->mock_bluesky_profile_followers( 9876 );
+
+		ob_start();
+		$this->provider->render_status_card();
+		$output = ob_get_clean();
+
+		$this->assertMatchesRegularExpression( '~<dt[^>]*>\s*Followers\s*</dt>\s*<dd[^>]*>\s*9,876\s*</dd>~', $output );
+	}
+
+	/**
+	 * A status snapshot with a token_error set short-circuits before any
+	 * HTTP call so a stale OAuth session cannot block admin rendering on
+	 * the 30s wp_remote_request timeout.
+	 */
+	public function test_get_followers_count_short_circuits_when_token_error_present(): void {
+		$request_count = $this->mock_bluesky_profile_followers( 1234 );
+
+		$followers = $this->invoke_get_followers_count(
+			array(
+				'connected'   => true,
+				'did'         => 'did:plc:test123',
+				'handle'      => 'alice.bsky.social',
+				'token_error' => 'invalid_token',
+			)
+		);
+
+		$this->assertNull( $followers );
+		$this->assertSame( 0, $request_count(), 'No profile request must fire when token_error is set.' );
+	}
+
+	/**
+	 * A disconnected status short-circuits before any HTTP call.
+	 */
+	public function test_get_followers_count_short_circuits_when_disconnected(): void {
+		$request_count = $this->mock_bluesky_profile_followers( 1234 );
+
+		$followers = $this->invoke_get_followers_count(
+			array(
+				'connected'   => false,
+				'did'         => 'did:plc:test123',
+				'handle'      => 'alice.bsky.social',
+				'token_error' => null,
+			)
+		);
+
+		$this->assertNull( $followers );
+		$this->assertSame( 0, $request_count(), 'No profile request must fire when status is disconnected.' );
+	}
+
+	/**
+	 * A WP_Error from the profile fetch suppresses the Followers row and is
+	 * negative-cached so a second render skips the live request (otherwise a
+	 * PDS outage would block every admin page render on the 30s timeout).
+	 */
+	public function test_render_status_card_negative_caches_wp_error_from_profile(): void {
+		$this->seed_api_capable_atmosphere_connection();
+		$request_count = $this->mock_bluesky_profile_response(
+			new \WP_Error( 'http_request_failed', 'connection refused' )
+		);
+
+		ob_start();
+		$this->provider->render_status_card();
+		$output = ob_get_clean();
+
+		$this->assertStringNotContainsString( 'Followers', $output );
+
+		ob_start();
+		$this->provider->render_status_card();
+		ob_get_clean();
+
+		$this->assertSame( 1, $request_count(), 'Negative-cache must suppress the second profile request after a WP_Error.' );
+	}
+
+	/**
+	 * A profile response missing followersCount yields null and is
+	 * negative-cached.
+	 */
+	public function test_render_status_card_handles_missing_followers_count_key(): void {
+		$this->seed_api_capable_atmosphere_connection();
+		$this->mock_bluesky_profile_response_body(
+			array(
+				'did'    => 'did:plc:test123',
+				'handle' => 'alice.bsky.social',
+			)
+		);
+
+		ob_start();
+		$this->provider->render_status_card();
+		$output = ob_get_clean();
+
+		$this->assertStringNotContainsString( 'Followers', $output );
+	}
+
+	/**
+	 * A non-numeric followersCount value (e.g. an unexpected payload shape)
+	 * yields null and is negative-cached rather than coerced to 0.
+	 */
+	public function test_render_status_card_handles_non_numeric_followers_count(): void {
+		$this->seed_api_capable_atmosphere_connection();
+		$this->mock_bluesky_profile_response_body(
+			array(
+				'did'            => 'did:plc:test123',
+				'handle'         => 'alice.bsky.social',
+				'followersCount' => 'nope',
+			)
+		);
+
+		ob_start();
+		$this->provider->render_status_card();
+		$output = ob_get_clean();
+
+		$this->assertStringNotContainsString( 'Followers', $output );
+	}
+
+	/**
+	 * A negative followersCount value is clamped to 0 so the UI never
+	 * surfaces a nonsensical negative number.
+	 */
+	public function test_render_status_card_clamps_negative_followers_count_to_zero(): void {
+		$this->seed_api_capable_atmosphere_connection();
+		$this->mock_bluesky_profile_followers( -5 );
+
+		ob_start();
+		$this->provider->render_status_card();
+		$output = ob_get_clean();
+
+		$this->assertMatchesRegularExpression( '~<dt[^>]*>\s*Followers\s*</dt>\s*<dd[^>]*>\s*0\s*</dd>~', $output );
 	}
 
 	/**
@@ -458,13 +817,10 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		$this->provider->render_status_card();
 		$output = ob_get_clean();
 
-		$this->assertStringContainsString( 'fosse-status-card__table', $output );
-		$this->assertStringContainsString( 'fosse-status-card__label', $output );
-		$this->assertStringContainsString( 'fosse-status-card__value', $output );
-
-		$this->assertStringContainsString( 'fosse-status-card__token--did', $output );
-		$this->assertStringContainsString( 'fosse-status-card__token--handle', $output );
-		$this->assertStringContainsString( 'fosse-status-card__token--url', $output );
+		$this->assertStringContainsString( 'fosse-token--did', $output );
+		$this->assertStringContainsString( 'fosse-token--handle', $output );
+		$this->assertStringContainsString( 'fosse-token--url', $output );
+		$this->assertStringNotContainsString( 'widefat striped', $output );
 
 		// DID renders with <wbr> after each `:` separator.
 		$this->assertStringContainsString( 'did:<wbr>plc:<wbr>longidentifier', $output );
@@ -1040,7 +1396,8 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		$messages = array_column( $errors, 'message' );
 
 		$this->assertNotEmpty( $messages );
-		$this->assertStringContainsString( 'handle', strtolower( implode( ' ', $messages ) ) );
+		$this->assertStringContainsString( 'valid handle', strtolower( implode( ' ', $messages ) ) );
+		$this->assertStringContainsString( 'example.com', strtolower( implode( ' ', $messages ) ) );
 	}
 
 	/**
@@ -1441,13 +1798,13 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		// phpcs:enable WordPress.Security.NonceVerification.Missing
 
 		// Intercept the HTTP request that Client::authorize() makes to
-		// the handle's auth server, and capture the handle it resolved.
+		// the handle's auth server, and capture the normalized handle it resolved.
 		$captured_handle = null;
 		add_filter(
 			'pre_http_request',
 			static function ( $preempt, $args, $url ) use ( &$captured_handle ) {
 				// The first HTTP call from authorize() is handle resolution.
-				// Capture the URL to verify no leading @ was passed.
+				// Capture the URL to verify the normalized handle was passed.
 				$captured_handle = $url;
 				// Return an error to short-circuit the flow.
 				return new \WP_Error( 'fosse_test_intercept', 'intercepted' );
@@ -1474,7 +1831,9 @@ class Bluesky_ProviderTest extends BaseTestCase {
 			$captured_handle,
 			'Expected pre_http_request to fire from Client::authorize() — handle normalization could not be verified.'
 		);
+		$this->assertStringContainsString( 'alice.bsky.social', $captured_handle );
 		$this->assertStringNotContainsString( '@alice', $captured_handle );
+		$this->assertStringNotContainsString( '%40alice', $captured_handle );
 	}
 
 	/**
@@ -1487,7 +1846,9 @@ class Bluesky_ProviderTest extends BaseTestCase {
 
 		$this->assertNotFalse( has_action( 'admin_post_fosse_connect_bluesky', array( $this->provider, 'handle_connect' ) ) );
 		$this->assertNotFalse( has_action( 'admin_post_fosse_disconnect_bluesky', array( $this->provider, 'handle_disconnect' ) ) );
+		$this->assertNotFalse( has_action( 'admin_post_fosse_enable_bluesky_auto_publish', array( $this->provider, 'handle_enable_auto_publish' ) ) );
 		$this->assertNotFalse( has_action( 'admin_init', array( $this->provider, 'handle_oauth_callback' ) ) );
+		$this->assertNotFalse( has_action( 'admin_notices', array( $this->provider, 'maybe_render_auto_publish_disabled_notice' ) ) );
 		$this->assertSame( 1, has_action( 'init', array( $this->provider, 'serve_atproto_did_well_known' ) ) );
 		$this->assertSame( 1, has_action( 'template_redirect', array( $this->provider, 'maybe_suppress_atmosphere_well_known' ) ) );
 		$this->assertNotFalse( has_filter( 'atmosphere_oauth_redirect_uri', array( $this->provider, 'filter_oauth_redirect_uri' ) ) );
@@ -1496,62 +1857,288 @@ class Bluesky_ProviderTest extends BaseTestCase {
 	// --- save_settings ----------------------------------------------------
 
 	/**
-	 * A submitted, checked auto-publish input persists `'1'` so Atmosphere's
-	 * publish flow remains enabled after save.
+	 * `save_settings()` is currently a no-op (the auto-publish toggle was
+	 * removed from `render_setup_section()` because Atmosphere has no
+	 * per-post manual publish UI to back it up). It must still return
+	 * true so the unified Settings save's all-or-nothing semantics
+	 * succeed, and it must NOT touch `atmosphere_auto_publish` — the
+	 * option remains stored at its existing value (default `'1'`)
+	 * regardless of POST contents.
 	 */
-	public function test_save_settings_stores_auto_publish_when_checked() {
+	public function test_save_settings_is_no_op_and_returns_true() {
 		$this->seed_connected_atmosphere_connection();
+		update_option( 'atmosphere_auto_publish', '1' );
 
-		$ok = $this->provider->save_settings( array( 'atmosphere_auto_publish' => '1' ) );
+		// Even a payload that LOOKS like the legacy unchecked-checkbox
+		// shape (omitted key) must not flip the option to '0' — there's
+		// no input rendered, so its absence is meaningless.
+		$ok = $this->provider->save_settings( array() );
+
+		$this->assertTrue( $ok );
+		$this->assertSame( '1', get_option( 'atmosphere_auto_publish' ) );
+
+		// And a payload that explicitly carries the legacy field is also
+		// ignored — safety against a stale form somehow being POSTed.
+		$ok = $this->provider->save_settings( array( 'atmosphere_auto_publish' => '0' ) );
 
 		$this->assertTrue( $ok );
 		$this->assertSame( '1', get_option( 'atmosphere_auto_publish' ) );
 	}
 
 	/**
-	 * An omitted checkbox while connected is the legitimate "disabled"
-	 * submission — HTML forms drop unchecked checkboxes from the POST body,
-	 * so absence must persist `'0'` instead of preserving the previous value.
+	 * Pins the upstream contract that FOSSE's "preserved option" claim
+	 * depends on: when `atmosphere_auto_publish` is absent from the
+	 * database, `get_option()` returns `'1'` (auto-publish enabled).
+	 * Atmosphere's publish hook reads the option with the same default,
+	 * so an absent option is functionally equivalent to "on."
+	 *
+	 * If a future Atmosphere bump flips the documented default, or if
+	 * something registers the option with a different default at
+	 * `register_setting()` time, this assertion catches the contract
+	 * change before it silently disables Bluesky publishing for every
+	 * default-state site.
 	 */
-	public function test_save_settings_disables_auto_publish_when_unchecked() {
-		$this->seed_connected_atmosphere_connection();
-		update_option( 'atmosphere_auto_publish', '1' );
+	public function test_absent_atmosphere_auto_publish_option_defaults_to_enabled() {
+		delete_option( 'atmosphere_auto_publish' );
 
-		$ok = $this->provider->save_settings( array() );
+		$this->assertFalse(
+			get_option( 'atmosphere_auto_publish' ),
+			'Sanity check: option should be absent so the default-fallback path runs.'
+		);
+		$this->assertSame(
+			'1',
+			get_option( 'atmosphere_auto_publish', '1' ),
+			'FOSSE removed the auto-publish UI on the assumption that an absent option reads as enabled. If this assertion fails, the assumption is no longer safe and the recovery notice / handler in Bluesky_Provider must be reconsidered.'
+		);
+	}
 
-		$this->assertTrue( $ok );
-		$this->assertSame( '0', get_option( 'atmosphere_auto_publish' ) );
+	// --- is_auto_publish_enabled --------------------------------------
+
+	/**
+	 * Helper returns true when the option is absent — encodes the
+	 * "default-on" contract upstream Atmosphere shares. Pairs with
+	 * `test_absent_atmosphere_auto_publish_option_defaults_to_enabled`,
+	 * which pins the raw `get_option()` half of the same contract.
+	 */
+	public function test_is_auto_publish_enabled_true_when_option_absent() {
+		delete_option( 'atmosphere_auto_publish' );
+
+		$this->assertTrue( Bluesky_Provider::is_auto_publish_enabled() );
 	}
 
 	/**
-	 * An empty-string value (defensive) reads as "unchecked" and disables
-	 * auto-publish — guards against malformed POST bodies that submit the
-	 * field name without a value.
+	 * Helper returns true when the option is explicitly `'1'`.
 	 */
-	public function test_save_settings_disables_auto_publish_for_empty_value() {
-		$this->seed_connected_atmosphere_connection();
+	public function test_is_auto_publish_enabled_true_when_explicitly_on() {
 		update_option( 'atmosphere_auto_publish', '1' );
 
-		$this->provider->save_settings( array( 'atmosphere_auto_publish' => '' ) );
-
-		$this->assertSame( '0', get_option( 'atmosphere_auto_publish' ) );
+		$this->assertTrue( Bluesky_Provider::is_auto_publish_enabled() );
 	}
 
 	/**
-	 * A Settings save while disconnected must NOT touch
-	 * `atmosphere_auto_publish` — the toggle isn't rendered in that state,
-	 * so an omitted checkbox is the absence of a setting, not an
-	 * intentional "uncheck". Without this guard a routine General-section
-	 * save would silently flip the option to `'0'`.
+	 * Helper returns false when the option is explicitly `'0'` — the
+	 * recovery-notice population. The recovery-notice gate uses a
+	 * separate raw read because it must distinguish "explicit `'0'`"
+	 * from "absent"; this helper conflates the two by design (absent
+	 * reads as enabled).
 	 */
-	public function test_save_settings_disconnected_preserves_auto_publish() {
-		// Provider is disconnected by set_up_provider() (no connection seed).
+	public function test_is_auto_publish_enabled_false_when_explicitly_off() {
+		update_option( 'atmosphere_auto_publish', '0' );
+
+		$this->assertFalse( Bluesky_Provider::is_auto_publish_enabled() );
+	}
+
+	// --- maybe_render_auto_publish_disabled_notice ----------------------
+
+	/**
+	 * Notice fires when the option is explicitly `'0'` and Bluesky is
+	 * connected, on a FOSSE admin screen, for a user who can manage
+	 * options. Renders a warning notice with a one-click re-enable form.
+	 */
+	public function test_auto_publish_disabled_notice_renders_when_explicitly_off() {
+		$this->seed_connected_atmosphere_connection();
+		update_option( 'atmosphere_auto_publish', '0' );
+		$this->become_admin();
+		set_current_screen( 'toplevel_page_fosse' );
+
+		ob_start();
+		$this->provider->maybe_render_auto_publish_disabled_notice();
+		$output = ob_get_clean();
+
+		$this->assertStringContainsString( 'notice notice-warning', $output );
+		$this->assertStringContainsString( 'Bluesky auto-publishing is off.', $output );
+		$this->assertStringContainsString( 'fosse_enable_bluesky_auto_publish', $output );
+		$this->assertStringContainsString( 'Turn auto-publishing back on', $output );
+	}
+
+	/**
+	 * Notice does NOT fire when the option is at its absent / default-on
+	 * state — that's the silent-majority path and would be noise.
+	 */
+	public function test_auto_publish_disabled_notice_silent_when_option_absent() {
+		$this->seed_connected_atmosphere_connection();
+		delete_option( 'atmosphere_auto_publish' );
+		$this->become_admin();
+		set_current_screen( 'toplevel_page_fosse' );
+
+		ob_start();
+		$this->provider->maybe_render_auto_publish_disabled_notice();
+		$output = ob_get_clean();
+
+		$this->assertSame( '', trim( $output ) );
+	}
+
+	/**
+	 * Notice does NOT fire when the option is explicitly `'1'` — same
+	 * default-on intent, just with the option materialized.
+	 */
+	public function test_auto_publish_disabled_notice_silent_when_explicitly_on() {
+		$this->seed_connected_atmosphere_connection();
 		update_option( 'atmosphere_auto_publish', '1' );
+		$this->become_admin();
+		set_current_screen( 'toplevel_page_fosse' );
 
-		$ok = $this->provider->save_settings( array() );
+		ob_start();
+		$this->provider->maybe_render_auto_publish_disabled_notice();
+		$output = ob_get_clean();
 
-		$this->assertTrue( $ok );
+		$this->assertSame( '', trim( $output ) );
+	}
+
+	/**
+	 * Notice does NOT fire on non-FOSSE screens — even when the user is
+	 * in the at-risk state, we limit the surface to avoid leaking across
+	 * wp-admin.
+	 */
+	public function test_auto_publish_disabled_notice_silent_off_fosse_screens() {
+		$this->seed_connected_atmosphere_connection();
+		update_option( 'atmosphere_auto_publish', '0' );
+		$this->become_admin();
+		set_current_screen( 'dashboard' );
+
+		ob_start();
+		$this->provider->maybe_render_auto_publish_disabled_notice();
+		$output = ob_get_clean();
+
+		$this->assertSame( '', trim( $output ) );
+	}
+
+	/**
+	 * Notice does NOT fire when Bluesky is disconnected — there's nothing
+	 * for auto-publish to do anyway, so the notice would be misleading.
+	 */
+	public function test_auto_publish_disabled_notice_silent_when_disconnected() {
+		// No `seed_connected_atmosphere_connection()` — disconnected.
+		update_option( 'atmosphere_auto_publish', '0' );
+		$this->become_admin();
+		set_current_screen( 'toplevel_page_fosse' );
+
+		ob_start();
+		$this->provider->maybe_render_auto_publish_disabled_notice();
+		$output = ob_get_clean();
+
+		$this->assertSame( '', trim( $output ) );
+	}
+
+	/**
+	 * Notice does NOT fire for users without `manage_options`.
+	 */
+	public function test_auto_publish_disabled_notice_silent_for_subscriber() {
+		$this->seed_connected_atmosphere_connection();
+		update_option( 'atmosphere_auto_publish', '0' );
+		set_current_screen( 'toplevel_page_fosse' );
+
+		$this->become_subscriber();
+
+		ob_start();
+		$this->provider->maybe_render_auto_publish_disabled_notice();
+		$output = ob_get_clean();
+
+		$this->assertSame( '', trim( $output ) );
+	}
+
+	// --- handle_enable_auto_publish -----------------------------------
+
+	/**
+	 * The re-enable handler flips the option to `'1'` and redirects with
+	 * a success notice, recovering sites stranded by the toggle removal.
+	 */
+	public function test_handle_enable_auto_publish_flips_option_and_redirects() {
+		$this->seed_connected_atmosphere_connection();
+		update_option( 'atmosphere_auto_publish', '0' );
+		$this->become_admin();
+
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
+		$_POST    = array(
+			'_wpnonce' => wp_create_nonce( 'fosse_enable_bluesky_auto_publish' ),
+		);
+		$_REQUEST = $_POST;
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+
+		add_filter(
+			'wp_redirect',
+			static function () {
+				throw new RedirectFired( 'redirect' );
+			}
+		);
+
+		try {
+			$this->provider->handle_enable_auto_publish();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
 		$this->assertSame( '1', get_option( 'atmosphere_auto_publish' ) );
+	}
+
+	/**
+	 * Re-enable handler rejects requests with a missing or invalid nonce.
+	 */
+	public function test_handle_enable_auto_publish_rejects_bad_nonce() {
+		$this->seed_connected_atmosphere_connection();
+		update_option( 'atmosphere_auto_publish', '0' );
+		$this->become_admin();
+
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
+		$_POST    = array(
+			'_wpnonce' => 'invalid_nonce_value',
+		);
+		$_REQUEST = $_POST;
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+
+		$this->install_wp_die_handler();
+		$this->expectException( \RuntimeException::class );
+		$this->provider->handle_enable_auto_publish();
+	}
+
+	/**
+	 * Re-enable handler rejects subscribers — option must not change for
+	 * users without `manage_options`.
+	 */
+	public function test_handle_enable_auto_publish_rejects_subscriber() {
+		$this->seed_connected_atmosphere_connection();
+		update_option( 'atmosphere_auto_publish', '0' );
+
+		$this->become_subscriber();
+
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
+		$_POST    = array(
+			'_wpnonce' => wp_create_nonce( 'fosse_enable_bluesky_auto_publish' ),
+		);
+		$_REQUEST = $_POST;
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+
+		$this->install_wp_die_handler();
+		$this->expectException( \RuntimeException::class );
+		try {
+			$this->provider->handle_enable_auto_publish();
+		} finally {
+			$this->assertSame(
+				'0',
+				get_option( 'atmosphere_auto_publish' ),
+				'Subscriber must not be able to flip the option.'
+			);
+		}
 	}
 
 	/**
@@ -1586,6 +2173,52 @@ class Bluesky_ProviderTest extends BaseTestCase {
 	}
 
 	/**
+	 * Install a `wp_redirect` filter that throws `RedirectFired` so a
+	 * helper that ends in `wp_safe_redirect( ... ); exit;` can be tested
+	 * without process-killing.
+	 *
+	 * @return void
+	 */
+	private function arm_redirect_trap(): void {
+		add_filter(
+			'wp_redirect',
+			static function () {
+				throw new RedirectFired( 'redirect' );
+			}
+		);
+	}
+
+	/**
+	 * Drive the private `redirect_with_notice( message, type )` helper for
+	 * tests that need to exercise the storage-side escape without going
+	 * through a full handler path. Reflection is appropriate here because
+	 * the callers in question are themselves private code paths.
+	 *
+	 * @param string $message Notice message.
+	 * @param string $type    Notice type.
+	 * @return void
+	 */
+	private function invoke_redirect_with_notice( string $message, string $type ): void {
+		( new ReflectionMethod( Bluesky_Provider::class, 'redirect_with_notice' ) )
+			->invoke( $this->provider, $message, $type );
+	}
+
+	/**
+	 * Invoke the private static `get_followers_count` method directly so
+	 * error-branch tests don't depend on the live OAuth probe that
+	 * `get_status()` runs.
+	 *
+	 * @param array<string, mixed> $status Status snapshot to pass.
+	 * @return int|null
+	 */
+	private function invoke_get_followers_count( array $status ): ?int {
+		$method = new ReflectionMethod( Bluesky_Provider::class, 'get_followers_count' );
+		$result = $method->invoke( null, $status );
+
+		return $result;
+	}
+
+	/**
 	 * Seed a connected Atmosphere connection (handle, did, encrypted token).
 	 *
 	 * @return void
@@ -1603,6 +2236,142 @@ class Bluesky_ProviderTest extends BaseTestCase {
 	}
 
 	/**
+	 * Seed a connected Atmosphere connection with the DPoP key required for
+	 * authenticated profile API calls.
+	 *
+	 * @return void
+	 */
+	private function seed_api_capable_atmosphere_connection(): void {
+		update_option(
+			'atmosphere_connection',
+			array(
+				'did'          => 'did:plc:test123',
+				'handle'       => 'alice.bsky.social',
+				'pds_endpoint' => 'https://bsky.social',
+				'access_token' => Encryption::encrypt( 'token' ),
+				'dpop_jwk'     => Encryption::encrypt( wp_json_encode( \Atmosphere\OAuth\DPoP::generate_key(), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT ) ),
+			)
+		);
+	}
+
+	/**
+	 * Mock the Bluesky profile API response and expose how often it was called.
+	 *
+	 * @param int $followers Followers count to return.
+	 * @return callable(): int
+	 */
+	private function mock_bluesky_profile_followers( int $followers ): callable {
+		$requests = 0;
+
+		add_filter(
+			'pre_http_request',
+			static function ( $preempt, $parsed_args, $url ) use ( &$requests, $followers ) { // phpcs:ignore VariableAnalysis.CodeAnalysis.VariableAnalysis.UnusedVariable -- pre_http_request signature.
+				if ( false === strpos( (string) $url, '/xrpc/app.bsky.actor.getProfile' ) ) {
+					return $preempt;
+				}
+
+				++$requests;
+
+				return array(
+					'headers'  => array(),
+					'body'     => wp_json_encode(
+						array(
+							'did'            => 'did:plc:test123',
+							'handle'         => 'alice.bsky.social',
+							'followersCount' => $followers,
+						),
+						JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT
+					),
+					'response' => array(
+						'code'    => 200,
+						'message' => 'OK',
+					),
+					'cookies'  => array(),
+					'filename' => null,
+				);
+			},
+			10,
+			3
+		);
+
+		return static function () use ( &$requests ): int {
+			return $requests;
+		};
+	}
+
+	/**
+	 * Mock the Bluesky profile API to return a fixed body shape (post-JSON-decode).
+	 *
+	 * Used by error-branch tests that need to assert on missing keys or
+	 * non-numeric followersCount values without rebuilding the full pre_http_request
+	 * shape in each test.
+	 *
+	 * @param array<string, mixed> $body Decoded body to return.
+	 * @return callable(): int Returns how many requests the mock saw.
+	 */
+	private function mock_bluesky_profile_response_body( array $body ): callable {
+		$requests = 0;
+
+		add_filter(
+			'pre_http_request',
+			static function ( $preempt, $parsed_args, $url ) use ( &$requests, $body ) { // phpcs:ignore VariableAnalysis.CodeAnalysis.VariableAnalysis.UnusedVariable -- pre_http_request signature.
+				if ( false === strpos( (string) $url, '/xrpc/app.bsky.actor.getProfile' ) ) {
+					return $preempt;
+				}
+
+				++$requests;
+
+				return array(
+					'headers'  => array(),
+					'body'     => wp_json_encode( $body, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT ),
+					'response' => array(
+						'code'    => 200,
+						'message' => 'OK',
+					),
+					'cookies'  => array(),
+					'filename' => null,
+				);
+			},
+			10,
+			3
+		);
+
+		return static function () use ( &$requests ): int {
+			return $requests;
+		};
+	}
+
+	/**
+	 * Mock the Bluesky profile API to return an arbitrary pre_http_request
+	 * payload — used to inject WP_Error or non-2xx responses.
+	 *
+	 * @param mixed $response Value to return from the pre_http_request filter.
+	 * @return callable(): int Returns how many requests the mock saw.
+	 */
+	private function mock_bluesky_profile_response( $response ): callable {
+		$requests = 0;
+
+		add_filter(
+			'pre_http_request',
+			static function ( $preempt, $parsed_args, $url ) use ( &$requests, $response ) { // phpcs:ignore VariableAnalysis.CodeAnalysis.VariableAnalysis.UnusedVariable -- pre_http_request signature.
+				if ( false === strpos( (string) $url, '/xrpc/app.bsky.actor.getProfile' ) ) {
+					return $preempt;
+				}
+
+				++$requests;
+
+				return $response;
+			},
+			10,
+			3
+		);
+
+		return static function () use ( &$requests ): int {
+			return $requests;
+		};
+	}
+
+	/**
 	 * Seed the OAuth transients Atmosphere\OAuth\Client::handle_callback()
 	 * expects to find when validating an inbound callback.
 	 *
@@ -1616,7 +2385,13 @@ class Bluesky_ProviderTest extends BaseTestCase {
 	): void {
 		set_transient( 'atmosphere_oauth_state', $state, HOUR_IN_SECONDS );
 		set_transient( 'atmosphere_oauth_verifier', 'test-verifier-' . uniqid( '', true ), HOUR_IN_SECONDS );
-		set_transient( 'atmosphere_oauth_dpop_jwk', \Atmosphere\OAuth\DPoP::generate_key(), HOUR_IN_SECONDS );
+		set_transient(
+			'atmosphere_oauth_dpop_jwk',
+			\Atmosphere\OAuth\Encryption::encrypt(
+				(string) wp_json_encode( \Atmosphere\OAuth\DPoP::generate_key() ) // phpcs:ignore Jetpack.Functions.JsonEncodeFlags.Missing -- test fixture.
+			),
+			HOUR_IN_SECONDS
+		);
 		set_transient(
 			'atmosphere_oauth_resolved',
 			array(
@@ -1752,5 +2527,611 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		);
 
 		wp_set_current_user( $user_id );
+	}
+
+	// ---- domain-handle integration: explicit confirm flow ----
+
+	/**
+	 * Force home_url() to a fixed value so domain-handle assertions are stable.
+	 *
+	 * @param string $url Forced URL.
+	 * @return void
+	 */
+	private function force_home_url( string $url ): void {
+		add_filter(
+			'home_url',
+			static function ( $existing, $path ) use ( $url ) { // phpcs:ignore VariableAnalysis.CodeAnalysis.VariableAnalysis.UnusedVariable -- filter signature.
+				return rtrim( $url, '/' ) . ( '' === $path ? '' : $path );
+			},
+			10,
+			2
+		);
+	}
+
+	/**
+	 * Settings panel surfaces the confirm button when the user is connected
+	 * with a non-matching handle on a root install.
+	 */
+	public function test_render_connection_actions_renders_domain_handle_panel_when_eligible(): void {
+		$this->force_home_url( 'https://example.com' );
+		$this->seed_connected_atmosphere_connection();
+
+		ob_start();
+		$this->provider->render_connection_actions();
+		$output = ob_get_clean();
+
+		$this->assertStringContainsString( 'fosse_set_bluesky_domain_handle', $output );
+		$this->assertStringContainsString( 'Use example.com as my Bluesky handle', $output );
+		$this->assertStringContainsString( 'Heads up: replacing your handle is destructive', $output );
+		$this->assertStringContainsString( 'Use your domain as your Bluesky handle', $output );
+	}
+
+	/**
+	 * Settings panel uses the empty-handle copy when the connection has no
+	 * handle yet (e.g. a freshly-completed OAuth round-trip where Atmosphere
+	 * hasn't populated the handle field). The panel still renders so the
+	 * confirm button surfaces; the alternate copy avoids fabricating a
+	 * "replace your current handle" sentence with no current handle to name.
+	 */
+	public function test_render_connection_actions_renders_domain_handle_panel_when_handle_empty(): void {
+		$this->force_home_url( 'https://example.com' );
+		update_option(
+			'atmosphere_connection',
+			array(
+				'did'          => 'did:plc:test123',
+				'handle'       => '',
+				'pds_endpoint' => 'https://bsky.social',
+				'access_token' => Encryption::encrypt( 'token' ),
+			)
+		);
+
+		ob_start();
+		$this->provider->render_connection_actions();
+		$output = ob_get_clean();
+
+		$this->assertStringContainsString( 'fosse_set_bluesky_domain_handle', $output );
+		$this->assertStringContainsString( 'You can set your Bluesky handle to example.com', $output );
+		$this->assertStringContainsString( 'Use example.com as my Bluesky handle', $output );
+		$this->assertStringContainsString( 'Heads up: replacing your handle is destructive', $output );
+	}
+
+	/**
+	 * Settings panel suppresses the confirm button when the feature is disabled.
+	 */
+	public function test_render_connection_actions_omits_panel_when_feature_disabled(): void {
+		$this->force_home_url( 'https://example.com' );
+		$this->seed_connected_atmosphere_connection();
+		add_filter( Bluesky_Domain_Handle::FILTER_ENABLED, '__return_false' );
+
+		ob_start();
+		$this->provider->render_connection_actions();
+		$output = ob_get_clean();
+
+		$this->assertStringNotContainsString( 'fosse_set_bluesky_domain_handle', $output );
+	}
+
+	/**
+	 * Subdirectory installs do not render the confirm panel.
+	 */
+	public function test_render_connection_actions_omits_panel_for_subdirectory_install(): void {
+		$this->force_home_url( 'https://example.com/blog' );
+		$this->seed_connected_atmosphere_connection();
+
+		ob_start();
+		$this->provider->render_connection_actions();
+		$output = ob_get_clean();
+
+		$this->assertStringNotContainsString( 'fosse_set_bluesky_domain_handle', $output );
+	}
+
+	/**
+	 * The confirm panel disappears once the handle already matches the host.
+	 */
+	public function test_render_connection_actions_omits_panel_when_handle_already_matches(): void {
+		$this->force_home_url( 'https://example.com' );
+		update_option(
+			'atmosphere_connection',
+			array(
+				'did'          => 'did:plc:test123',
+				'handle'       => 'example.com',
+				'pds_endpoint' => 'https://bsky.social',
+				'access_token' => Encryption::encrypt( 'token' ),
+			)
+		);
+
+		ob_start();
+		$this->provider->render_connection_actions();
+		$output = ob_get_clean();
+
+		$this->assertStringNotContainsString( 'fosse_set_bluesky_domain_handle', $output );
+	}
+
+	/**
+	 * The handle-set handler delegates to Bluesky_Domain_Handle and redirects
+	 * back to the FOSSE Settings page on a normal (non-wizard) submission.
+	 */
+	public function test_handle_set_domain_handle_invokes_service_and_redirects(): void {
+		// Don't force a custom home_url here: wp_safe_redirect() validates the
+		// admin_url host against the allowed hosts derived from home_url, and
+		// a forced home_url with the default admin_url would mismatch and
+		// fall back to a bare wp-admin redirect. The set_handle service is
+		// exercised under a forced home_url in Bluesky_Domain_HandleTest.
+		$this->seed_connected_atmosphere_connection();
+		$this->become_admin();
+
+		$site_host = wp_parse_url( home_url(), PHP_URL_HOST );
+
+		$captured_handle = null;
+		add_filter(
+			Bluesky_Domain_Handle::FILTER_PRE_UPDATE,
+			static function ( $pre, $handle ) use ( &$captured_handle ) { // phpcs:ignore VariableAnalysis.CodeAnalysis.VariableAnalysis.UnusedVariable -- filter signature.
+				$captured_handle = $handle;
+				return true;
+			},
+			10,
+			2
+		);
+
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
+		$_POST    = array(
+			'_wpnonce' => wp_create_nonce( 'fosse_set_bluesky_domain_handle' ),
+		);
+		$_REQUEST = $_POST;
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+
+		$captured_redirect = null;
+		add_filter(
+			'wp_redirect',
+			static function ( $location ) use ( &$captured_redirect ) {
+				$captured_redirect = (string) $location;
+				throw new RedirectFired( 'redirect' );
+			}
+		);
+
+		try {
+			$this->provider->handle_set_domain_handle();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$this->assertSame( $site_host, $captured_handle );
+		$this->assertNotNull( $captured_redirect );
+		$this->assertStringContainsString( 'page=fosse', $captured_redirect );
+		$this->assertStringNotContainsString( 'page=fosse-wizard', $captured_redirect );
+
+		// Snapshot is the new {did, handle} shape, bound to the current
+		// account so a later reconnect-to-different-account can't push the
+		// wrong handle on disconnect.
+		$this->assertSame(
+			array(
+				'did'    => 'did:plc:test123',
+				'handle' => 'alice.bsky.social',
+			),
+			get_option( Bluesky_Domain_Handle::OPTION_PREVIOUS_HANDLE )
+		);
+	}
+
+	/**
+	 * The handle-set handler returns to the wizard when the wizard return
+	 * context was carried in the form payload.
+	 */
+	public function test_handle_set_domain_handle_redirects_to_wizard_when_wizard_origin(): void {
+		// See note in test_handle_set_domain_handle_invokes_service_and_redirects
+		// — leaving home_url default avoids the wp_safe_redirect host-mismatch
+		// fallback path.
+		$this->seed_connected_atmosphere_connection();
+		$this->become_admin();
+
+		add_filter( Bluesky_Domain_Handle::FILTER_PRE_UPDATE, '__return_true' );
+
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
+		$_POST    = array(
+			'_wpnonce'                             => wp_create_nonce( 'fosse_set_bluesky_domain_handle' ),
+			Bluesky_Provider::RETURN_CONTEXT_FIELD => Bluesky_Provider::RETURN_CONTEXT_WIZARD,
+		);
+		$_REQUEST = $_POST;
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+
+		$captured_redirect = null;
+		add_filter(
+			'wp_redirect',
+			static function ( $location ) use ( &$captured_redirect ) {
+				$captured_redirect = (string) $location;
+				throw new RedirectFired( 'redirect' );
+			}
+		);
+
+		try {
+			$this->provider->handle_set_domain_handle();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$this->assertNotNull( $captured_redirect );
+		$this->assertStringContainsString( 'page=fosse-wizard', $captured_redirect );
+		$this->assertStringContainsString( 'step=bluesky', $captured_redirect );
+	}
+
+	/**
+	 * Subscribers cannot trigger the handle change.
+	 */
+	public function test_handle_set_domain_handle_rejects_subscriber(): void {
+		$this->force_home_url( 'https://example.com' );
+		$this->seed_connected_atmosphere_connection();
+		$this->become_subscriber();
+
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
+		$_POST    = array(
+			'_wpnonce' => wp_create_nonce( 'fosse_set_bluesky_domain_handle' ),
+		);
+		$_REQUEST = $_POST;
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+
+		$this->install_wp_die_handler();
+
+		$this->expectException( \RuntimeException::class );
+		$this->provider->handle_set_domain_handle();
+	}
+
+	/**
+	 * A bad nonce is rejected — the call must never run silently.
+	 */
+	public function test_handle_set_domain_handle_rejects_bad_nonce(): void {
+		$this->force_home_url( 'https://example.com' );
+		$this->seed_connected_atmosphere_connection();
+		$this->become_admin();
+
+		$captured = false;
+		add_filter(
+			Bluesky_Domain_Handle::FILTER_PRE_UPDATE,
+			static function () use ( &$captured ) {
+				$captured = true;
+				return true;
+			}
+		);
+
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
+		$_POST    = array(
+			'_wpnonce' => 'invalid-nonce',
+		);
+		$_REQUEST = $_POST;
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+
+		$this->install_wp_die_handler();
+
+		try {
+			$this->provider->handle_set_domain_handle();
+			$this->fail( 'wp_die() should have been triggered.' );
+		} catch ( \RuntimeException $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- expected wp_die.
+			unset( $e );
+		}
+
+		$this->assertFalse( $captured, 'A bad nonce must short-circuit before the call runs.' );
+	}
+
+	/**
+	 * Disconnect attempts a handle revert before the OAuth token disappears,
+	 * and successfully clears the snapshot when the revert succeeds.
+	 */
+	public function test_handle_disconnect_reverts_previously_set_handle(): void {
+		$this->seed_connected_atmosphere_connection();
+		update_option(
+			Bluesky_Domain_Handle::OPTION_PREVIOUS_HANDLE,
+			array(
+				'did'    => 'did:plc:test123',
+				'handle' => 'alice.bsky.social',
+			),
+			false
+		);
+
+		$this->become_admin();
+
+		$received = null;
+		add_filter(
+			Bluesky_Domain_Handle::FILTER_PRE_UPDATE,
+			static function ( $pre, $handle ) use ( &$received ) { // phpcs:ignore VariableAnalysis.CodeAnalysis.VariableAnalysis.UnusedVariable -- filter signature.
+				$received = $handle;
+				return true;
+			},
+			10,
+			2
+		);
+
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
+		$_POST    = array(
+			'_wpnonce' => wp_create_nonce( 'fosse_disconnect_bluesky' ),
+		);
+		$_REQUEST = $_POST;
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+
+		add_filter(
+			'wp_redirect',
+			static function () {
+				throw new RedirectFired( 'redirect' );
+			}
+		);
+
+		try {
+			$this->provider->handle_disconnect();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$this->assertSame( 'alice.bsky.social', $received );
+		$this->assertFalse( get_option( Bluesky_Domain_Handle::OPTION_PREVIOUS_HANDLE ) );
+		$this->assertFalse( \Atmosphere\is_connected() );
+	}
+
+	/**
+	 * Disconnect proceeds even if the revert call fails. The snapshot is
+	 * preserved so a future retry can still revert. Critically, the user
+	 * sees a SINGLE combined "Disconnected, but couldn't restore your
+	 * previous handle" warning — not a yellow warning followed by a
+	 * cheerful green "Disconnected" success that's easy to read past.
+	 */
+	public function test_handle_disconnect_proceeds_when_revert_fails(): void {
+		$this->seed_connected_atmosphere_connection();
+		update_option(
+			Bluesky_Domain_Handle::OPTION_PREVIOUS_HANDLE,
+			array(
+				'did'    => 'did:plc:test123',
+				'handle' => 'alice.bsky.social',
+			),
+			false
+		);
+
+		$this->become_admin();
+
+		add_filter(
+			Bluesky_Domain_Handle::FILTER_PRE_UPDATE,
+			static fn() => new \WP_Error( 'fake_pds', 'token revoked' )
+		);
+
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
+		$_POST    = array(
+			'_wpnonce' => wp_create_nonce( 'fosse_disconnect_bluesky' ),
+		);
+		$_REQUEST = $_POST;
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+
+		add_filter(
+			'wp_redirect',
+			static function () {
+				throw new RedirectFired( 'redirect' );
+			}
+		);
+
+		try {
+			$this->provider->handle_disconnect();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$this->assertFalse( \Atmosphere\is_connected(), 'Disconnect must finish even when revert fails.' );
+		$this->assertSame(
+			array(
+				'did'    => 'did:plc:test123',
+				'handle' => 'alice.bsky.social',
+			),
+			get_option( Bluesky_Domain_Handle::OPTION_PREVIOUS_HANDLE )
+		);
+
+		$errors = get_settings_errors( 'atmosphere' );
+		$types  = wp_list_pluck( $errors, 'type' );
+		$this->assertContains( 'warning', $types );
+		$this->assertNotContains( 'info', $types, 'Cheerful "Disconnected" success must not stack on top of the warning.' );
+
+		$messages = wp_list_pluck( $errors, 'message' );
+		$this->assertNotEmpty(
+			array_filter(
+				$messages,
+				static fn( $m ) => false !== strpos( $m, 'Disconnected from Bluesky' ) && false !== strpos( $m, 'token revoked' )
+			),
+			'The single warning notice must communicate both the disconnect and the failed revert.'
+		);
+	}
+
+	/**
+	 * Disconnect that fails AFTER a successful PDS revert must re-persist
+	 * the snapshot. Without this, the revert path cleared
+	 * OPTION_PREVIOUS_HANDLE and a future disconnect retry would have
+	 * nothing to revert to — leaving the user's now-domain handle stranded
+	 * on the PDS with no FOSSE-assisted recovery.
+	 */
+	public function test_handle_disconnect_restores_snapshot_when_disconnect_fails_after_revert(): void {
+		$this->seed_connected_atmosphere_connection();
+		update_option(
+			Bluesky_Domain_Handle::OPTION_PREVIOUS_HANDLE,
+			array(
+				'did'    => 'did:plc:test123',
+				'handle' => 'alice.bsky.social',
+			),
+			false
+		);
+
+		$this->become_admin();
+
+		// Simulate a successful PDS revert — the filter short-circuits the
+		// real updateHandle call.
+		add_filter( Bluesky_Domain_Handle::FILTER_PRE_UPDATE, '__return_true' );
+
+		// Pin the connection in place so Atmosphere's delete_option call
+		// can't make is_connected() flip to false. The pin must reflect the
+		// SYNCED handle (post-revert local cache update) so the test
+		// matches the production sequencing where the local handle is
+		// reverted before the disconnect attempt.
+		$pinned = array(
+			'did'          => 'did:plc:test123',
+			'handle'       => 'alice.bsky.social',
+			'pds_endpoint' => 'https://bsky.social',
+			'access_token' => Encryption::encrypt( 'token' ),
+		);
+		add_filter(
+			'pre_option_atmosphere_connection',
+			static function () use ( $pinned ) {
+				return $pinned;
+			}
+		);
+
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
+		$_POST    = array(
+			'_wpnonce' => wp_create_nonce( 'fosse_disconnect_bluesky' ),
+		);
+		$_REQUEST = $_POST;
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+
+		add_filter(
+			'wp_redirect',
+			static function () {
+				throw new RedirectFired( 'redirect' );
+			}
+		);
+
+		try {
+			$this->provider->handle_disconnect();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		// The disconnect surfaced an error notice — it really did fail.
+		$errors = get_settings_errors( 'atmosphere' );
+		$types  = array_column( $errors, 'type' );
+		$this->assertContains( 'error', $types, 'Disconnect-fail branch must surface an error notice.' );
+
+		// And critically: the snapshot is back, so a retry of disconnect
+		// later will still attempt the revert (now a no-op against an
+		// already-reverted handle, but the option is in the expected shape).
+		$this->assertSame(
+			array(
+				'did'    => 'did:plc:test123',
+				'handle' => 'alice.bsky.social',
+			),
+			get_option( Bluesky_Domain_Handle::OPTION_PREVIOUS_HANDLE ),
+			'Snapshot must be re-persisted when disconnect fails after a successful revert.'
+		);
+	}
+
+	/**
+	 * The Settings-page disconnect form documents what disconnect will do
+	 * when a domain-handle change is currently in effect, so users aren't
+	 * surprised by a side-effect their click triggers.
+	 */
+	public function test_render_connection_actions_surfaces_pending_revert_note(): void {
+		update_option(
+			'atmosphere_connection',
+			array(
+				'did'          => 'did:plc:test123',
+				'handle'       => 'example.com',
+				'pds_endpoint' => 'https://bsky.social',
+				'access_token' => Encryption::encrypt( 'token' ),
+			)
+		);
+		update_option(
+			Bluesky_Domain_Handle::OPTION_PREVIOUS_HANDLE,
+			array(
+				'did'    => 'did:plc:test123',
+				'handle' => 'alice.bsky.social',
+			),
+			false
+		);
+
+		ob_start();
+		$this->provider->render_connection_actions();
+		$output = ob_get_clean();
+
+		$decoded         = html_entity_decode( $output, ENT_QUOTES, 'UTF-8' );
+		$note_position   = strpos( $decoded, 'Disconnecting will also restore alice.bsky.social as this account\'s Bluesky handle' );
+		$button_position = strpos( $decoded, 'Disconnect Bluesky' );
+
+		$this->assertStringContainsString( 'Disconnecting will also restore alice.bsky.social as this account\'s Bluesky handle', $decoded );
+		$this->assertStringContainsString( 'alice.bsky.social', $output );
+		$this->assertIsInt( $note_position );
+		$this->assertIsInt( $button_position );
+		$this->assertGreaterThan( $note_position, $button_position );
+	}
+
+	/**
+	 * The disconnect note is suppressed when the snapshot belongs to a
+	 * different DID — the disconnect handler will refuse the revert
+	 * anyway, and rendering the note would falsely promise it.
+	 */
+	public function test_render_connection_actions_omits_revert_note_for_mismatched_did(): void {
+		update_option(
+			'atmosphere_connection',
+			array(
+				'did'          => 'did:plc:current-account',
+				'handle'       => 'alice.bsky.social',
+				'pds_endpoint' => 'https://bsky.social',
+				'access_token' => Encryption::encrypt( 'token' ),
+			)
+		);
+		update_option(
+			Bluesky_Domain_Handle::OPTION_PREVIOUS_HANDLE,
+			array(
+				'did'    => 'did:plc:other-account',
+				'handle' => 'somebody-else.bsky.social',
+			),
+			false
+		);
+
+		ob_start();
+		$this->provider->render_connection_actions();
+		$output = ob_get_clean();
+
+		$this->assertStringNotContainsString( 'Disconnecting will also restore', $output );
+		$this->assertStringNotContainsString( 'somebody-else.bsky.social', $output );
+	}
+
+	/**
+	 * Disconnect against an account that does NOT match the snapshot's DID
+	 * leaves the snapshot alone and runs no revert call — protects users
+	 * who reconnected to a different Bluesky account between set + disconnect.
+	 */
+	public function test_handle_disconnect_skips_revert_when_snapshot_did_does_not_match(): void {
+		$this->seed_connected_atmosphere_connection();
+		update_option(
+			Bluesky_Domain_Handle::OPTION_PREVIOUS_HANDLE,
+			array(
+				'did'    => 'did:plc:other-account',
+				'handle' => 'somebody-else.bsky.social',
+			),
+			false
+		);
+
+		$this->become_admin();
+
+		$captured = false;
+		add_filter(
+			Bluesky_Domain_Handle::FILTER_PRE_UPDATE,
+			static function () use ( &$captured ) {
+				$captured = true;
+				return true;
+			}
+		);
+
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
+		$_POST    = array(
+			'_wpnonce' => wp_create_nonce( 'fosse_disconnect_bluesky' ),
+		);
+		$_REQUEST = $_POST;
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+
+		add_filter(
+			'wp_redirect',
+			static function () {
+				throw new RedirectFired( 'redirect' );
+			}
+		);
+
+		try {
+			$this->provider->handle_disconnect();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$this->assertFalse( $captured, 'Mismatched-DID snapshot must not trigger an updateHandle call.' );
+		$this->assertFalse( \Atmosphere\is_connected() );
+		// Snapshot is preserved — the legitimate account may reconnect later.
+		$this->assertNotFalse( get_option( Bluesky_Domain_Handle::OPTION_PREVIOUS_HANDLE ) );
 	}
 }

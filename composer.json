@@ -5,7 +5,9 @@
 	"license": "GPL-2.0-or-later",
 	"require": {
 		"php": ">=8.2",
-		"automattic/jetpack-autoloader": "*"
+		"ext-dom": "*",
+		"automattic/jetpack-autoloader": "*",
+		"kornrunner/blurhash": "^1.2"
 	},
 	"require-dev": {
 		"automattic/wordbless": "dev-trunk",

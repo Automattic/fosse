@@ -43,6 +43,34 @@ class Bluesky_Provider implements Connection_Provider {
 	private const OAUTH_RETURN_TRANSIENT_PREFIX = 'fosse_bluesky_oauth_return_';
 
 	/**
+	 * Transient prefix for cached Bluesky profile data keyed by sanitized DID.
+	 */
+	private const PROFILE_TRANSIENT_PREFIX = 'fosse_bluesky_profile_';
+
+	/**
+	 * TTL applied when the profile fetch succeeds.
+	 */
+	private const PROFILE_SUCCESS_TTL = 15 * MINUTE_IN_SECONDS;
+
+	/**
+	 * Short negative-cache TTL applied when the profile fetch fails.
+	 *
+	 * A sentinel value of -1 is written into the transient so subsequent
+	 * admin page renders during a sustained PDS outage skip the live HTTP
+	 * call until the negative cache expires.
+	 */
+	private const PROFILE_FAILURE_TTL = 2 * MINUTE_IN_SECONDS;
+
+	/**
+	 * HTTP timeout (seconds) for the optional follower-count enrichment.
+	 *
+	 * Overrides Atmosphere's 30s default. The Followers row is decorative
+	 * and is omitted entirely on failure, so admin rendering should not
+	 * wait longer than this for it even on the first uncached request.
+	 */
+	private const PROFILE_REQUEST_TIMEOUT = 5;
+
+	/**
 	 * Hook into fosse_register_providers to self-register.
 	 *
 	 * @return void
@@ -98,82 +126,199 @@ class Bluesky_Provider implements Connection_Provider {
 	}
 
 	/**
+	 * Per-request memo for {@see self::get_status()}.
+	 *
+	 * The Status page renders each provider's connection status twice in
+	 * the same request — once when filtering available providers down to
+	 * connected ones, and again inside `render_status_card()`. The
+	 * underlying call decrypts the access token (`Atmosphere\OAuth\Client::access_token`),
+	 * which is cheap individually but worth caching when render paths
+	 * multiply that work across providers and screens.
+	 *
+	 * No invalidation hook today: every connect/disconnect/auto-publish
+	 * mutator on this class ends in `wp_safe_redirect(); exit;`, so the
+	 * cache never has to survive an in-request mutation. If a future
+	 * caller needs to mutate the connection and re-render in the same
+	 * request, set this property back to null at the mutation site.
+	 *
+	 * @var array<string, mixed>|null
+	 */
+	private ?array $status_cache = null;
+
+	/**
 	 * Get current Bluesky connection status from Atmosphere.
+	 *
+	 * Memoized for the request — see {@see self::$status_cache}.
 	 *
 	 * @return array<string, mixed>
 	 */
 	public function get_status(): array {
-		$connection   = \Atmosphere\get_connection();
-		$connected    = \Atmosphere\is_connected();
-		$auto_publish = '1' === get_option( 'atmosphere_auto_publish', '1' );
-		$token_error  = null;
+		if ( null !== $this->status_cache ) {
+			return $this->status_cache;
+		}
 
-		if ( $connected && method_exists( '\Atmosphere\OAuth\Client', 'access_token' ) ) {
+		// Run the token-health probe first because Atmosphere's
+		// `OAuth\Client::access_token()` is not read-only — on a permanent
+		// OAuth failure (`invalid_grant`, `invalid_client`,
+		// `unauthorized_client`) it deletes `atmosphere_connection` to
+		// prevent silent re-use of dead credentials. Reading the
+		// connection BEFORE that probe and caching the pre-deletion view
+		// would freeze the admin's status as connected for the rest of
+		// the request even after the underlying state was invalidated.
+		$token_error = null;
+		if ( \Atmosphere\is_connected() && method_exists( '\Atmosphere\OAuth\Client', 'access_token' ) ) {
 			$token = \Atmosphere\OAuth\Client::access_token();
 			if ( is_wp_error( $token ) ) {
 				$token_error = $token->get_error_message();
 			}
 		}
 
-		return array(
+		// Re-read after the probe so a deleted connection is reflected.
+		$connection = \Atmosphere\get_connection();
+		$connected  = \Atmosphere\is_connected();
+
+		$this->status_cache = array(
 			'connected'    => $connected,
 			'handle'       => $connection['handle'] ?? '',
 			'did'          => $connection['did'] ?? '',
 			'pds_endpoint' => $connection['pds_endpoint'] ?? '',
-			'auto_publish' => $auto_publish,
 			'token_error'  => $token_error,
 		);
+
+		return $this->status_cache;
+	}
+
+	/**
+	 * Whether Bluesky auto-publishing is enabled for this site.
+	 *
+	 * Centralizes the "absent option reads as enabled" rule that
+	 * `Atmosphere` itself follows: with the FOSSE Settings toggle
+	 * removed, brand-new sites never materialize the option, so the
+	 * default has to be on — anything else would silently break
+	 * publishing for the silent majority.
+	 *
+	 * Static so callers (wizard CTA copy, future per-post UI) can read
+	 * the state without resolving a provider instance through the
+	 * registry — the option is global to the site, not provider-instance
+	 * state. Do NOT use this to gate the recovery notice: that path needs
+	 * to distinguish "explicit `'0'`" from "absent" and reads the option
+	 * raw via `get_option( ..., null )`. Conflating absent with the
+	 * default would surface the recovery banner on every fresh install.
+	 *
+	 * @return bool True when the option is absent or `'1'`; false when explicitly `'0'`.
+	 */
+	public static function is_auto_publish_enabled(): bool {
+		return '1' === get_option( 'atmosphere_auto_publish', '1' );
+	}
+
+	/**
+	 * Build a public bsky.app profile URL.
+	 *
+	 * Prefers the DID when available so the link survives a handle
+	 * reassignment on Bluesky's side (handles can be moved between
+	 * accounts; DIDs are stable). Falls back to the handle when no DID
+	 * is available — typically only the brief pre-OAuth window.
+	 *
+	 * @param string $did    Stable DID identifier (empty when unknown).
+	 * @param string $handle Bluesky handle.
+	 * @return string Escaped URL.
+	 */
+	private static function get_profile_url( string $did, string $handle ): string {
+		$identifier = '' !== $did ? $did : ltrim( $handle, '@' );
+
+		return esc_url( 'https://bsky.app/profile/' . rawurlencode( $identifier ) );
+	}
+
+	/**
+	 * Format a linked Bluesky handle token.
+	 *
+	 * Callers own the class set so this method stays free of per-surface
+	 * branching. The href is built from the DID when present (see
+	 * {@see self::get_profile_url()}) so handle reassignments don't point
+	 * the link at a different account than the one shown.
+	 *
+	 * @param array<string, mixed> $status  Bluesky status snapshot.
+	 * @param string[]             $classes CSS classes to apply to the inner <code> token.
+	 * @return string Escaped HTML safe to echo.
+	 */
+	private static function format_handle_link( array $status, array $classes ): string {
+		$did    = isset( $status['did'] ) ? (string) $status['did'] : '';
+		$handle = isset( $status['handle'] ) ? (string) $status['handle'] : '';
+
+		return sprintf(
+			'<a href="%1$s" target="_blank" rel="noopener noreferrer"><code class="%2$s">@%3$s</code></a>',
+			self::get_profile_url( $did, $handle ),
+			esc_attr( implode( ' ', $classes ) ),
+			Status_Formatter::handle( ltrim( $handle, '@' ) )
+		);
+	}
+
+	/**
+	 * Fetch the connected Bluesky follower count from the profile API.
+	 *
+	 * The Followers row is an optional UI enrichment, so the fetch uses
+	 * {@see Atmosphere\API::request()} directly with a short
+	 * {@see self::PROFILE_REQUEST_TIMEOUT} override instead of the
+	 * `::get()` helper that inherits Atmosphere's 30s default — a slow
+	 * PDS must not stall the entire Settings/Status render for a row
+	 * that the UI omits on failure anyway.
+	 *
+	 * Successful counts are cached for {@see self::PROFILE_SUCCESS_TTL}.
+	 * Remote-call failures are negative-cached for
+	 * {@see self::PROFILE_FAILURE_TTL} using a `-1` sentinel so a
+	 * sustained outage cannot turn every uncached admin render into a
+	 * fresh HTTP wait. The UI omits the row in both the null-return and
+	 * negative-cache-hit cases.
+	 *
+	 * @param array<string, mixed> $status Bluesky status snapshot.
+	 * @return int|null Followers count, or null when unavailable.
+	 */
+	private static function get_followers_count( array $status ): ?int {
+		if ( empty( $status['connected'] ) || empty( $status['did'] ) || ! empty( $status['token_error'] ) ) {
+			return null;
+		}
+
+		$cache_key = self::PROFILE_TRANSIENT_PREFIX . sanitize_key( (string) $status['did'] );
+		$cached    = get_transient( $cache_key );
+		if ( false !== $cached ) {
+			$cached_int = (int) $cached;
+
+			return $cached_int < 0 ? null : $cached_int;
+		}
+
+		if ( ! class_exists( '\Atmosphere\API' ) || ! method_exists( '\Atmosphere\API', 'request' ) ) {
+			return null;
+		}
+
+		$endpoint = '/xrpc/app.bsky.actor.getProfile?' . http_build_query( array( 'actor' => (string) $status['did'] ) );
+		$result   = \Atmosphere\API::request( 'GET', $endpoint, array( 'timeout' => self::PROFILE_REQUEST_TIMEOUT ) );
+		if ( is_wp_error( $result ) || ! is_array( $result ) || ! array_key_exists( 'followersCount', $result ) || ! is_numeric( $result['followersCount'] ) ) {
+			set_transient( $cache_key, -1, self::PROFILE_FAILURE_TTL );
+			return null;
+		}
+
+		$count = max( 0, (int) $result['followersCount'] );
+		set_transient( $cache_key, $count, self::PROFILE_SUCCESS_TTL );
+
+		return $count;
 	}
 
 	/**
 	 * Render Bluesky-specific settings inside the unified Settings form.
 	 *
-	 * Only renders the auto-publish toggle when Atmosphere is connected —
-	 * there is nothing protocol-specific to save while disconnected. The
-	 * connect/disconnect forms render outside the main Settings form via
-	 * {@see self::render_connection_actions()}.
+	 * Currently a no-op. The auto-publish toggle that used to render here
+	 * was removed because Atmosphere has no per-post manual publish
+	 * surface — disabling auto-publish today leaves the connection
+	 * functionally inert (only inbound reaction sync keeps working).
+	 * The `atmosphere_auto_publish` option is preserved in the database
+	 * with default `'1'` (on) so behavior is unchanged. When the
+	 * pre-publish federation panel for Bluesky lands (DOTCOM-17007 /
+	 * upstream wordpress-atmosphere#50), this method can re-introduce
+	 * a meaningful Bluesky-side fieldset.
 	 *
 	 * @return void
 	 */
 	public function render_setup_section(): void {
-		$status = $this->get_status();
-
-		if ( ! $status['connected'] ) {
-			return;
-		}
-
-		?>
-		<div class="fosse-settings-section" id="fosse-provider-bluesky-settings">
-			<h3><?php esc_html_e( 'Bluesky publishing', 'fosse' ); ?></h3>
-
-			<table class="form-table">
-				<tr>
-					<th scope="row">
-						<?php esc_html_e( 'Auto-publish', 'fosse' ); ?>
-					</th>
-					<td>
-						<fieldset>
-							<legend class="screen-reader-text"><?php esc_html_e( 'Auto-publish', 'fosse' ); ?></legend>
-							<label for="fosse-bluesky-auto-publish">
-								<input
-									type="checkbox"
-									id="fosse-bluesky-auto-publish"
-									name="atmosphere_auto_publish"
-									value="1"
-									aria-describedby="fosse-bluesky-auto-publish-desc"
-									<?php checked( $status['auto_publish'] ); ?>
-								/>
-								<?php esc_html_e( 'Automatically publish new posts to Bluesky.', 'fosse' ); ?>
-							</label>
-							<p id="fosse-bluesky-auto-publish-desc" class="description">
-								<?php esc_html_e( 'When enabled, posts in your selected post types are sent to Bluesky as soon as they are published. Disable to keep Bluesky publishing manual.', 'fosse' ); ?>
-							</p>
-						</fieldset>
-					</td>
-				</tr>
-			</table>
-		</div>
-		<?php
 	}
 
 	/**
@@ -187,26 +332,30 @@ class Bluesky_Provider implements Connection_Provider {
 	 * @return void
 	 */
 	public function render_connection_actions(): void {
-		$status = $this->get_status();
+		$status          = $this->get_status();
+		$followers_count = self::get_followers_count( $status );
 		?>
-		<div class="fosse-connection-section" id="fosse-provider-bluesky">
-			<h3><?php esc_html_e( 'Bluesky', 'fosse' ); ?></h3>
+		<div class="fosse-connection-section fosse-admin-card" id="fosse-provider-bluesky">
+			<div class="fosse-card-header">
+				<h3><?php esc_html_e( 'Bluesky', 'fosse' ); ?></h3>
+				<span class="fosse-status-badge is-<?php echo esc_attr( $status['connected'] ? 'connected' : 'disconnected' ); ?>">
+					<?php echo esc_html( $status['connected'] ? __( 'Connected', 'fosse' ) : __( 'Disconnected', 'fosse' ) ); ?>
+				</span>
+			</div>
 
 			<?php settings_errors( 'atmosphere' ); ?>
 
 			<?php if ( ! $status['connected'] ) : ?>
-				<p><?php esc_html_e( 'Connect your Bluesky account to let FOSSE publish through Atmosphere.', 'fosse' ); ?></p>
-
 				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
 					<input type="hidden" name="action" value="fosse_connect_bluesky" />
 					<input type="hidden" name="_wpnonce" value="<?php echo esc_attr( wp_create_nonce( 'fosse_connect_bluesky' ) ); ?>" />
 
-					<table class="form-table">
-						<tr>
-							<th scope="row">
-								<label for="fosse_bluesky_handle"><?php esc_html_e( 'Handle', 'fosse' ); ?></label>
-							</th>
-							<td>
+					<div class="fosse-card-body">
+						<p><?php esc_html_e( 'Connect a Bluesky account to share eligible WordPress posts there too. You can disconnect it here later.', 'fosse' ); ?></p>
+
+						<div class="fosse-field">
+							<label class="fosse-field__label" for="fosse_bluesky_handle"><?php esc_html_e( 'Bluesky handle', 'fosse' ); ?></label>
+							<div class="fosse-field__control">
 								<input
 									type="text"
 									class="regular-text"
@@ -214,7 +363,7 @@ class Bluesky_Provider implements Connection_Provider {
 									id="fosse_bluesky_handle"
 									placeholder="alice.bsky.social"
 								/>
-								<p class="description"><?php esc_html_e( 'Your AT Protocol handle, e.g. alice.bsky.social or your own domain.', 'fosse' ); ?></p>
+								<p class="description"><?php esc_html_e( 'Enter your Bluesky handle, such as alice.bsky.social. If you use your own domain as your handle, enter that.', 'fosse' ); ?></p>
 								<p class="description fosse-bluesky-signup">
 									<?php
 									echo wp_kses_post(
@@ -227,38 +376,190 @@ class Bluesky_Provider implements Connection_Provider {
 									);
 									?>
 								</p>
-							</td>
-						</tr>
-					</table>
+							</div>
+						</div>
+					</div>
 
-					<?php submit_button( __( 'Connect Bluesky', 'fosse' ) ); ?>
+					<div class="fosse-card-footer fosse-action-bar">
+						<?php submit_button( __( 'Connect Bluesky', 'fosse' ), 'primary', 'submit', false ); ?>
+					</div>
 				</form>
 			<?php else : ?>
-				<table class="form-table">
-					<tr>
-						<th scope="row"><?php esc_html_e( 'Handle', 'fosse' ); ?></th>
-						<td><strong><?php echo esc_html( $status['handle'] ); ?></strong></td>
-					</tr>
-					<tr>
-						<th scope="row"><?php esc_html_e( 'DID', 'fosse' ); ?></th>
-						<td><code><?php echo esc_html( $status['did'] ); ?></code></td>
-					</tr>
-					<tr>
-						<th scope="row"><?php esc_html_e( 'PDS', 'fosse' ); ?></th>
-						<td><code><?php echo esc_html( $status['pds_endpoint'] ); ?></code></td>
-					</tr>
-					<tr>
-						<th scope="row"><?php esc_html_e( 'Token Health', 'fosse' ); ?></th>
-						<td><?php echo esc_html( $status['token_error'] ? $status['token_error'] : __( 'OK', 'fosse' ) ); ?></td>
-					</tr>
-				</table>
+				<div class="fosse-card-body">
+					<p>
+						<strong><?php esc_html_e( 'Connected account', 'fosse' ); ?></strong>
+					</p>
+					<p class="description">
+						<?php esc_html_e( 'FOSSE can share eligible WordPress posts with this Bluesky account.', 'fosse' ); ?>
+					</p>
+					<dl class="fosse-detail-list">
+						<?php if ( ! empty( $status['handle'] ) ) : ?>
+							<dt class="fosse-detail-list__term"><?php esc_html_e( 'Bluesky handle', 'fosse' ); ?></dt>
+							<dd class="fosse-detail-list__description">
+								<?php
+								echo self::format_handle_link( // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- format_handle_link() escapes input and returns safe token/link markup.
+									$status,
+									array( 'fosse-token', 'fosse-admin-token', 'fosse-token--handle', 'fosse-admin-token--handle' )
+								);
+								?>
+							</dd>
+						<?php endif; ?>
+						<?php if ( null !== $followers_count ) : ?>
+							<dt class="fosse-detail-list__term"><?php esc_html_e( 'Followers', 'fosse' ); ?></dt>
+							<dd class="fosse-detail-list__description"><?php echo esc_html( number_format_i18n( $followers_count ) ); ?></dd>
+						<?php endif; ?>
+						<dt class="fosse-detail-list__term"><?php esc_html_e( 'Account ID', 'fosse' ); ?></dt>
+						<dd class="fosse-detail-list__description">
+							<code class="fosse-token fosse-admin-token fosse-token--did fosse-admin-token--did">
+								<?php
+								echo Status_Formatter::did( $status['did'] ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Status_Formatter::did() escapes input and returns safe HTML with <wbr>.
+								?>
+							</code>
+						</dd>
+						<dt class="fosse-detail-list__term"><?php esc_html_e( 'PDS endpoint', 'fosse' ); ?></dt>
+						<dd class="fosse-detail-list__description">
+							<code class="fosse-token fosse-admin-token fosse-token--url fosse-admin-token--url">
+								<?php
+								echo Status_Formatter::url( $status['pds_endpoint'] ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Status_Formatter::url() escapes input and returns safe HTML with <wbr>.
+								?>
+							</code>
+						</dd>
+						<dt class="fosse-detail-list__term"><?php esc_html_e( 'Token health', 'fosse' ); ?></dt>
+						<dd class="fosse-detail-list__description"><?php echo esc_html( $status['token_error'] ? $status['token_error'] : __( 'OK', 'fosse' ) ); ?></dd>
+					</dl>
 
-				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
-					<input type="hidden" name="action" value="fosse_disconnect_bluesky" />
-					<input type="hidden" name="_wpnonce" value="<?php echo esc_attr( wp_create_nonce( 'fosse_disconnect_bluesky' ) ); ?>" />
-					<?php submit_button( __( 'Disconnect Bluesky', 'fosse' ), 'secondary' ); ?>
-				</form>
-			<?php endif; ?>
+						<?php $this->render_domain_handle_panel( $status ); ?>
+						<?php
+						// Surface the planned handle-revert so users understand
+						// disconnect isn't just "log me out" when FOSSE previously
+						// changed their Bluesky handle. The disconnect handler
+						// runs the revert before dropping the OAuth token; if the
+						// snapshot belongs to a different DID (reconnect to a
+						// different account) the getter returns '' and the note
+						// is suppressed.
+						$pending_revert = Bluesky_Domain_Handle::get_pending_revert_handle();
+						if ( '' !== $pending_revert ) :
+							?>
+							<div class="notice notice-warning inline fosse-domain-handle-revert-note">
+								<p>
+									<strong><?php esc_html_e( 'Disconnect note:', 'fosse' ); ?></strong>
+									<?php
+									echo esc_html(
+										sprintf(
+											/* translators: %s: previous Bluesky handle that disconnect will restore (e.g. alice.bsky.social). */
+											__( 'Disconnecting will also restore %s as this account\'s Bluesky handle.', 'fosse' ),
+											$pending_revert
+										)
+									);
+									?>
+								</p>
+							</div>
+							<?php
+						endif;
+						?>
+					</div>
+
+					<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+						<input type="hidden" name="action" value="fosse_disconnect_bluesky" />
+						<input type="hidden" name="_wpnonce" value="<?php echo esc_attr( wp_create_nonce( 'fosse_disconnect_bluesky' ) ); ?>" />
+						<div class="fosse-card-footer fosse-action-bar">
+							<?php submit_button( __( 'Disconnect Bluesky', 'fosse' ), 'secondary', 'submit', false ); ?>
+						</div>
+					</form>
+				<?php endif; ?>
+		</div>
+		<?php
+	}
+
+	/**
+	 * Render the "use my domain as my Bluesky handle" panel.
+	 *
+	 * Surfaces the explicit confirm button on the Bluesky Settings panel.
+	 * The wizard's connected-state Bluesky step renders an equivalent panel
+	 * with wizard-shaped copy inline; both surfaces share the same
+	 * eligibility gate via {@see Bluesky_Domain_Handle::should_offer()},
+	 * but the wizard does not call this method directly. If the panel
+	 * markup ever drifts between the two, the gate stays the source of
+	 * truth for "should this offer surface at all".
+	 *
+	 * Always shows the current handle alongside the target so the user
+	 * understands the trade — clicking the button replaces their handle
+	 * and the old one stops resolving.
+	 *
+	 * @param array<string, mixed> $status Bluesky provider status snapshot.
+	 * @return void
+	 */
+	private function render_domain_handle_panel( array $status ): void {
+		if ( ! Bluesky_Domain_Handle::should_offer( $status ) ) {
+			return;
+		}
+
+		$current  = isset( $status['handle'] ) ? (string) $status['handle'] : '';
+		$target   = Bluesky_Domain_Handle::get_target_handle();
+		$is_drift = Bluesky_Domain_Handle::is_drift( $status );
+		?>
+		<div class="fosse-domain-handle-panel fosse-callout">
+			<h4>
+				<?php
+				if ( $is_drift ) {
+					esc_html_e( 'Realign your Bluesky handle with this site', 'fosse' );
+				} else {
+					esc_html_e( 'Use your domain as your Bluesky handle', 'fosse' );
+				}
+				?>
+			</h4>
+			<p>
+				<?php
+				if ( $is_drift ) {
+					// Either the site domain changed since FOSSE set the
+					// handle, or the user changed their handle on bsky.app
+					// directly. Server-side we can't tell which, so the copy
+					// stays neutral.
+					echo esc_html(
+						sprintf(
+							/* translators: 1: current Bluesky handle (e.g. example.com); 2: target handle = site host (e.g. newdomain.com). */
+							__( 'FOSSE previously set your Bluesky handle, but it no longer matches this site. Your handle on Bluesky is %1$s; this site is %2$s. Set it again to align them.', 'fosse' ),
+							$current,
+							$target
+						)
+					);
+				} elseif ( '' !== $current ) {
+					echo esc_html(
+						sprintf(
+							/* translators: 1: current Bluesky handle (e.g. alice.bsky.social); 2: target handle = site host (e.g. example.com). */
+							__( 'Your current Bluesky handle is %1$s. You can replace it with %2$s.', 'fosse' ),
+							$current,
+							$target
+						)
+					);
+				} else {
+					echo esc_html(
+						sprintf(
+							/* translators: %s: target handle = site host (e.g. example.com). */
+							__( 'You can set your Bluesky handle to %s.', 'fosse' ),
+							$target
+						)
+					);
+				}
+				?>
+			</p>
+			<?php Bluesky_Domain_Handle::render_destructive_warning_notice(); ?>
+			<form class="fosse-action-bar" method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+				<input type="hidden" name="action" value="fosse_set_bluesky_domain_handle" />
+				<input type="hidden" name="_wpnonce" value="<?php echo esc_attr( wp_create_nonce( 'fosse_set_bluesky_domain_handle' ) ); ?>" />
+				<?php
+				submit_button(
+					sprintf(
+						/* translators: %s: target handle = site host (e.g. example.com). */
+						__( 'Use %s as my Bluesky handle', 'fosse' ),
+						$target
+					),
+					'secondary',
+					'submit',
+					false
+				);
+				?>
+			</form>
 		</div>
 		<?php
 	}
@@ -269,67 +570,64 @@ class Bluesky_Provider implements Connection_Provider {
 	 * @return void
 	 */
 	public function render_status_card(): void {
-		$status = $this->get_status();
+		$status          = $this->get_status();
+		$status_class    = $status['connected'] ? 'connected' : 'disconnected';
+		$status_label    = $status['connected'] ? __( 'Connected', 'fosse' ) : __( 'Disconnected', 'fosse' );
+		$followers_count = self::get_followers_count( $status );
 		?>
-		<div class="fosse-status-card">
-			<h2>
-				<span
-					class="fosse-status-indicator <?php echo $status['connected'] ? 'connected' : 'disconnected'; ?>"
-					role="img"
-					aria-label="<?php echo esc_attr( $status['connected'] ? __( 'Connected', 'fosse' ) : __( 'Disconnected', 'fosse' ) ); ?>"
-				></span>
-				<?php esc_html_e( 'Bluesky', 'fosse' ); ?>
-			</h2>
+		<div class="fosse-status-card fosse-admin-card">
+			<div class="fosse-status-card__header fosse-card-header">
+				<h2 class="fosse-status-card__title">
+					<span
+						class="fosse-status-indicator <?php echo esc_attr( $status_class ); ?>"
+						aria-hidden="true"
+					></span>
+					<?php esc_html_e( 'Bluesky', 'fosse' ); ?>
+				</h2>
+				<span class="fosse-status-badge is-<?php echo esc_attr( $status_class ); ?>"><?php echo esc_html( $status_label ); ?></span>
+			</div>
 
-			<table class="widefat striped fosse-status-card__table">
-				<tbody>
-					<tr>
-						<td class="fosse-status-card__label"><?php esc_html_e( 'Connection', 'fosse' ); ?></td>
-						<td class="fosse-status-card__value"><?php echo esc_html( $status['connected'] ? __( 'Connected', 'fosse' ) : __( 'Disconnected', 'fosse' ) ); ?></td>
-					</tr>
+			<div class="fosse-card-body">
+				<dl class="fosse-detail-list">
+					<dt class="fosse-detail-list__term"><?php esc_html_e( 'Connection', 'fosse' ); ?></dt>
+					<dd class="fosse-detail-list__description"><?php echo esc_html( $status_label ); ?></dd>
 					<?php if ( $status['handle'] ) : ?>
-						<tr>
-							<td class="fosse-status-card__label"><?php esc_html_e( 'Handle', 'fosse' ); ?></td>
-							<td class="fosse-status-card__value">
-								<strong class="fosse-status-card__token fosse-status-card__token--handle">
-									<?php
-									echo Status_Formatter::handle( $status['handle'] ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Status_Formatter::handle() escapes input and returns safe HTML with <wbr>.
-									?>
-								</strong>
-							</td>
-						</tr>
+						<dt class="fosse-detail-list__term"><?php esc_html_e( 'Handle', 'fosse' ); ?></dt>
+						<dd class="fosse-detail-list__description">
+								<?php
+								echo self::format_handle_link( // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- format_handle_link() escapes input and returns safe token/link markup.
+									$status,
+									array( 'fosse-token', 'fosse-status-card__token', 'fosse-token--handle', 'fosse-status-card__token--handle' )
+								);
+								?>
+						</dd>
+					<?php endif; ?>
+					<?php if ( null !== $followers_count ) : ?>
+						<dt class="fosse-detail-list__term"><?php esc_html_e( 'Followers', 'fosse' ); ?></dt>
+						<dd class="fosse-detail-list__description"><?php echo esc_html( number_format_i18n( $followers_count ) ); ?></dd>
 					<?php endif; ?>
 					<?php if ( $status['did'] ) : ?>
-						<tr>
-							<td class="fosse-status-card__label"><?php esc_html_e( 'DID', 'fosse' ); ?></td>
-							<td class="fosse-status-card__value">
-								<code class="fosse-status-card__token fosse-status-card__token--did">
+						<dt class="fosse-detail-list__term"><?php esc_html_e( 'DID', 'fosse' ); ?></dt>
+						<dd class="fosse-detail-list__description">
+								<code class="fosse-token fosse-status-card__token fosse-token--did fosse-status-card__token--did">
 									<?php
 									echo Status_Formatter::did( $status['did'] ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Status_Formatter::did() escapes input and returns safe HTML with <wbr>.
 									?>
 								</code>
-							</td>
-						</tr>
+						</dd>
 					<?php endif; ?>
 					<?php if ( $status['pds_endpoint'] ) : ?>
-						<tr>
-							<td class="fosse-status-card__label"><?php esc_html_e( 'PDS', 'fosse' ); ?></td>
-							<td class="fosse-status-card__value">
-								<code class="fosse-status-card__token fosse-status-card__token--url">
+						<dt class="fosse-detail-list__term"><?php esc_html_e( 'PDS endpoint', 'fosse' ); ?></dt>
+						<dd class="fosse-detail-list__description">
+								<code class="fosse-token fosse-status-card__token fosse-token--url fosse-status-card__token--url">
 									<?php
 									echo Status_Formatter::url( $status['pds_endpoint'] ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Status_Formatter::url() escapes input and returns safe HTML with <wbr>.
 									?>
 								</code>
-							</td>
-						</tr>
+						</dd>
 					<?php endif; ?>
-					<tr>
-						<td class="fosse-status-card__label"><?php esc_html_e( 'Auto Publish', 'fosse' ); ?></td>
-						<td class="fosse-status-card__value"><?php echo esc_html( $status['auto_publish'] ? __( 'Enabled', 'fosse' ) : __( 'Disabled', 'fosse' ) ); ?></td>
-					</tr>
-					<tr>
-						<td class="fosse-status-card__label"><?php esc_html_e( 'Token Health', 'fosse' ); ?></td>
-						<td class="fosse-status-card__value">
+					<dt class="fosse-detail-list__term"><?php esc_html_e( 'Token Health', 'fosse' ); ?></dt>
+					<dd class="fosse-detail-list__description">
 							<?php if ( $status['token_error'] ) : ?>
 								<strong><?php esc_html_e( 'Reconnect required.', 'fosse' ); ?></strong>
 								<a href="<?php echo esc_url( admin_url( 'admin.php?page=fosse#fosse-provider-bluesky' ) ); ?>">
@@ -342,10 +640,17 @@ class Bluesky_Provider implements Connection_Provider {
 							<?php else : ?>
 								<?php esc_html_e( 'OK', 'fosse' ); ?>
 							<?php endif; ?>
-						</td>
-					</tr>
-				</tbody>
-			</table>
+					</dd>
+				</dl>
+			</div>
+
+			<?php if ( ! $status['connected'] && ! $status['token_error'] ) : ?>
+				<p class="fosse-status-card__actions fosse-card-footer fosse-action-bar">
+					<a class="button button-secondary" href="<?php echo esc_url( admin_url( 'admin.php?page=fosse#fosse-provider-bluesky' ) ); ?>">
+						<?php esc_html_e( 'Open Bluesky settings', 'fosse' ); ?>
+					</a>
+				</p>
+			<?php endif; ?>
 		</div>
 		<?php
 	}
@@ -358,7 +663,10 @@ class Bluesky_Provider implements Connection_Provider {
 	public function register_hooks(): void {
 		add_action( 'admin_post_fosse_connect_bluesky', array( $this, 'handle_connect' ) );
 		add_action( 'admin_post_fosse_disconnect_bluesky', array( $this, 'handle_disconnect' ) );
+		add_action( 'admin_post_fosse_set_bluesky_domain_handle', array( $this, 'handle_set_domain_handle' ) );
+		add_action( 'admin_post_fosse_enable_bluesky_auto_publish', array( $this, 'handle_enable_auto_publish' ) );
 		add_action( 'admin_init', array( $this, 'handle_oauth_callback' ) );
+		add_action( 'admin_notices', array( $this, 'maybe_render_auto_publish_disabled_notice' ) );
 		add_action( 'init', array( $this, 'serve_atproto_did_well_known' ), 1 );
 		add_action( 'template_redirect', array( $this, 'maybe_suppress_atmosphere_well_known' ), 1 );
 
@@ -373,29 +681,18 @@ class Bluesky_Provider implements Connection_Provider {
 	/**
 	 * Persist Bluesky-side settings from the unified save submission.
 	 *
-	 * The auto-publish field is the only Bluesky-side setting that surfaces
-	 * on the FOSSE Settings page; connection state is managed via the
-	 * separate connect/disconnect flows. The toggle is stored as `'1'` /
-	 * `'0'` to match Atmosphere's own setting registration, where an unset
-	 * checkbox simply omits the field and reads as "disabled".
+	 * Currently a no-op. The auto-publish toggle was the only Bluesky-side
+	 * setting that surfaced on the FOSSE Settings page, and it was removed
+	 * because Atmosphere has no per-post manual publish surface to back it
+	 * up — see {@see self::render_setup_section()} for the full rationale.
+	 * Connection state is managed via the separate connect/disconnect
+	 * flows. Returning true keeps the unified save's all-or-nothing
+	 * semantics: this provider never rejects a submission.
 	 *
-	 * Bails when disconnected so a Settings save can't silently flip
-	 * `atmosphere_auto_publish` to `'0'`: the toggle isn't rendered in that
-	 * state, so the omitted checkbox would otherwise be misread as an
-	 * intentional "uncheck".
-	 *
-	 * @param array<string, mixed> $post_data POST payload to read.
-	 * @return bool Always true — auto-publish input cannot be "rejected"; an
-	 *              omitted checkbox is the legitimate "disabled" submission.
+	 * @param array<string, mixed> $post_data POST payload to read (unused).
+	 * @return bool Always true.
 	 */
-	public function save_settings( array $post_data ): bool {
-		if ( ! $this->get_status()['connected'] ) {
-			return true;
-		}
-
-		$auto_publish = ! empty( $post_data['atmosphere_auto_publish'] ) ? '1' : '0';
-		update_option( 'atmosphere_auto_publish', $auto_publish );
-
+	public function save_settings( array $post_data ): bool { // phpcs:ignore VariableAnalysis.CodeAnalysis.VariableAnalysis.UnusedVariable -- Connection_Provider interface contract; no Bluesky-side fields to persist after the auto-publish toggle removal.
 		return true;
 	}
 
@@ -545,10 +842,21 @@ class Bluesky_Provider implements Connection_Provider {
 			$this->forget_oauth_return_context();
 		}
 
+		$source = self::context_to_source( $return_context );
+
+		self::record_metric(
+			'fosse_connection_attempt',
+			array(
+				'network' => 'bluesky',
+				'source'  => $source,
+			)
+		);
+
 		$handle = sanitize_text_field( wp_unslash( $_POST['bluesky_handle'] ?? '' ) );
 		$handle = strtolower( trim( ltrim( trim( $handle ), '@' ) ) );
 
 		if ( empty( $handle ) ) {
+			self::record_connection_failed( 'bluesky', $source, 'invalid_handle' );
 			$this->redirect_with_notice( __( 'Enter a Bluesky handle to continue.', 'fosse' ), 'error', $return_context );
 			return;
 		}
@@ -558,8 +866,9 @@ class Bluesky_Provider implements Connection_Provider {
 		// Pre-validate so users get an actionable hint instead of a raw
 		// upstream error like "PDS lookup failed: dns_get_record returned false".
 		if ( ! preg_match( '/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/', $handle ) ) {
+			self::record_connection_failed( 'bluesky', $source, 'invalid_handle' );
 			$this->redirect_with_notice(
-				__( 'That doesn\'t look like a Bluesky handle. Try something like alice.bsky.social.', 'fosse' ),
+				__( 'That doesn\'t look like a valid handle. Try something like alice.bsky.social or example.com.', 'fosse' ),
 				'error',
 				$return_context
 			);
@@ -569,6 +878,7 @@ class Bluesky_Provider implements Connection_Provider {
 		$auth_url = \Atmosphere\OAuth\Client::authorize( $handle );
 
 		if ( is_wp_error( $auth_url ) ) {
+			self::record_connection_failed( 'bluesky', $source, self::categorize_wp_error( $auth_url ) );
 			$this->redirect_with_notice( $auth_url->get_error_message(), 'error', $return_context );
 			return;
 		}
@@ -591,6 +901,16 @@ class Bluesky_Provider implements Connection_Provider {
 
 		check_admin_referer( 'fosse_disconnect_bluesky' );
 
+		// Best-effort handle revert BEFORE the disconnect drops the OAuth
+		// token: if FOSSE previously set the handle to the site domain,
+		// restore the snapshotted previous handle while we still have a
+		// valid access token. The result is composed into the final
+		// disconnect notice below — `maybe_revert_on_disconnect()`
+		// deliberately does not post its own notice on failure so we
+		// don't end up with a yellow warning the cheerful "Disconnected"
+		// success can drown out.
+		$revert_result = Bluesky_Domain_Handle::maybe_revert_on_disconnect();
+
 		\Atmosphere\OAuth\Client::disconnect();
 
 		// Disconnect orphans any in-flight wizard return marker; clear it so
@@ -601,6 +921,31 @@ class Bluesky_Provider implements Connection_Provider {
 		// connection option. Verify the option actually went away so a DB
 		// or filter failure surfaces instead of falsely showing "Disconnected".
 		if ( \Atmosphere\is_connected() ) {
+			// Re-persist the snapshot when the revert succeeded but the
+			// disconnect did not. The successful revert already cleared
+			// OPTION_PREVIOUS_HANDLE, so a future disconnect retry would
+			// otherwise find nothing to revert to and the now-domain handle
+			// on the PDS would be stranded with no FOSSE-assisted recovery.
+			if ( true === $revert_result ) {
+				$snapshot = Bluesky_Domain_Handle::get_last_reverted_snapshot();
+				if ( null !== $snapshot ) {
+					$restored = Bluesky_Domain_Handle::restore_snapshot(
+						$snapshot['did'],
+						$snapshot['handle']
+					);
+					if ( ! $restored && defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+						error_log( 'FOSSE: handle_disconnect: failed to restore handle snapshot after disconnect failure.' ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+					}
+				}
+			}
+
+			// Drop any pending revert-success notice that
+			// maybe_revert_on_disconnect() queued before the disconnect
+			// failed. Surfacing both "Restored handle X" and "Could not
+			// disconnect" on the next page render confuses the user about
+			// the actual end state — disconnect didn't happen, so the
+			// revert-success message is misleading on its own.
+			User_Notices::forget();
 			$this->redirect_with_notice(
 				__( 'Could not disconnect from Bluesky. Please try again.', 'fosse' ),
 				'error'
@@ -608,7 +953,142 @@ class Bluesky_Provider implements Connection_Provider {
 			return;
 		}
 
+		if ( is_wp_error( $revert_result ) ) {
+			$this->redirect_with_notice(
+				sprintf(
+					/* translators: %s: error message from the failed handle-revert PDS call. */
+					__( 'Disconnected from Bluesky, but could not restore your previous handle: %s. You may need to set it manually from the Bluesky app.', 'fosse' ),
+					$revert_result->get_error_message()
+				),
+				'warning'
+			);
+			return;
+		}
+
 		$this->redirect_with_notice( __( 'Disconnected from Bluesky.', 'fosse' ), 'info' );
+	}
+
+	/**
+	 * Handle the explicit "use my domain as my Bluesky handle" submission.
+	 *
+	 * Posted from the wizard's connected-state confirm button or the FOSSE
+	 * Settings page. Verifies capability + nonce, defers to
+	 * {@see Bluesky_Domain_Handle::set_handle()} for the actual call, then
+	 * redirects back to the originating screen with a settings notice
+	 * already populated by Bluesky_Domain_Handle.
+	 *
+	 * Always requires explicit user confirmation; there is no auto-set
+	 * path. Changing a Bluesky handle is destructive (the old handle stops
+	 * resolving), so this remains a deliberate user action regardless of
+	 * how the host environment is configured.
+	 *
+	 * @return void
+	 */
+	public function handle_set_domain_handle(): void {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( esc_html__( 'You do not have permission to do this.', 'fosse' ) );
+		}
+
+		check_admin_referer( 'fosse_set_bluesky_domain_handle' );
+
+		$return_context = $this->get_connect_return_context();
+
+		Bluesky_Domain_Handle::set_handle();
+
+		wp_safe_redirect( $this->get_redirect_url( $return_context ) );
+		exit;
+	}
+
+	/**
+	 * Re-enable Bluesky auto-publishing for sites whose option is stuck at `'0'`.
+	 *
+	 * Backstop for the only state where the now-removed auto-publish toggle
+	 * left a user without a way to recover: a site that explicitly set
+	 * `atmosphere_auto_publish` to `'0'` before the toggle was removed has
+	 * no UI to flip it back on, and the connection silently drops new
+	 * posts. The notice rendered by
+	 * {@see self::maybe_render_auto_publish_disabled_notice()} surfaces a
+	 * one-click re-enable form that posts here.
+	 *
+	 * @return void
+	 */
+	public function handle_enable_auto_publish(): void {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( esc_html__( 'You do not have permission to do this.', 'fosse' ) );
+		}
+
+		check_admin_referer( 'fosse_enable_bluesky_auto_publish' );
+
+		update_option( 'atmosphere_auto_publish', '1' );
+
+		$this->redirect_with_notice(
+			__( 'Bluesky auto-publishing is back on. New posts will be sent to Bluesky.', 'fosse' ),
+			'success'
+		);
+	}
+
+	/**
+	 * Render an admin notice on FOSSE pages when Bluesky auto-publishing
+	 * is explicitly disabled in the database.
+	 *
+	 * The auto-publish toggle was removed from the FOSSE Settings UI
+	 * (Atmosphere has no per-post manual publish surface to back it up;
+	 * see {@see self::render_setup_section()} for the full rationale).
+	 * For every site at the default (`'1'` on, or option absent) this
+	 * removal is invisible. For the narrow population that explicitly
+	 * set the option to `'0'` BEFORE the toggle went away, the connection
+	 * silently drops every new post — and they have no UI to recover.
+	 * This notice is the recovery path: one-click re-enable form rendered
+	 * only when the option is explicitly `'0'`.
+	 *
+	 * Scoped to FOSSE admin pages so it doesn't leak across wp-admin.
+	 *
+	 * @return void
+	 */
+	public function maybe_render_auto_publish_disabled_notice(): void {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			return;
+		}
+
+		$screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
+		if ( ! $screen instanceof \WP_Screen || ! Menu::is_fosse_admin_screen( $screen ) ) {
+			return;
+		}
+
+		// Only fire when the option is EXPLICITLY '0' — distinguish from
+		// "absent" (default-on) by reading without a default and checking
+		// the raw value. `get_option(..., '1')` would mask the explicit-off
+		// state behind the default.
+		$stored = get_option( 'atmosphere_auto_publish', null );
+		if ( '0' !== $stored ) {
+			return;
+		}
+
+		// Only show for connected sites — a disconnected site has nothing
+		// to publish to anyway, so the notice would be noise.
+		if ( ! $this->get_status()['connected'] ) {
+			return;
+		}
+
+		$action_url = admin_url( 'admin-post.php' );
+		?>
+		<div class="notice notice-warning">
+			<p>
+				<strong><?php esc_html_e( 'Bluesky auto-publishing is off.', 'fosse' ); ?></strong>
+				<?php
+				esc_html_e(
+					'New posts aren\'t being sent to Bluesky. If this was intentional, no action is needed; otherwise, turn auto-publishing back on below.',
+					'fosse'
+				);
+				?>
+			</p>
+			<form method="post" action="<?php echo esc_url( $action_url ); ?>" class="fosse-auto-publish-recover__form">
+				<input type="hidden" name="action" value="fosse_enable_bluesky_auto_publish" />
+				<?php wp_nonce_field( 'fosse_enable_bluesky_auto_publish' ); ?>
+				<?php submit_button( __( 'Turn auto-publishing back on', 'fosse' ), 'primary', 'submit', false ); ?>
+			</form>
+		</div>
+		<?php
 	}
 
 	/**
@@ -640,6 +1120,7 @@ class Bluesky_Provider implements Connection_Provider {
 		// back but something stripped the other parameter mid-flight. Treat
 		// it as a real error instead of silently rendering an empty page.
 		if ( '' === $code || '' === $state ) {
+			self::record_connection_failed( 'bluesky', '', 'auth_failed' );
 			$this->redirect_with_notice(
 				__( 'Bluesky returned an incomplete response. Please try connecting again.', 'fosse' ),
 				'error'
@@ -651,10 +1132,12 @@ class Bluesky_Provider implements Connection_Provider {
 		// off to Atmosphere so a stale or replayed callback can't strip the
 		// wizard marker away from a legitimate callback that arrives later.
 		$return_context = $this->consume_oauth_return_context( $state );
+		$source         = self::context_to_source( $return_context );
 
 		$result = \Atmosphere\OAuth\Client::handle_callback( $code, $state );
 
 		if ( is_wp_error( $result ) ) {
+			self::record_connection_failed( 'bluesky', $source, self::categorize_wp_error( $result ) );
 			$this->redirect_with_notice( $result->get_error_message(), 'error', $return_context );
 			return;
 		}
@@ -664,6 +1147,7 @@ class Bluesky_Provider implements Connection_Provider {
 		// hostile filter), `is_connected()` flips back to false — surface
 		// that instead of falsely telling the user they're connected.
 		if ( ! \Atmosphere\is_connected() ) {
+			self::record_connection_failed( 'bluesky', $source, 'other' );
 			$this->redirect_with_notice(
 				__( 'Bluesky responded successfully, but the connection was not saved. Please try connecting again.', 'fosse' ),
 				'error',
@@ -671,6 +1155,17 @@ class Bluesky_Provider implements Connection_Provider {
 			);
 			return;
 		}
+
+		// Connection succeeded. Subsequent publication-setup failures are
+		// surfaced as warnings (the Bluesky link itself is good), so they
+		// emit `_completed`, not `_failed`.
+		self::record_metric(
+			'fosse_connection_completed',
+			array(
+				'network' => 'bluesky',
+				'source'  => $source,
+			)
+		);
 
 		if ( ! method_exists( '\Atmosphere\Publisher', 'sync_publication' ) ) {
 			$this->redirect_with_notice(
@@ -700,6 +1195,100 @@ class Bluesky_Provider implements Connection_Provider {
 	}
 
 	/**
+	 * Map an OAuth return context to the canonical `source` property.
+	 *
+	 * @param string $return_context Context string (typically `'wizard'` or `''`).
+	 * @return string `'wizard'` when initiated from the wizard, `'settings'` otherwise.
+	 */
+	private static function context_to_source( string $return_context ): string {
+		return self::RETURN_CONTEXT_WIZARD === $return_context ? 'wizard' : 'settings';
+	}
+
+	/**
+	 * Map a `WP_Error` to the funnel's bounded `error_category` enum.
+	 *
+	 * Pre-classified categories are part of the privacy contract: raw
+	 * upstream messages never leave the recorder. Codes recognized
+	 * here come from Atmosphere's OAuth client and the AT Protocol
+	 * handle-resolution path; anything else maps to `'other'`.
+	 *
+	 * @param \WP_Error $error WP_Error from Atmosphere\OAuth\Client.
+	 * @return string `'auth_failed'|'rate_limited'|'network_timeout'|'invalid_handle'|'other'`.
+	 */
+	private static function categorize_wp_error( \WP_Error $error ): string {
+		$code = (string) $error->get_error_code();
+
+		if ( false !== \stripos( $code, 'rate' ) || '429' === $code ) {
+			return 'rate_limited';
+		}
+		if ( false !== \stripos( $code, 'timeout' ) || false !== \stripos( $code, 'http_request_failed' ) ) {
+			return 'network_timeout';
+		}
+		if ( false !== \stripos( $code, 'handle' ) || false !== \stripos( $code, 'pds' ) || false !== \stripos( $code, 'did' ) ) {
+			return 'invalid_handle';
+		}
+		if (
+			false !== \stripos( $code, 'auth' ) ||
+			false !== \stripos( $code, 'oauth' ) ||
+			false !== \stripos( $code, 'token' ) ||
+			false !== \stripos( $code, 'state' ) ||
+			false !== \stripos( $code, 'expired' ) ||
+			false !== \stripos( $code, 'dpop' ) ||
+			false !== \stripos( $code, 'decrypt' ) ||
+			false !== \stripos( $code, 'refresh' )
+		) {
+			return 'auth_failed';
+		}
+
+		// Any remaining Atmosphere-prefixed code is most plausibly
+		// an OAuth-layer failure (PAR, connection, not_connected, etc.)
+		// rather than an unclassifiable error. Catching them here
+		// keeps the `error_category` enum representative on dashboards.
+		if ( 0 === \stripos( $code, 'atmosphere_' ) ) {
+			return 'auth_failed';
+		}
+
+		return 'other';
+	}
+
+	/**
+	 * Emit a `fosse_connection_failed` event for the given network/source/category.
+	 *
+	 * @param string $network        `'bluesky'|'mastodon'`.
+	 * @param string $source         `'wizard'|'settings'` (or `''` when unknown — recorder allowlist drops empty).
+	 * @param string $error_category Pre-classified error category.
+	 * @return void
+	 */
+	private static function record_connection_failed( string $network, string $source, string $error_category ): void {
+		$properties = array(
+			'network'        => $network,
+			'error_category' => $error_category,
+		);
+		if ( '' !== $source ) {
+			$properties['source'] = $source;
+		}
+
+		self::record_metric( 'fosse_connection_failed', $properties );
+	}
+
+	/**
+	 * Forward to `Recorder::record()` if the metrics module is loaded.
+	 *
+	 * The class_exists guard keeps this provider safe to load on
+	 * checkouts that haven't shipped the metrics spine yet.
+	 *
+	 * @param string $event      Event name.
+	 * @param array  $properties Property bag.
+	 * @return void
+	 */
+	private static function record_metric( string $event, array $properties ): void {
+		if ( ! \class_exists( \Automattic\Fosse\Metrics\Recorder::class ) ) {
+			return;
+		}
+		\Automattic\Fosse\Metrics\Recorder::record( $event, $properties );
+	}
+
+	/**
 	 * Override Atmosphere's OAuth callback URI for FOSSE-initiated auth.
 	 *
 	 * @param string $uri Default Atmosphere URI.
@@ -712,14 +1301,28 @@ class Bluesky_Provider implements Connection_Provider {
 	/**
 	 * Persist an admin notice and redirect back to the originating FOSSE screen.
 	 *
-	 * @param string $message        Notice message.
+	 * Messages are escaped with `esc_html()` before storage. Every consumer of
+	 * the `'atmosphere'` settings-error group renders the stored `message`
+	 * field as HTML: the explicit `settings_errors( 'atmosphere' )` call in
+	 * {@see self::render_connection_actions()}, the `get_settings_errors(...)`
+	 * loop in {@see Onboarding_Wizard::render_step_bluesky()}, and any
+	 * `options-*.php` screen where WordPress core's automatic
+	 * `settings_errors()` invocation fires for queued settings errors.
+	 * Several callers here pass untrusted text (`WP_Error` messages from
+	 * Atmosphere's OAuth client, the PDS, or `Publisher::sync_publication()`)
+	 * which could otherwise inject markup into wp-admin. Escaping at this
+	 * single chokepoint frees every caller from remembering the constraint.
+	 * Notice messages that need rich HTML must be added through a different
+	 * code path; nothing in FOSSE needs that today.
+	 *
+	 * @param string $message        Notice message (treated as plain text).
 	 * @param string $type           Notice type.
 	 * @param string $return_context Optional return context.
 	 * @return void
 	 */
 	private function redirect_with_notice( string $message, string $type, string $return_context = '' ): void {
-		add_settings_error( 'atmosphere', 'fosse_bluesky_notice', $message, $type );
-		set_transient( 'settings_errors', get_settings_errors(), 30 );
+		add_settings_error( 'atmosphere', 'fosse_bluesky_notice', esc_html( $message ), $type );
+		User_Notices::persist();
 
 		wp_safe_redirect( $this->get_redirect_url( $return_context ) );
 		exit;

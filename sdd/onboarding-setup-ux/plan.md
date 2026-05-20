@@ -174,13 +174,8 @@ Based on: sdd/onboarding-setup-ux/spec.md
 - **Depends on**: Task 3, Task 5
 
 ### Task 9: Exclude `src/` from WordPress.Files.FileName PHPCS sniff
-- **Status**: ✅ Done (#27)
+- **Status**: ✅ Done (#27), then reversed in a follow-up. `src/` was migrated to the WordPress `class-*.php` filename convention so the exclusion is no longer needed; the current `.phpcs.xml.dist` only excludes `tests/php/`. The original PascalCase paths in Tasks 1–8 above describe the as-shipped-then-renamed shape — actual filenames on trunk are e.g. `src/Admin/class-connection-provider-registry.php`, `src/Admin/interface-connection-provider.php`, `src/Admin/class-ap-provider.php`.
 - **Files**: `.phpcs.xml.dist`
-- **Do**:
-  1. Add `<exclude-pattern>src/</exclude-pattern>` to the `WordPress.Files.FileName` rule block (alongside the existing `tests/php/` exclusion).
-  2. Reason: `src/` uses classmap autoloading with PascalCase namespaced classes. The WordPress filename convention (`class-*.php`, lowercase hyphenated) is designed for non-namespaced code.
-- **Verify**:
-  - `composer run-script lint-php` passes clean on all files.
 - **Depends on**: none
 
 ### Task 10: Update SDD documentation

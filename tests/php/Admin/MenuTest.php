@@ -13,6 +13,7 @@ use Automattic\Fosse\Admin\Menu;
 use Automattic\Fosse\Admin\Onboarding_Wizard;
 use PHPUnit\Framework\Attributes\After;
 use PHPUnit\Framework\Attributes\Before;
+use PHPUnit\Framework\Attributes\DataProvider;
 use WorDBless\BaseTestCase;
 
 /**
@@ -238,32 +239,82 @@ class MenuTest extends BaseTestCase {
 		$this->assertNotFalse( get_option( Onboarding_Wizard::REDIRECT_OPTION ) );
 	}
 
-	// --- notice suppression (#56) ---
+	// --- hidden wizard title ---
 
 	/**
-	 * Foreign admin notice callbacks are stripped on the FOSSE Setup screen.
+	 * Hidden wizard pages still need a core admin title before admin-header.php.
 	 *
-	 * Covers the four core notice hooks WordPress fires during admin header
-	 * rendering. The wizard / Setup page are focused flows; foreign notices
-	 * (host banners, plugin upsells) break the orientation.
+	 * Hooks `gettext` to confirm the title goes through `__()` with the
+	 * `fosse` text domain — asserting the rendered string alone wouldn't
+	 * catch a regression that dropped the wrapper, since wrapped and
+	 * unwrapped paths produce identical output in a no-translation env.
 	 */
-	public function test_suppresses_admin_notices_on_setup_screen(): void {
-		$fired = array();
-		$this->register_notice_canaries( $fired );
+	public function test_sets_wizard_admin_title_when_missing(): void {
+		$had_title = array_key_exists( 'title', $GLOBALS );
+		$old_title = $GLOBALS['title'] ?? null;
 
-		Menu::maybe_suppress_admin_notices( $this->fake_screen( 'toplevel_page_fosse' ) );
+		$captured = array();
+		$capture  = static function ( $translation, $text, $domain ) use ( &$captured ) {
+			$captured[ $text ] = $domain;
+			return $translation;
+		};
+		add_filter( 'gettext', $capture, 10, 3 );
 
-		do_action( 'admin_notices' );
-		do_action( 'all_admin_notices' );
-		do_action( 'network_admin_notices' );
-		do_action( 'user_admin_notices' );
+		try {
+			$GLOBALS['title'] = null; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Test setup for core title global.
 
-		$this->assertSame( array(), $fired, 'Foreign notices should be suppressed on the Setup screen.' );
+			Menu::set_wizard_admin_title();
+
+			$this->assertSame( __( 'Setup Wizard', 'fosse' ), $GLOBALS['title'] );
+			$this->assertSame(
+				'fosse',
+				$captured['Setup Wizard'] ?? null,
+				'Wizard title must call __() with the fosse text domain.'
+			);
+		} finally {
+			remove_filter( 'gettext', $capture, 10 );
+
+			// `?? null` can't distinguish an absent key from a null value, so
+			// only restore the original value when the key existed; otherwise
+			// drop the key we just introduced to avoid leaking state into
+			// later tests.
+			if ( $had_title ) {
+				$GLOBALS['title'] = $old_title; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Restore core title global after test.
+			} else {
+				unset( $GLOBALS['title'] );
+			}
+		}
 	}
 
 	/**
-	 * Same suppression on the Setup Wizard screen — the original incident
-	 * (Jurassic Ninja credentials banner) was on the wizard, not Setup.
+	 * Existing non-empty admin titles are preserved.
+	 */
+	public function test_preserves_existing_wizard_admin_title(): void {
+		$had_title = array_key_exists( 'title', $GLOBALS );
+		$old_title = $GLOBALS['title'] ?? null;
+
+		try {
+			$GLOBALS['title'] = 'Existing Title'; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Test setup for core title global.
+
+			Menu::set_wizard_admin_title();
+
+			$this->assertSame( 'Existing Title', $GLOBALS['title'] );
+		} finally {
+			if ( $had_title ) {
+				$GLOBALS['title'] = $old_title; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Restore core title global after test.
+			} else {
+				unset( $GLOBALS['title'] );
+			}
+		}
+	}
+
+	// --- notice suppression (#56) ---
+
+	/**
+	 * Foreign admin notice callbacks are stripped on the FOSSE Setup
+	 * Wizard screen — the original incident (Jurassic Ninja credentials
+	 * banner) was on the wizard, and the wizard is a focused first-run
+	 * flow where foreign notices break the orientation.
 	 */
 	public function test_suppresses_admin_notices_on_wizard_screen(): void {
 		$fired = array();
@@ -280,7 +331,32 @@ class MenuTest extends BaseTestCase {
 	}
 
 	/**
-	 * Suppression is scoped to Setup + Wizard. The Status page is a
+	 * The Settings page (`toplevel_page_fosse`) does NOT suppress notices
+	 * — long-lived admin pages benefit from FOSSE's own
+	 * `admin_notices`-hooked banners (e.g. the auto-publish recovery
+	 * notice in Bluesky_Provider) and from legitimate cross-plugin
+	 * signal in the user's normal admin flow.
+	 */
+	public function test_does_not_suppress_admin_notices_on_settings_screen(): void {
+		$fired = array();
+		$this->register_notice_canaries( $fired );
+
+		Menu::maybe_suppress_admin_notices( $this->fake_screen( 'toplevel_page_fosse' ) );
+
+		do_action( 'admin_notices' );
+		do_action( 'all_admin_notices' );
+		do_action( 'network_admin_notices' );
+		do_action( 'user_admin_notices' );
+
+		$this->assertSame(
+			array( 'admin_notices', 'all_admin_notices', 'network_admin_notices', 'user_admin_notices' ),
+			$fired,
+			'Settings screen must preserve foreign notices so FOSSE-hooked banners can render.'
+		);
+	}
+
+	/**
+	 * Suppression is scoped to the Wizard. The Status page is a
 	 * long-lived dashboard; foreign notices are more legitimate there
 	 * and stripping them would risk masking real cross-plugin signal.
 	 */
@@ -319,17 +395,45 @@ class MenuTest extends BaseTestCase {
 	}
 
 	/**
+	 * The lizard theme script must run from the document head so a stored
+	 * theme can mark the root element before the wizard paints.
+	 */
+	public function test_lizard_theme_script_is_enqueued_in_head_on_wizard_screen(): void {
+		wp_dequeue_script( 'fosse-wizard-lizard' );
+		wp_deregister_script( 'fosse-wizard-lizard' );
+
+		try {
+			Menu::enqueue_assets( 'admin_page_fosse-wizard' );
+
+			$this->assertTrue( wp_script_is( 'fosse-wizard-lizard', 'enqueued' ) );
+			$this->assertFalse(
+				wp_scripts()->get_data( 'fosse-wizard-lizard', 'group' ),
+				'Lizard theme script must stay in the head to prevent a stored-theme flash.'
+			);
+			$this->assertFalse(
+				wp_scripts()->get_data( 'fosse-wizard-lizard', 'strategy' ),
+				'Lizard theme script must execute synchronously; defer/async would reintroduce the flash.'
+			);
+		} finally {
+			wp_dequeue_script( 'fosse-wizard-lizard' );
+			wp_deregister_script( 'fosse-wizard-lizard' );
+		}
+	}
+
+	/**
 	 * Late-stage suppression strips notices that other plugins added
 	 * between `current_screen` and the actual notice hooks (e.g. via
 	 * `admin_head` or `admin_enqueue_scripts`). Mirrors the
 	 * `current_screen` test but exercises the `in_admin_header`-bound
-	 * `maybe_suppress_admin_notices_late()` wrapper.
+	 * `maybe_suppress_admin_notices_late()` wrapper. Targets the wizard
+	 * screen since that's the only screen the early stage suppresses
+	 * — the late stage must agree.
 	 */
 	public function test_late_suppression_strips_admin_head_added_notices(): void {
-		set_current_screen( 'toplevel_page_fosse' );
+		set_current_screen( 'admin_page_fosse-wizard' );
 		$current = get_current_screen();
 		if ( $current instanceof \WP_Screen ) {
-			$current->id = 'toplevel_page_fosse';
+			$current->id = 'admin_page_fosse-wizard';
 		}
 
 		$fired = array();
@@ -364,6 +468,67 @@ class MenuTest extends BaseTestCase {
 		do_action( 'admin_notices' );
 
 		$this->assertContains( 'admin_notices', $fired, 'Late-stage suppression must not affect unrelated screens.' );
+	}
+
+	// --- is_fosse_admin_screen ---
+
+	/**
+	 * The three FOSSE admin screen IDs match. Anchors the public helper
+	 * against the menu registration so adding a new admin page without
+	 * extending the helper would surface here.
+	 *
+	 * @param string $screen_id Screen id under test.
+	 * @dataProvider provide_fosse_admin_screens
+	 */
+	#[DataProvider( 'provide_fosse_admin_screens' )]
+	public function test_is_fosse_admin_screen_matches_known_screens( string $screen_id ): void {
+		$this->assertTrue(
+			Menu::is_fosse_admin_screen( $this->fake_screen( $screen_id ) ),
+			"Screen id {$screen_id} should be recognized as a FOSSE admin screen."
+		);
+	}
+
+	/**
+	 * Strict whitelist: substrings that contain "fosse" but aren't one of
+	 * the three registered FOSSE pages must not match. Guards against the
+	 * pre-fix `strpos( $id, 'fosse' )` regression where any third-party
+	 * plugin slug containing "fosse" would surface FOSSE-scoped notices.
+	 *
+	 * @param string $screen_id Screen id under test.
+	 * @dataProvider provide_non_fosse_screens
+	 */
+	#[DataProvider( 'provide_non_fosse_screens' )]
+	public function test_is_fosse_admin_screen_rejects_unrelated_screens( string $screen_id ): void {
+		$this->assertFalse(
+			Menu::is_fosse_admin_screen( $this->fake_screen( $screen_id ) ),
+			"Screen id {$screen_id} must not be recognized as a FOSSE admin screen."
+		);
+	}
+
+	/**
+	 * Screen ids registered in {@see Menu::add_menu()} that the public
+	 * helper must recognize as FOSSE-owned.
+	 *
+	 * @return iterable<string, array{0: string}>
+	 */
+	public static function provide_fosse_admin_screens(): iterable {
+		yield 'settings (top-level)' => array( 'toplevel_page_fosse' );
+		yield 'status (subpage)'     => array( 'fosse_page_fosse-status' );
+		yield 'wizard (hidden)'      => array( 'admin_page_fosse-wizard' );
+	}
+
+	/**
+	 * Lookalike and unrelated screen ids that must not match — anchors the
+	 * strict whitelist against the substring-match regression.
+	 *
+	 * @return iterable<string, array{0: string}>
+	 */
+	public static function provide_non_fosse_screens(): iterable {
+		yield 'dashboard'                          => array( 'dashboard' );
+		yield 'plugins list'                       => array( 'plugins' );
+		yield 'third-party with fosse in slug'     => array( 'toplevel_page_fossify' );
+		yield 'third-party subpage with substring' => array( 'tools_page_fosse-clone' );
+		yield 'empty id'                           => array( '' );
 	}
 
 	/**

@@ -1,3 +1,7 @@
+---
+status: in-progress
+---
+
 # Spec: Long-Form Bluesky Strategy
 
 ## Goal

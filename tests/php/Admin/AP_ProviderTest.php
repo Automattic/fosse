@@ -183,8 +183,8 @@ class AP_ProviderTest extends BaseTestCase {
 	}
 
 	/**
-	 * AP's render_setup_section preserves the Site Handle field in
-	 * `blog` mode and the "Show advanced ActivityPub settings" link.
+	 * AP's render_setup_section preserves the Site handle field in
+	 * `blog` mode and the secondary ActivityPub settings link.
 	 */
 	public function test_render_setup_section_renders_blog_mode_fields() {
 		update_option( 'activitypub_actor_mode', 'blog' );
@@ -196,12 +196,16 @@ class AP_ProviderTest extends BaseTestCase {
 
 		$this->assertStringContainsString( 'name="activitypub_blog_identifier"', $output );
 		$this->assertStringContainsString( 'value="my-site"', $output );
-		$this->assertStringContainsString( 'Show advanced ActivityPub settings', $output );
+		$this->assertStringContainsString( 'Site handle', $output );
+		$this->assertStringContainsString( 'Site fediverse address', $output );
+		$this->assertStringContainsString( 'Advanced ActivityPub settings', $output );
+		$this->assertStringContainsString( 'options-general.php?page=activitypub', $output );
+		$this->assertStringNotContainsString( 'class="form-table"', $output );
 	}
 
 	/**
-	 * Status card exposes the BEM table classes and no longer renders a
-	 * "Manage ActivityPub settings" deep link (issue #74) — the sidebar
+	 * Status card exposes ActivityPub connection details and no longer renders
+	 * a "Manage ActivityPub settings" deep link (issue #74) — the sidebar
 	 * Settings menu entry replaces those per-card links.
 	 */
 	public function test_render_status_card_omits_manage_settings_link() {
@@ -209,11 +213,11 @@ class AP_ProviderTest extends BaseTestCase {
 		$this->provider->render_status_card();
 		$output = ob_get_clean();
 
-		$this->assertStringContainsString( 'fosse-status-card__table', $output );
-		$this->assertStringContainsString( 'fosse-status-card__label', $output );
-		$this->assertStringContainsString( 'fosse-status-card__value', $output );
+		$this->assertStringContainsString( '<h2', $output );
+		$this->assertStringContainsString( 'ActivityPub', $output );
+		$this->assertStringContainsString( 'Content types', $output );
+		$this->assertStringNotContainsString( '<table', $output );
 		$this->assertStringNotContainsString( 'Manage ActivityPub settings', $output );
-		$this->assertStringNotContainsString( 'fosse-status-card__manage', $output );
 	}
 
 	// --- save_settings tests ---------------------------------------------------
@@ -539,6 +543,53 @@ class AP_ProviderTest extends BaseTestCase {
 		$this->assertTrue( $this->provider->mode_includes_blog( 'actor_blog' ) );
 	}
 
+	/**
+	 * `get_status()` memoizes its return value within the request so the
+	 * Status page (which renders each provider's status twice — once to
+	 * filter on `connected`, once via `render_status_card()`) doesn't pay
+	 * AP's actor-handle resolution cost twice. The cache survives the
+	 * full request because every mutation handler ends in `wp_safe_redirect();exit`,
+	 * so re-reading after a setting change is a fresh-request concern,
+	 * not a same-request concern.
+	 *
+	 * Verifies the memo by counting `pre_option_activitypub_actor_mode`
+	 * fires: every `get_option( 'activitypub_actor_mode', ... )` call
+	 * dispatches that filter exactly once, and `get_status()` reads it
+	 * unconditionally on the uncached path. A working cache means the
+	 * second `get_status()` call must not trigger another fire.
+	 */
+	public function test_get_status_memoizes_within_request(): void {
+		update_option( 'activitypub_actor_mode', 'actor' );
+
+		$fires   = 0;
+		$counter = function ( $pre ) use ( &$fires ) {
+			++$fires;
+			return $pre;
+		};
+		add_filter( 'pre_option_activitypub_actor_mode', $counter );
+
+		try {
+			$first         = $this->provider->get_status();
+			$fires_after_1 = $fires;
+			$second        = $this->provider->get_status();
+			$fires_after_2 = $fires;
+		} finally {
+			remove_filter( 'pre_option_activitypub_actor_mode', $counter );
+		}
+
+		$this->assertSame( $first, $second, 'Cached status payload must be identical to the first call.' );
+		$this->assertGreaterThan(
+			0,
+			$fires_after_1,
+			'Sanity check: the first call should hit the activitypub_actor_mode filter at least once (uncached path).'
+		);
+		$this->assertSame(
+			$fires_after_1,
+			$fires_after_2,
+			'The second get_status() call must add zero activitypub_actor_mode reads; it should hit the in-memory cache and bail before any get_option() runs.'
+		);
+	}
+
 	// --- Site Handle persistence --------------------------------------------
 
 	/**
@@ -743,7 +794,7 @@ class AP_ProviderTest extends BaseTestCase {
 	}
 
 	/**
-	 * The Site Handle field renders in `blog` mode with the current saved
+	 * The Site handle field renders in `blog` mode with the current saved
 	 * value pre-filled so site owners can edit it from FOSSE's surface.
 	 */
 	public function test_render_setup_section_shows_site_handle_field_in_blog_mode() {
@@ -756,7 +807,7 @@ class AP_ProviderTest extends BaseTestCase {
 
 		$this->assertStringContainsString( 'name="activitypub_blog_identifier"', $output );
 		$this->assertStringContainsString( 'value="my-site"', $output );
-		$this->assertStringContainsString( 'Site Handle', $output );
+		$this->assertStringContainsString( 'Site handle', $output );
 	}
 
 	/**
@@ -826,17 +877,18 @@ class AP_ProviderTest extends BaseTestCase {
 	}
 
 	/**
-	 * Status card label/value cells carry the BEM classes the polish CSS
-	 * targets. A renamed class would silently break the column-width and
-	 * wrap rules without surfacing a test failure otherwise.
+	 * Status card renders label/value pairs as a semantic definition list
+	 * rather than the legacy table layout.
 	 */
-	public function test_render_status_card_uses_bem_label_value_classes() {
+	public function test_render_status_card_uses_definition_list_label_value_pairs() {
 		ob_start();
 		$this->provider->render_status_card();
 		$output = ob_get_clean();
 
-		$this->assertStringContainsString( 'fosse-status-card__table', $output );
-		$this->assertStringContainsString( 'fosse-status-card__label', $output );
-		$this->assertStringContainsString( 'fosse-status-card__value', $output );
+		$this->assertStringContainsString( '<dl', $output );
+		$this->assertStringContainsString( '<dt', $output );
+		$this->assertStringContainsString( '<dd', $output );
+		$this->assertStringContainsString( 'ActivityPub profile', $output );
+		$this->assertStringNotContainsString( 'widefat striped', $output );
 	}
 }

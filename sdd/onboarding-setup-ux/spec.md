@@ -1,3 +1,7 @@
+---
+status: in-progress
+---
+
 # Spec: Onboarding & Setup UX
 
 ## Goal

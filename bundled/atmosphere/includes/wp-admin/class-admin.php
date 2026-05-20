@@ -10,12 +10,15 @@ namespace Atmosphere\WP_Admin;
 \defined( 'ABSPATH' ) || exit;
 
 use Atmosphere\Atmosphere;
+use Atmosphere\Handle;
 use Atmosphere\OAuth\Client;
 use Atmosphere\Post_Types;
 use Atmosphere\Publisher;
 use function Atmosphere\get_connection;
 use function Atmosphere\get_supported_post_types;
+use function Atmosphere\has_identity;
 use function Atmosphere\is_connected;
+use function Atmosphere\needs_reauth;
 
 /**
  * Admin class.
@@ -29,7 +32,9 @@ class Admin {
 		\add_action( 'admin_menu', array( self::class, 'add_menu' ) );
 		\add_action( 'admin_init', array( self::class, 'handle_oauth_callback' ) );
 		\add_action( 'admin_init', array( self::class, 'register_settings' ) );
+		\add_action( 'admin_init', array( self::class, 'maybe_set_domain_handle' ) );
 		\add_action( 'admin_enqueue_scripts', array( self::class, 'enqueue_assets' ) );
+		\add_action( 'admin_notices', array( self::class, 'maybe_render_reauth_notice' ) );
 
 		\add_action( 'admin_post_atmosphere_disconnect', array( self::class, 'handle_disconnect' ) );
 
@@ -132,7 +137,17 @@ class Admin {
 				'atmosphere_connection'
 			);
 
-			return;
+			/*
+			 * Even while the OAuth session is gone, an existing identity
+			 * keeps the publishing-section UI visible so the user does
+			 * not lose sight of their stored auto-publish, long-form,
+			 * and post-type preferences during a reauth round-trip. The
+			 * publish callbacks themselves gate on `is_connected()` and
+			 * stay short-circuited until reauth completes.
+			 */
+			if ( ! has_identity() ) {
+				return;
+			}
 		}
 
 		// Publishing section.
@@ -174,6 +189,27 @@ class Admin {
 			'atmosphere',
 			'atmosphere_publishing'
 		);
+
+		/*
+		 * Register the domain-handle confirm row only when the offer is
+		 * meaningful (root install, feature enabled, current handle differs
+		 * from the site host). Skipping registration is the cleanest way to
+		 * suppress the row entirely without rendering an empty <tr>.
+		 */
+		if ( Handle::should_offer(
+			array(
+				'connected' => true,
+				'handle'    => get_connection()['handle'] ?? '',
+			)
+		) ) {
+			\add_settings_field(
+				'atmosphere_set_domain_handle',
+				\__( 'Domain handle', 'atmosphere' ),
+				array( self::class, 'render_domain_handle_field' ),
+				'atmosphere',
+				'atmosphere_connection'
+			);
+		}
 	}
 
 	/**
@@ -219,6 +255,80 @@ class Admin {
 				</td>
 			</tr>
 		</table>
+		<?php
+	}
+
+	/**
+	 * Render the "use my domain as my Bluesky handle" confirm field.
+	 *
+	 * Registered conditionally on the `atmosphere_connection` section
+	 * via {@see self::register_settings()}; only enqueued when
+	 * {@see Handle::should_offer()} agrees the offer is meaningful.
+	 */
+	public static function render_domain_handle_field(): void {
+		$current = (string) ( get_connection()['handle'] ?? '' );
+		$target  = Handle::get_target_handle();
+		?>
+		<p>
+			<?php
+			if ( '' !== $current ) {
+				echo \esc_html(
+					\sprintf(
+						/* translators: 1: current Bluesky handle (e.g. alice.bsky.social); 2: target handle = site host (e.g. example.com). */
+						\__( 'Your current Bluesky handle is %1$s. Click the button below to replace it with %2$s.', 'atmosphere' ),
+						$current,
+						$target
+					)
+				);
+			} else {
+				echo \esc_html(
+					\sprintf(
+						/* translators: %s: target handle = site host (e.g. example.com). */
+						\__( 'Click the button below to set your Bluesky handle to %s.', 'atmosphere' ),
+						$target
+					)
+				);
+			}
+			?>
+		</p>
+		<p>
+			<?php
+			/*
+			 * `name`/`value` mark the button so {@see
+			 * self::maybe_set_domain_handle()} (hooked on
+			 * `admin_init`) can detect this specific click. The
+			 * Save Changes button at the bottom of the page does
+			 * not carry this name, so a regular settings save lands
+			 * `$_POST['atmosphere_set_domain_handle']` as empty and
+			 * the trigger handler bails — only an explicit click on
+			 * THIS button reaches `Handle::set_handle()`.
+			 *
+			 * Stays inside the WP Settings form: the click rides on
+			 * the form's own nonce + capability gate and options.php
+			 * issues the normal redirect afterwards, so the settings
+			 * notice posted by `Handle::set_handle()` surfaces on the
+			 * next pageview without any custom redirect path.
+			 */
+			?>
+			<button
+				type="submit"
+				name="atmosphere_set_domain_handle"
+				value="1"
+				class="button">
+				<?php
+				echo \esc_html(
+					\sprintf(
+						/* translators: %s: target handle = site host (e.g. example.com). */
+						\__( 'Use %s as my Bluesky handle', 'atmosphere' ),
+						$target
+					)
+				);
+				?>
+			</button>
+		</p>
+		<p class="description">
+			<?php \esc_html_e( 'Heads up: replacing your handle is destructive. Your previous handle will stop resolving immediately, and links to it will break. Bluesky verifies the new handle through this site automatically.', 'atmosphere' ); ?>
+		</p>
 		<?php
 	}
 
@@ -269,7 +379,43 @@ class Admin {
 			return '';
 		}
 
-		\wp_redirect( $auth_url ); // phpcs:ignore WordPress.Security.SafeRedirect.wp_redirect_wp_redirect
+		/*
+		 * `$auth_url` is built from the auth-server metadata returned
+		 * by the resolution chain. The resolver validates each URL it
+		 * persists, but defence-in-depth: re-check the scheme + host
+		 * before redirecting an admin so a misconfigured filter or
+		 * future code path can't slip a `javascript:` / `data:` URI
+		 * through.
+		 *
+		 * `wp_safe_redirect` would normally reject this destination —
+		 * it's intentionally off-site (the AT Protocol auth server).
+		 * Add the auth-server host to `allowed_redirect_hosts` for the
+		 * `wp_safe_redirect` call, then immediately detach the filter
+		 * so it can't affect any subsequent redirect — the `exit`
+		 * makes that production-redundant, but pinning the invariant
+		 * here keeps it intact if a test or a `wp_die()` handler ever
+		 * intercepts the redirect before `exit` fires.
+		 */
+		$auth_host   = \is_string( $auth_url ) ? \wp_parse_url( $auth_url, PHP_URL_HOST ) : '';
+		$auth_scheme = \is_string( $auth_url ) ? \wp_parse_url( $auth_url, PHP_URL_SCHEME ) : '';
+
+		if ( empty( $auth_host ) || 'https' !== $auth_scheme ) {
+			\add_settings_error(
+				'atmosphere',
+				'auth_failed',
+				\__( 'Authorization URL is not a safe HTTPS target.', 'atmosphere' )
+			);
+			return '';
+		}
+
+		$allow_auth_host = static function ( $hosts ) use ( $auth_host ) {
+			$hosts[] = $auth_host;
+			return $hosts;
+		};
+
+		\add_filter( 'allowed_redirect_hosts', $allow_auth_host );
+		\wp_safe_redirect( $auth_url );
+		\remove_filter( 'allowed_redirect_hosts', $allow_auth_host );
 		exit;
 	}
 
@@ -552,6 +698,49 @@ class Admin {
 	}
 
 	/**
+	 * Trigger `Handle::set_handle()` when the settings form is
+	 * submitted with the "Use my domain as my Bluesky handle" button.
+	 *
+	 * The button renders inside the WP Settings form and carries
+	 * `name="atmosphere_set_domain_handle" value="1"`. When clicked,
+	 * the form POSTs to `options.php` like any other settings save.
+	 * Routing the trigger through a dedicated `admin-post.php?action=…`
+	 * endpoint instead collides with `settings_fields()`'s hidden
+	 * `<input name="action" value="update">` field — POST wins in
+	 * `$_REQUEST['action']` and the click ends up dispatched to
+	 * `admin_post_update`. Detecting the field here on `admin_init`,
+	 * before options.php runs, keeps the action inside the same
+	 * form-submit lifecycle without conflicting concerns.
+	 *
+	 * Bails silently if the trigger field is absent (normal Save
+	 * Changes path) or if the request fails any of the standard
+	 * settings-form guards (capability, option group, nonce). On
+	 * success `Handle::set_handle()` posts its own settings notice;
+	 * options.php's own redirect surfaces the notice on the next
+	 * pageview without us having to intercept the redirect here.
+	 */
+	public static function maybe_set_domain_handle(): void {
+		// phpcs:ignore WordPress.Security.NonceVerification.Missing -- Presence check only; nonce is verified below before any side effect.
+		if ( empty( $_POST['atmosphere_set_domain_handle'] ) ) {
+			return;
+		}
+
+		if ( ! \current_user_can( 'manage_options' ) ) {
+			return;
+		}
+
+		// phpcs:ignore WordPress.Security.NonceVerification.Missing -- Same as above; nonce verified on the next line.
+		$option_page = isset( $_POST['option_page'] ) ? \sanitize_key( \wp_unslash( $_POST['option_page'] ) ) : '';
+		if ( 'atmosphere' !== $option_page ) {
+			return;
+		}
+
+		\check_admin_referer( 'atmosphere-options' );
+
+		Handle::set_handle();
+	}
+
+	/**
 	 * Handle the "Disconnect" action.
 	 */
 	public static function handle_disconnect(): void {
@@ -560,6 +749,24 @@ class Admin {
 		}
 
 		\check_admin_referer( 'atmosphere_disconnect', 'atmosphere_nonce' );
+
+		/*
+		 * Best-effort handle revert BEFORE the disconnect drops the OAuth
+		 * token: if the site previously set the handle to its domain, restore
+		 * the snapshotted previous handle while the access token is still
+		 * valid. The call posts a notice on the way out; disconnect proceeds
+		 * regardless of result so a token-revoked or network-failed revert
+		 * can't trap the user in a connected state.
+		 */
+		Handle::maybe_revert_on_disconnect();
+
+		/*
+		 * Clear the snapshot regardless of revert outcome so it cannot be
+		 * revived by a future reconnect to a different account. Once the
+		 * OAuth token is gone there is no way to retry a failed revert
+		 * anyway, so the snapshot is dead weight after this point.
+		 */
+		\delete_option( Handle::OPTION_PREVIOUS_HANDLE );
 
 		Client::disconnect();
 
@@ -608,6 +815,47 @@ class Admin {
 	}
 
 	/**
+	 * Render a global admin notice when the OAuth session needs reauth.
+	 *
+	 * Surfaced on every admin screen (gated on `manage_options`) because
+	 * the publish, comment, and update paths silently no-op until the
+	 * user reconnects — without a visible nudge, an expired refresh
+	 * token can sit unnoticed for days. The notice is dismissible per
+	 * page-load only so the user is reminded again on their next visit.
+	 */
+	public static function maybe_render_reauth_notice(): void {
+		if ( ! \current_user_can( 'manage_options' ) ) {
+			return;
+		}
+
+		if ( ! needs_reauth() ) {
+			return;
+		}
+
+		$settings_url = \admin_url( 'options-general.php?page=atmosphere' );
+
+		?>
+		<div class="notice notice-warning is-dismissible">
+			<p>
+				<strong><?php \esc_html_e( 'ATmosphere: reconnection required', 'atmosphere' ); ?></strong>
+			</p>
+			<p>
+				<?php
+				echo \wp_kses(
+					\sprintf(
+						/* translators: %s: URL to the ATmosphere settings page. */
+						\__( 'Your AT Protocol session has expired. New posts and comments will not publish until you <a href="%s">reconnect on the settings page</a>. Your publishing preferences and verification headers stay in place in the meantime.', 'atmosphere' ),
+						\esc_url( $settings_url )
+					),
+					array( 'a' => array( 'href' => array() ) )
+				);
+				?>
+			</p>
+		</div>
+		<?php
+	}
+
+	/**
 	 * Register the client-metadata REST endpoint.
 	 */
 	public static function register_rest_routes(): void {
@@ -638,7 +886,14 @@ class Admin {
 			'grant_types'                => array( 'authorization_code', 'refresh_token' ),
 			'response_types'             => array( 'code' ),
 			'token_endpoint_auth_method' => 'none',
-			'scope'                      => 'atproto transition:generic',
+
+			/*
+			 * MUST match the scope string requested by
+			 * Client::authorize(). The auth server validates the
+			 * request scope against the metadata; a drift here
+			 * silently downgrades to the smaller of the two.
+			 */
+			'scope'                      => 'atproto transition:generic identity:handle',
 			'dpop_bound_access_tokens'   => true,
 			'application_type'           => 'web',
 		);
@@ -646,10 +901,128 @@ class Admin {
 		/**
 		 * Filters the OAuth client metadata served at the REST endpoint.
 		 *
+		 * Filters MUST return an array containing:
+		 *
+		 *  - `client_id`: non-empty string (advertised as the OAuth client
+		 *    identifier; should match `Client::client_id()`).
+		 *  - `redirect_uris`: non-empty list of non-empty strings, where
+		 *    every entry is rooted at this site's admin over HTTPS
+		 *    (`admin_url('', 'https')` prefix). Off-site / empty /
+		 *    non-string / HTTP-scheme / nested-array entries cause the
+		 *    entire filter result to be rejected.
+		 *
+		 * Anything else falls back to the unfiltered metadata. The
+		 * metadata endpoint is public and the document advertises
+		 * `token_endpoint_auth_method: 'none'` (public client), so an
+		 * attacker-supplied `redirect_uris` entry would let them drive
+		 * this site's `client_id` with their own redirect target. Gate
+		 * entries individually, matching the validation
+		 * {@see \Atmosphere\OAuth\Client::redirect_uri()} applies to
+		 * the inbound `atmosphere_oauth_redirect_uri` filter.
+		 *
 		 * @param array $metadata Client metadata.
 		 */
-		$metadata = \apply_filters( 'atmosphere_client_metadata', $metadata );
+		$filtered = \apply_filters( 'atmosphere_client_metadata', $metadata );
 
-		return new \WP_REST_Response( $metadata, 200 );
+		if ( self::client_metadata_filter_is_valid( $filtered ) ) {
+			$metadata = $filtered;
+		} elseif ( $filtered !== $metadata ) {
+			/*
+			 * Surface only when the filter actually fired and returned
+			 * something that failed validation — without this guard
+			 * every page load on a site with no filter would trip the
+			 * notice because the equality check above is the cheap
+			 * shorthand for "nothing changed".
+			 */
+			\_doing_it_wrong(
+				__METHOD__,
+				\esc_html__( 'atmosphere_client_metadata must return an array with a non-empty string client_id and a redirect_uris list of admin URLs; falling back to the unfiltered metadata.', 'atmosphere' ),
+				'1.0.0'
+			);
+		}
+
+		$response = new \WP_REST_Response( $metadata, 200 );
+
+		// Cap intermediate-cache TTL well under the AT Protocol auth
+		// server's own metadata cache (10 min in Bluesky's reference impl),
+		// so that when the metadata document changes — e.g. a new OAuth
+		// scope is added in an Atmosphere release — every layer between
+		// us and the auth server has refreshed before the auth server
+		// itself does its next refresh. Without an explicit header,
+		// hosted environments like wp.com Atomic apply their own (much
+		// longer) heuristic-based edge cache and can serve a stale scope
+		// to every auth server that asks, surfacing as "Scope X is not
+		// declared in the client metadata" on every authorization attempt.
+		// 5 minutes gives the auth-server cache cycle plenty of room
+		// without flat-out disabling cheap caching of an otherwise
+		// rarely-changing document.
+		$response->header( 'Cache-Control', 'public, max-age=300' );
+
+		return $response;
+	}
+
+	/**
+	 * Validate the return value of the `atmosphere_client_metadata` filter.
+	 *
+	 * Container shape:
+	 *
+	 *  - Must be an array.
+	 *  - `client_id` present, non-empty string.
+	 *  - `redirect_uris` present, non-empty array (list of strings).
+	 *
+	 * Per-entry `redirect_uris` rules:
+	 *
+	 *  - Each entry is a non-empty string.
+	 *  - Each entry begins with this site's HTTPS admin URL prefix
+	 *    (`admin_url('', 'https')`), the same gate
+	 *    {@see \Atmosphere\OAuth\Client::redirect_uri()} applies to
+	 *    the inbound filter. An off-site / HTTP-scheme /
+	 *    scheme-mismatched / empty entry disqualifies the entire
+	 *    filter result.
+	 *
+	 * Returns true only if every check passes; the caller falls back
+	 * to the unfiltered metadata on false.
+	 *
+	 * @param mixed $filtered Filter return value.
+	 * @return bool
+	 */
+	private static function client_metadata_filter_is_valid( $filtered ): bool {
+		if ( ! \is_array( $filtered ) ) {
+			return false;
+		}
+
+		if ( ! isset( $filtered['client_id'] )
+			|| ! \is_string( $filtered['client_id'] )
+			|| '' === $filtered['client_id']
+		) {
+			return false;
+		}
+
+		if ( ! isset( $filtered['redirect_uris'] )
+			|| ! \is_array( $filtered['redirect_uris'] )
+			|| array() === $filtered['redirect_uris']
+		) {
+			return false;
+		}
+
+		/*
+		 * Match the HTTPS scheme `Client::redirect_uri()` produces. The
+		 * OAuth code is delivered to the browser via this URL and must
+		 * not travel in cleartext, even if `admin_url()` itself defaults
+		 * to HTTP on the host.
+		 */
+		$admin_prefix = \admin_url( '', 'https' );
+
+		foreach ( $filtered['redirect_uris'] as $uri ) {
+			if ( ! \is_string( $uri )
+				|| '' === $uri
+				|| ! \str_starts_with( $uri, 'https://' )
+				|| ! \str_starts_with( $uri, $admin_prefix )
+			) {
+				return false;
+			}
+		}
+
+		return true;
 	}
 }

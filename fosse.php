@@ -3,7 +3,7 @@
  * Plugin Name: FOSSE
  * Plugin URI:  https://github.com/Automattic/fosse
  * Description: Social Web
- * Version:     0.0.1
+ * Version:     0.1.2-alpha
  * Requires at least: 6.9
  * Tested up to: 7.0
  * Requires PHP: 8.2
@@ -17,6 +17,15 @@
  */
 
 defined( 'ABSPATH' ) || exit;
+
+/*
+ * Load sentinel. Defined unconditionally so embedders (e.g. wp.com's
+ * `wp-content/mu-plugins/fosse-loader.php`) can detect that FOSSE has
+ * been required without probing internal classes. Mirrors the
+ * `ACTIVITYPUB_PLUGIN_VERSION` / `ATMOSPHERE_VERSION` pattern of the
+ * bundled backends. Keep in sync with the `Version:` header above.
+ */
+define( 'FOSSE_VERSION', '0.1.2-alpha' );
 
 if ( file_exists( __DIR__ . '/vendor/autoload_packages.php' ) ) {
 	require_once __DIR__ . '/vendor/autoload_packages.php';
@@ -137,15 +146,17 @@ if ( class_exists( \Automattic\Fosse\Admin\Actor_Mode_Lock::class ) ) {
 }
 
 /*
- * Cross-network object-type projector.
+ * Cross-network object-type bridge.
  *
- * Translates the single `fosse_object_type` option into per-network
- * filter answers so the Atmosphere short-form discriminator and the
- * ActivityPub object type stay aligned. Hooked at default priority 10
- * so the filter callbacks run before Atmosphere's transition_post_status
- * handler schedules its outbound work. Degrades cleanly if FOSSE's own
- * composer autoload is missing (bare clone, unpackaged release) — same
- * posture as the bundled-bootstrap shim above.
+ * Bridges ActivityPub's `activitypub_object_type` option onto Atmosphere's
+ * `atmosphere_is_short_form_post` filter so a `'note'` choice in AP's
+ * settings also forces Atmosphere short-form. The option is owned by
+ * ActivityPub end-to-end; FOSSE no longer keeps a parallel option (see
+ * `sdd/canonical-upstream-options/`). Registered on `init` so the filter
+ * is in place before Atmosphere queries it during `transition_post_status`
+ * later in the request lifecycle. Degrades cleanly if FOSSE's own
+ * composer autoload is missing — same posture as the bundled-bootstrap
+ * shim above.
  */
 add_action(
 	'init',
@@ -154,6 +165,102 @@ add_action(
 			return;
 		}
 		\Automattic\Fosse\Object_Type::register();
+	}
+);
+
+/*
+ * Length-based Bluesky short-form bridge.
+ *
+ * When a long-form post's rendered body fits inside a single Bluesky
+ * record (300 chars), force `atmosphere_is_short_form_post` to true so
+ * Atmosphere publishes the body natively (no title prefix, no permalink,
+ * no link-card embed) instead of attaching a card to a post whose URL is
+ * already in the visible text. Opt back into the long-form path via the
+ * `fosse_bsky_link_card_when_post_fits` filter. See `DOTCOM-17097`.
+ * Same registration posture as the `Object_Type` bridge above.
+ */
+add_action(
+	'init',
+	static function () {
+		if ( ! class_exists( \Automattic\Fosse\Bsky_Short_Form_Fit::class ) ) {
+			return;
+		}
+		\Automattic\Fosse\Bsky_Short_Form_Fit::register();
+	}
+);
+
+/*
+ * Photo-post detection + AP federation-shape projector.
+ *
+ * Detects when a WP post is shaped like a photo post (post format
+ * `image`/`gallery`, or block content that boils down to "image
+ * block + optional caption paragraph," or a featured image with
+ * minimal body) and forces the outbound ActivityPub envelope into
+ * the shape Pixelfed and other IG-style photo clients render
+ * natively — `type: Note` with caption-only content and dimensionally
+ * complete image attachments. See `DOTCOM-17143`. Same registration
+ * posture as the bridges above.
+ */
+add_action(
+	'init',
+	static function () {
+		if ( ! class_exists( \Automattic\Fosse\Photo_Post::class ) ) {
+			return;
+		}
+		\Automattic\Fosse\Photo_Post::register();
+	}
+);
+
+/*
+ * Photo-post AT Protocol federation-shape projector.
+ *
+ * Sibling of the AP-side Photo_Post projector. Routes a photo-shaped
+ * WP post into Atmosphere's short-form path and replaces the default
+ * external link card with a native `app.bsky.embed.images` embed so
+ * Flashes / Pinksky render it as a native photo post. See
+ * `DOTCOM-17143` and `class-photo-post-atmosphere.php`.
+ */
+add_action(
+	'init',
+	static function () {
+		if ( ! class_exists( \Automattic\Fosse\Photo_Post_Atmosphere::class ) ) {
+			return;
+		}
+		\Automattic\Fosse\Photo_Post_Atmosphere::register();
+	}
+);
+
+/*
+ * Blurhash placeholder encoder + AP attachment injector, plus the
+ * `wp fosse blurhash …` WP-CLI backfill surface.
+ *
+ * Runtime path: computes a Blurhash string at upload time
+ * (cron-scheduled off `wp_generate_attachment_metadata` so the upload
+ * UI isn't blocked) and adds the result to outbound ActivityPub
+ * `attachment[].blurhash` via the `activitypub_attachment` filter,
+ * so Pixelfed and Mastodon paint the colored-blur preview while the
+ * full image loads. Sites without GD just skip silently — federation
+ * is unaffected. See `DOTCOM-17159` and `class-blurhash.php`.
+ *
+ * The CLI surface (`Blurhash_CLI`) is gated on `WP_CLI` *before* the
+ * `class_exists` autoload probe so the CLI file is never read on web
+ * requests — keeps the registration overhead on a normal page load
+ * to a single passed-through `class_exists` check.
+ *
+ * Same degradation posture as the projectors above — if FOSSE's
+ * autoload is missing entirely, both classes silently skip.
+ */
+add_action(
+	'init',
+	static function () {
+		if ( ! class_exists( \Automattic\Fosse\Blurhash::class ) ) {
+			return;
+		}
+		\Automattic\Fosse\Blurhash::register();
+
+		if ( defined( 'WP_CLI' ) && WP_CLI && class_exists( \Automattic\Fosse\Blurhash_CLI::class ) ) {
+			\Automattic\Fosse\Blurhash_CLI::register();
+		}
 	}
 );
 
@@ -177,25 +284,71 @@ add_action(
 );
 
 /*
- * Long-form composition strategy projector.
+ * Self-thread comment suppressor.
  *
- * Translates `fosse_long_form_strategy` into Atmosphere's
- * `atmosphere_long_form_composition` filter answer. Installing FOSSE
- * opts into the teaser-thread default by default (the projector
- * coerces unset/unknown to 'teaser-thread'), without requiring any
- * option to be set. Degrades cleanly in two distinct modes: if FOSSE's
- * own autoload is missing the projector class can't load and the
- * `class_exists` guard skips registration entirely; if Atmosphere is
- * absent the callback registers but `apply_filters` is never called,
- * so the callback simply never runs.
+ * Stops Atmosphere's `Reaction_Sync` from inserting our own teaser-thread
+ * follow-up chunks as WordPress comments when the cron walks our own
+ * `listRecords`. Registers a callback on Atmosphere's
+ * `atmosphere_should_sync_reply` filter. See `DOTCOM-17098`.
  */
 add_action(
 	'init',
 	static function () {
-		if ( ! class_exists( \Automattic\Fosse\Long_Form_Strategy::class ) ) {
+		if ( ! class_exists( \Automattic\Fosse\Self_Thread_Comment_Filter::class ) ) {
 			return;
 		}
-		\Automattic\Fosse\Long_Form_Strategy::register();
+		\Automattic\Fosse\Self_Thread_Comment_Filter::register();
+	}
+);
+
+/*
+ * Async publish-path metrics subscriber.
+ *
+ * Listens to bundled ActivityPub's outbox dispatch hooks and bundled
+ * Atmosphere's `atmosphere_publish_post_result` hook (added upstream in
+ * wordpress-atmosphere PR 56; subscriber is dormant until that lands and
+ * gets resynced). Emits `fosse_post_published` + `fosse_publish_result`
+ * per the metrics SDD. See `sdd/fosse-metrics-strategy/` and
+ * `DOTCOM-17031`. Same degradation posture as the projectors above.
+ */
+add_action(
+	'init',
+	static function () {
+		if ( ! class_exists( \Automattic\Fosse\Metrics\Publish_Events::class ) ) {
+			return;
+		}
+		\Automattic\Fosse\Metrics\Publish_Events::register();
+	}
+);
+
+/*
+ * One-time migration of FOSSE-side projector options to canonical
+ * upstream options (`fosse_object_type` → `activitypub_object_type`,
+ * `fosse_long_form_strategy` → `atmosphere_long_form_composition`).
+ *
+ * Replaces the long-form `fosse_long_form_strategy` projector entirely
+ * and the AP-side half of the object-type projector. Runs at most once
+ * per site, gated on a flag option, on `init` priority 5 so the
+ * migration completes before the projector callbacks (priority 10) and
+ * before any post publish path queries the canonical option. Also
+ * seeds Atmosphere's long-form composition with FOSSE's preferred
+ * default (`'teaser-thread'`) for fresh installs that have neither
+ * option set, preserving today's behavior for new sites.
+ *
+ * Registration is deferred to `plugins_loaded` (not the surrounding
+ * `init` callback) so the migrator's own `add_action('init', ..., 5)`
+ * lands on the priority-5 slot of the same `init` cycle. Registering
+ * from inside an `init`-default-priority callback would miss the
+ * priority-5 slot in the active iteration and the migration would
+ * never run on first activation. See `sdd/canonical-upstream-options/`.
+ */
+add_action(
+	'plugins_loaded',
+	static function () {
+		if ( ! class_exists( \Automattic\Fosse\Canonical_Options_Migrator::class ) ) {
+			return;
+		}
+		\Automattic\Fosse\Canonical_Options_Migrator::register();
 	}
 );
 
@@ -221,19 +374,62 @@ add_action(
 );
 
 /*
+ * Metrics: search-indexing watcher.
+ *
+ * Emits `fosse_search_indexing_disabled_post_active` when a site flips
+ * the federation gate (`blog_public`) off while FOSSE is active. Each
+ * host wires the active-determination via the
+ * `fosse_metrics_is_active_for_site` filter; the default is `false` so
+ * pure-self-host checkouts emit nothing.
+ */
+add_action(
+	'init',
+	static function () {
+		if ( ! class_exists( \Automattic\Fosse\Metrics\Search_Indexing_Watcher::class ) ) {
+			return;
+		}
+		\Automattic\Fosse\Metrics\Search_Indexing_Watcher::register();
+	}
+);
+
+/*
  * Provider bootstrap.
  *
- * Providers self-register on the 'fosse_register_providers' action fired
- * by Provider_Loader::boot(). This runs unconditionally so provider hooks
- * (option-projection filters, etc.) are active on every request — admin,
- * REST, WebFinger, cron.
+ * Providers self-register on the `fosse_register_providers` action fired
+ * by Provider_Loader::boot(). Deferred to `plugins_loaded` priority 20 so
+ * standalone provider plugins can hook the action from their plugin main
+ * file (cleanest) or any `plugins_loaded` priority < 20 without depending
+ * on WordPress' alphabetical plugin load order. Priority 20 (not 10)
+ * leaves a margin above WordPress' default `add_action` priority so an
+ * add-on that defers to `plugins_loaded` without specifying a priority
+ * still wins the race.
+ *
+ * The callback is a named global function (not an inline closure) so
+ * PHPUnit can drive the exact production code path — asserting the
+ * action binding and exercising the body — instead of testing a
+ * closure that the test can never reach by reference.
  */
-if ( class_exists( \Automattic\Fosse\Provider_Loader::class ) ) {
-	\Automattic\Fosse\Admin\AP_Provider::init();
-	\Automattic\Fosse\Admin\Bluesky_Provider::init();
+if ( ! function_exists( 'fosse_boot_providers' ) ) {
+	/**
+	 * Initialize bundled providers and run the registry boot.
+	 *
+	 * Wired to `plugins_loaded` priority 20 (see the docblock above).
+	 *
+	 * @return void
+	 */
+	function fosse_boot_providers(): void {
+		if ( ! class_exists( \Automattic\Fosse\Provider_Loader::class ) ) {
+			return;
+		}
 
-	\Automattic\Fosse\Provider_Loader::boot();
+		\Automattic\Fosse\Admin\AP_Provider::init();
+		\Automattic\Fosse\Admin\Bluesky_Provider::init();
+
+		\Automattic\Fosse\Provider_Loader::boot();
+	}
 }
+
+add_action( 'plugins_loaded', 'fosse_boot_providers', 20 );
 
 /*
  * Activation redirect.
@@ -268,4 +464,18 @@ register_activation_hook(
  */
 if ( is_admin() && class_exists( \Automattic\Fosse\Admin\Menu::class ) ) {
 	\Automattic\Fosse\Admin\Menu::register();
+}
+
+/*
+ * Per-user settings-notice plumbing.
+ *
+ * Replaces WP core's site-global `settings_errors` transient with a
+ * per-user one so admin notices ("Your Bluesky handle is now …",
+ * connect/disconnect feedback, settings-saved banners) don't leak
+ * across users on multi-admin installs. Hooks `consume()` on
+ * `admin_init` priority 1 so the merge into `$wp_settings_errors`
+ * runs before any page calls `settings_errors()` to render.
+ */
+if ( is_admin() && class_exists( \Automattic\Fosse\Admin\User_Notices::class ) ) {
+	\Automattic\Fosse\Admin\User_Notices::register();
 }

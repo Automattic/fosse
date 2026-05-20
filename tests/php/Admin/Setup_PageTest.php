@@ -12,6 +12,7 @@ use Automattic\Fosse\Admin\Actor_Mode_Lock;
 use Automattic\Fosse\Admin\AP_Provider;
 use Automattic\Fosse\Admin\Bluesky_Provider;
 use Automattic\Fosse\Admin\Connection_Provider_Registry;
+use Automattic\Fosse\Admin\Onboarding_Wizard;
 use Automattic\Fosse\Admin\Setup_Page;
 use PHPUnit\Framework\Attributes\After;
 use PHPUnit\Framework\Attributes\Before;
@@ -48,6 +49,7 @@ class Setup_PageTest extends BaseTestCase {
 		delete_option( 'activitypub_blog_identifier' );
 		delete_option( 'atmosphere_connection' );
 		delete_option( 'atmosphere_auto_publish' );
+		delete_option( Onboarding_Wizard::COMPLETED_OPTION );
 
 		global $wp_settings_errors;
 		$wp_settings_errors = array(); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited,WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedVariableFound -- reset core settings-error storage for test isolation.
@@ -78,6 +80,10 @@ class Setup_PageTest extends BaseTestCase {
 		$_REQUEST = array();
 		remove_all_filters( 'wp_redirect' );
 		remove_all_filters( 'sanitize_option_activitypub_blog_identifier' );
+		// Clear the wp_die_handler tests in this file install — leaks
+		// would convert any later test's `wp_die()` into a thrown
+		// exception and confuse failure attribution.
+		remove_all_filters( 'wp_die_handler' );
 	}
 
 	/**
@@ -104,19 +110,21 @@ class Setup_PageTest extends BaseTestCase {
 	}
 
 	/**
-	 * A clean unified save persists post types (the cross-protocol option),
-	 * actor mode (AP-side), and auto-publish (Atmosphere-side) in one shot
-	 * and posts the success notice to the FOSSE settings group.
+	 * A clean unified save persists post types (the cross-protocol option)
+	 * and actor mode (AP-side) in one shot and posts the success notice to
+	 * the FOSSE settings group. The Bluesky provider's `save_settings()`
+	 * is currently a no-op (auto-publish toggle removed), so the unified
+	 * save must still succeed even though no Bluesky-side fields are sent.
 	 */
 	public function test_handle_save_persists_general_and_per_provider_settings(): void {
 		$this->seed_connected_atmosphere_connection();
+		update_option( 'atmosphere_auto_publish', '1' );
 		$this->become_admin();
 
 		$this->simulate_post(
 			array(
 				'activitypub_actor_mode'         => 'actor_blog',
 				'activitypub_support_post_types' => array( 'post', 'page' ),
-				'atmosphere_auto_publish'        => '1',
 			)
 		);
 
@@ -130,6 +138,9 @@ class Setup_PageTest extends BaseTestCase {
 
 		$this->assertSame( 'actor_blog', get_option( 'activitypub_actor_mode' ) );
 		$this->assertSame( array( 'post', 'page' ), get_option( 'activitypub_support_post_types' ) );
+		// Auto-publish option is preserved — the toggle was removed from
+		// the UI but the underlying option keeps its stored value (default
+		// `'1'`) so Atmosphere's publish flow is unaffected.
 		$this->assertSame( '1', get_option( 'atmosphere_auto_publish' ) );
 
 		$codes = array_column( get_settings_errors( 'fosse' ), 'code' );
@@ -137,50 +148,25 @@ class Setup_PageTest extends BaseTestCase {
 	}
 
 	/**
-	 * Unchecking the auto-publish box drops the field from the POST body —
-	 * the unified save must persist `'0'` instead of preserving the prior
-	 * value. Mirrors the Bluesky_Provider unit test through the full handler.
+	 * The unified save must NOT touch `atmosphere_auto_publish` regardless
+	 * of POST contents — the toggle was removed from the UI, so any
+	 * appearance of the field in POST is meaningless (likely a stale form
+	 * or an attacker probe). The provider's `save_settings()` is a no-op
+	 * for this option; this test exercises the full handler to confirm
+	 * end-to-end behavior.
 	 */
-	public function test_handle_save_disables_auto_publish_when_field_omitted(): void {
+	public function test_handle_save_does_not_modify_auto_publish_option(): void {
 		$this->seed_connected_atmosphere_connection();
 		update_option( 'atmosphere_auto_publish', '1' );
 		$this->become_admin();
 
+		// Even an explicit `'0'` payload should be ignored — there's no
+		// input rendered for it, so its presence has no semantic meaning.
 		$this->simulate_post(
 			array(
 				'activitypub_actor_mode'         => 'actor',
 				'activitypub_support_post_types' => array( 'post' ),
-				// `atmosphere_auto_publish` intentionally omitted (unchecked).
-			)
-		);
-
-		$this->arm_redirect_trap();
-
-		try {
-			Setup_Page::handle_save();
-		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
-			unset( $e );
-		}
-
-		$this->assertSame( '0', get_option( 'atmosphere_auto_publish' ) );
-	}
-
-	/**
-	 * A Settings save while Bluesky is disconnected does NOT flip
-	 * `atmosphere_auto_publish` to `'0'` even though the toggle isn't in
-	 * the form. The Bluesky provider's disconnect guard owns the policy;
-	 * this test exercises it through the full unified handler.
-	 */
-	public function test_handle_save_disconnected_preserves_auto_publish(): void {
-		// No `seed_connected_atmosphere_connection()` — provider stays
-		// disconnected so save_settings() should bail out.
-		update_option( 'atmosphere_auto_publish', '1' );
-		$this->become_admin();
-
-		$this->simulate_post(
-			array(
-				'activitypub_actor_mode'         => 'actor',
-				'activitypub_support_post_types' => array( 'post' ),
+				'atmosphere_auto_publish'        => '0',
 			)
 		);
 
@@ -390,6 +376,83 @@ class Setup_PageTest extends BaseTestCase {
 	}
 
 	/**
+	 * A POST without `_wpnonce` (or with a stale/forged value) is rejected
+	 * by `check_admin_referer()` before any option write happens. Locks in
+	 * the nonce gate so a future refactor of the handler can't quietly
+	 * bypass CSRF protection.
+	 */
+	public function test_handle_save_rejects_missing_nonce(): void {
+		$this->become_admin();
+
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
+		$_POST    = array(
+			'action'                         => Setup_Page::SAVE_ACTION,
+			'activitypub_actor_mode'         => 'blog',
+			'activitypub_support_post_types' => array( 'post' ),
+		);
+		$_REQUEST = $_POST;
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+
+		add_filter(
+			'wp_die_handler',
+			static function () {
+				return static function ( $message ) {
+					throw new \RuntimeException( wp_kses( (string) $message, array() ) );
+				};
+			}
+		);
+
+		try {
+			Setup_Page::handle_save();
+			$this->fail( 'Expected check_admin_referer to wp_die on missing nonce.' );
+		} catch ( \RuntimeException $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- wp_die is expected.
+			unset( $e );
+		}
+
+		// Sanity: the actor-mode write that the body of handle_save() would
+		// otherwise perform never happened, proving check_admin_referer
+		// short-circuited before any option mutation.
+		$this->assertNotSame( 'blog', get_option( 'activitypub_actor_mode' ) );
+	}
+
+	/**
+	 * A POST with a forged `_wpnonce` value is also rejected. Distinct from
+	 * the missing-nonce case so a future "missing → empty default" refactor
+	 * can't silently skip the check.
+	 */
+	public function test_handle_save_rejects_forged_nonce(): void {
+		$this->become_admin();
+
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
+		$_POST    = array(
+			'_wpnonce'                       => 'not-a-real-nonce',
+			'action'                         => Setup_Page::SAVE_ACTION,
+			'activitypub_actor_mode'         => 'blog',
+			'activitypub_support_post_types' => array( 'post' ),
+		);
+		$_REQUEST = $_POST;
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+
+		add_filter(
+			'wp_die_handler',
+			static function () {
+				return static function ( $message ) {
+					throw new \RuntimeException( wp_kses( (string) $message, array() ) );
+				};
+			}
+		);
+
+		try {
+			Setup_Page::handle_save();
+			$this->fail( 'Expected check_admin_referer to wp_die on forged nonce.' );
+		} catch ( \RuntimeException $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- wp_die is expected.
+			unset( $e );
+		}
+
+		$this->assertNotSame( 'blog', get_option( 'activitypub_actor_mode' ) );
+	}
+
+	/**
 	 * Saved redirect lands back on the FOSSE Settings page so users see the
 	 * post-save notice.
 	 */
@@ -430,6 +493,51 @@ class Setup_PageTest extends BaseTestCase {
 	}
 
 	/**
+	 * The first-run wizard prompt should render as a guided setup note instead
+	 * of a generic WordPress info notice.
+	 */
+	public function test_render_guided_setup_prompt_uses_accessible_note(): void {
+		$this->become_admin();
+
+		$output = $this->capture_render();
+
+		$this->assertStringContainsString( 'role="note"', $output );
+		$this->assertStringContainsString( 'Want a guided setup?', $output );
+		$this->assertStringContainsString( 'Run the setup wizard', $output );
+		$this->assertStringNotContainsString( 'Need a guided setup?', $output );
+		$this->assertStringNotContainsString( 'notice notice-info fosse-admin-notice', $output );
+		$this->assertMatchesRegularExpression(
+			'/<a[^>]*class="[^"]*button[^"]*"[^>]*href="[^"]*page=fosse-wizard[^"]*"[^>]*>\\s*Run the setup wizard\\s*<\\/a>/',
+			$output
+		);
+	}
+
+	/**
+	 * The Settings page keeps a low-emphasis path back to the hidden wizard
+	 * even when the first-run notice is no longer shown.
+	 */
+	public function test_render_exposes_subtle_wizard_link(): void {
+		$this->become_admin();
+		update_option( Onboarding_Wizard::COMPLETED_OPTION, 1, false );
+
+		$output = $this->capture_render();
+
+		$connections_position = strpos( $output, 'id="fosse-connections"' );
+		$link_position        = strpos( $output, 'Run the wizard' );
+
+		$this->assertIsInt( $connections_position );
+		$this->assertIsInt( $link_position );
+		$this->assertGreaterThan( $connections_position, $link_position );
+		$this->assertStringContainsString( 'Run the wizard', $output );
+		$this->assertStringNotContainsString( 'Want a guided setup?', $output );
+		$this->assertStringNotContainsString( 'Run the setup wizard', $output );
+		$this->assertMatchesRegularExpression(
+			'/<a[^>]*href="[^"]*page=fosse-wizard[^"]*"[^>]*>\\s*Run the wizard\\s*<\\/a>/',
+			$output
+		);
+	}
+
+	/**
 	 * The unified Settings form posts to admin-post.php with the canonical
 	 * action and a fresh nonce.
 	 */
@@ -456,6 +564,9 @@ class Setup_PageTest extends BaseTestCase {
 		$this->assertStringContainsString( 'id="fosse-federation-settings"', $output );
 		$this->assertStringContainsString( 'id="fosse-settings-actions"', $output );
 		$this->assertStringContainsString( 'id="fosse-connections"', $output );
+		$this->assertStringContainsString( 'Publishing settings', $output );
+		$this->assertStringContainsString( 'Save settings', $output );
+		$this->assertStringContainsString( 'Connections', $output );
 		$this->assertStringContainsString( 'id="fosse-provider-activitypub-connection"', $output );
 
 		$form_position        = strpos( $output, 'id="fosse-settings"' );
@@ -483,8 +594,110 @@ class Setup_PageTest extends BaseTestCase {
 		$output = $this->capture_render();
 
 		$this->assertStringContainsString( 'id="fosse-section-general"', $output );
+		$this->assertStringContainsString( 'Content types', $output );
+		$this->assertStringContainsString( 'Posts', $output );
+		$this->assertStringContainsString( 'ActivityPub profile', $output );
 		$this->assertStringContainsString( 'name="activitypub_support_post_types[]"', $output );
 		$this->assertStringContainsString( 'name="activitypub_actor_mode"', $output );
+		$this->assertStringNotContainsString( 'class="form-table"', $output );
+	}
+
+	/**
+	 * The Settings post-types chooser deliberately hides `attachment`
+	 * (Media). DOTCOM-17047: enabling it federates every image upload
+	 * - including images attached to drafts - which doesn't match what
+	 * the chooser's label implies. Power users who want it can flip it
+	 * via bundled ActivityPub's own settings.
+	 */
+	public function test_render_general_section_omits_attachment_checkbox(): void {
+		$this->become_admin();
+
+		$output = $this->capture_render();
+
+		$this->assertStringNotContainsString(
+			'value="attachment"',
+			$output,
+			'Settings chooser should not render a Media (attachment) checkbox.'
+		);
+	}
+
+	/**
+	 * Actor-mode card highlighting follows the live checked radio state, not
+	 * a server-rendered saved-state class that would go stale before save.
+	 */
+	public function test_render_actor_mode_cards_style_from_checked_radio_state(): void {
+		$this->become_admin();
+
+		$output = $this->capture_render();
+
+		$this->assertStringNotContainsString( 'is-selected', $output );
+		$this->assertStringContainsString( 'Author profiles', $output );
+		$this->assertStringContainsString( 'Blog profile', $output );
+		$this->assertStringContainsString( 'Both author and blog profiles', $output );
+		$this->assertMatchesRegularExpression(
+			'/<input\b(?=[^>]*\bid="fosse-activitypub-actor-mode-actor")(?=[^>]*\bname="activitypub_actor_mode")(?=[^>]*\bvalue="actor")[^>]*>/',
+			$output
+		);
+	}
+
+	/**
+	 * If `attachment` is already set in the stored option (the user
+	 * enabled it through bundled ActivityPub's settings), saving the
+	 * FOSSE Settings page must preserve that value rather than silently
+	 * stripping it.
+	 */
+	public function test_handle_save_preserves_existing_attachment_value(): void {
+		update_option( 'activitypub_support_post_types', array( 'post', 'attachment' ) );
+
+		$this->become_admin();
+
+		$this->simulate_post(
+			array(
+				'activitypub_actor_mode'         => 'blog',
+				'activitypub_support_post_types' => array( 'post', 'page' ),
+			)
+		);
+
+		$this->arm_redirect_trap();
+
+		try {
+			Setup_Page::handle_save();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$saved = (array) get_option( 'activitypub_support_post_types' );
+		$this->assertContains( 'post', $saved );
+		$this->assertContains( 'page', $saved );
+		$this->assertContains( 'attachment', $saved );
+	}
+
+	/**
+	 * A submission can't sneak `attachment` past the save handler even
+	 * if a crafted POST includes it. The chooser doesn't render the
+	 * checkbox and the save layer matches that intent.
+	 */
+	public function test_handle_save_rejects_attachment_in_submission(): void {
+		$this->become_admin();
+
+		$this->simulate_post(
+			array(
+				'activitypub_actor_mode'         => 'blog',
+				'activitypub_support_post_types' => array( 'post', 'attachment' ),
+			)
+		);
+
+		$this->arm_redirect_trap();
+
+		try {
+			Setup_Page::handle_save();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$saved = (array) get_option( 'activitypub_support_post_types' );
+		$this->assertContains( 'post', $saved );
+		$this->assertNotContains( 'attachment', $saved );
 	}
 
 	/**

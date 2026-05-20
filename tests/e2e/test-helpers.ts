@@ -1,4 +1,57 @@
-import { type Browser, expect, type Page } from '@playwright/test';
+import {
+	type Browser,
+	expect,
+	type Locator,
+	type Page,
+} from '@playwright/test';
+
+/**
+ * Assert the current document is not wider than the viewport.
+ *
+ * @param {Page} page Playwright page.
+ * @return {Promise<void>} Resolves when the page has no horizontal overflow.
+ */
+export const expectNoHorizontalOverflow = async ( page: Page ) => {
+	const overflow = await page.evaluate( () => ( {
+		scrollWidth: document.documentElement.scrollWidth,
+		clientWidth: document.documentElement.clientWidth,
+	} ) );
+
+	expect( overflow.scrollWidth ).toBeLessThanOrEqual(
+		overflow.clientWidth + 1
+	);
+};
+
+/**
+ * Read a numeric CSS value from a semantic locator.
+ *
+ * @param {Locator} locator Playwright locator.
+ * @param {string}  prop    CSS property name.
+ * @return {Promise<number>} Parsed CSS value, with `normal` treated as 0.
+ */
+export const numericCssValueFor = async ( locator: Locator, prop: string ) =>
+	locator.evaluate( readNumericCssValue, prop );
+
+const readNumericCssValue = ( el: Element, property: string ) => {
+	const value = window.getComputedStyle( el ).getPropertyValue( property );
+	return 'normal' === value ? 0 : Number.parseFloat( value );
+};
+
+/**
+ * Return a provider status card by anchoring on the visible provider heading.
+ *
+ * The status-card containers do not have their own accessible names, so this
+ * helper starts from the semantic heading and walks to the card wrapper without
+ * binding the tests to presentation-layer class names.
+ *
+ * @param {Page}   page    Playwright page.
+ * @param {string} heading Visible provider heading text.
+ * @return {Locator} Provider card locator.
+ */
+export const getProviderStatusCard = ( page: Page, heading: string ): Locator =>
+	page
+		.getByRole( 'heading', { name: heading, exact: true } )
+		.locator( 'xpath=ancestor::div[2]' );
 
 /**
  * Seed the Atmosphere connection state via the e2e REST helper.
@@ -15,6 +68,9 @@ import { type Browser, expect, type Page } from '@playwright/test';
  *                                       screen so wpApiSettings.nonce is available.
  * @param {Record<string, unknown>} body Connection state payload (connected,
  *                                       handle, did, pds_endpoint, auto_publish).
+ *                                       `auto_publish` is accepted by the seed
+ *                                       endpoint for backwards compatibility but
+ *                                       no longer surfaced in the UI.
  * @return {Promise<void>} Resolves when the seed succeeds; throws if not 200.
  */
 export const setBlueskyState = async (
@@ -70,5 +126,32 @@ export const resetBlueskyState = async (
 		} );
 	} finally {
 		await page.close();
+	}
+};
+
+/**
+ * Reset the FOSSE onboarding wizard back to the destinations step when it is
+ * currently in the completed state.
+ *
+ * Navigates to the wizard's complete step and clicks the "Run wizard again"
+ * link if it is present. Acts as a no-op when the wizard is not complete (the
+ * link will not be rendered). The provided `page` must already hold a
+ * logged-in wp-admin session.
+ *
+ * @param {Page} page Playwright page already authenticated against wp-admin.
+ * @return {Promise<void>} Resolves once the reset (or no-op) completes.
+ */
+export const resetWizardIfComplete = async ( page: Page ): Promise< void > => {
+	await page.goto( '/wp-admin/admin.php?page=fosse-wizard&step=complete' );
+	const reset = page.getByRole( 'link', { name: 'Run wizard again' } );
+
+	const isComplete = await reset
+		.waitFor( { state: 'attached', timeout: 2000 } )
+		.then( () => true )
+		.catch( () => false );
+
+	if ( isComplete ) {
+		await reset.click();
+		await expect( page ).toHaveURL( /page=fosse-wizard/ );
 	}
 };

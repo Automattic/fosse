@@ -37,12 +37,15 @@ jobs:
                   EVENT_NAME: ${{ github.event_name }}
                   RELEASE_TAG: ${{ github.event.release.tag_name }}
               run: |
+                  # Release event: stamp the exact tag (sans optional `v`).
+                  # Anything else (push to trunk, manual dispatch): tell the
+                  # build script to derive its own `<base>-dev+<sha>` from
+                  # fosse.php — keeps version logic in one place.
                   if [ "$EVENT_NAME" = "release" ]; then
-                      version="${RELEASE_TAG#v}"
+                      echo "FOSSE_VERSION=${RELEASE_TAG#v}" >> "$GITHUB_ENV"
                   else
-                      version="0.0.1-dev+${GITHUB_SHA::7}"
+                      echo "FOSSE_BUILD_DEV=1" >> "$GITHUB_ENV"
                   fi
-                  echo "FOSSE_VERSION=$version" >> "$GITHUB_ENV"
 
             - name: Build zip
               run: composer run-script build-zip

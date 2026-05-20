@@ -2,17 +2,17 @@
 
 Living record of what was actually shipped while executing [`plan.md`](./plan.md). Captures PR links, deviations from the plan with rationale, and any implementation-time discoveries that should inform the remaining tasks.
 
-## Status snapshot (2026-04-23)
+## Status snapshot
 
 | Task | Status | PR |
 |------|--------|----|
-| Task 1 [UPSTREAM-AT] | Code + tests pushed; PR kept as draft | [Automattic/wordpress-atmosphere#34](https://github.com/Automattic/wordpress-atmosphere/pull/34) |
-| Task 2 [FOSSE] | Blocked on Task 1 merge | — |
-| Task 3 [FOSSE] | Blocked on Task 2 | — |
-| Task 4 [FOSSE] | Blocked on Task 3 | — |
-| Task 5 [FOSSE] | AGENTS.md worked example shipped; readme.txt step skipped (see below) | [Automattic/fosse#28](https://github.com/Automattic/fosse/pull/28) |
+| Task 1 [UPSTREAM-AT] | ✅ Merged | [Automattic/wordpress-atmosphere#34](https://github.com/Automattic/wordpress-atmosphere/pull/34) |
+| Task 2 [FOSSE] (bundled refresh) | ✅ Merged | [#76](https://github.com/Automattic/fosse/pull/76), [#82](https://github.com/Automattic/fosse/pull/82) |
+| Task 3 [FOSSE] (`Long_Form_Strategy` projector) | ✅ Merged, then retired by [canonical-upstream-options](../canonical-upstream-options/) ([#109](https://github.com/Automattic/fosse/pull/109)). Default `'teaser-thread'` is now seeded by `Canonical_Options_Migrator` on first install. | [#29](https://github.com/Automattic/fosse/pull/29) |
+| Task 4 [FOSSE] (e2e teaser-thread spec + capture-helper rewrite) | Not started | — |
+| Task 5 [FOSSE] (docs) | ✅ Merged | [#28](https://github.com/Automattic/fosse/pull/28) |
 
-Both FOSSE PRs (this SDD at [#24](https://github.com/Automattic/fosse/pull/24) and the docs branch at [#28](https://github.com/Automattic/fosse/pull/28)) and the upstream PR are deliberately staying as drafts — no external reviewers pinged.
+Earlier draft state is preserved below for archaeology; the table above is the current truth.
 
 ## Task 1 — upstream PR shape as shipped
 

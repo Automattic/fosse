@@ -1,3 +1,7 @@
+---
+status: in-progress
+---
+
 # Spec: Bluesky Handle Setup
 
 ## Goal

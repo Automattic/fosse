@@ -44,7 +44,7 @@ fosse/
 │   ├── composer.json
 │   ├── sync-bundled.sh        # Refresh bundled/ from upstream checkouts
 │   └── bundled-excludes.txt   # Rsync exclude list for sync-bundled.sh
-├── sdd/                       # Spec-Driven Development docs (per-feature)
+├── sdd/                       # Spec-Driven Development docs (per-feature; index in sdd/roadmap.md)
 ├── .github/
 │   ├── workflows/             # tests.yml, linting.yml, e2e.yml, build-zip.yml
 │   └── dependabot.yml
@@ -158,6 +158,8 @@ This project follows **WordPress Coding Standards (WPCS)** for all PHP code, enf
 
 ### SDD plan status tracking
 
+`sdd/roadmap.md` indexes every SDD with one-line purpose, status, and Linear/PR pointers — start there to see what's been designed, what's shipped, and what's in flight.
+
 `sdd/<feature>/plan.md` is the persistent record of what's done — not git log, not Linear. For new SDD plans going forward, each task carries a `- **Status**:` field, and the top of the file carries a `## Progress` checklist mirroring the per-task statuses. Keep both in sync as work progresses. Older plans (e.g. `sdd/bundled-backends/`) predate this convention and don't need to be retrofitted unless intentionally updated.
 
 Status values:
@@ -168,6 +170,25 @@ Status values:
 -   `Skipped (<reason>)` — short one-line reason.
 
 Deviations still go in `implementation-notes.md` (per the SDD workflow); Status is for "did this ship?", implementation-notes is for "what did we actually build vs. the spec?".
+
+### SDD lifecycle status (frontmatter)
+
+Each SDD's `spec.md` (or `plan.md` if there's no spec — e.g. `settings-page-scoped-actions/`, `post-type-sync/notes.md`) carries a YAML frontmatter `status:` field that mirrors the roadmap's status column. The frontmatter is the machine-readable truth; the roadmap is the human-readable index.
+
+```yaml
+---
+status: planning | in-progress | shipped | archived
+---
+```
+
+Values:
+
+-   `planning` — SDD doc itself isn't merged yet.
+-   `in-progress` — SDD merged; primary deliverables still landing.
+-   `shipped` — Implementation's primary deliverables are live on trunk; the SDD is still actively cross-referenced from sibling SDDs or in-flight work.
+-   `archived` — Shipped, complete, and historical reference. Listed in `sdd/roadmap.md`'s `## Archived` section. No follow-up work expected in this area.
+
+Flip both the frontmatter and the roadmap row at the same time. `archived` is a lightweight mark — the SDD stays in `sdd/<feature>/`, no files move, so cross-references from AGENTS.md and sibling SDDs keep working.
 
 ## Before Pushing
 
@@ -207,13 +228,20 @@ Rule of thumb: **post-type-agnostic correctness goes upstream; FOSSE-shape-speci
 Worked example from the Bluesky-native-publishing epic:
 
 -   **Upstream** — Atmosphere's `atmosphere_is_short_form_post` discriminator and ActivityPub's `activitypub_post_object_type` filter on `Post::get_type()`. Both describe a universal notion ("is this a short-form post / what AP object type should it become?") and are valuable to any consumer of those plugins.
--   **FOSSE** — the `Automattic\Fosse\Object_Type` projector that reads the `fosse_object_type` option and drives both upstream filters in lockstep. This only makes sense inside FOSSE's "publish once, reach everywhere" model where AP and atproto must agree on the shape of a given post.
+-   **FOSSE** — the `Automattic\Fosse\Object_Type` bridge that reads ActivityPub's canonical `activitypub_object_type` option and projects it onto Atmosphere's short-form discriminator so both networks agree on the shape. The AP-side filter is no longer registered by FOSSE — ActivityPub reads its own option directly, and the original parallel `fosse_object_type` option was retired in `sdd/canonical-upstream-options/` after the parallel-option pattern proved to leave Atmosphere's UI displaying values it didn't actually use.
 
-See PR #18 (DOTCOM-16812) for the full decision record.
+See PR #18 (DOTCOM-16812) for the original decision record and `sdd/canonical-upstream-options/` for the canonicalization that followed.
 
 Worked example from the long-form Bluesky strategy ([DOTCOM-16810](https://linear.app/a8c/issue/DOTCOM-16810)):
 
 -   **Upstream** — Atmosphere's `atmosphere_long_form_composition` filter, the `build_long_form_records()` / `build_teaser_thread()` / `build_truncate_link_text()` composition methods on `Transformer\Post`, the `META_THREAD_RECORDS` post-meta constant, and the thread-aware redesign of `Publisher::publish/update/delete` (sequential writes with rollback + partial-meta writes). Every piece describes a universal "how does Atmosphere compose and persist long posts" concern that's valuable to any consumer of `wordpress-atmosphere`.
--   **FOSSE** — the `Automattic\Fosse\Long_Form_Strategy` projector that reads `fosse_long_form_strategy` and drives the single `atmosphere_long_form_composition` filter. It encodes FOSSE's opinion (default `'teaser-thread'`, coerce unknown/empty → default) and nothing more.
+-   **FOSSE** — `Automattic\Fosse\Canonical_Options_Migrator` seeds Atmosphere's `atmosphere_long_form_composition` with FOSSE's preferred default (`'teaser-thread'`) on first install when the option is unset. FOSSE no longer keeps a parallel `fosse_long_form_strategy` option — Atmosphere reads its own option directly. The original FOSSE-side projector was retired in `sdd/canonical-upstream-options/` for the same reason as the object-type projector.
 
-See the `sdd/long-form-bluesky-strategy/` SDD for the full decision record, including why FOSSE's default diverges from upstream's (upstream stays on `'link-card'`).
+See `sdd/long-form-bluesky-strategy/` for the original strategy decision and `sdd/canonical-upstream-options/` for why the projector option was retired.
+
+### Migration observability hooks
+
+`Canonical_Options_Migrator` fires two action hooks operators can wire up for visibility into the one-time legacy-to-canonical migration:
+
+-   `fosse_canonical_migration_conflict` — fires when the legacy FOSSE option disagrees with an explicitly-set canonical option. The migration preserves the canonical (visible-UI) value and discards the legacy one; hook here to log, raise an admin notice, or page on disagreement. Args: `$key` (`'object_type'` or `'long_form_strategy'`), `$legacy`, `$existing`.
+-   `fosse_canonical_migration_failed` — fires when a canonical option write does not converge on the desired value (DB rejection, `pre_update_option_*` filter intercept, object-cache regression). The migrator preserves the legacy option and skips the completion flag so the next request retries indefinitely. Args: `$key`, `$attempted`, `$actual`.

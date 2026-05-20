@@ -5,14 +5,16 @@ Based on: sdd/bluesky-handle-setup/spec.md
 ## Progress
 
 - [x] Task 1: Add `/.well-known/atproto-did` route handler
-- [ ] Task 2: Add verification check method
-- [ ] Task 2.5: Add `fetch_current_handle($did)` helper
-- [ ] Task 3: Add domain-handle UI to Bluesky_Provider setup section
-- [ ] Task 4: Add admin-post handlers
-- [ ] Task 5: Add DNS TXT fallback display
-- [ ] Task 6: Unit tests
+- [~] Task 2: Add verification check method — superseded by direct `updateHandle` flow (see below)
+- [~] Task 2.5: Add `fetch_current_handle($did)` helper — superseded by direct `updateHandle` flow
+- [x] Task 3: Add domain-handle UI to Bluesky_Provider setup section
+- [x] Task 4: Add admin-post handlers
+- [~] Task 5: Add DNS TXT fallback display — superseded by direct `updateHandle` flow
+- [x] Task 6: Unit tests
 - [ ] Task 6.5: Add Playwright E2E test for well-known route
 - [ ] Task 7: Update SDD documentation
+
+> **Spec deviation note.** The shipped feature replaces the resolver-verification + bsky.app handoff design with a direct `com.atproto.identity.updateHandle` call from FOSSE's OAuth-authorized client (Atmosphere PR [#53](https://github.com/Automattic/wordpress-atmosphere/pull/53) added the `identity:handle` scope, brought into FOSSE via PR [#115](https://github.com/Automattic/fosse/pull/115)). See [`implementation-notes.md` § "Design deviations from spec"](./implementation-notes.md) for the full rationale. Tasks 2, 2.5, and 5 belonged to the resolver/DNS-fallback design and are no longer in scope.
 
 ## Tasks
 
@@ -32,7 +34,7 @@ Based on: sdd/bluesky-handle-setup/spec.md
 - **Depends on**: none
 
 ### Task 2: Add verification check method
-- **Status**: Not started
+- **Status**: Superseded — see "Spec deviation note" above
 - **Files**: `src/Admin/class-bluesky-provider.php`
 - **Do**:
   1. Add `check_handle_verification(string $domain): array` returning `['status', 'resolved_did', 'error']`.
@@ -45,7 +47,7 @@ Based on: sdd/bluesky-handle-setup/spec.md
 - **Depends on**: none
 
 ### Task 2.5: Add `fetch_current_handle($did)` helper
-- **Status**: Not started
+- **Status**: Superseded — see "Spec deviation note" above
 - **Files**: `src/Admin/class-bluesky-provider.php`
 - **Do**:
   1. Add `fetch_current_handle(string $did): ?string` returning the actor's current handle, or `null` on error.
@@ -57,7 +59,7 @@ Based on: sdd/bluesky-handle-setup/spec.md
 - **Depends on**: none
 
 ### Task 3: Add domain-handle UI to Bluesky_Provider setup section
-- **Status**: Not started
+- **Status**: ✅ Done (#98)
 - **Files**: `src/Admin/class-bluesky-provider.php`
 - **Do**:
   1. Extract a `render_domain_handle_subsection()` method called from the existing `render_setup_section()` when connected.
@@ -71,7 +73,7 @@ Based on: sdd/bluesky-handle-setup/spec.md
 - **Depends on**: Task 1, Task 2, Task 2.5
 
 ### Task 4: Add admin-post handlers
-- **Status**: Not started
+- **Status**: ✅ Done (#98)
 - **Files**: `src/Admin/class-bluesky-provider.php`
 - **Do**:
   1. Add `admin_post_fosse_bluesky_start_handle_setup` handler. Verify nonce + capability. Set `fosse_bluesky_handle_setup_started` to `1` with autoload disabled (`add_option( ..., '', false )` on first write; `update_option()` afterward). Redirect back to FOSSE Setup with `settings-updated=true`.
@@ -83,7 +85,7 @@ Based on: sdd/bluesky-handle-setup/spec.md
 - **Depends on**: Task 3
 
 ### Task 5: Add DNS TXT fallback display
-- **Status**: Not started
+- **Status**: Superseded — see "Spec deviation note" above
 - **Files**: `src/Admin/class-bluesky-provider.php`, `src/Admin/assets/css/admin.css`
 - **Do**:
   1. Add a `<details>` element inside the pending-state UI labeled "Show DNS fallback."
@@ -95,7 +97,7 @@ Based on: sdd/bluesky-handle-setup/spec.md
 - **Depends on**: Task 3
 
 ### Task 6: Unit tests
-- **Status**: Not started
+- **Status**: ✅ Done (#98)
 - **Files**: `tests/php/Admin/Bluesky_Handle_SetupTest.php`
 - **Do**:
   1. Test `serve_atproto_did_well_known`: matches path, ignores other paths, respects filter, returns 404 when not connected.

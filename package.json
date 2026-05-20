@@ -1,6 +1,6 @@
 {
 	"name": "fosse",
-	"version": "0.0.1",
+	"version": "0.1.2-alpha",
 	"description": "Social Web for WordPress.",
 	"private": true,
 	"license": "GPL-2.0-or-later",
@@ -19,14 +19,14 @@
 	"prettier": "@wordpress/prettier-config",
 	"devDependencies": {
 		"@babel/core": "^7.24.0",
-		"@playwright/test": "^1.49.0",
-		"@wordpress/eslint-plugin": "^25.1.0",
+		"@playwright/test": "^1.60.0",
+		"@wordpress/eslint-plugin": "^25.2.0",
 		"@wordpress/prettier-config": "^4.45.0",
-		"@wp-playground/cli": "^3.1.21",
+		"@wp-playground/cli": "^3.1.31",
 		"eslint": "^9.0.0",
 		"eslint-plugin-jest": "^29.15.2",
-		"jest": "^30.3.0",
-		"jest-environment-jsdom": "^30.3.0",
+		"jest": "^30.4.2",
+		"jest-environment-jsdom": "^30.4.1",
 		"prettier": "npm:wp-prettier@^3.0.3",
 		"typescript": "^6.0.3"
 	}

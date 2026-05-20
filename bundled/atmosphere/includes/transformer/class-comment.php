@@ -55,6 +55,38 @@ class Comment extends Base {
 	public function transform(): array {
 		$comment = $this->object;
 
+		/*
+		 * Mirror the defense-in-depth `is_post_redacted` check the
+		 * Post and Document transformers apply. If the cron handler's
+		 * cached `WP_Post` is stale and the parent has become
+		 * non-public mid-flight, the reply's `text` is emptied so a
+		 * direct caller (preview, third-party listener of
+		 * `atmosphere_transform_comment`) can't leak comment content
+		 * by federating against a redacted parent.
+		 */
+		$parent_post = \get_post( (int) $comment->comment_post_ID );
+		$redacted    = ! $parent_post instanceof \WP_Post || $this->is_post_redacted( $parent_post );
+
+		if ( $redacted ) {
+			/*
+			 * Skip `build_reply_ref()` entirely on redaction. The
+			 * parent post's `Post::META_URI` / `Post::META_CID` may
+			 * be empty (cleanup already cascaded, or the parent
+			 * never published) which would otherwise emit
+			 * `{ root: { uri:'', cid:'' } }` — an invalid strongRef
+			 * that breaks any direct caller of `Comment::transform()`
+			 * (preview, third-party listener). An empty placeholder
+			 * record signals "do not publish" without a malformed
+			 * sub-structure.
+			 */
+			return array(
+				'$type'     => 'app.bsky.feed.post',
+				'text'      => '',
+				'createdAt' => $this->to_iso8601( $comment->comment_date_gmt ),
+				'langs'     => $this->get_langs(),
+			);
+		}
+
 		$text = truncate_text( sanitize_text( (string) $comment->comment_content ), 300 );
 
 		$record = array(
@@ -73,10 +105,24 @@ class Comment extends Base {
 		/**
 		 * Filters the app.bsky.feed.post comment reply record before publishing.
 		 *
+		 * Filters that return a non-array fall back to the pre-filter
+		 * record.
+		 *
 		 * @param array       $record  Bsky post record.
 		 * @param \WP_Comment $comment WordPress comment.
 		 */
-		return \apply_filters( 'atmosphere_transform_comment', $record, $comment );
+		$filtered = \apply_filters( 'atmosphere_transform_comment', $record, $comment );
+
+		if ( ! \is_array( $filtered ) ) {
+			\_doing_it_wrong(
+				__METHOD__,
+				\esc_html__( 'atmosphere_transform_comment must return an array; falling back to the unfiltered record.', 'atmosphere' ),
+				'1.0.0'
+			);
+			return $record;
+		}
+
+		return $filtered;
 	}
 
 	/**
