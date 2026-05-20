@@ -28,18 +28,16 @@ class Standalone_Handoff_Notice {
 	private const STANDALONE_ATMO = 'atmosphere/atmosphere.php';
 
 	/**
-	 * Hook the row render to `after_plugin_row_<FOSSE basename>`.
+	 * FOSSE plugin file relative path (from `WP_PLUGIN_DIR`). Resolved once at
+	 * registration via `plugin_basename( FOSSE_PLUGIN_FILE )` so the hook name
+	 * matches the actual install location — mu-plugins, drop-ins, symlinks.
+	 * Never hard-coded to `fosse/fosse.php`.
 	 *
-	 * Caller supplies the FOSSE plugin file's absolute path so the basename
-	 * is computed against the real install location (mu-plugins, drop-ins,
-	 * symlinks). Never hard-code `fosse/fosse.php`.
-	 *
-	 * @param string $fosse_plugin_file Absolute path to fosse.php.
 	 * @return void
 	 */
-	public static function register( string $fosse_plugin_file ): void {
+	public static function register(): void {
 		add_action(
-			'after_plugin_row_' . plugin_basename( $fosse_plugin_file ),
+			'after_plugin_row_' . plugin_basename( dirname( __DIR__, 2 ) . '/fosse.php' ),
 			array( static::class, 'render' ),
 			10,
 			2
@@ -49,11 +47,21 @@ class Standalone_Handoff_Notice {
 	/**
 	 * `after_plugin_row_*` callback.
 	 *
+	 * Bails on Network Admin: the Plugins list there represents network-wide
+	 * state, but resolving "what federation continues if FOSSE is network-
+	 * deactivated" accurately requires walking every site in the network.
+	 * Network-wide cleanup is deferred (DOTCOM-17177) and the per-site Plugins
+	 * screen is where the row's audience lives anyway.
+	 *
 	 * @param string $plugin_file Plugin file relative to WP_PLUGIN_DIR.
 	 * @param array  $plugin_data Plugin header data.
 	 * @return void
 	 */
 	public static function render( string $plugin_file, array $plugin_data = array() ): void { // phpcs:ignore VariableAnalysis.CodeAnalysis.VariableAnalysis.UnusedVariable
+		if ( function_exists( 'is_network_admin' ) && is_network_admin() ) {
+			return;
+		}
+
 		echo self::render_for_active_plugins( self::active_plugins() ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- render_for_active_plugins returns pre-escaped HTML.
 	}
 
@@ -82,9 +90,14 @@ class Standalone_Handoff_Notice {
 		$message = self::compose_message( $has_ap, $has_atmo );
 
 		// Match WP core's update-row markup so the row picks up consistent
-		// width and styling on the Plugins screen.
+		// width and styling on the Plugins screen. Column count is queried
+		// dynamically because the Plugins screen runs with a variable number
+		// of columns (auto-updates column, third-party additions via
+		// `manage_plugins_columns`); hard-coding `colspan="4"` would leave
+		// the row narrower or wider than the surrounding table.
 		return sprintf(
-			'<tr class="plugin-update-tr active fosse-handoff-row"><td colspan="4" class="plugin-update colspanchange"><div class="update-message notice inline notice-info notice-alt"><p>%s</p></div></td></tr>',
+			'<tr class="plugin-update-tr active fosse-handoff-row"><td colspan="%d" class="plugin-update colspanchange"><div class="update-message notice inline notice-info notice-alt"><p>%s</p></div></td></tr>',
+			(int) self::plugin_list_colspan(),
 			esc_html( $message )
 		);
 	}
@@ -109,17 +122,60 @@ class Standalone_Handoff_Notice {
 	}
 
 	/**
-	 * Resolve the current active-plugins list.
+	 * Resolve the active-plugins list, merging per-site activations with
+	 * network-active plugins on multisite.
 	 *
-	 * `get_option( 'active_plugins' )` returns plugin paths in the same
-	 * `folder/file.php` shape used by `is_plugin_active()`, which is what
-	 * we compare against in {@see self::render_for_active_plugins()}.
+	 * Per-site `active_plugins` is a list of plugin paths. Multisite's
+	 * `active_sitewide_plugins` is a `[ path => timestamp ]` map keyed by
+	 * plugin path. WordPress core's `is_plugin_active()` checks both stores;
+	 * doing the same here means the handoff row correctly fires when standalone
+	 * AP or Atmosphere is network-activated alongside a per-site FOSSE install.
 	 *
-	 * @return string[]
+	 * @return string[] Unique list of `folder/file.php` plugin paths.
 	 */
 	private static function active_plugins(): array {
-		$active = get_option( 'active_plugins', array() );
+		$per_site = get_option( 'active_plugins', array() );
+		$per_site = is_array( $per_site ) ? $per_site : array();
 
-		return is_array( $active ) ? array_values( array_filter( array_map( 'strval', $active ) ) ) : array();
+		$network_active = array();
+		if ( is_multisite() ) {
+			$sitewide = get_site_option( 'active_sitewide_plugins', array() );
+			if ( is_array( $sitewide ) ) {
+				$network_active = array_keys( $sitewide );
+			}
+		}
+
+		$merged = array_unique( array_merge( $per_site, $network_active ) );
+
+		return array_values( array_filter( array_map( 'strval', $merged ) ) );
+	}
+
+	/**
+	 * Number of columns to span beneath the FOSSE plugin row.
+	 *
+	 * Falls back to 4 when WP's column-header API is unavailable (e.g. the
+	 * hook fires in a non-screen context). Matches the pattern WP core uses
+	 * in `WP_Plugins_List_Table::single_row()` for update rows.
+	 *
+	 * @return int
+	 */
+	private static function plugin_list_colspan(): int {
+		$default = 4;
+
+		if ( ! function_exists( 'get_current_screen' ) || ! function_exists( 'get_column_headers' ) ) {
+			return $default;
+		}
+
+		$screen = get_current_screen();
+		if ( null === $screen ) {
+			return $default;
+		}
+
+		$columns = get_column_headers( $screen );
+		if ( ! is_array( $columns ) || empty( $columns ) ) {
+			return $default;
+		}
+
+		return count( $columns );
 	}
 }

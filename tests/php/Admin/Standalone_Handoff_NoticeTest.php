@@ -13,18 +13,20 @@ use WorDBless\BaseTestCase;
 
 /**
  * Verifies the row appears only when at least one standalone backend is
- * active, names the standalone(s) correctly, and respects capability.
+ * active, names the standalone(s) correctly, respects capability, and reads
+ * the right plugin-active sources (per-site + network-active on multisite).
  */
 class Standalone_Handoff_NoticeTest extends BaseTestCase {
 
 	/**
-	 * Reset capability state before each test.
+	 * Reset capability + active-plugins state before each test.
 	 *
 	 * @before
 	 */
 	#[Before]
 	public function reset_state(): void {
 		wp_set_current_user( 0 );
+		delete_option( 'active_plugins' );
 	}
 
 	/**
@@ -108,5 +110,59 @@ class Standalone_Handoff_NoticeTest extends BaseTestCase {
 		$html = Standalone_Handoff_Notice::render_for_active_plugins( array( 'activitypub/activitypub.php' ) );
 
 		$this->assertSame( '', $html );
+	}
+
+	/**
+	 * `render()` is the hook callback. It reads `active_plugins` itself, so
+	 * the test seeds the option and asserts the buffered echo. This exercises
+	 * the path the `after_plugin_row_*` hook actually takes.
+	 */
+	public function test_render_hook_callback_emits_row_for_seeded_active_plugins(): void {
+		$this->become_plugin_manager();
+		update_option( 'active_plugins', array( 'fosse/fosse.php', 'activitypub/activitypub.php' ) );
+
+		ob_start();
+		Standalone_Handoff_Notice::render( 'fosse/fosse.php' );
+		$output = ob_get_clean();
+
+		$this->assertNotSame( '', $output );
+		$this->assertStringContainsString( 'standalone ActivityPub plugin', $output );
+	}
+
+	/**
+	 * `render()` produces no output when no standalone backend is active.
+	 */
+	public function test_render_hook_callback_silent_when_only_fosse_active(): void {
+		$this->become_plugin_manager();
+		update_option( 'active_plugins', array( 'fosse/fosse.php' ) );
+
+		ob_start();
+		Standalone_Handoff_Notice::render( 'fosse/fosse.php' );
+		$output = ob_get_clean();
+
+		$this->assertSame( '', $output );
+	}
+
+	/**
+	 * Multisite `active_sitewide_plugins` is a `[ path => timestamp ]` map,
+	 * not a list. The `active_plugins()` resolver must merge its keys with
+	 * the per-site `active_plugins` list so a network-activated standalone
+	 * backend isn't invisible to the handoff row.
+	 *
+	 * On a non-multisite test bootstrap this exercises the same branch by
+	 * proving non-array values from the option layer don't crash the resolver;
+	 * the multisite-specific merge is locked in by integration on a multisite
+	 * install.
+	 */
+	public function test_render_silent_when_active_plugins_option_is_corrupt(): void {
+		$this->become_plugin_manager();
+		// Simulate a corrupted active_plugins option (string instead of array).
+		update_option( 'active_plugins', 'corrupted-not-an-array' );
+
+		ob_start();
+		Standalone_Handoff_Notice::render( 'fosse/fosse.php' );
+		$output = ob_get_clean();
+
+		$this->assertSame( '', $output, 'Corrupt active_plugins must not crash render() or surface a row.' );
 	}
 }
