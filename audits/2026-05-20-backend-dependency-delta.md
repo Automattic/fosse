@@ -15,10 +15,10 @@ release by changes FOSSE actively depends on.
 
 ## What FOSSE ships on `trunk`
 
-| Plugin       | Bundled commit | Version header | Source                                                                          |
-| ------------ | -------------- | -------------- | ------------------------------------------------------------------------------- |
-| ActivityPub  | `31cdcd0a`     | `8.3.0`        | upstream `Automattic/wordpress-activitypub` trunk, four commits past tag `8.3.0` |
-| Atmosphere   | `2a0383a`      | `1.0.0`        | upstream `Automattic/wordpress-atmosphere` trunk, three commits past tag `1.0.0` |
+| Plugin      | Bundled commit | Version header | Source                                                                           |
+| ----------- | -------------- | -------------- | -------------------------------------------------------------------------------- |
+| ActivityPub | `31cdcd0a`     | `8.3.0`        | upstream `Automattic/wordpress-activitypub` trunk, four commits past tag `8.3.0` |
+| Atmosphere  | `2a0383a`      | `1.0.0`        | upstream `Automattic/wordpress-atmosphere` trunk, three commits past tag `1.0.0` |
 
 (The version header on each bundle is the upstream constant, which is bumped
 only on tag cuts — so the bundled copies report the most recent tag even
@@ -26,10 +26,10 @@ though their code is past it.)
 
 ## What WordPress.org currently distributes
 
-| Plugin       | Stable tag | Notes                                |
-| ------------ | ---------- | ------------------------------------ |
-| ActivityPub  | `8.3.0`    | <https://wordpress.org/plugins/activitypub/> |
-| Atmosphere   | `1.0.0`    | <https://wordpress.org/plugins/atmosphere/>  |
+| Plugin      | Stable tag | Notes                                        |
+| ----------- | ---------- | -------------------------------------------- |
+| ActivityPub | `8.3.0`    | <https://wordpress.org/plugins/activitypub/> |
+| Atmosphere  | `1.0.0`    | <https://wordpress.org/plugins/atmosphere/>  |
 
 ## Delta — what we'd lose by switching to the released versions
 
@@ -49,9 +49,9 @@ exactly this term, so the field silently falls out on the receiving side.
 Other commits on AP trunk past 8.3.0 are also picked up by the current
 bundle but are not load-bearing for FOSSE:
 
-- `3d01f3ff` — SWICG ActivityPub API Basic Profile conformance for C2S (#3328)
-- `0de6d768` — surface `ap_tombstone` in the dev debug menu (#3318)
-- four dependency bumps
+-   `3d01f3ff` — SWICG ActivityPub API Basic Profile conformance for C2S (#3328)
+-   `0de6d768` — surface `ap_tombstone` in the dev debug menu (#3318)
+-   four dependency bumps
 
 ### Atmosphere: lose the `atmosphere_post_embed` filter and its helpers
 
@@ -72,8 +72,8 @@ becomes a no-op.
 
 Other Atmosphere commits past 1.0.0 that the current bundle picks up:
 
-- `26010ec` — publication link tag for standard.site discovery (#75)
-- `2a0383a` — re-sync publication on theme / site-URL changes (#76)
+-   `26010ec` — publication link tag for standard.site discovery (#75)
+-   `2a0383a` — re-sync publication on theme / site-URL changes (#76)
 
 Neither is currently consumed from FOSSE's source, but operators rely on
 the discovery link tag for federation hygiene.
@@ -102,14 +102,14 @@ the discovery link tag for federation hygiene.
    released versions on purpose. They must be bumped to the real release
    numbers as soon as each upstream tags.
 
-   - ActivityPub: the first release containing
-     <https://github.com/Automattic/wordpress-activitypub/pull/3327>
-     (placeholder: `8.4.0`).
-   - Atmosphere: the first release containing
-     <https://github.com/Automattic/wordpress-atmosphere/pull/72>
-     (placeholder: `1.1.0`).
+    - ActivityPub: the first release containing
+      <https://github.com/Automattic/wordpress-activitypub/pull/3327>
+      (placeholder: `8.4.0`).
+    - Atmosphere: the first release containing
+      <https://github.com/Automattic/wordpress-atmosphere/pull/72>
+      (placeholder: `1.1.0`).
 
 4. **No effect on today's installs.** Bundled copies stay loaded, the
    activation flow is unchanged, and the readiness checks treat a
    bundled load as authoritative — they only enforce the version floor
-   when a *standalone* copy of either plugin is detected.
+   when a _standalone_ copy of either plugin is detected.
