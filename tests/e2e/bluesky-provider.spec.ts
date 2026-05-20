@@ -117,7 +117,7 @@ test.describe( 'Bluesky provider UI', () => {
 		).toBeVisible();
 		await expect(
 			connections.locator( '#fosse-provider-activitypub-connection' )
-		).toContainText( 'Connected automatically' );
+		).toContainText( 'Fediverse profile active' );
 		await expect(
 			blueskyConnection.getByLabel( 'Bluesky handle' )
 		).toBeVisible();

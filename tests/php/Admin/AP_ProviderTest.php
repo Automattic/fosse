@@ -168,17 +168,19 @@ class AP_ProviderTest extends BaseTestCase {
 	}
 
 	/**
-	 * ActivityPub has no OAuth flow, but the Settings page still shows why it
-	 * appears connected in the separate Connections group.
+	 * ActivityPub has no OAuth flow, so the Settings page describes it as an
+	 * active site profile instead of an account connection.
 	 */
-	public function test_render_connection_actions_explains_automatic_connection(): void {
+	public function test_render_connection_actions_explains_active_site_profile(): void {
 		ob_start();
 		$this->provider->render_connection_actions();
 		$output = ob_get_clean();
 
 		$this->assertStringContainsString( 'id="fosse-provider-activitypub-connection"', $output );
 		$this->assertStringContainsString( 'ActivityPub', $output );
-		$this->assertStringContainsString( 'Connected automatically', $output );
+		$this->assertStringContainsString( 'Fediverse profile active', $output );
+		$this->assertStringContainsString( 'Your WordPress site creates its own ActivityPub profile', $output );
+		$this->assertStringNotContainsString( 'Connected automatically', $output );
 		$this->assertStringNotContainsString( '<form', $output );
 	}
 
@@ -215,6 +217,7 @@ class AP_ProviderTest extends BaseTestCase {
 
 		$this->assertStringContainsString( '<h2', $output );
 		$this->assertStringContainsString( 'ActivityPub', $output );
+		$this->assertStringContainsString( 'Active', $output );
 		$this->assertStringContainsString( 'Content types', $output );
 		$this->assertStringNotContainsString( '<table', $output );
 		$this->assertStringNotContainsString( 'Manage ActivityPub settings', $output );

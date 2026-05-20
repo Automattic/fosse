@@ -704,12 +704,13 @@ class Onboarding_WizardTest extends BaseTestCase {
 		$output = $this->render_wizard_step( '' );
 
 		$this->assertStringContainsString( 'Where should your WordPress posts appear?', $output );
-		$this->assertStringContainsString( 'Fediverse sharing is enabled by default, so people can follow your site from Fediverse apps like Mastodon. You can also connect Bluesky now or set it up later.', $output );
+		$this->assertStringContainsString( 'Fediverse publishing creates a profile at your site&#039;s domain.', $output );
+		$this->assertStringContainsString( 'Bluesky connects an existing account.', $output );
 		$this->assertStringContainsString( 'Fediverse + Bluesky', $output );
 		$this->assertStringContainsString( 'Fediverse only', $output );
 		$this->assertStringContainsString( 'Simple setup', $output );
-		$this->assertSame( 3, substr_count( $output, 'Fediverse apps like Mastodon' ) );
-		$this->assertStringContainsString( 'Let people follow your site from Fediverse apps like Mastodon. You can connect Bluesky later.', $output );
+		$this->assertStringContainsString( 'Create a fediverse profile at your site&#039;s domain and connect an existing Bluesky account.', $output );
+		$this->assertStringContainsString( 'Create a fediverse profile at your site&#039;s domain. You can connect Bluesky later.', $output );
 		$this->assertStringNotContainsString( 'Mastodon and similar apps', $output );
 		$this->assertStringContainsString( 'name="fosse_onboarding_destination"', $output );
 		$this->assertStringContainsString( 'data-fosse-lizard-toggle', $output );
@@ -1931,6 +1932,9 @@ class Onboarding_WizardTest extends BaseTestCase {
 		$output = $this->render_wizard_step( 'complete' );
 
 		$this->assertStringContainsString( 'Publish your first Post', $output );
+		$this->assertStringContainsString( 'FOSSE shares eligible new public content automatically.', $output );
+		$this->assertStringContainsString( 'There is no separate fediverse publish button.', $output );
+		$this->assertStringContainsString( 'People receive posts by following your fediverse address.', $output );
 		$this->assertMatchesRegularExpression(
 			'/<a[^>]*href="[^"]*post-new\.php[^"]*"[^>]*>\s*Publish your first Post/i',
 			$output,

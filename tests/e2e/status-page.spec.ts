@@ -258,7 +258,7 @@ test.describe( 'Status page polish', () => {
 		await page.goto( '/wp-admin/admin.php?page=fosse-status' );
 
 		await expect(
-			page.getByText( '1 of 2 providers connected' )
+			page.getByText( '1 of 2 providers active' )
 		).toBeVisible();
 
 		const manageConnections = page.getByRole( 'link', {

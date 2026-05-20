@@ -230,14 +230,14 @@ class AP_Provider implements Connection_Provider {
 		<div class="fosse-connection-section fosse-admin-card" id="fosse-provider-activitypub-connection">
 			<div class="fosse-card-header">
 				<h3><?php esc_html_e( 'ActivityPub', 'fosse' ); ?></h3>
-				<span class="fosse-status-badge is-connected"><?php esc_html_e( 'Connected', 'fosse' ); ?></span>
+				<span class="fosse-status-badge is-connected"><?php esc_html_e( 'Active', 'fosse' ); ?></span>
 			</div>
 			<div class="fosse-card-body">
 				<p>
-					<strong><?php esc_html_e( 'Connected automatically', 'fosse' ); ?></strong>
+					<strong><?php esc_html_e( 'Fediverse profile active', 'fosse' ); ?></strong>
 				</p>
 				<p class="description">
-					<?php esc_html_e( 'ActivityPub is active for this site, so no separate connection step is needed.', 'fosse' ); ?>
+					<?php esc_html_e( 'Your WordPress site creates its own ActivityPub profile, so no separate Mastodon account connection is needed.', 'fosse' ); ?>
 				</p>
 			</div>
 		</div>
@@ -252,7 +252,7 @@ class AP_Provider implements Connection_Provider {
 	public function render_status_card(): void {
 		$status       = $this->get_status();
 		$status_class = $status['connected'] ? 'connected' : 'disconnected';
-		$status_label = $status['connected'] ? __( 'Connected', 'fosse' ) : __( 'Disconnected', 'fosse' );
+		$status_label = $status['connected'] ? __( 'Active', 'fosse' ) : __( 'Inactive', 'fosse' );
 		$mode_label   = $this->get_actor_mode_label( $status['actor_mode'] );
 		$post_types   = array_map(
 			static function ( $pt_name ) {

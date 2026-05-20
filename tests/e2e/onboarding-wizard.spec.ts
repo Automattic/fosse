@@ -64,7 +64,7 @@ test( 'Destination step shows two destination cards', async ( { page } ) => {
 
 	await expect(
 		page.getByText(
-			/Fediverse sharing is enabled by default.*Fediverse apps like Mastodon/
+			/Fediverse publishing creates a profile at your site's domain/
 		)
 	).toBeVisible();
 	await expect(
@@ -84,7 +84,7 @@ test( 'Destination step shows two destination cards', async ( { page } ) => {
 	await expect( destinations.getByRole( 'radio' ) ).toHaveCount( 2 );
 	await expect(
 		destinations.getByRole( 'radio', {
-			name: /Fediverse apps like Mastodon/,
+			name: /fediverse profile at your site's domain/,
 		} )
 	).toHaveCount( 2 );
 	await expect(

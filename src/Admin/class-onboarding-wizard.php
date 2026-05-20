@@ -1041,14 +1041,14 @@ class Onboarding_Wizard {
 				'icon'  => 'dashicons-star-filled',
 				'badge' => __( 'Recommended', 'fosse' ),
 				'title' => __( 'Fediverse + Bluesky', 'fosse' ),
-				'desc'  => __( 'Let people follow your site from Fediverse apps like Mastodon, and share eligible posts to Bluesky.', 'fosse' ),
+				'desc'  => __( 'Create a fediverse profile at your site\'s domain and connect an existing Bluesky account.', 'fosse' ),
 			),
 			self::DESTINATION_FEDIVERSE_ONLY    => array(
 				'class' => 'fosse-destination-card--fediverse-only',
 				'icon'  => 'dashicons-networking',
 				'badge' => __( 'Simple setup', 'fosse' ),
 				'title' => __( 'Fediverse only', 'fosse' ),
-				'desc'  => __( 'Let people follow your site from Fediverse apps like Mastodon. You can connect Bluesky later.', 'fosse' ),
+				'desc'  => __( 'Create a fediverse profile at your site\'s domain. You can connect Bluesky later.', 'fosse' ),
 			),
 		);
 		?>
@@ -1061,7 +1061,7 @@ class Onboarding_Wizard {
 				<?php
 				self::render_step_card_header(
 					__( 'Where should your WordPress posts appear?', 'fosse' ),
-					__( 'Fediverse sharing is enabled by default, so people can follow your site from Fediverse apps like Mastodon. You can also connect Bluesky now or set it up later.', 'fosse' )
+					__( 'Fediverse publishing creates a profile at your site\'s domain. Bluesky connects an existing account.', 'fosse' )
 				);
 				?>
 				<div class="fosse-card-body">
@@ -1796,6 +1796,7 @@ class Onboarding_Wizard {
 				</dl>
 
 				<div class="fosse-wizard__hint">
+					<p><?php esc_html_e( 'FOSSE shares eligible new public content automatically. There is no separate fediverse publish button. People receive posts by following your fediverse address.', 'fosse' ); ?></p>
 					<p><?php esc_html_e( 'You can change any of these settings from the FOSSE Settings page at any time.', 'fosse' ); ?></p>
 				</div>
 			</div>
