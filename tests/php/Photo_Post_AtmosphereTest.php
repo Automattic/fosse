@@ -462,6 +462,13 @@ class Photo_Post_AtmosphereTest extends BaseTestCase {
 
 		$this->assertCount( Photo_Post_Atmosphere::MAX_IMAGES, $record['embed']['images'] );
 		$this->assertSame( array( $image_ids[5] ), $overflow_payload );
+		// Lock down which blobs landed (and in what order): the failed
+		// upload at index 2 should be skipped, not occupy a slot.
+		$cids = array_map(
+			static fn( array $image ) => $image['image']['ref']['$link'],
+			$record['embed']['images']
+		);
+		$this->assertSame( array( 'bafy0', 'bafy1', 'bafy3', 'bafy4' ), $cids );
 	}
 
 	/**
@@ -710,6 +717,78 @@ class Photo_Post_AtmosphereTest extends BaseTestCase {
 
 		$this->assertSame( 'cta text', $record['text'] );
 		$this->assertArrayNotHasKey( 'embed', $record );
+	}
+
+	/**
+	 * Defensive: when a third-party `atmosphere_post_embed` listener
+	 * wins and attaches a non-images embed (e.g. `app.bsky.embed.external`
+	 * for a link card), the text-rewrite filter must NOT replace the
+	 * caption — the embed-type gate is the only thing standing between
+	 * a photo-post discriminator match and a record whose text has been
+	 * caption-stripped but whose embed is a link card.
+	 */
+	public function test_transform_filter_skips_when_embed_type_is_not_images(): void {
+		$this->stub_blob_for( $this->image_id );
+		$post = $this->make_post( 'some prose body', $this->image_id );
+
+		$record = apply_filters(
+			'atmosphere_transform_bsky_post',
+			array(
+				'$type'     => 'app.bsky.feed.post',
+				'text'      => 'some prose body',
+				'createdAt' => '2026-05-19T00:00:00Z',
+				'langs'     => array( 'en' ),
+				'embed'     => array(
+					'$type'    => 'app.bsky.embed.external',
+					'external' => array(
+						'uri'   => 'https://example.test/',
+						'title' => 'forged',
+					),
+				),
+			),
+			$post,
+			array(
+				'strategy'        => 'short-form',
+				'thread_index'    => 0,
+				'is_thread_reply' => false,
+			)
+		);
+
+		$this->assertSame( 'some prose body', $record['text'] );
+		$this->assertSame( 'app.bsky.embed.external', $record['embed']['$type'] );
+	}
+
+	/**
+	 * Defensive: a forged `$type === 'app.bsky.embed.images'` envelope
+	 * with no actual images array must NOT trip the caption rewrite —
+	 * the gate has to look at the whole embed shape, not just the type
+	 * string. Protects against a third-party listener returning a
+	 * skeleton embed that lies about what shipped.
+	 */
+	public function test_transform_filter_skips_when_images_embed_has_no_images(): void {
+		$post = $this->make_post( 'narrative body', $this->image_id );
+
+		$record = apply_filters(
+			'atmosphere_transform_bsky_post',
+			array(
+				'$type'     => 'app.bsky.feed.post',
+				'text'      => 'narrative body',
+				'createdAt' => '2026-05-19T00:00:00Z',
+				'langs'     => array( 'en' ),
+				'embed'     => array(
+					'$type'  => 'app.bsky.embed.images',
+					'images' => array(),
+				),
+			),
+			$post,
+			array(
+				'strategy'        => 'short-form',
+				'thread_index'    => 0,
+				'is_thread_reply' => false,
+			)
+		);
+
+		$this->assertSame( 'narrative body', $record['text'] );
 	}
 
 	/**

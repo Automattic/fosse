@@ -215,9 +215,8 @@ class Photo_Post_Atmosphere {
 		$budget_deadline = $budget_seconds > 0 ? \microtime( true ) + (float) $budget_seconds : null;
 		$attached        = array();
 		$overflow        = array();
-		$index           = 0;
 
-		foreach ( $image_ids as $attachment_id ) {
+		foreach ( $image_ids as $position => $attachment_id ) {
 			if ( count( $attached ) >= self::MAX_IMAGES ) {
 				$overflow[] = $attachment_id;
 				continue;
@@ -238,7 +237,7 @@ class Photo_Post_Atmosphere {
 			$blob = self::upload_blob( $attachment_id );
 
 			if ( null === $blob ) {
-				if ( $has_featured && 0 === $index ) {
+				if ( $has_featured && 0 === $position ) {
 					// Featured image is the hero shot — refuse to ship
 					// a gallery missing it. Return `$embed` unchanged so
 					// Atmosphere falls back to short-form text and the
@@ -262,7 +261,6 @@ class Photo_Post_Atmosphere {
 					)
 				);
 
-				++$index;
 				continue;
 			}
 
@@ -277,16 +275,18 @@ class Photo_Post_Atmosphere {
 			}
 
 			$attached[] = $image;
-			++$index;
 		}
 
 		if ( empty( $attached ) ) {
 			// Every upload failed. Return `$embed` unchanged so
 			// Atmosphere ships the caption with no embed (better than a
-			// malformed embed); if the body is also empty, log so the
-			// silent "user federated literally nothing" outcome
-			// surfaces.
-			if ( '' === \trim( (string) $post->post_content ) ) {
+			// malformed embed); if the rendered caption is also empty,
+			// log so the silent "user federated literally nothing"
+			// outcome surfaces. We check the caption (not raw
+			// `post_content`) because a pure Rule-2 photo post is just
+			// `<!-- wp:image -->` blocks — non-empty `post_content` but
+			// empty federated text once image markup is stripped.
+			if ( '' === \trim( Photo_Post::caption_text( $post ) ) ) {
 				// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- Reliability signal for operators.
 				\error_log(
 					\sprintf(
@@ -347,9 +347,16 @@ class Photo_Post_Atmosphere {
 			return $record;
 		}
 
-		$embed      = $record['embed'] ?? null;
-		$embed_type = \is_array( $embed ) ? ( $embed['$type'] ?? '' ) : '';
-		if ( 'app.bsky.embed.images' !== $embed_type ) {
+		// Gate on a fully-formed images embed, not just the `$type`
+		// string — a third-party `atmosphere_post_embed` listener could
+		// forge `$type === 'app.bsky.embed.images'` with no images
+		// array, which would otherwise trip the caption rewrite on a
+		// record that has no gallery to caption.
+		$embed       = $record['embed'] ?? null;
+		$embed_type  = \is_array( $embed ) ? ( $embed['$type'] ?? '' ) : '';
+		$images      = \is_array( $embed ) ? ( $embed['images'] ?? null ) : null;
+		$has_gallery = \is_array( $images ) && ! empty( $images );
+		if ( 'app.bsky.embed.images' !== $embed_type || ! $has_gallery ) {
 			return $record;
 		}
 
@@ -612,9 +619,13 @@ class Photo_Post_Atmosphere {
 			 * thread, fall back to a link card, surface a notice to
 			 * the user) without modifying this projector.
 			 *
-			 * Listeners must be fast and non-throwing — exceptions
-			 * are caught here so a misbehaving subscriber can't
-			 * crater the already-built embed.
+			 * Listeners must be fast, non-throwing, and non-mutating
+			 * with respect to `$post`. Exceptions are caught here so a
+			 * misbehaving subscriber can't crater the already-built
+			 * embed; mutation cannot be intercepted the same way and
+			 * would desync the caption that
+			 * {@see self::filter_transform_bsky_post()} computes from
+			 * `$post->post_content` later in the same composition pass.
 			 *
 			 * @param WP_Post $post     The post being projected.
 			 * @param int[]   $overflow Attachment ids dropped from the embed.
