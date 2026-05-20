@@ -31,16 +31,6 @@ use kornrunner\Blurhash\Blurhash as Encoder;
  * minus the field. Same posture for any other failure (unreadable
  * file, encoder exception, deleted attachment): never blocks the
  * upload, never blocks federation.
- *
- * The bundled ActivityPub `Base_Object::JSON_LD_CONTEXT` (the
- * constant actually consulted for outbound `Image` objects) does
- * not declare the `toot:` namespace or map a `blurhash` term —
- * upstream PR Automattic/wordpress-activitypub#3327 adds both, and
- * a `tools/sync-bundled.sh` pass will pull it in once it lands.
- * Real-world consumers (Mastodon, Pixelfed) read the property at
- * the application layer regardless of strict JSON-LD compaction,
- * so this projector ships working today with or without that
- * upstream change.
  */
 class Blurhash {
 
