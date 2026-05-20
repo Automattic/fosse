@@ -28,6 +28,8 @@ class Menu {
 		add_action( 'admin_init', array( static::class, 'maybe_redirect_to_wizard' ) );
 
 		Setup_Page::register_hooks();
+		Standalone_Handoff_Notice::register( dirname( __DIR__, 2 ) . '/fosse.php' );
+
 		// Suppress at two stages so plugins can't bypass us by registering
 		// notices in hooks that fire between current_screen and the notice
 		// hooks themselves. current_screen strips the typical case where
