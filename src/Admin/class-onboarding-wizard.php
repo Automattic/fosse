@@ -1788,9 +1788,11 @@ class Onboarding_Wizard {
 	/**
 	 * Emit `fosse_wizard_completed` with destination / actor / post-types / bluesky state.
 	 *
-	 * Called from `handle_complete()` immediately before
-	 * `mark_complete()` — capability and nonce have already been
-	 * verified by that point.
+	 * Called immediately before `mark_complete()` from two sites that
+	 * have already verified capability and nonce: the Sharing branch of
+	 * `handle_save()` (the normal completion path for every destination)
+	 * and the legacy `handle_complete()` endpoint kept for stale nonced
+	 * links from pre-reorder wizard renders.
 	 *
 	 * @return void
 	 */
