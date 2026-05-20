@@ -15,11 +15,17 @@ use WorDBless\BaseTestCase;
 use WP_Post;
 
 /**
- * Covers `Photo_Post_Atmosphere::filter_is_short_form_post()` and
- * `filter_transform_bsky_post()` through `apply_filters` round-trips
- * — keeps the contract "FOSSE projects onto Atmosphere's filters"
- * load-bearing in the tests, the same posture {@see Photo_PostTest}
- * uses for the AP-side hooks.
+ * Covers `Photo_Post_Atmosphere::filter_is_short_form_post()`,
+ * `filter_post_embed()`, and `filter_transform_bsky_post()` through
+ * `apply_filters` round-trips — keeps the contract "FOSSE projects onto
+ * Atmosphere's filters" load-bearing in the tests, the same posture
+ * {@see Photo_PostTest} uses for the AP-side hooks.
+ *
+ * The {@see self::apply_transform_filter()} helper simulates Atmosphere's
+ * own composition order — run `atmosphere_post_embed` first, attach
+ * the result onto the record, then run `atmosphere_transform_bsky_post`
+ * — so the embed-attached → text-rewritten chain mirrors what shipped
+ * Atmosphere actually does inside `Post::transform()`.
  *
  * Blob uploads are intercepted via the
  * `fosse_photo_post_atmosphere_upload_blob` extension filter so tests
@@ -79,6 +85,7 @@ class Photo_Post_AtmosphereTest extends BaseTestCase {
 	#[Before]
 	public function reset_state(): void {
 		remove_all_filters( 'atmosphere_is_short_form_post' );
+		remove_all_filters( 'atmosphere_post_embed' );
 		remove_all_filters( 'atmosphere_transform_bsky_post' );
 		remove_all_filters( 'fosse_pre_is_photo_post' );
 		remove_all_filters( 'fosse_is_photo_post' );
@@ -110,8 +117,8 @@ class Photo_Post_AtmosphereTest extends BaseTestCase {
 		// Reset stub state and install the interception filter.
 		// Unstubbed attachments return `false` so the projector
 		// treats them as failed uploads without falling through to
-		// Atmosphere's real `upload_thumbnail()` (which would try to
-		// read a real file and warn).
+		// Atmosphere's real `upload_image_blob()` (which would try
+		// to read a real file and warn).
 		$this->blob_stubs = array();
 		add_filter(
 			'fosse_photo_post_atmosphere_upload_blob',
@@ -225,12 +232,16 @@ class Photo_Post_AtmosphereTest extends BaseTestCase {
 	}
 
 	/**
-	 * Apply the `atmosphere_transform_bsky_post` filter against a
-	 * short-form record envelope.
+	 * Simulate Atmosphere's short-form composition: run
+	 * `atmosphere_post_embed` to build the embed, attach the result
+	 * onto the record if non-null, then run
+	 * `atmosphere_transform_bsky_post`. Mirrors the call order inside
+	 * shipped `Post::transform()` so the test pipeline exercises both
+	 * projector filters end-to-end the same way Atmosphere does.
 	 *
 	 * @param WP_Post $post      The post being transformed.
 	 * @param array   $overrides Optional record overrides.
-	 * @return array Filtered record.
+	 * @return array Final record after both filters.
 	 */
 	private function apply_transform_filter( WP_Post $post, array $overrides = array() ): array {
 		$record = array_merge(
@@ -242,6 +253,11 @@ class Photo_Post_AtmosphereTest extends BaseTestCase {
 			),
 			$overrides
 		);
+
+		$embed = apply_filters( 'atmosphere_post_embed', null, $post, 'short-form' );
+		if ( null !== $embed ) {
+			$record['embed'] = $embed;
+		}
 
 		return apply_filters(
 			'atmosphere_transform_bsky_post',
@@ -398,6 +414,61 @@ class Photo_Post_AtmosphereTest extends BaseTestCase {
 
 		$this->assertCount( Photo_Post_Atmosphere::MAX_IMAGES, $record['embed']['images'] );
 		$this->assertSame( array( $image_ids[4] ), $overflow_payload );
+	}
+
+	/**
+	 * A non-featured mid-list upload failure must not eat one of the
+	 * MAX_IMAGES slots: when more uploadable attachments are available
+	 * the embed should still ship `MAX_IMAGES` successful blobs.
+	 * Counts successful attachments toward the cap, not raw attempts.
+	 */
+	public function test_transform_filter_fills_cap_after_non_featured_failure(): void {
+		add_filter( 'activitypub_max_image_attachments', static fn() => 6 );
+
+		// Six resolvable images: featured + five gallery children.
+		// We'll fail the second gallery image (index 2 in $image_ids)
+		// and expect the projector to still ship MAX_IMAGES = 4
+		// successful uploads, with the trailing attachment as overflow.
+		$image_ids = array( $this->image_id, $this->image_id_alt );
+		for ( $i = 0; $i < 4; $i++ ) {
+			$image_ids[] = $this->insert_image_attachment( "extra-{$i}.jpg", 1000, 1000 );
+		}
+		foreach ( $image_ids as $i => $id ) {
+			if ( 2 === $i ) {
+				continue;
+			}
+			$this->stub_blob_for( $id, 'bafy' . $i );
+		}
+
+		$inner = '';
+		foreach ( array_slice( $image_ids, 1 ) as $id ) {
+			$inner .= '<!-- wp:image {"id":' . $id . '} --><figure class="wp-block-image"><img/></figure><!-- /wp:image -->';
+		}
+		$content = '<!-- wp:gallery -->' . $inner . '<!-- /wp:gallery -->';
+
+		$overflow_payload = null;
+		add_action(
+			'fosse_photo_post_atmosphere_overflow',
+			static function ( $post, $overflow ) use ( &$overflow_payload ) {
+				$overflow_payload = $overflow;
+			},
+			10,
+			2
+		);
+
+		$post = $this->make_post( $content, $this->image_id );
+
+		$record = $this->apply_transform_filter( $post );
+
+		$this->assertCount( Photo_Post_Atmosphere::MAX_IMAGES, $record['embed']['images'] );
+		$this->assertSame( array( $image_ids[5] ), $overflow_payload );
+		// Lock down which blobs landed (and in what order): the failed
+		// upload at index 2 should be skipped, not occupy a slot.
+		$cids = array_map(
+			static fn( array $image ) => $image['image']['ref']['$link'],
+			$record['embed']['images']
+		);
+		$this->assertSame( array( 'bafy0', 'bafy1', 'bafy3', 'bafy4' ), $cids );
 	}
 
 	/**
@@ -565,6 +636,58 @@ class Photo_Post_AtmosphereTest extends BaseTestCase {
 	}
 
 	/**
+	 * Defensive: a non-`short-form` strategy on the embed filter must
+	 * leave the input embed alone. Photo posts force
+	 * `is_short_form_post()` true so the link-card / teaser-thread
+	 * paths never see a photo post in practice, but if a third-party
+	 * filter forces a photo post off the short-form path we must not
+	 * attach `app.bsky.embed.images` to a teaser thread (which still
+	 * expects an external card on its terminal entry).
+	 */
+	public function test_post_embed_filter_passes_through_for_non_short_form_strategy(): void {
+		$this->stub_blob_for( $this->image_id );
+		$post = $this->make_post( '', $this->image_id );
+
+		$default_external = array(
+			'$type'    => 'app.bsky.embed.external',
+			'external' => array(
+				'uri'         => 'https://example.test/p/1',
+				'title'       => 'fallback',
+				'description' => '',
+			),
+		);
+
+		$this->assertSame(
+			$default_external,
+			apply_filters( 'atmosphere_post_embed', $default_external, $post, 'teaser-thread' )
+		);
+		$this->assertSame(
+			$default_external,
+			apply_filters( 'atmosphere_post_embed', $default_external, $post, 'link-card' )
+		);
+	}
+
+	/**
+	 * Defensive: a non-WP_Post second arg to the embed filter must
+	 * pass the input through unchanged. Same posture as the
+	 * `is_short_form` filter — a stray hook call (third-party plugin
+	 * that re-fires `atmosphere_post_embed` with the wrong shape) must
+	 * not crash the federation event.
+	 */
+	public function test_post_embed_filter_passes_through_on_non_wp_post(): void {
+		$this->assertNull( apply_filters( 'atmosphere_post_embed', null, null, 'short-form' ) );
+		$this->assertSame(
+			array( '$type' => 'app.bsky.embed.external' ),
+			apply_filters(
+				'atmosphere_post_embed',
+				array( '$type' => 'app.bsky.embed.external' ),
+				'not-a-post',
+				'short-form'
+			)
+		);
+	}
+
+	/**
 	 * Defensive: non-short-form context (e.g. a teaser-thread CTA)
 	 * doesn't trigger the rewrite. Photo posts force
 	 * `is_short_form_post()` true so this gate should never fire in
@@ -594,6 +717,78 @@ class Photo_Post_AtmosphereTest extends BaseTestCase {
 
 		$this->assertSame( 'cta text', $record['text'] );
 		$this->assertArrayNotHasKey( 'embed', $record );
+	}
+
+	/**
+	 * Defensive: when a third-party `atmosphere_post_embed` listener
+	 * wins and attaches a non-images embed (e.g. `app.bsky.embed.external`
+	 * for a link card), the text-rewrite filter must NOT replace the
+	 * caption — the embed-type gate is the only thing standing between
+	 * a photo-post discriminator match and a record whose text has been
+	 * caption-stripped but whose embed is a link card.
+	 */
+	public function test_transform_filter_skips_when_embed_type_is_not_images(): void {
+		$this->stub_blob_for( $this->image_id );
+		$post = $this->make_post( 'some prose body', $this->image_id );
+
+		$record = apply_filters(
+			'atmosphere_transform_bsky_post',
+			array(
+				'$type'     => 'app.bsky.feed.post',
+				'text'      => 'some prose body',
+				'createdAt' => '2026-05-19T00:00:00Z',
+				'langs'     => array( 'en' ),
+				'embed'     => array(
+					'$type'    => 'app.bsky.embed.external',
+					'external' => array(
+						'uri'   => 'https://example.test/',
+						'title' => 'forged',
+					),
+				),
+			),
+			$post,
+			array(
+				'strategy'        => 'short-form',
+				'thread_index'    => 0,
+				'is_thread_reply' => false,
+			)
+		);
+
+		$this->assertSame( 'some prose body', $record['text'] );
+		$this->assertSame( 'app.bsky.embed.external', $record['embed']['$type'] );
+	}
+
+	/**
+	 * Defensive: a forged `$type === 'app.bsky.embed.images'` envelope
+	 * with no actual images array must NOT trip the caption rewrite —
+	 * the gate has to look at the whole embed shape, not just the type
+	 * string. Protects against a third-party listener returning a
+	 * skeleton embed that lies about what shipped.
+	 */
+	public function test_transform_filter_skips_when_images_embed_has_no_images(): void {
+		$post = $this->make_post( 'narrative body', $this->image_id );
+
+		$record = apply_filters(
+			'atmosphere_transform_bsky_post',
+			array(
+				'$type'     => 'app.bsky.feed.post',
+				'text'      => 'narrative body',
+				'createdAt' => '2026-05-19T00:00:00Z',
+				'langs'     => array( 'en' ),
+				'embed'     => array(
+					'$type'  => 'app.bsky.embed.images',
+					'images' => array(),
+				),
+			),
+			$post,
+			array(
+				'strategy'        => 'short-form',
+				'thread_index'    => 0,
+				'is_thread_reply' => false,
+			)
+		);
+
+		$this->assertSame( 'narrative body', $record['text'] );
 	}
 
 	/**

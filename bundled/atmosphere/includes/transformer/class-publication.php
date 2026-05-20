@@ -27,13 +27,6 @@ class Publication extends Base {
 	public const OPTION_TID = 'atmosphere_publication_tid';
 
 	/**
-	 * Option key for the publication AT-URI.
-	 *
-	 * @var string
-	 */
-	public const OPTION_URI = 'atmosphere_publication_uri';
-
-	/**
 	 * Transform site settings into a publication record.
 	 *
 	 * @return array site.standard.publication record.
@@ -65,9 +58,23 @@ class Publication extends Base {
 		/**
 		 * Filters the site.standard.publication record.
 		 *
+		 * Filters that return a non-array fall back to the pre-filter
+		 * record.
+		 *
 		 * @param array $record Publication record.
 		 */
-		return \apply_filters( 'atmosphere_transform_publication', $record );
+		$filtered = \apply_filters( 'atmosphere_transform_publication', $record );
+
+		if ( ! \is_array( $filtered ) ) {
+			\_doing_it_wrong(
+				__METHOD__,
+				\esc_html__( 'atmosphere_transform_publication must return an array; falling back to the unfiltered record.', 'atmosphere' ),
+				'1.0.0'
+			);
+			return $record;
+		}
+
+		return $filtered;
 	}
 
 	/**
