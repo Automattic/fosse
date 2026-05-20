@@ -13,8 +13,8 @@ namespace Automattic\Fosse\Admin;
  * Steps:
  *  1. Destinations - destination intent selection
  *  2. Appearance - actor mode selection (blog / actor / actor_blog)
- *  3. Content - post type selection
- *  4. Bluesky - optional OAuth connection
+ *  3. Bluesky - optional OAuth connection
+ *  4. Sharing - post type selection
  *  5. Review - summary and handoff to Setup/Status pages
  */
 class Onboarding_Wizard {
@@ -64,7 +64,7 @@ class Onboarding_Wizard {
 	 *
 	 * @var string[]
 	 */
-	private const STEPS = array( 'destinations', 'appearance', 'content', 'bluesky', 'complete' );
+	private const STEPS = array( 'destinations', 'appearance', 'bluesky', 'content', 'complete' );
 
 	/**
 	 * Destination intent that includes the Bluesky connection step.
@@ -159,6 +159,9 @@ class Onboarding_Wizard {
 	public static function register(): void {
 		add_action( 'admin_post_fosse_wizard_save', array( static::class, 'handle_save' ) );
 		add_action( 'admin_post_fosse_wizard_skip', array( static::class, 'handle_skip' ) );
+		// Current wizard UI completes through the Sharing/content save handler. Keep
+		// this endpoint for stale nonced links rendered by earlier wizard
+		// versions or an already-open admin page during an upgrade.
 		add_action( 'admin_post_fosse_wizard_complete', array( static::class, 'handle_complete' ) );
 		add_action( 'admin_post_fosse_wizard_reset', array( static::class, 'handle_reset' ) );
 	}
@@ -339,14 +342,14 @@ class Onboarding_Wizard {
 			// On rejection, persist the surfaced errors via the per-user
 			// notice transient and bounce back to the appearance step so the
 			// user can correct the input. Without this the wizard would
-			// silently advance to Content with no feedback and no way to fix
+			// silently advance to Sharing with no feedback and no way to fix
 			// the colliding handle.
 			if ( $blog_identifier_rejected ) {
 				User_Notices::persist();
 				self::redirect_to_step( 'appearance', array( 'settings-updated' => 'true' ) );
 			}
 
-			self::redirect_to_step( 'content' );
+			self::redirect_to_step( self::destination_includes_bluesky() ? 'bluesky' : 'content' );
 		}
 
 		if ( 'content' === $step ) {
@@ -379,14 +382,10 @@ class Onboarding_Wizard {
 			}
 
 			update_option( 'activitypub_support_post_types', $post_types );
-			if ( self::destination_includes_bluesky() ) {
-				self::redirect_to_step( 'bluesky' );
-			}
 
-			// Fediverse-only completion path: the wizard ends here without
-			// passing through `handle_complete`, so emit the funnel event
-			// directly. Without this, fediverse-only users are invisible
-			// to the started → completed funnel.
+			// The wizard ends here without passing through `handle_complete`,
+			// so emit the funnel event directly. Without this, users are
+			// invisible to the started → completed funnel.
 			if ( ! self::is_complete() ) {
 				self::record_wizard_completed();
 			}
@@ -595,7 +594,7 @@ class Onboarding_Wizard {
 			return 'destinations';
 		}
 
-		return self::destination_includes_bluesky() ? 'bluesky' : 'content';
+		return 'content';
 	}
 
 	/**
@@ -913,8 +912,8 @@ class Onboarding_Wizard {
 		$labels    = array(
 			'destinations' => __( 'Destinations', 'fosse' ),
 			'appearance'   => __( 'Identity', 'fosse' ),
-			'content'      => __( 'Content', 'fosse' ),
 			'bluesky'      => __( 'Bluesky', 'fosse' ),
+			'content'      => __( 'Sharing', 'fosse' ),
 			'complete'     => __( 'Review', 'fosse' ),
 		);
 		$step_keys = array_keys( $labels );
@@ -1292,7 +1291,7 @@ class Onboarding_Wizard {
 	}
 
 	/**
-	 * Render Step 3: Content (post types).
+	 * Render Sharing step (post types).
 	 *
 	 * @return void
 	 */
@@ -1302,6 +1301,7 @@ class Onboarding_Wizard {
 		$post_types     = get_option( 'activitypub_support_post_types', array( 'post' ) );
 		$all_post_types = Post_Type_Chooser::types();
 		$nonce          = wp_create_nonce( 'fosse_wizard' );
+		$back_step      = self::destination_includes_bluesky() ? 'bluesky' : 'appearance';
 
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only check on a redirect-back error code.
 		$has_empty_error = isset( $_GET['error'] ) && 'empty_post_types' === $_GET['error'];
@@ -1316,7 +1316,7 @@ class Onboarding_Wizard {
 				<?php
 				self::render_step_card_header(
 					__( 'What do you want to share?', 'fosse' ),
-					__( 'Choose what to share with people who follow your site. You can change this anytime.', 'fosse' )
+					__( 'Choose what FOSSE should share to your selected destinations.', 'fosse' )
 				);
 				?>
 				<div class="fosse-card-body">
@@ -1378,7 +1378,7 @@ class Onboarding_Wizard {
 
 				<div class="fosse-card-footer">
 					<div class="fosse-wizard__actions">
-						<a href="<?php echo esc_url( admin_url( 'admin.php?page=fosse-wizard&step=appearance' ) ); ?>" class="button">
+						<a href="<?php echo esc_url( admin_url( 'admin.php?page=fosse-wizard&step=' . $back_step ) ); ?>" class="button">
 							&larr; <?php esc_html_e( 'Back', 'fosse' ); ?>
 						</a>
 						<div class="fosse-wizard__actions-primary">
@@ -1395,7 +1395,7 @@ class Onboarding_Wizard {
 	}
 
 	/**
-	 * Render Step 4: Bluesky.
+	 * Render Bluesky step.
 	 *
 	 * Three states drive the rendered markup:
 	 *  - Unavailable (provider not registered or not is_available): info notice.
@@ -1418,8 +1418,8 @@ class Onboarding_Wizard {
 			: __( 'Connect to Bluesky', 'fosse' );
 
 		$description = $is_connected
-			? __( 'Review the connected account below before finishing setup.', 'fosse' )
-			: __( 'Connect your Bluesky account to share eligible WordPress posts there too. This is optional, and you can do it later in FOSSE Settings.', 'fosse' );
+			? __( 'Review the connected account below. Next, you will choose what FOSSE can share.', 'fosse' )
+			: __( 'Connect your Bluesky account now. Next, you will choose what FOSSE can share.', 'fosse' );
 		?>
 		<div class="fosse-wizard__card fosse-admin-card">
 			<?php self::render_step_card_header( $title, $description ); ?>
@@ -1456,7 +1456,7 @@ class Onboarding_Wizard {
 				<div class="notice notice-info inline fosse-wizard__notice">
 					<p>
 						<strong><?php esc_html_e( 'Bluesky setup is unavailable.', 'fosse' ); ?></strong>
-						<?php esc_html_e( 'You can finish setup now and connect from FOSSE Settings later.', 'fosse' ); ?>
+						<?php esc_html_e( 'You can continue setup now and connect from FOSSE Settings later.', 'fosse' ); ?>
 					</p>
 				</div>
 			<?php elseif ( $is_connected ) : ?>
@@ -1599,24 +1599,25 @@ class Onboarding_Wizard {
 			<?php endif; ?>
 			</div>
 
-		<?php $complete_url = wp_nonce_url( admin_url( 'admin-post.php?action=fosse_wizard_complete' ), 'fosse_wizard_complete' ); ?>
+		<?php
+		$content_url       = admin_url( 'admin.php?page=fosse-wizard&step=content' );
+		$is_connect_prompt = $status['available'] && ! $is_connected;
+		$continue_class    = $is_connect_prompt ? 'button' : 'button button-primary';
+		$continue_label    = $is_connect_prompt ? __( 'Skip Bluesky for now', 'fosse' ) : __( 'Continue', 'fosse' );
+		?>
 			<div class="fosse-card-footer">
 				<div class="fosse-wizard__actions">
-					<a href="<?php echo esc_url( admin_url( 'admin.php?page=fosse-wizard&step=content' ) ); ?>" class="button">
+					<a href="<?php echo esc_url( admin_url( 'admin.php?page=fosse-wizard&step=appearance' ) ); ?>" class="button">
 						&larr; <?php esc_html_e( 'Back', 'fosse' ); ?>
 					</a>
 					<div class="fosse-wizard__actions-primary">
-						<?php if ( $status['available'] && ! $is_connected ) : ?>
-							<a href="<?php echo esc_url( $complete_url ); ?>" class="button">
-								<?php esc_html_e( 'Skip Bluesky for now', 'fosse' ); ?>
-							</a>
+						<a href="<?php echo esc_url( $content_url ); ?>" class="<?php echo esc_attr( $continue_class ); ?>">
+							<?php echo esc_html( $continue_label ); ?>
+						</a>
+						<?php if ( $is_connect_prompt ) : ?>
 							<button type="submit" form="fosse-wizard-bluesky-connect-form" class="button button-primary">
 								<?php esc_html_e( 'Connect Bluesky', 'fosse' ); ?>
 							</button>
-						<?php else : ?>
-							<a href="<?php echo esc_url( $complete_url ); ?>" class="button button-primary">
-								<?php echo esc_html( $is_connected ? __( 'Finish setup', 'fosse' ) : __( 'Skip for now', 'fosse' ) ); ?>
-							</a>
 						<?php endif; ?>
 					</div>
 				</div>
@@ -1713,7 +1714,7 @@ class Onboarding_Wizard {
 						);
 						?>
 					</dd>
-					<dt class="fosse-detail-list__term"><?php esc_html_e( 'Content types', 'fosse' ); ?></dt>
+					<dt class="fosse-detail-list__term"><?php esc_html_e( 'Sharing', 'fosse' ); ?></dt>
 					<dd class="fosse-detail-list__description"><?php echo esc_html( implode( ', ', $type_labels ) ); ?></dd>
 					<dt class="fosse-detail-list__term"><?php esc_html_e( 'Bluesky', 'fosse' ); ?></dt>
 					<dd class="fosse-detail-list__description<?php echo $bluesky['connected'] ? '' : ' fosse-detail-list__description--muted'; ?>"><?php echo esc_html( $bluesky_summary ); ?></dd>
@@ -1787,9 +1788,11 @@ class Onboarding_Wizard {
 	/**
 	 * Emit `fosse_wizard_completed` with destination / actor / post-types / bluesky state.
 	 *
-	 * Called from `handle_complete()` immediately before
-	 * `mark_complete()` — capability and nonce have already been
-	 * verified by that point.
+	 * Called immediately before `mark_complete()` from two sites that
+	 * have already verified capability and nonce: the Sharing branch of
+	 * `handle_save()` (the normal completion path for every destination)
+	 * and the legacy `handle_complete()` endpoint kept for stale nonced
+	 * links from pre-reorder wizard renders.
 	 *
 	 * @return void
 	 */

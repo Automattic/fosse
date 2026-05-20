@@ -265,4 +265,48 @@ class Wizard_MetricsTest extends BaseTestCase {
 		);
 		$this->assertSame( 'fediverse_only', $captured[0]['properties']['destination'] );
 	}
+
+	/**
+	 * Fediverse + Bluesky `handle_save` reaches `mark_complete` through the
+	 * Sharing content step too (the wizard reorder moved Bluesky setup ahead
+	 * of Sharing), so the same content branch is now the only completion
+	 * path for both destinations. Without an explicit assertion the
+	 * fediverse_bluesky path could silently regress to not emitting the
+	 * funnel event.
+	 */
+	public function test_handle_save_fediverse_bluesky_emits_completed(): void {
+		\update_option( Onboarding_Wizard::DESTINATION_OPTION, 'fediverse_bluesky' );
+		\update_option( 'activitypub_actor_mode', 'actor' );
+
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
+		$_POST    = array(
+			'action'                         => 'fosse_wizard_save',
+			'_wpnonce'                       => \wp_create_nonce( 'fosse_wizard' ),
+			'fosse_wizard_step'              => 'content',
+			'activitypub_support_post_types' => array( 'post' ),
+		);
+		$_REQUEST = $_POST;
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+
+		\add_filter(
+			'wp_redirect',
+			static function () {
+				throw new RedirectFired( 'redirect' );
+			}
+		);
+
+		try {
+			Onboarding_Wizard::handle_save();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$captured = $this->tracks_channel()->events_for( 'fosse_wizard_completed' );
+		$this->assertCount(
+			1,
+			$captured,
+			'Fediverse + Bluesky completion via handle_save must emit fosse_wizard_completed.'
+		);
+		$this->assertSame( 'fediverse_bluesky', $captured[0]['properties']['destination'] );
+	}
 }

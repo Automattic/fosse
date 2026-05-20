@@ -16,7 +16,7 @@ const selectDestination = async ( page: Page, destination: string ) => {
 const openBlueskyStep = async ( page: Page ) => {
 	await selectDestination( page, 'Fediverse + Bluesky' );
 	// This helper intentionally jumps to Bluesky after setting destination
-	// intent; it does not seed appearance/content state, so keep full-flow
+	// intent; it does not seed identity/content state, so keep full-flow
 	// dependencies covered by the sequential wizard specs below.
 	await page.goto( '/wp-admin/admin.php?page=fosse-wizard&step=bluesky' );
 };
@@ -24,6 +24,9 @@ const openBlueskyStep = async ( page: Page ) => {
 const completeThroughBlueskySkip = async ( page: Page ) => {
 	await openBlueskyStep( page );
 	await page.getByRole( 'link', { name: 'Skip Bluesky for now' } ).click();
+	await expect( page ).toHaveURL( /step=content/ );
+	await page.getByRole( 'checkbox', { name: 'Posts' } ).check();
+	await page.getByRole( 'button', { name: 'Continue' } ).click();
 	await expect( page ).toHaveURL( /step=complete/ );
 };
 
@@ -348,14 +351,14 @@ test( 'Appearance step swaps the visible address preview when the actor mode cha
 test( 'Selecting a mode and continuing saves the option', async ( {
 	page,
 } ) => {
-	await page.goto( '/wp-admin/admin.php?page=fosse-wizard&step=appearance' );
+	await selectDestination( page, 'Fediverse + Bluesky' );
 
 	// Select "As you" (actor mode). Use exact title match to avoid
 	// substring collision with "As your site".
 	await page.getByText( 'As you', { exact: true } ).click();
 	await page.getByRole( 'button', { name: 'Continue' } ).click();
 
-	await expect( page ).toHaveURL( /step=content/ );
+	await expect( page ).toHaveURL( /step=bluesky/ );
 
 	// Verify the option was saved by going back to the appearance step
 	// and checking the radio is still selected.
@@ -365,12 +368,9 @@ test( 'Selecting a mode and continuing saves the option', async ( {
 	).toBeChecked();
 } );
 
-test( 'Content step saves post types and advances to Bluesky', async ( {
+test( 'Sharing step saves post types and completes setup', async ( {
 	page,
 } ) => {
-	// Persist the Fediverse + Bluesky destination so the post-content
-	// redirect deterministically lands on the Bluesky step regardless of any
-	// stale destination state left behind by a prior run.
 	await selectDestination( page, 'Fediverse + Bluesky' );
 	await page.goto( '/wp-admin/admin.php?page=fosse-wizard&step=content' );
 
@@ -378,7 +378,7 @@ test( 'Content step saves post types and advances to Bluesky', async ( {
 	await page.getByRole( 'checkbox', { name: 'Pages' } ).check();
 	await page.getByRole( 'button', { name: 'Continue' } ).click();
 
-	await expect( page ).toHaveURL( /step=bluesky/ );
+	await expect( page ).toHaveURL( /step=complete/ );
 } );
 
 test( 'Bluesky step shows connect form', async ( { page } ) => {
@@ -439,6 +439,7 @@ test.describe( 'Bluesky step — connected (post-OAuth completion)', () => {
 	test( 'connected state suppresses "connect later" copy and shows summary', async ( {
 		page,
 	} ) => {
+		await selectDestination( page, 'Fediverse + Bluesky' );
 		await page.goto( '/wp-admin/admin.php?page=fosse-wizard&step=bluesky' );
 
 		await expect(
@@ -457,9 +458,38 @@ test.describe( 'Bluesky step — connected (post-OAuth completion)', () => {
 			page.getByRole( 'link', { name: 'Create one' } )
 		).toHaveCount( 0 );
 		await expect(
-			page.getByRole( 'link', { name: 'Finish setup' } )
+			page.getByRole( 'link', { name: 'Continue' } )
 		).toBeVisible();
+		await expect(
+			page.getByRole( 'link', { name: 'Finish setup' } )
+		).toHaveCount( 0 );
 	} );
+} );
+
+test( 'Fediverse + Bluesky path visits Bluesky before Sharing', async ( {
+	page,
+} ) => {
+	await page.goto( '/wp-admin/admin.php?page=fosse-wizard' );
+
+	await page.getByText( 'Fediverse + Bluesky', { exact: true } ).click();
+	await page.getByRole( 'button', { name: 'Continue' } ).click();
+
+	await expect( page ).toHaveURL( /step=appearance/ );
+	await page.getByText( 'As you', { exact: true } ).click();
+	await page.getByRole( 'button', { name: 'Continue' } ).click();
+
+	await expect( page ).toHaveURL( /step=bluesky/ );
+	await page.getByRole( 'link', { name: 'Skip Bluesky for now' } ).click();
+
+	await expect( page ).toHaveURL( /step=content/ );
+	await page.getByRole( 'checkbox', { name: 'Posts' } ).check();
+	await page.getByRole( 'button', { name: 'Continue' } ).click();
+
+	await expect( page ).toHaveURL( /step=complete/ );
+	await expect(
+		page.locator( 'dt' ).filter( { hasText: /^Destinations$/ } )
+	).toBeVisible();
+	await expect( page.getByText( 'Fediverse + Bluesky' ) ).toBeVisible();
 } );
 
 test( 'Fediverse-only path skips the Bluesky connect step', async ( {
@@ -475,6 +505,7 @@ test( 'Fediverse-only path skips the Bluesky connect step', async ( {
 	await page.getByRole( 'button', { name: 'Continue' } ).click();
 
 	await expect( page ).toHaveURL( /step=content/ );
+	await page.getByRole( 'checkbox', { name: 'Posts' } ).check();
 	await page.getByRole( 'button', { name: 'Continue' } ).click();
 
 	await expect( page ).toHaveURL( /step=complete/ );
@@ -485,13 +516,13 @@ test( 'Fediverse-only path skips the Bluesky connect step', async ( {
 	await expect( page.getByText( 'Skipped' ) ).toBeVisible();
 } );
 
-test( 'Skip Bluesky for now goes to completion', async ( { page } ) => {
+test( 'Skip Bluesky for now goes to Sharing', async ( { page } ) => {
 	await openBlueskyStep( page );
 
 	await page.getByRole( 'link', { name: 'Skip Bluesky for now' } ).click();
-	await expect( page ).toHaveURL( /step=complete/ );
+	await expect( page ).toHaveURL( /step=content/ );
 	await expect(
-		page.getByRole( 'heading', { name: "You're all set!" } )
+		page.getByRole( 'heading', { name: 'What do you want to share?' } )
 	).toBeVisible();
 } );
 
@@ -505,7 +536,7 @@ test( 'Completion step shows summary', async ( { page } ) => {
 		page.locator( 'dt' ).filter( { hasText: /^Fediverse identity$/ } )
 	).toBeVisible();
 	await expect(
-		page.locator( 'dt' ).filter( { hasText: /^Content types$/ } )
+		page.locator( 'dt' ).filter( { hasText: /^Sharing$/ } )
 	).toBeVisible();
 	await expect(
 		page.locator( 'dt' ).filter( { hasText: /^Bluesky$/ } )
