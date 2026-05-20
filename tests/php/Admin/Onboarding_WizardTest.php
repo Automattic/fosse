@@ -1502,14 +1502,13 @@ class Onboarding_WizardTest extends BaseTestCase {
 
 		$fediverse_row = strpos( $output, '<dt class="fosse-detail-list__term">Fediverse identity</dt>' );
 		$bluesky_row   = strpos( $output, '<dt class="fosse-detail-list__term">Bluesky</dt>' );
-		$content_row   = strpos( $output, '<dt class="fosse-detail-list__term">Content types</dt>' );
+		$sharing_row   = strpos( $output, '<dt class="fosse-detail-list__term">Sharing</dt>' );
 
-		$debug = "DEBUG OUTPUT (length=" . strlen( $output ) . "):\n" . $output;
-		$this->assertNotFalse( $fediverse_row, $debug );
-		$this->assertNotFalse( $bluesky_row, $debug );
-		$this->assertNotFalse( $content_row, $debug );
+		$this->assertNotFalse( $fediverse_row );
+		$this->assertNotFalse( $bluesky_row );
+		$this->assertNotFalse( $sharing_row );
 		$this->assertLessThan( $bluesky_row, $fediverse_row, 'Fediverse identity should appear before Bluesky.' );
-		$this->assertLessThan( $content_row, $bluesky_row, 'Bluesky should appear with the identity rows before Content types.' );
+		$this->assertLessThan( $sharing_row, $bluesky_row, 'Bluesky should appear with the identity rows before Sharing.' );
 	}
 
 	/**
