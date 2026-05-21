@@ -38,6 +38,7 @@ class Bluesky_Domain_HandleTest extends BaseTestCase {
 		$this->reset_filters();
 		delete_option( Bluesky_Domain_Handle::OPTION_PREVIOUS_HANDLE );
 		delete_option( 'atmosphere_connection' );
+		delete_option( 'atmosphere_identity' );
 		delete_option( 'home' );
 		delete_option( 'siteurl' );
 
@@ -693,11 +694,25 @@ class Bluesky_Domain_HandleTest extends BaseTestCase {
 
 	/**
 	 * Successful revert clears the snapshot, syncs the locally-cached
-	 * connection handle, and posts an info notice.
+	 * connection handle, clears `atmosphere_identity` (so the well-known
+	 * route stops advertising a DID the PDS-side handle no longer claims),
+	 * and posts an info notice.
 	 */
 	public function test_maybe_revert_on_disconnect_success_clears_option(): void {
 		$this->seed_connection( 'example.com' );
 		$this->seed_snapshot( 'did:plc:test123', 'alice.bsky.social' );
+		// Seed identity so we can assert it gets cleared. Without the
+		// clear, /.well-known/atproto-did keeps serving did:plc:test123
+		// against a domain the account no longer claims.
+		update_option(
+			'atmosphere_identity',
+			array(
+				'did'          => 'did:plc:test123',
+				'handle'       => 'example.com',
+				'pds_endpoint' => 'https://bsky.social',
+			),
+			true
+		);
 
 		$received = null;
 		add_filter(
@@ -720,6 +735,13 @@ class Bluesky_Domain_HandleTest extends BaseTestCase {
 		$connection = get_option( 'atmosphere_connection' );
 		$this->assertSame( 'alice.bsky.social', $connection['handle'] );
 
+		// Identity must be cleared on a successful revert so the
+		// well-known route stops advertising a now-orphaned binding.
+		$this->assertFalse(
+			get_option( 'atmosphere_identity' ),
+			'Successful revert must clear atmosphere_identity so .well-known/atproto-did stops serving the now-orphaned DID.'
+		);
+
 		$messages = wp_list_pluck( get_settings_errors( 'atmosphere' ), 'message' );
 		$this->assertNotEmpty(
 			array_filter(
@@ -739,6 +761,16 @@ class Bluesky_Domain_HandleTest extends BaseTestCase {
 	public function test_maybe_revert_on_disconnect_failure_preserves_option_without_notice(): void {
 		$this->seed_connection( 'example.com' );
 		$this->seed_snapshot( 'did:plc:test123', 'alice.bsky.social' );
+		// Seed identity so we can assert it is preserved across a failed
+		// revert. The PDS-side handle is still `example.com` (the revert
+		// didn't land), so the well-known route should keep serving the
+		// DID — exactly the state the recovery panel exists to preserve.
+		$seeded_identity = array(
+			'did'          => 'did:plc:test123',
+			'handle'       => 'example.com',
+			'pds_endpoint' => 'https://bsky.social',
+		);
+		update_option( 'atmosphere_identity', $seeded_identity, true );
 
 		add_filter(
 			Bluesky_Domain_Handle::FILTER_PRE_UPDATE,
@@ -754,6 +786,17 @@ class Bluesky_Domain_HandleTest extends BaseTestCase {
 				'handle' => 'alice.bsky.social',
 			),
 			get_option( Bluesky_Domain_Handle::OPTION_PREVIOUS_HANDLE )
+		);
+
+		// Failed revert must preserve atmosphere_identity. The PDS-side
+		// handle is still the site's domain, so the well-known anchor
+		// remains accurate; clearing it here would break reconnect for a
+		// user whose revert temporarily failed (token issue, network
+		// hiccup) but who still has a valid domain-handle binding.
+		$this->assertSame(
+			$seeded_identity,
+			get_option( 'atmosphere_identity' ),
+			'Failed revert must preserve atmosphere_identity — the PDS-side handle binding still holds.'
 		);
 
 		$this->assertEmpty(
