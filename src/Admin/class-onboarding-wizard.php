@@ -1735,7 +1735,7 @@ class Onboarding_Wizard {
 			$cta_help = '';
 		}
 
-		$next_steps_publishing = self::get_next_steps_publishing_copy( $bluesky, $includes_bluesky, $publishes_bluesky );
+		$next_steps_publishing = self::get_next_steps_publishing_copy( $bluesky, $publishes_bluesky );
 
 		?>
 		<div class="fosse-wizard__card fosse-admin-card fosse-wizard__complete-card">
@@ -1843,11 +1843,10 @@ class Onboarding_Wizard {
 	 * Resolve the publishing item shown in the completion next-steps list.
 	 *
 	 * @param array<string, mixed> $bluesky           Bluesky status.
-	 * @param bool                 $includes_bluesky  Whether the selected wizard destination included Bluesky setup.
 	 * @param bool                 $publishes_bluesky Whether new eligible content will currently publish to Bluesky.
 	 * @return string
 	 */
-	private static function get_next_steps_publishing_copy( array $bluesky, bool $includes_bluesky, bool $publishes_bluesky ): string {
+	private static function get_next_steps_publishing_copy( array $bluesky, bool $publishes_bluesky ): string {
 		if ( $publishes_bluesky ) {
 			return __( 'FOSSE shares eligible new public content to the fediverse and Bluesky automatically.', 'fosse' );
 		}
@@ -1856,11 +1855,7 @@ class Onboarding_Wizard {
 			return __( 'FOSSE shares eligible new public content to the fediverse automatically. Bluesky is connected, but automatic sharing is off.', 'fosse' );
 		}
 
-		if ( $includes_bluesky ) {
-			return __( 'FOSSE shares eligible new public content to the fediverse automatically. Connect Bluesky later to share there too.', 'fosse' );
-		}
-
-		return __( 'FOSSE shares eligible new public content automatically.', 'fosse' );
+		return __( 'FOSSE shares eligible new public content to the fediverse automatically.', 'fosse' );
 	}
 
 	/**

@@ -1934,7 +1934,8 @@ class Onboarding_WizardTest extends BaseTestCase {
 		$this->assertStringContainsString( 'Publish your first Post', $output );
 		$this->assertStringContainsString( 'What happens next', $output );
 		$this->assertStringContainsString( 'Publish in WordPress as usual.', $output );
-		$this->assertStringContainsString( 'FOSSE shares eligible new public content to the fediverse automatically. Connect Bluesky later to share there too.', $output );
+		$this->assertStringContainsString( 'FOSSE shares eligible new public content to the fediverse automatically.', $output );
+		$this->assertStringNotContainsString( 'Connect Bluesky later to share there too.', $output );
 		$this->assertStringContainsString( 'People follow your fediverse address to receive updates.', $output );
 		$this->assertStringNotContainsString( 'There is no separate fediverse publish button.', $output );
 		$this->assertMatchesRegularExpression(
@@ -2001,7 +2002,7 @@ class Onboarding_WizardTest extends BaseTestCase {
 
 		$output = $this->render_wizard_step( 'complete' );
 
-		$this->assertStringContainsString( 'FOSSE shares eligible new public content automatically.', $output );
+		$this->assertStringContainsString( 'FOSSE shares eligible new public content to the fediverse automatically.', $output );
 		$this->assertStringNotContainsString( 'Connect Bluesky later to share there too.', $output );
 		$this->assertStringNotContainsString( 'to the fediverse and Bluesky automatically.', $output );
 	}
