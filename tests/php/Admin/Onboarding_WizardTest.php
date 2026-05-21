@@ -1932,9 +1932,11 @@ class Onboarding_WizardTest extends BaseTestCase {
 		$output = $this->render_wizard_step( 'complete' );
 
 		$this->assertStringContainsString( 'Publish your first Post', $output );
+		$this->assertStringContainsString( 'What happens next', $output );
+		$this->assertStringContainsString( 'Publish in WordPress as usual.', $output );
 		$this->assertStringContainsString( 'FOSSE shares eligible new public content automatically.', $output );
-		$this->assertStringContainsString( 'There is no separate fediverse publish button.', $output );
-		$this->assertStringContainsString( 'People receive posts by following your fediverse address.', $output );
+		$this->assertStringContainsString( 'People follow your fediverse address to receive updates.', $output );
+		$this->assertStringNotContainsString( 'There is no separate fediverse publish button.', $output );
 		$this->assertMatchesRegularExpression(
 			'/<a[^>]*href="[^"]*post-new\.php[^"]*"[^>]*>\s*Publish your first Post/i',
 			$output,

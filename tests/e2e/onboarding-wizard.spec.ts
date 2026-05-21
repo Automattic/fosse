@@ -548,6 +548,23 @@ test( 'Completion step exposes "Publish your first Post" CTA to post-new.php', a
 } ) => {
 	await completeThroughBlueskySkip( page );
 
+	await expect(
+		page.getByRole( 'heading', { name: 'What happens next' } )
+	).toBeVisible();
+	await expect(
+		page.getByText( 'Publish in WordPress as usual.' )
+	).toBeVisible();
+	await expect(
+		page.getByText(
+			'FOSSE shares eligible new public content automatically.'
+		)
+	).toBeVisible();
+	await expect(
+		page.getByText(
+			'People follow your fediverse address to receive updates.'
+		)
+	).toBeVisible();
+
 	const publishCta = page.getByRole( 'link', {
 		name: 'Publish your first Post',
 	} );

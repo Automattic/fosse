@@ -1795,10 +1795,23 @@ class Onboarding_Wizard {
 					<dd class="fosse-detail-list__description"><?php echo esc_html( implode( ', ', $type_labels ) ); ?></dd>
 				</dl>
 
-				<div class="fosse-wizard__hint">
-					<p><?php esc_html_e( 'FOSSE shares eligible new public content automatically. There is no separate fediverse publish button. People receive posts by following your fediverse address.', 'fosse' ); ?></p>
-					<p><?php esc_html_e( 'You can change any of these settings from the FOSSE Settings page at any time.', 'fosse' ); ?></p>
-				</div>
+				<section class="fosse-wizard__next-steps" aria-labelledby="fosse-wizard-next-steps-title">
+					<h2 id="fosse-wizard-next-steps-title"><?php esc_html_e( 'What happens next', 'fosse' ); ?></h2>
+					<ul>
+						<li>
+							<span class="dashicons dashicons-yes" aria-hidden="true"></span>
+							<span><?php esc_html_e( 'Publish in WordPress as usual.', 'fosse' ); ?></span>
+						</li>
+						<li>
+							<span class="dashicons dashicons-yes" aria-hidden="true"></span>
+							<span><?php esc_html_e( 'FOSSE shares eligible new public content automatically.', 'fosse' ); ?></span>
+						</li>
+						<li>
+							<span class="dashicons dashicons-yes" aria-hidden="true"></span>
+							<span><?php esc_html_e( 'People follow your fediverse address to receive updates.', 'fosse' ); ?></span>
+						</li>
+					</ul>
+				</section>
 			</div>
 			<div class="fosse-card-footer fosse-wizard__completion-footer">
 				<div class="fosse-wizard__completion-actions">
