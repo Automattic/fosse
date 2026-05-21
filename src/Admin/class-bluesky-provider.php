@@ -984,7 +984,12 @@ class Bluesky_Provider implements Connection_Provider {
 	 * @return string Normalized handle.
 	 */
 	private static function normalize_submitted_handle( string $handle ): string {
-		$edge_pattern = '/^[\s\p{Cf}]+|[\s\p{Cf}]+$/u';
+		// ASCII whitespace is listed explicitly rather than via `\s` so the
+		// pattern doesn't quietly grow if PCRE2 is ever compiled with UCP
+		// (PHP's bundled build isn't, but the explicit class removes the
+		// dependency on that). Non-ASCII whitespace stays intact and falls
+		// through to the AT Protocol ASCII validator downstream.
+		$edge_pattern = '/^[ \t\n\r\f\v\p{Cf}]+|[ \t\n\r\f\v\p{Cf}]+$/u';
 
 		$handle = (string) preg_replace( $edge_pattern, '', $handle );
 		$handle = ltrim( $handle, '@' );

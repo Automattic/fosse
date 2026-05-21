@@ -1943,7 +1943,7 @@ class Bluesky_ProviderTest extends BaseTestCase {
 			'Expected pre_http_request to fire from Client::authorize() after removing invisible formatting bytes.'
 		);
 		$this->assertSame(
-			'devdotdev.bsky.social',
+			'fosse.example.com',
 			wp_parse_url( (string) $captured_url, PHP_URL_HOST ),
 			'Normalized handle should be the resolved host of the authorize lookup URL.'
 		);
@@ -1952,13 +1952,20 @@ class Bluesky_ProviderTest extends BaseTestCase {
 	/**
 	 * Data provider for edge-placed invisible Unicode formatting bytes.
 	 *
+	 * Uses an `example.com` subdomain (IANA-owned per RFC 2606) so the
+	 * DNS TXT probe in `Resolver::handle_to_did()` deterministically misses
+	 * and falls through to the HTTPS well-known path the `pre_http_request`
+	 * filter intercepts. Reserved TLDs (`.invalid`, `.test`, `.example`,
+	 * `.localhost`) are not usable here — Atmosphere's `is_valid_handle()`
+	 * rejects them before resolution.
+	 *
 	 * @return array<string, array{0: string}>
 	 */
 	public static function boundary_invisible_handle_provider(): array {
 		return array(
-			'trailing pop directional formatting (U+202C)' => array( "devdotdev.bsky.social\u{202C}" ),
-			'leading byte-order mark (U+FEFF)'             => array( "\u{FEFF}devdotdev.bsky.social" ),
-			'leading and trailing zero-width space (U+200B)' => array( "\u{200B}devdotdev.bsky.social\u{200B}" ),
+			'trailing pop directional formatting (U+202C)' => array( "fosse.example.com\u{202C}" ),
+			'leading byte-order mark (U+FEFF)'             => array( "\u{FEFF}fosse.example.com" ),
+			'leading and trailing zero-width space (U+200B)' => array( "\u{200B}fosse.example.com\u{200B}" ),
 		);
 	}
 
