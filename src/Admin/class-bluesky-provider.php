@@ -971,25 +971,24 @@ class Bluesky_Provider implements Connection_Provider {
 	/**
 	 * Normalize a submitted Bluesky handle before validation.
 	 *
+	 * Peels ASCII whitespace and invisible Unicode formatting bytes
+	 * (`\p{Cf}`: BOM, ZWSP, bidi marks, etc.) from both edges of the
+	 * handle, then strips a leading `@`. Formatting bytes in the
+	 * interior of the handle are intentionally left in place — they
+	 * change the semantic shape of what the user typed and the
+	 * downstream ASCII validation should surface that as an
+	 * `invalid_handle` error rather than silently coercing the input
+	 * into a different valid handle.
+	 *
 	 * @param string $handle Raw sanitized handle from the form submission.
 	 * @return string Normalized handle.
 	 */
 	private static function normalize_submitted_handle( string $handle ): string {
-		$handle = preg_replace( '/\p{Cf}+/u', '', $handle );
-		if ( ! is_string( $handle ) ) {
-			return '';
-		}
+		$edge_pattern = '/^[\s\p{Cf}]+|[\s\p{Cf}]+$/u';
 
-		$handle = preg_replace( '/^\s+|\s+$/u', '', $handle );
-		if ( ! is_string( $handle ) ) {
-			return '';
-		}
-
+		$handle = (string) preg_replace( $edge_pattern, '', $handle );
 		$handle = ltrim( $handle, '@' );
-		$handle = preg_replace( '/^\s+|\s+$/u', '', $handle );
-		if ( ! is_string( $handle ) ) {
-			return '';
-		}
+		$handle = (string) preg_replace( $edge_pattern, '', $handle );
 
 		return strtolower( $handle );
 	}

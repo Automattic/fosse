@@ -1460,13 +1460,15 @@ class Bluesky_ProviderTest extends BaseTestCase {
 	 */
 	public static function invalid_handle_provider(): array {
 		return array(
-			'no dot, single label' => array( 'alice' ),
-			'leading dot'          => array( '.bsky.social' ),
-			'trailing dot'         => array( 'alice.bsky.social.' ),
-			'space inside'         => array( 'alice bsky.social' ),
-			'underscore'           => array( 'al_ice.bsky.social' ),
-			'mastodon style'       => array( '@alice@host.example' ),
-			'leading hyphen label' => array( '-alice.bsky.social' ),
+			'no dot, single label'                 => array( 'alice' ),
+			'leading dot'                          => array( '.bsky.social' ),
+			'trailing dot'                         => array( 'alice.bsky.social.' ),
+			'space inside'                         => array( 'alice bsky.social' ),
+			'underscore'                           => array( 'al_ice.bsky.social' ),
+			'mastodon style'                       => array( '@alice@host.example' ),
+			'leading hyphen label'                 => array( '-alice.bsky.social' ),
+			'interior zero-width space (U+200B)'   => array( "alice\u{200B}.bsky.social" ),
+			'interior left-to-right mark (U+200E)' => array( "alice.bsky\u{200E}.social" ),
 		);
 	}
 
@@ -1890,26 +1892,33 @@ class Bluesky_ProviderTest extends BaseTestCase {
 	}
 
 	/**
-	 * Invisible Unicode formatting bytes from copied handles are stripped
-	 * before validation. They are visually indistinguishable from a valid
-	 * handle, but the ASCII handle regex rejects them if they survive.
+	 * Invisible Unicode formatting bytes at the edges of a copied handle
+	 * are stripped before validation. They are visually indistinguishable
+	 * from a valid handle, but the ASCII handle regex would reject them if
+	 * they survived. Interior formatting bytes are NOT stripped — see
+	 * {@see self::invalid_handle_provider()} for those cases.
+	 *
+	 * @dataProvider boundary_invisible_handle_provider
+	 *
+	 * @param string $raw_handle Raw user input.
 	 */
-	public function test_handle_connect_strips_invisible_unicode_formatting() {
+	#[DataProvider( 'boundary_invisible_handle_provider' )]
+	public function test_handle_connect_strips_edge_invisible_unicode_formatting( string $raw_handle ) {
 		$this->become_admin();
 
 		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
 		$_POST    = array(
 			'_wpnonce'       => wp_create_nonce( 'fosse_connect_bluesky' ),
-			'bluesky_handle' => "devdotdev.bsky.social\u{202C}",
+			'bluesky_handle' => $raw_handle,
 		);
 		$_REQUEST = $_POST;
 		// phpcs:enable WordPress.Security.NonceVerification.Missing
 
-		$captured_handle = null;
+		$captured_url = null;
 		add_filter(
 			'pre_http_request',
-			static function ( $preempt, $args, $url ) use ( &$captured_handle ) {
-				$captured_handle = $url;
+			static function ( $preempt, $args, $url ) use ( &$captured_url ) {
+				$captured_url = $url;
 				return new \WP_Error( 'fosse_test_intercept', 'intercepted' );
 			},
 			10,
@@ -1930,11 +1939,27 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		}
 
 		$this->assertNotNull(
-			$captured_handle,
+			$captured_url,
 			'Expected pre_http_request to fire from Client::authorize() after removing invisible formatting bytes.'
 		);
-		$this->assertStringContainsString( 'devdotdev.bsky.social', $captured_handle );
-		$this->assertStringNotContainsString( '%E2%80%AC', $captured_handle );
+		$this->assertSame(
+			'devdotdev.bsky.social',
+			wp_parse_url( (string) $captured_url, PHP_URL_HOST ),
+			'Normalized handle should be the resolved host of the authorize lookup URL.'
+		);
+	}
+
+	/**
+	 * Data provider for edge-placed invisible Unicode formatting bytes.
+	 *
+	 * @return array<string, array{0: string}>
+	 */
+	public static function boundary_invisible_handle_provider(): array {
+		return array(
+			'trailing pop directional formatting (U+202C)' => array( "devdotdev.bsky.social\u{202C}" ),
+			'leading byte-order mark (U+FEFF)'             => array( "\u{FEFF}devdotdev.bsky.social" ),
+			'leading and trailing zero-width space (U+200B)' => array( "\u{200B}devdotdev.bsky.social\u{200B}" ),
+		);
 	}
 
 	/**
