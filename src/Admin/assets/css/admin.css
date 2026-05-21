@@ -761,6 +761,24 @@
 	overflow-wrap: anywhere;
 }
 
+.fosse-token--ap-address,
+.fosse-token--handle,
+.fosse-token--host,
+.fosse-admin-token--ap-address,
+.fosse-admin-token--handle,
+.fosse-admin-token--host,
+.fosse-status-card__token--ap-address,
+.fosse-status-card__token--handle,
+.fosse-status-card__token--host {
+	overflow-wrap: anywhere;
+}
+
+.fosse-token--host,
+.fosse-admin-token--host,
+.fosse-status-card__token--host {
+	font-weight: 500;
+}
+
 .fosse-callout {
 	margin: 18px 0;
 	padding: 16px;
@@ -1863,6 +1881,8 @@
 	--fosse-ui-muted: #405334;
 	--fosse-wizard-warm: #fff2b8;
 	--fosse-wizard-warm-text: #604d00;
+	--fosse-wizard-spot: rgba(49, 93, 18, 0.09);
+	--fosse-wizard-spot-soft: rgba(120, 152, 58, 0.12);
 	isolation: isolate;
 }
 
@@ -1875,7 +1895,28 @@
 	content: "";
 	border: 1px solid rgba(137, 168, 75, 0.24);
 	border-radius: var(--fosse-ui-radius);
-	background: #f8fce8;
+	background: radial-gradient(
+			ellipse 46px 30px at 8% 18%,
+			var(--fosse-wizard-spot) 0 48%,
+			transparent 52%
+		),
+		radial-gradient(
+			ellipse 38px 24px at 88% 14%,
+			var(--fosse-wizard-spot-soft) 0 46%,
+			transparent 50%
+		),
+		radial-gradient(
+			ellipse 42px 27px at 15% 78%,
+			var(--fosse-wizard-spot-soft) 0 45%,
+			transparent 50%
+		),
+		radial-gradient(
+			ellipse 30px 19px at 93% 72%,
+			var(--fosse-wizard-spot) 0 46%,
+			transparent 51%
+		),
+		#f8fce8;
+	background-repeat: no-repeat;
 }
 
 .fosse-wizard.is-lizard-themed .fosse-wizard__progress,
@@ -1980,6 +2021,32 @@
 }
 
 .fosse-wizard.is-lizard-themed .fosse-wizard__card,
+.has-fosse-wizard-lizard-theme .fosse-wizard .fosse-wizard__card {
+	background: radial-gradient(
+			ellipse 52px 32px at 92% 16%,
+			var(--fosse-wizard-spot) 0 45%,
+			transparent 50%
+		),
+		radial-gradient(
+			ellipse 42px 26px at 12% 66%,
+			var(--fosse-wizard-spot-soft) 0 44%,
+			transparent 49%
+		),
+		radial-gradient(
+			ellipse 30px 19px at 78% 84%,
+			var(--fosse-wizard-spot) 0 46%,
+			transparent 51%
+		),
+		var(--fosse-ui-surface);
+	background-repeat: no-repeat;
+}
+
+.fosse-wizard.is-lizard-themed .fosse-wizard__card-header,
+.has-fosse-wizard-lizard-theme .fosse-wizard .fosse-wizard__card-header {
+	background: transparent;
+}
+
+.fosse-wizard.is-lizard-themed .fosse-wizard__card,
 .has-fosse-wizard-lizard-theme .fosse-wizard .fosse-wizard__card,
 .fosse-wizard.is-lizard-themed .fosse-destination-card,
 .has-fosse-wizard-lizard-theme .fosse-wizard .fosse-destination-card,
@@ -2004,6 +2071,40 @@
 .has-fosse-wizard-lizard-theme .fosse-wizard .button-primary:focus {
 	background: var(--fosse-wizard-accent-button-hover);
 	border-color: var(--fosse-wizard-accent-button-hover-border);
+	box-shadow:
+		0 0 0 1px #fff,
+		0 0 0 3px var(--fosse-ui-accent);
+	color: #fff;
+}
+
+.fosse-wizard.is-lizard-themed .button:not(.button-primary),
+.has-fosse-wizard-lizard-theme .fosse-wizard .button:not(.button-primary) {
+	border-color: var(--fosse-ui-accent);
+	color: var(--fosse-ui-accent);
+}
+
+.fosse-wizard.is-lizard-themed .button:not(.button-primary):hover,
+.has-fosse-wizard-lizard-theme .fosse-wizard .button:not(.button-primary):hover,
+.fosse-wizard.is-lizard-themed .button:not(.button-primary):focus,
+.has-fosse-wizard-lizard-theme
+	.fosse-wizard
+	.button:not(.button-primary):focus {
+	border-color: var(--fosse-wizard-accent-button-hover-border);
+	box-shadow: 0 0 0 1px var(--fosse-wizard-accent-button-hover-border);
+	color: var(--fosse-wizard-accent-button-hover);
+}
+
+.fosse-wizard.is-lizard-themed a:not(.button),
+.has-fosse-wizard-lizard-theme .fosse-wizard a:not(.button) {
+	color: var(--fosse-ui-accent);
+}
+
+.fosse-wizard.is-lizard-themed a:not(.button):hover,
+.has-fosse-wizard-lizard-theme .fosse-wizard a:not(.button):hover,
+.fosse-wizard.is-lizard-themed a:not(.button):focus,
+.has-fosse-wizard-lizard-theme .fosse-wizard a:not(.button):focus {
+	box-shadow: 0 0 0 1px var(--fosse-wizard-accent-button-hover);
+	color: var(--fosse-wizard-accent-button-hover);
 }
 
 .fosse-wizard.is-lizard-themed .fosse-wizard__lizard,

@@ -187,6 +187,39 @@ class Bluesky_ProviderTest extends BaseTestCase {
 	}
 
 	/**
+	 * Non-string handles in the raw Atmosphere connection are normalized at
+	 * the status boundary so every status consumer can treat `handle` as a
+	 * string.
+	 */
+	public function test_status_normalizes_non_string_connection_handle(): void {
+		// Seed identity so `Atmosphere\is_connected()` does not enter the
+		// legacy connection-to-identity migration path and cast the malformed
+		// connection handle before FOSSE's status boundary can normalize it.
+		update_option(
+			'atmosphere_identity',
+			array(
+				'did'          => 'did:plc:test123',
+				'handle'       => 'alice.bsky.social',
+				'pds_endpoint' => 'https://bsky.social',
+			)
+		);
+		update_option(
+			'atmosphere_connection',
+			array(
+				'did'          => 'did:plc:test123',
+				'handle'       => array( 'alice.bsky.social' ),
+				'pds_endpoint' => 'https://bsky.social',
+				'access_token' => Encryption::encrypt( 'token' ),
+			)
+		);
+
+		$status = $this->provider->get_status();
+
+		$this->assertTrue( $status['connected'] );
+		$this->assertSame( '', $status['handle'] );
+	}
+
+	/**
 	 * `get_status()` re-reads the connection state after the token-health
 	 * probe so a refresh that deletes `atmosphere_connection` mid-call
 	 * (e.g. permanent OAuth failure: `invalid_grant`, `invalid_client`,

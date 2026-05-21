@@ -1700,7 +1700,7 @@ class Onboarding_Wizard {
 		);
 
 		if ( $bluesky['connected'] ) {
-			$bluesky_handle     = is_string( $bluesky['handle'] ?? null ) ? $bluesky['handle'] : '';
+			$bluesky_handle     = $bluesky['handle'];
 			$bluesky_normalized = ltrim( $bluesky_handle, '@' );
 
 			if ( '' !== $bluesky_normalized ) {
