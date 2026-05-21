@@ -702,8 +702,8 @@ class Bluesky_Provider implements Connection_Provider {
 	 * Returns silently for unrelated paths, when the
 	 * `fosse_serve_atproto_did_well_known` filter opts out, and when
 	 * Atmosphere isn't loaded. Sends a 404 and exits when Atmosphere is
-	 * loaded but no DID is available; otherwise sends a `text/plain` body
-	 * containing the connected DID and exits.
+	 * loaded but no identity DID is available; otherwise sends a
+	 * `text/plain` body containing the DID and exits.
 	 *
 	 * @return void
 	 */
@@ -754,22 +754,22 @@ class Bluesky_Provider implements Connection_Provider {
 			return null;
 		}
 
-		if ( ! function_exists( '\Atmosphere\is_connected' ) ) {
-			// Atmosphere isn't loaded. That's a structural error, not a
-			// user-facing "no connection" state. Decline to handle so a
-			// normal 404 happens via WordPress's main request flow.
+		if ( ! function_exists( '\Atmosphere\has_identity' ) || ! function_exists( '\Atmosphere\get_did' ) ) {
+			// Atmosphere isn't loaded, or is too old to expose the persisted
+			// identity contract. That's a structural error, not a user-facing
+			// "no connection" state. Decline to handle so a normal 404 happens
+			// via WordPress's main request flow.
 			return null;
 		}
 
-		if ( ! \Atmosphere\is_connected() ) {
+		if ( ! \Atmosphere\has_identity() ) {
 			return array(
 				'status' => 404,
 				'did'    => '',
 			);
 		}
 
-		$connection = \Atmosphere\get_connection();
-		$did        = isset( $connection['did'] ) ? (string) $connection['did'] : '';
+		$did = \Atmosphere\get_did();
 
 		// Validate the DID against AT Proto syntax before promising to serve it.
 		// The response is plain text and a malformed value (newlines, control chars,
@@ -853,7 +853,7 @@ class Bluesky_Provider implements Connection_Provider {
 		);
 
 		$handle = sanitize_text_field( wp_unslash( $_POST['bluesky_handle'] ?? '' ) );
-		$handle = strtolower( trim( ltrim( trim( $handle ), '@' ) ) );
+		$handle = self::normalize_submitted_handle( $handle );
 
 		if ( empty( $handle ) ) {
 			self::record_connection_failed( 'bluesky', $source, 'invalid_handle' );
@@ -966,6 +966,36 @@ class Bluesky_Provider implements Connection_Provider {
 		}
 
 		$this->redirect_with_notice( __( 'Disconnected from Bluesky.', 'fosse' ), 'info' );
+	}
+
+	/**
+	 * Normalize a submitted Bluesky handle before validation.
+	 *
+	 * Peels ASCII whitespace and invisible Unicode formatting bytes
+	 * (`\p{Cf}`: BOM, ZWSP, bidi marks, etc.) from both edges of the
+	 * handle, then strips a leading `@`. Formatting bytes in the
+	 * interior of the handle are intentionally left in place — they
+	 * change the semantic shape of what the user typed and the
+	 * downstream ASCII validation should surface that as an
+	 * `invalid_handle` error rather than silently coercing the input
+	 * into a different valid handle.
+	 *
+	 * @param string $handle Raw sanitized handle from the form submission.
+	 * @return string Normalized handle.
+	 */
+	private static function normalize_submitted_handle( string $handle ): string {
+		// ASCII whitespace is listed explicitly rather than via `\s` so the
+		// pattern doesn't quietly grow if PCRE2 is ever compiled with UCP
+		// (PHP's bundled build isn't, but the explicit class removes the
+		// dependency on that). Non-ASCII whitespace stays intact and falls
+		// through to the AT Protocol ASCII validator downstream.
+		$edge_pattern = '/^[ \t\n\r\f\v\p{Cf}]+|[ \t\n\r\f\v\p{Cf}]+$/u';
+
+		$handle = (string) preg_replace( $edge_pattern, '', $handle );
+		$handle = ltrim( $handle, '@' );
+		$handle = (string) preg_replace( $edge_pattern, '', $handle );
+
+		return strtolower( $handle );
 	}
 
 	/**
