@@ -78,6 +78,7 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		remove_all_filters( 'pre_http_request' );
 		remove_all_filters( 'pre_option_atmosphere_connection' );
 		remove_all_filters( 'pre_option_atmosphere_identity' );
+		remove_all_filters( 'pre_update_option_atmosphere_identity' );
 		remove_all_filters( Bluesky_Domain_Handle::FILTER_ENABLED );
 		remove_all_filters( Bluesky_Domain_Handle::FILTER_PRE_UPDATE );
 		remove_all_filters( 'home_url' );
@@ -102,6 +103,8 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		remove_all_filters( 'wp_die_handler' );
 		remove_all_filters( 'pre_http_request' );
 		remove_all_filters( 'pre_option_atmosphere_connection' );
+		remove_all_filters( 'pre_option_atmosphere_identity' );
+		remove_all_filters( 'pre_update_option_atmosphere_identity' );
 	}
 
 	/**
@@ -333,6 +336,56 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		$this->assertStringContainsString( 'Connect Bluesky', $output );
 		$this->assertStringContainsString( 'Disconnected', $output );
 		$this->assertStringNotContainsString( 'class="form-table"', $output );
+	}
+
+	/**
+	 * Disconnected sites without a persisted AT Protocol identity get a
+	 * quiet secondary recovery disclosure after the primary Connect action.
+	 */
+	public function test_render_connection_actions_disconnected_shows_identity_recovery_when_identity_missing(): void {
+		$this->force_home_url( 'https://example.com' );
+
+		ob_start();
+		$this->provider->render_connection_actions();
+		$output = ob_get_clean();
+
+		$connect_position  = strpos( $output, 'Connect Bluesky' );
+		$recovery_position = strpos( $output, 'Trouble reconnecting a domain handle?' );
+
+		$this->assertStringContainsString( 'class="fosse-identity-recovery"', $output );
+		$this->assertStringContainsString( 'class="fosse-identity-recovery__summary"', $output );
+		$this->assertStringContainsString( 'Trouble reconnecting a domain handle?', $output );
+		$this->assertStringContainsString( 'fosse_restore_bluesky_identity', $output );
+		$this->assertStringContainsString( 'name="bluesky_did"', $output );
+		$this->assertStringContainsString( 'aria-describedby="fosse_bluesky_did_description"', $output );
+		$this->assertStringContainsString( 'https://bsky.app/settings/account', $output );
+		$this->assertIsInt( $connect_position );
+		$this->assertIsInt( $recovery_position );
+		$this->assertGreaterThan( $connect_position, $recovery_position );
+		$this->assertStringNotContainsString( 'Trouble reconnecting with your domain as a handle? Restore from a DID.', $output );
+	}
+
+	/**
+	 * Disconnected-but-identified sites should use the normal reconnect form
+	 * only; showing DID recovery there would create a second path for users
+	 * who already have the verification anchor needed for reconnect.
+	 */
+	public function test_render_connection_actions_disconnected_omits_identity_recovery_when_identity_exists(): void {
+		update_option(
+			'atmosphere_identity',
+			array(
+				'did'          => 'did:plc:test123',
+				'handle'       => 'example.com',
+				'pds_endpoint' => 'https://bsky.social',
+			)
+		);
+
+		ob_start();
+		$this->provider->render_connection_actions();
+		$output = ob_get_clean();
+
+		$this->assertStringNotContainsString( 'fosse-identity-recovery', $output );
+		$this->assertStringNotContainsString( 'fosse_restore_bluesky_identity', $output );
 	}
 
 	/**
@@ -2506,6 +2559,36 @@ class Bluesky_ProviderTest extends BaseTestCase {
 	}
 
 	/**
+	 * Mock a plc.directory DID document lookup.
+	 *
+	 * @param string               $did      DID to match in the request URL.
+	 * @param array<string, mixed> $document Decoded DID document response.
+	 * @return void
+	 */
+	private function mock_did_document_response( string $did, array $document ): void {
+		$body = (string) wp_json_encode(
+			$document,
+			JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT
+		);
+
+		add_filter(
+			'pre_http_request',
+			static function ( $preempt, $parsed_args, $url ) use ( $did, $body ) { // phpcs:ignore VariableAnalysis.CodeAnalysis.VariableAnalysis.UnusedVariable -- pre_http_request signature.
+				if ( false === strpos( (string) $url, 'plc.directory/' . $did ) ) {
+					return $preempt;
+				}
+
+				return array(
+					'response' => array( 'code' => 200 ),
+					'body'     => $body,
+				);
+			},
+			10,
+			3
+		);
+	}
+
+	/**
 	 * Seed the OAuth transients Atmosphere\OAuth\Client::handle_callback()
 	 * expects to find when validating an inbound callback.
 	 *
@@ -3280,9 +3363,9 @@ class Bluesky_ProviderTest extends BaseTestCase {
 	 * .well-known/atproto-did route starts serving again.
 	 */
 	public function test_handle_restore_identity_writes_atmosphere_identity(): void {
-		add_filter( 'home_url', static fn( $url ) => 'https://example.com', 10, 1 ); // phpcs:ignore VariableAnalysis.CodeAnalysis.VariableAnalysis.UnusedVariable -- filter signature requires the URL arg even though we always return the override.
-
-		$body = (string) wp_json_encode(
+		$this->force_home_url( 'https://example.com' );
+		$this->mock_did_document_response(
+			'did:plc:abcdefghij1234567890wxyz',
 			array(
 				'id'          => 'did:plc:abcdefghij1234567890wxyz',
 				'alsoKnownAs' => array( 'at://example.com' ),
@@ -3293,22 +3376,7 @@ class Bluesky_ProviderTest extends BaseTestCase {
 						'serviceEndpoint' => 'https://pds.example.com',
 					),
 				),
-			),
-			JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT
-		);
-		add_filter(
-			'pre_http_request',
-			static function ( $preempt, $parsed_args, $url ) use ( $body ) { // phpcs:ignore VariableAnalysis.CodeAnalysis.VariableAnalysis.UnusedVariable -- pre_http_request signature.
-				if ( false === strpos( (string) $url, 'plc.directory/did:plc:abcdefghij1234567890wxyz' ) ) {
-					return $preempt;
-				}
-				return array(
-					'response' => array( 'code' => 200 ),
-					'body'     => $body,
-				);
-			},
-			10,
-			3
+			)
 		);
 
 		$this->become_admin();
@@ -3347,6 +3415,74 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		$errors = get_settings_errors( 'atmosphere' );
 		$types  = wp_list_pluck( $errors, 'type' );
 		$this->assertContains( 'success', $types );
+	}
+
+	/**
+	 * Restore identity must not report success unless the option write
+	 * actually converges on the desired identity payload.
+	 */
+	public function test_handle_restore_identity_reports_error_when_identity_write_fails(): void {
+		$this->force_home_url( 'https://example.com' );
+		$this->mock_did_document_response(
+			'did:plc:abcdefghij1234567890wxyz',
+			array(
+				'id'          => 'did:plc:abcdefghij1234567890wxyz',
+				'alsoKnownAs' => array( 'at://example.com' ),
+				'service'     => array(
+					array(
+						'id'              => '#atproto_pds',
+						'type'            => 'AtprotoPersonalDataServer',
+						'serviceEndpoint' => 'https://pds.example.com',
+					),
+				),
+			)
+		);
+		add_filter(
+			'pre_update_option_atmosphere_identity',
+			static function ( $value, $old_value ) { // phpcs:ignore VariableAnalysis.CodeAnalysis.VariableAnalysis.UnusedVariable -- filter signature.
+				return $old_value;
+			},
+			10,
+			2
+		);
+
+		$this->become_admin();
+
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
+		$_POST    = array(
+			'_wpnonce'    => wp_create_nonce( 'fosse_restore_bluesky_identity' ),
+			'bluesky_did' => 'did:plc:abcdefghij1234567890wxyz',
+		);
+		$_REQUEST = $_POST;
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+
+		add_filter(
+			'wp_redirect',
+			static function () {
+				throw new RedirectFired( 'redirect' );
+			}
+		);
+
+		try {
+			$this->provider->handle_restore_identity();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$this->assertFalse( get_option( 'atmosphere_identity', false ) );
+
+		$errors   = get_settings_errors( 'atmosphere' );
+		$types    = wp_list_pluck( $errors, 'type' );
+		$messages = wp_list_pluck( $errors, 'message' );
+
+		$this->assertContains( 'error', $types );
+		$this->assertNotContains( 'success', $types );
+		$this->assertNotEmpty(
+			array_filter(
+				$messages,
+				static fn( $message ) => false !== strpos( (string) $message, 'Could not persist the restored Bluesky identity' )
+			)
+		);
 	}
 
 	/**
@@ -3402,9 +3538,9 @@ class Bluesky_ProviderTest extends BaseTestCase {
 	 * would start serving a DID that doesn't actually belong to this site.
 	 */
 	public function test_handle_restore_identity_rejects_did_with_mismatched_aka(): void {
-		add_filter( 'home_url', static fn( $url ) => 'https://example.com', 10, 1 ); // phpcs:ignore VariableAnalysis.CodeAnalysis.VariableAnalysis.UnusedVariable -- filter signature requires the URL arg even though we always return the override.
-
-		$body = (string) wp_json_encode(
+		$this->force_home_url( 'https://example.com' );
+		$this->mock_did_document_response(
+			'did:plc:abcdefghij1234567890wxyz',
 			array(
 				'id'          => 'did:plc:abcdefghij1234567890wxyz',
 				'alsoKnownAs' => array( 'at://someone-else.test' ),
@@ -3415,22 +3551,7 @@ class Bluesky_ProviderTest extends BaseTestCase {
 						'serviceEndpoint' => 'https://pds.example.com',
 					),
 				),
-			),
-			JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT
-		);
-		add_filter(
-			'pre_http_request',
-			static function ( $preempt, $parsed_args, $url ) use ( $body ) { // phpcs:ignore VariableAnalysis.CodeAnalysis.VariableAnalysis.UnusedVariable -- pre_http_request signature.
-				if ( false === strpos( (string) $url, 'plc.directory/did:plc:abcdefghij1234567890wxyz' ) ) {
-					return $preempt;
-				}
-				return array(
-					'response' => array( 'code' => 200 ),
-					'body'     => $body,
-				);
-			},
-			10,
-			3
+			)
 		);
 
 		$this->become_admin();

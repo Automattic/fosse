@@ -610,22 +610,22 @@ class Bluesky_Provider implements Connection_Provider {
 		}
 		?>
 		<details class="fosse-identity-recovery">
-			<summary>
-				<?php esc_html_e( 'Trouble reconnecting with your domain as a handle? Restore from a DID.', 'fosse' ); ?>
+			<summary class="fosse-identity-recovery__summary">
+				<?php esc_html_e( 'Trouble reconnecting a domain handle?', 'fosse' ); ?>
 			</summary>
-			<div class="fosse-card-body">
+			<div class="fosse-identity-recovery__body">
 				<p>
 					<?php
 					echo esc_html(
 						sprintf(
 							/* translators: %s: WordPress site host (e.g. example.com). */
-							__( 'Use this if you previously used FOSSE to set %s as your Bluesky handle and the Connect step now fails with "Could not resolve handle to a DID". Paste your Bluesky DID (find it in bsky.app under Settings → Account, or in the profile URL once logged in). FOSSE fetches the DID document, verifies it lists this site as one of your handles, and restores the verification endpoint so reconnect works.', 'fosse' ),
+							__( 'Use this if you previously used %s as your Bluesky handle and reconnecting no longer works. Paste your Bluesky DID below. FOSSE will check that the DID still points back to this site before restoring the identity needed to reconnect.', 'fosse' ),
 							$site_host
 						)
 					);
 					?>
 				</p>
-				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+				<form class="fosse-identity-recovery__form" method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
 					<input type="hidden" name="action" value="fosse_restore_bluesky_identity" />
 					<input type="hidden" name="_wpnonce" value="<?php echo esc_attr( wp_create_nonce( 'fosse_restore_bluesky_identity' ) ); ?>" />
 
@@ -637,18 +637,29 @@ class Bluesky_Provider implements Connection_Provider {
 								class="regular-text"
 								name="bluesky_did"
 								id="fosse_bluesky_did"
+								aria-describedby="fosse_bluesky_did_description"
 								placeholder="did:plc:..."
 								autocomplete="off"
+								autocapitalize="none"
 								spellcheck="false"
 							/>
-							<p class="description">
-								<?php esc_html_e( 'Format: did:plc: followed by 24 lowercase letters or digits, or did:web: followed by a hostname.', 'fosse' ); ?>
+							<p class="description" id="fosse_bluesky_did_description">
+								<?php
+								echo wp_kses_post(
+									sprintf(
+										/* translators: 1: opening anchor tag to Bluesky account settings, 2: closing anchor tag. */
+										__( 'Starts with did:plc: or did:web:. You can find it in %1$sBluesky account settings%2$s or your profile URL.', 'fosse' ),
+										'<a href="' . esc_url( 'https://bsky.app/settings/account' ) . '" target="_blank" rel="noopener noreferrer">',
+										'</a>'
+									)
+								);
+								?>
 							</p>
 						</div>
 					</div>
 
-					<div class="fosse-card-footer fosse-action-bar">
-						<?php submit_button( __( 'Restore identity from DID', 'fosse' ), 'secondary', 'submit', false ); ?>
+					<div class="fosse-identity-recovery__actions fosse-action-bar">
+						<?php submit_button( __( 'Restore identity', 'fosse' ), 'secondary', 'submit', false ); ?>
 					</div>
 				</form>
 			</div>
@@ -1353,15 +1364,20 @@ class Bluesky_Provider implements Connection_Provider {
 			return;
 		}
 
-		// autoload=true matches Atmosphere\get_identity()'s lazy-migration write
-		// so subsequent get_option() calls hit the autoloaded cache rather than
-		// re-fetching from the options table.
 		$identity = array(
 			'did'          => $did,
 			'handle'       => $site_host,
 			'pds_endpoint' => $pds,
 		);
-		update_option( 'atmosphere_identity', $identity, true );
+
+		// autoload=true matches Atmosphere\get_identity()'s lazy-migration write
+		// so subsequent get_option() calls hit the autoloaded cache rather than
+		// re-fetching from the options table.
+		update_option(
+			'atmosphere_identity',
+			$identity,
+			true
+		);
 
 		// `update_option()` returns false both on DB write failure AND on
 		// "value didn't change" (e.g. a hostile filter pinning the option,
