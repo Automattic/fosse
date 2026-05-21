@@ -384,6 +384,7 @@ class Bluesky_Provider implements Connection_Provider {
 						<?php submit_button( __( 'Connect Bluesky', 'fosse' ), 'primary', 'submit', false ); ?>
 					</div>
 				</form>
+				<?php $this->render_identity_recovery_panel(); ?>
 			<?php else : ?>
 				<div class="fosse-card-body">
 					<p>
@@ -565,6 +566,83 @@ class Bluesky_Provider implements Connection_Provider {
 	}
 
 	/**
+	 * Render the collapsed "Restore from DID" recovery panel.
+	 *
+	 * Surfaces below the primary Connect form on the disconnected state.
+	 * Collapsed by default — most users never need it. The escape hatch
+	 * is for sites that adopted the site domain as their Bluesky handle
+	 * and lost `atmosphere_identity` (older Atmosphere disconnects wiped
+	 * it; a backup restore that excluded the option does the same). With
+	 * identity empty, `/.well-known/atproto-did` 404s, the handle
+	 * resolver finds nothing, and reconnect with the domain handle is
+	 * impossible — `handle_restore_identity()` rebuilds the verification
+	 * anchor from a DID the user can read off bsky.app.
+	 *
+	 * Only renders when there's no persisted identity at all. A site
+	 * with a previously-persisted identity that just needs reauth has
+	 * the normal Connect path; this panel would only be a confusing
+	 * second option for them.
+	 *
+	 * @return void
+	 */
+	private function render_identity_recovery_panel(): void {
+		if ( function_exists( '\Atmosphere\has_identity' ) && \Atmosphere\has_identity() ) {
+			return;
+		}
+
+		$site_host = wp_parse_url( home_url(), PHP_URL_HOST );
+		if ( ! is_string( $site_host ) || '' === $site_host ) {
+			return;
+		}
+		?>
+		<details class="fosse-identity-recovery">
+			<summary>
+				<?php esc_html_e( 'Trouble reconnecting with your domain as a handle? Restore from a DID.', 'fosse' ); ?>
+			</summary>
+			<div class="fosse-card-body">
+				<p>
+					<?php
+					echo esc_html(
+						sprintf(
+							/* translators: %s: WordPress site host (e.g. example.com). */
+							__( 'Use this if you previously used FOSSE to set %s as your Bluesky handle and the Connect step now fails with "Could not resolve handle to a DID". Paste your Bluesky DID (find it in bsky.app under Settings → Account, or in the profile URL once logged in). FOSSE fetches the DID document, verifies it lists this site as one of your handles, and restores the verification endpoint so reconnect works.', 'fosse' ),
+							$site_host
+						)
+					);
+					?>
+				</p>
+				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+					<input type="hidden" name="action" value="fosse_restore_bluesky_identity" />
+					<input type="hidden" name="_wpnonce" value="<?php echo esc_attr( wp_create_nonce( 'fosse_restore_bluesky_identity' ) ); ?>" />
+
+					<div class="fosse-field">
+						<label class="fosse-field__label" for="fosse_bluesky_did"><?php esc_html_e( 'Bluesky DID', 'fosse' ); ?></label>
+						<div class="fosse-field__control">
+							<input
+								type="text"
+								class="regular-text"
+								name="bluesky_did"
+								id="fosse_bluesky_did"
+								placeholder="did:plc:..."
+								autocomplete="off"
+								spellcheck="false"
+							/>
+							<p class="description">
+								<?php esc_html_e( 'Format: did:plc: followed by 24 lowercase letters or digits, or did:web: followed by a hostname.', 'fosse' ); ?>
+							</p>
+						</div>
+					</div>
+
+					<div class="fosse-card-footer fosse-action-bar">
+						<?php submit_button( __( 'Restore identity from DID', 'fosse' ), 'secondary', 'submit', false ); ?>
+					</div>
+				</form>
+			</div>
+		</details>
+		<?php
+	}
+
+	/**
 	 * Render the Bluesky status card on the FOSSE Status page.
 	 *
 	 * @return void
@@ -664,6 +742,7 @@ class Bluesky_Provider implements Connection_Provider {
 		add_action( 'admin_post_fosse_connect_bluesky', array( $this, 'handle_connect' ) );
 		add_action( 'admin_post_fosse_disconnect_bluesky', array( $this, 'handle_disconnect' ) );
 		add_action( 'admin_post_fosse_set_bluesky_domain_handle', array( $this, 'handle_set_domain_handle' ) );
+		add_action( 'admin_post_fosse_restore_bluesky_identity', array( $this, 'handle_restore_identity' ) );
 		add_action( 'admin_post_fosse_enable_bluesky_auto_publish', array( $this, 'handle_enable_auto_publish' ) );
 		add_action( 'admin_init', array( $this, 'handle_oauth_callback' ) );
 		add_action( 'admin_notices', array( $this, 'maybe_render_auto_publish_disabled_notice' ) );
@@ -1027,6 +1106,166 @@ class Bluesky_Provider implements Connection_Provider {
 
 		wp_safe_redirect( $this->get_redirect_url( $return_context ) );
 		exit;
+	}
+
+	/**
+	 * Restore `atmosphere_identity` from a DID submitted by the admin.
+	 *
+	 * Recovery escape hatch for sites that previously adopted the site
+	 * domain as their Bluesky handle and lost the persisted identity (e.g.
+	 * disconnected on a pre-fix Atmosphere release that wiped
+	 * `atmosphere_identity`, or restored from a backup that excluded the
+	 * option). With identity gone, `/.well-known/atproto-did` 404s and the
+	 * AT Protocol handle resolver has nothing to find — `handle_to_did()`
+	 * fails on both DNS TXT and HTTPS well-known, so reconnect with the
+	 * domain handle is impossible without first restoring the option.
+	 *
+	 * Flow:
+	 *  1. Capability + nonce gate.
+	 *  2. Validate DID syntax (`did:plc:<24 lowercase alnum>` or `did:web:<host>`).
+	 *  3. Fetch the DID document via {@see \Atmosphere\OAuth\Resolver::resolve_did()}.
+	 *  4. Bind to the site: the document's `alsoKnownAs` MUST include
+	 *     `at://<site-host>`. This is the integrity gate that blocks both
+	 *     accidental wrong-DID entry and deliberate impersonation — only a
+	 *     DID that already lists this WordPress site as one of its handles
+	 *     can attach itself here.
+	 *  5. Extract the PDS endpoint via {@see \Atmosphere\OAuth\Resolver::pds_from_did_doc()}.
+	 *  6. Write `atmosphere_identity` with the trio FOSSE/Atmosphere
+	 *     expect (`did`, `handle`, `pds_endpoint`), `autoload=true` to
+	 *     match {@see \Atmosphere\get_identity()}.
+	 *
+	 * The user still has to complete a fresh OAuth flow afterwards — this
+	 * only restores the bidirectional verification anchor so the resolver
+	 * chain works.
+	 *
+	 * @return void
+	 */
+	public function handle_restore_identity(): void {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( esc_html__( 'You do not have permission to do this.', 'fosse' ) );
+		}
+
+		check_admin_referer( 'fosse_restore_bluesky_identity' );
+
+		$did = trim( sanitize_text_field( wp_unslash( $_POST['bluesky_did'] ?? '' ) ) );
+
+		if ( '' === $did ) {
+			$this->redirect_with_notice(
+				__( 'Enter your Bluesky DID to restore the connection.', 'fosse' ),
+				'error'
+			);
+			return;
+		}
+
+		// Strict DID syntax: did:plc with a 24-char base32-ish suffix (the
+		// canonical PLC identifier shape) or did:web with a DNS-style host.
+		// Anything outside these two methods isn't supported by the resolver
+		// downstream, so rejecting here gives a clearer error than letting
+		// resolve_did() fall through to "Unsupported DID method".
+		if ( ! preg_match( '/^did:plc:[a-z0-9]{24}$/', $did )
+			&& ! preg_match( '/^did:web:[a-z0-9.-]+$/', $did )
+		) {
+			$this->redirect_with_notice(
+				__( 'That doesn\'t look like a valid AT Protocol DID. It should start with did:plc: or did:web:.', 'fosse' ),
+				'error'
+			);
+			return;
+		}
+
+		if ( ! class_exists( '\Atmosphere\OAuth\Resolver' )
+			|| ! method_exists( '\Atmosphere\OAuth\Resolver', 'resolve_did' )
+			|| ! method_exists( '\Atmosphere\OAuth\Resolver', 'pds_from_did_doc' )
+		) {
+			$this->redirect_with_notice(
+				__( 'Identity recovery is unavailable: the bundled Atmosphere is missing the resolver API.', 'fosse' ),
+				'error'
+			);
+			return;
+		}
+
+		$did_doc = \Atmosphere\OAuth\Resolver::resolve_did( $did );
+		if ( is_wp_error( $did_doc ) ) {
+			$this->redirect_with_notice(
+				sprintf(
+					/* translators: %s: upstream error message from DID document lookup. */
+					__( 'Could not fetch the DID document: %s', 'fosse' ),
+					$did_doc->get_error_message()
+				),
+				'error'
+			);
+			return;
+		}
+
+		$site_host = wp_parse_url( home_url(), PHP_URL_HOST );
+		if ( ! is_string( $site_host ) || '' === $site_host ) {
+			$this->redirect_with_notice(
+				__( 'Could not determine this site\'s hostname. Check the WordPress Address (URL) in Settings → General.', 'fosse' ),
+				'error'
+			);
+			return;
+		}
+		$site_host = strtolower( $site_host );
+
+		$expected_aka = 'at://' . $site_host;
+		$also_known   = array();
+		if ( isset( $did_doc['alsoKnownAs'] ) && is_array( $did_doc['alsoKnownAs'] ) ) {
+			foreach ( $did_doc['alsoKnownAs'] as $aka ) {
+				if ( is_string( $aka ) ) {
+					$also_known[] = strtolower( $aka );
+				}
+			}
+		}
+
+		if ( ! in_array( $expected_aka, $also_known, true ) ) {
+			$listed = empty( $also_known )
+				? __( '(none)', 'fosse' )
+				: implode( ', ', array_slice( $also_known, 0, 3 ) );
+			$this->redirect_with_notice(
+				sprintf(
+					/* translators: 1: WordPress site host (e.g. example.com); 2: comma-separated list of at:// handles the DID document actually lists. */
+					__( 'This DID does not list %1$s as one of its handles (its document claims: %2$s). FOSSE only restores identity for a DID whose document lists this site.', 'fosse' ),
+					$site_host,
+					$listed
+				),
+				'error'
+			);
+			return;
+		}
+
+		$pds = \Atmosphere\OAuth\Resolver::pds_from_did_doc( $did_doc );
+		if ( is_wp_error( $pds ) ) {
+			$this->redirect_with_notice(
+				sprintf(
+					/* translators: %s: upstream error message from PDS extraction. */
+					__( 'Could not find a PDS endpoint in the DID document: %s', 'fosse' ),
+					$pds->get_error_message()
+				),
+				'error'
+			);
+			return;
+		}
+
+		// autoload=true matches Atmosphere\get_identity()'s lazy-migration write
+		// so subsequent get_option() calls hit the autoloaded cache rather than
+		// re-fetching from the options table.
+		update_option(
+			'atmosphere_identity',
+			array(
+				'did'          => $did,
+				'handle'       => $site_host,
+				'pds_endpoint' => $pds,
+			),
+			true
+		);
+
+		$this->redirect_with_notice(
+			sprintf(
+				/* translators: %s: site host the user can now reconnect with (e.g. example.com). */
+				__( 'Restored Bluesky identity. You can now reconnect using %s as your handle.', 'fosse' ),
+				$site_host
+			),
+			'success'
+		);
 	}
 
 	/**
