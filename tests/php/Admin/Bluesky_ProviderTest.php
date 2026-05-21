@@ -851,122 +851,6 @@ class Bluesky_ProviderTest extends BaseTestCase {
 	}
 
 	/**
-	 * The well-known route helper ignores unrelated request paths.
-	 */
-	public function test_atproto_did_well_known_response_ignores_other_paths() {
-		$this->assertNull( $this->get_atproto_did_well_known_response( '/about' ) );
-	}
-
-	/**
-	 * The well-known route helper returns the connected DID as plain response data.
-	 */
-	public function test_atproto_did_well_known_response_returns_connected_did() {
-		update_option(
-			'atmosphere_connection',
-			array(
-				'did'          => 'did:plc:test123',
-				'handle'       => 'alice.bsky.social',
-				'pds_endpoint' => 'https://bsky.social',
-				'access_token' => Encryption::encrypt( 'token' ),
-			)
-		);
-
-		$this->assertSame(
-			array(
-				'status' => 200,
-				'did'    => 'did:plc:test123',
-			),
-			$this->get_atproto_did_well_known_response( '/.well-known/atproto-did?ignored=1' )
-		);
-	}
-
-	/**
-	 * A stored DID is not enough to serve the well-known route without a connection.
-	 */
-	public function test_atproto_did_well_known_response_requires_connected_atmosphere() {
-		update_option(
-			'atmosphere_connection',
-			array(
-				'did'    => 'did:plc:test123',
-				'handle' => 'alice.bsky.social',
-			)
-		);
-
-		$this->assertSame(
-			array(
-				'status' => 404,
-				'did'    => '',
-			),
-			$this->get_atproto_did_well_known_response( '/.well-known/atproto-did' )
-		);
-	}
-
-	/**
-	 * The FOSSE opt-out filter prevents FOSSE from serving the well-known route.
-	 */
-	public function test_atproto_did_well_known_response_respects_opt_out_filter() {
-		update_option(
-			'atmosphere_connection',
-			array(
-				'did'          => 'did:plc:test123',
-				'handle'       => 'alice.bsky.social',
-				'pds_endpoint' => 'https://bsky.social',
-				'access_token' => Encryption::encrypt( 'token' ),
-			)
-		);
-
-		add_filter( 'fosse_serve_atproto_did_well_known', '__return_false' );
-
-		$this->assertNull( $this->get_atproto_did_well_known_response( '/.well-known/atproto-did' ) );
-	}
-
-	/**
-	 * A stored DID that doesn't match AT Proto syntax is rejected with a 404.
-	 */
-	public function test_atproto_did_well_known_response_rejects_malformed_did() {
-		update_option(
-			'atmosphere_connection',
-			array(
-				'did'          => "did:plc:abc\n<script>alert(1)</script>",
-				'handle'       => 'alice.bsky.social',
-				'pds_endpoint' => 'https://bsky.social',
-				'access_token' => Encryption::encrypt( 'token' ),
-			)
-		);
-
-		$this->assertSame(
-			array(
-				'status' => 404,
-				'did'    => '',
-			),
-			$this->get_atproto_did_well_known_response( '/.well-known/atproto-did' )
-		);
-	}
-
-	/**
-	 * A stored DID with a single trailing newline is rejected (PHP's $ would have allowed it).
-	 */
-	public function test_atproto_did_well_known_response_rejects_did_with_trailing_newline() {
-		update_option(
-			'atmosphere_connection',
-			array(
-				'did'          => "did:plc:test123\n",
-				'handle'       => 'alice.bsky.social',
-				'pds_endpoint' => 'https://bsky.social',
-				'access_token' => Encryption::encrypt( 'token' ),
-			)
-		);
-
-		$this->assertSame(
-			array(
-				'status' => 404,
-				'did'    => '',
-			),
-			$this->get_atproto_did_well_known_response( '/.well-known/atproto-did' )
-		);
-	}
-
-	/**
 	 * The suppression hook is a no-op for unrelated atmosphere_wellknown query vars.
 	 */
 	public function test_maybe_suppress_atmosphere_well_known_no_op_for_other_query_vars() {
@@ -1849,7 +1733,6 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		$this->assertNotFalse( has_action( 'admin_post_fosse_enable_bluesky_auto_publish', array( $this->provider, 'handle_enable_auto_publish' ) ) );
 		$this->assertNotFalse( has_action( 'admin_init', array( $this->provider, 'handle_oauth_callback' ) ) );
 		$this->assertNotFalse( has_action( 'admin_notices', array( $this->provider, 'maybe_render_auto_publish_disabled_notice' ) ) );
-		$this->assertSame( 1, has_action( 'init', array( $this->provider, 'serve_atproto_did_well_known' ) ) );
 		$this->assertSame( 1, has_action( 'template_redirect', array( $this->provider, 'maybe_suppress_atmosphere_well_known' ) ) );
 		$this->assertNotFalse( has_filter( 'atmosphere_oauth_redirect_uri', array( $this->provider, 'filter_oauth_redirect_uri' ) ) );
 	}
@@ -2139,17 +2022,6 @@ class Bluesky_ProviderTest extends BaseTestCase {
 				'Subscriber must not be able to flip the option.'
 			);
 		}
-	}
-
-	/**
-	 * Invoke the private well-known response helper via reflection.
-	 *
-	 * @param string $request_uri Request URI.
-	 * @return array{status:int,did:string}|null
-	 */
-	private function get_atproto_did_well_known_response( string $request_uri ): ?array {
-		$method = new ReflectionMethod( Bluesky_Provider::class, 'get_atproto_did_well_known_response' );
-		return $method->invoke( $this->provider, $request_uri );
 	}
 
 	/**

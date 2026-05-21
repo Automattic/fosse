@@ -14,7 +14,7 @@ Task 1 is implemented on this branch: `/.well-known/atproto-did` is served from 
 - **Decision**: When Bluesky is connected, FOSSE serves `/.well-known/atproto-did` automatically. A `fosse_serve_atproto_did_well_known` filter (default `true`) lets users disable it.
 - **Reason**: The whole point of this feature is to make the verification step disappear for the common case. Most WordPress sites don't have anything else competing for `.well-known/atproto-did`. The filter exists for the edge cases (managed hosts that intercept `.well-known`, sites running multiple ATProto identities, etc.) so users have an out without us needing a settings toggle.
 
-### FOSSE re-serves a route Atmosphere also serves
+### FOSSE re-serves a route Atmosphere also serves (superseded — see deviations below)
 - **Decision**: FOSSE serves the well-known response itself and suppresses Atmosphere's handler when `fosse_serve_atproto_did_well_known` returns false.
 - **Reason**: FOSSE owns the unified setup experience and its opt-out filter must mean "FOSSE will not serve this route, and the bundled fallback will not silently serve it either." This behavior is FOSSE-shaped, so it stays out of `bundled/`. A generic upstream Atmosphere opt-out hook can replace the suppression shim later if it becomes useful outside FOSSE.
 
@@ -45,6 +45,10 @@ The implementation that actually shipped (Automattic/fosse#97 and follow-ups on 
 ### Prerequisite: PR 115 brought the `identity:handle` OAuth scope upstream
 - **Decision**: This branch depends on `bundled/wordpress-atmosphere/` already declaring `identity:handle` in its requested OAuth scopes. PR 115 (bundled plugin sync) merged in upstream wordpress-atmosphere PR #53 which added the scope; without that prerequisite, the `updateHandle` call would 401 even though FOSSE's code path is correct.
 - **Reason**: The OAuth client is bundled, not vendored. Scope changes flow through wordpress-atmosphere, then into FOSSE via the bundled-mirror sync. This dependency is invisible at the FOSSE call site, so it's worth documenting.
+
+### Well-known route delegated to Atmosphere (issue #169)
+- **Decision**: FOSSE no longer serves `/.well-known/atproto-did` itself. Atmosphere's `serve_wellknown_atproto_did()` owns the route end-to-end; FOSSE only retains a `template_redirect` priority-1 suppression hook that fires when the `fosse_serve_atproto_did_well_known` filter returns false (clearing Atmosphere's query var and forcing a 404 so the opt-out contract still means "neither plugin responds").
+- **Reason**: The duplicated handler kept silently drifting from Atmosphere's identity contract (the original `is_connected()` gate broke domain-handle reconnect; PR 166 fixed it by mirroring `has_identity()`). Atmosphere's bundled handler already gates on `has_identity()`, validates the DID via `get_did()`, and emits the same `text/plain` body — there's no FOSSE-specific shape worth maintaining a parallel implementation for. See issue #169.
 
 ### Snapshot-and-revert on disconnect (`OPTION_PREVIOUS_HANDLE`)
 - **Decision**: When `set_handle()` succeeds, FOSSE snapshots the previous handle to `OPTION_PREVIOUS_HANDLE`, keyed by the connected DID. On disconnect, `Bluesky_Domain_Handle::maybe_revert_on_disconnect()` runs BEFORE Atmosphere's OAuth revoke (so the access token is still valid) and restores the snapshotted handle when the snapshot's DID matches the currently-connected DID.
