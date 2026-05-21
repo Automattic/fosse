@@ -1934,7 +1934,7 @@ class Onboarding_WizardTest extends BaseTestCase {
 		$this->assertStringContainsString( 'Publish your first Post', $output );
 		$this->assertStringContainsString( 'What happens next', $output );
 		$this->assertStringContainsString( 'Publish in WordPress as usual.', $output );
-		$this->assertStringContainsString( 'FOSSE shares eligible new public content automatically.', $output );
+		$this->assertStringContainsString( 'FOSSE shares eligible new public content to the fediverse automatically. Connect Bluesky later to share there too.', $output );
 		$this->assertStringContainsString( 'People follow your fediverse address to receive updates.', $output );
 		$this->assertStringNotContainsString( 'There is no separate fediverse publish button.', $output );
 		$this->assertMatchesRegularExpression(
@@ -1970,6 +1970,7 @@ class Onboarding_WizardTest extends BaseTestCase {
 		$output = $this->render_wizard_step( 'complete' );
 
 		$this->assertStringContainsString( 'Bluesky sharing is ready too.', $output );
+		$this->assertStringContainsString( 'FOSSE shares eligible new public content to the fediverse and Bluesky automatically.', $output );
 		$this->assertStringNotContainsString( 'Your post can reach people on Fediverse apps like Mastodon', $output );
 	}
 
@@ -1986,7 +1987,23 @@ class Onboarding_WizardTest extends BaseTestCase {
 		$output = $this->render_wizard_step( 'complete' );
 
 		$this->assertStringContainsString( 'automatic sharing is off.', $output );
+		$this->assertStringContainsString( 'FOSSE shares eligible new public content to the fediverse automatically. Bluesky is connected, but automatic sharing is off.', $output );
 		$this->assertStringNotContainsString( 'Your post can reach people on Fediverse apps like Mastodon', $output );
+	}
+
+	/**
+	 * The next-steps checklist stays simpler when the user selected
+	 * Fediverse-only and has no connected Bluesky account.
+	 */
+	public function test_render_complete_step_next_steps_stay_fediverse_only_without_bluesky(): void {
+		Onboarding_Wizard::mark_complete();
+		update_option( Onboarding_Wizard::DESTINATION_OPTION, 'fediverse_only' );
+
+		$output = $this->render_wizard_step( 'complete' );
+
+		$this->assertStringContainsString( 'FOSSE shares eligible new public content automatically.', $output );
+		$this->assertStringNotContainsString( 'Connect Bluesky later to share there too.', $output );
+		$this->assertStringNotContainsString( 'to the fediverse and Bluesky automatically.', $output );
 	}
 
 	/**

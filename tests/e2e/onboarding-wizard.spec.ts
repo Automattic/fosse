@@ -556,7 +556,7 @@ test( 'Completion step exposes "Publish your first Post" CTA to post-new.php', a
 	).toBeVisible();
 	await expect(
 		page.getByText(
-			'FOSSE shares eligible new public content automatically.'
+			'FOSSE shares eligible new public content to the fediverse automatically. Connect Bluesky later to share there too.'
 		)
 	).toBeVisible();
 	await expect(
