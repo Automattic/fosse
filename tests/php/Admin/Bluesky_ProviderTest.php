@@ -3279,7 +3279,7 @@ class Bluesky_ProviderTest extends BaseTestCase {
 	 * .well-known/atproto-did route starts serving again.
 	 */
 	public function test_handle_restore_identity_writes_atmosphere_identity(): void {
-		add_filter( 'home_url', static fn() => 'https://example.com', 10, 1 );
+		add_filter( 'home_url', static fn( $url ) => 'https://example.com', 10, 1 ); // phpcs:ignore VariableAnalysis.CodeAnalysis.VariableAnalysis.UnusedVariable -- filter signature requires the URL arg even though we always return the override.
 
 		$body = (string) wp_json_encode(
 			array(
@@ -3401,7 +3401,7 @@ class Bluesky_ProviderTest extends BaseTestCase {
 	 * would start serving a DID that doesn't actually belong to this site.
 	 */
 	public function test_handle_restore_identity_rejects_did_with_mismatched_aka(): void {
-		add_filter( 'home_url', static fn() => 'https://example.com', 10, 1 );
+		add_filter( 'home_url', static fn( $url ) => 'https://example.com', 10, 1 ); // phpcs:ignore VariableAnalysis.CodeAnalysis.VariableAnalysis.UnusedVariable -- filter signature requires the URL arg even though we always return the override.
 
 		$body = (string) wp_json_encode(
 			array(
@@ -3463,6 +3463,146 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		$errors = get_settings_errors( 'atmosphere' );
 		$types  = wp_list_pluck( $errors, 'type' );
 		$this->assertContains( 'error', $types );
+	}
+
+	/**
+	 * Restore identity: a successful DID-doc fetch followed by an option
+	 * write that gets reverted by a hostile filter must surface an error,
+	 * not a cheerful success. update_option's return value is ambiguous
+	 * (false means either "DB failure" or "value didn't change"), so the
+	 * handler re-reads the option and verifies the DID landed before
+	 * declaring victory.
+	 */
+	public function test_handle_restore_identity_surfaces_persist_failure(): void {
+		add_filter( 'home_url', static fn( $url ) => 'https://example.com', 10, 1 ); // phpcs:ignore VariableAnalysis.CodeAnalysis.VariableAnalysis.UnusedVariable -- filter signature requires the URL arg.
+
+		$body = (string) wp_json_encode(
+			array(
+				'id'          => 'did:plc:abcdefghij1234567890wxyz',
+				'alsoKnownAs' => array( 'at://example.com' ),
+				'service'     => array(
+					array(
+						'id'              => '#atproto_pds',
+						'type'            => 'AtprotoPersonalDataServer',
+						'serviceEndpoint' => 'https://pds.example.com',
+					),
+				),
+			),
+			JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT
+		);
+		add_filter(
+			'pre_http_request',
+			static function ( $preempt, $parsed_args, $url ) use ( $body ) { // phpcs:ignore VariableAnalysis.CodeAnalysis.VariableAnalysis.UnusedVariable -- pre_http_request signature.
+				if ( false === strpos( (string) $url, 'plc.directory/did:plc:abcdefghij1234567890wxyz' ) ) {
+					return $preempt;
+				}
+				return array(
+					'response' => array( 'code' => 200 ),
+					'body'     => $body,
+				);
+			},
+			10,
+			3
+		);
+
+		// Pin the option to a sentinel that won't match the DID we're
+		// trying to write. Simulates either a DB write failure or a
+		// hostile filter overriding the option.
+		add_filter(
+			'pre_option_atmosphere_identity',
+			static fn() => array( 'did' => 'did:plc:different0000000000wxyz' )
+		);
+
+		$this->become_admin();
+
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
+		$_POST    = array(
+			'_wpnonce'    => wp_create_nonce( 'fosse_restore_bluesky_identity' ),
+			'bluesky_did' => 'did:plc:abcdefghij1234567890wxyz',
+		);
+		$_REQUEST = $_POST;
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+
+		add_filter(
+			'wp_redirect',
+			static function () {
+				throw new RedirectFired( 'redirect' );
+			}
+		);
+
+		try {
+			$this->provider->handle_restore_identity();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$errors = get_settings_errors( 'atmosphere' );
+		$types  = wp_list_pluck( $errors, 'type' );
+		$this->assertContains( 'error', $types, 'Handler must surface an error when the option write does not persist.' );
+		$this->assertNotContains( 'success', $types, 'Handler must NOT tell the admin recovery succeeded if the option write failed.' );
+	}
+
+	/**
+	 * Recovery panel visibility: render_connection_actions surfaces the
+	 * "Restore from DID" disclosure ONLY when there's no persisted
+	 * identity. A site with a healthy connection or a previously-set
+	 * identity (reauth-needed but identity intact) must not see the
+	 * panel — it would be confusing noise on screens where the normal
+	 * Connect path already works.
+	 */
+	public function test_render_connection_actions_shows_recovery_panel_when_identity_missing(): void {
+		// Disconnected AND no identity — the stuck state the panel targets.
+		delete_option( 'atmosphere_connection' );
+		delete_option( 'atmosphere_identity' );
+
+		$this->become_admin();
+
+		ob_start();
+		$this->provider->render_connection_actions();
+		$html = (string) ob_get_clean();
+
+		$this->assertStringContainsString(
+			'fosse-identity-recovery',
+			$html,
+			'Recovery panel must render on the disconnected state when has_identity() is false.'
+		);
+		$this->assertStringContainsString(
+			'fosse_restore_bluesky_identity',
+			$html,
+			'Recovery panel form must wire to the fosse_restore_bluesky_identity admin-post action.'
+		);
+	}
+
+	/**
+	 * Recovery panel visibility: suppressed when an identity is on file,
+	 * even though the connection is gone. This is the reauth-needed state
+	 * — identity is intact, the user just needs to reconnect. Showing the
+	 * recovery panel there would offer a confusing second path for a
+	 * problem the normal Connect button already solves.
+	 */
+	public function test_render_connection_actions_hides_recovery_panel_when_identity_present(): void {
+		delete_option( 'atmosphere_connection' );
+		update_option(
+			'atmosphere_identity',
+			array(
+				'did'          => 'did:plc:abcdefghij1234567890wxyz',
+				'handle'       => 'example.com',
+				'pds_endpoint' => 'https://pds.example.com',
+			),
+			true
+		);
+
+		$this->become_admin();
+
+		ob_start();
+		$this->provider->render_connection_actions();
+		$html = (string) ob_get_clean();
+
+		$this->assertStringNotContainsString(
+			'fosse-identity-recovery',
+			$html,
+			'Recovery panel must NOT render when has_identity() is true — Connect handles the reauth case.'
+		);
 	}
 
 	/**

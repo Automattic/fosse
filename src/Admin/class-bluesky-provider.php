@@ -1248,15 +1248,28 @@ class Bluesky_Provider implements Connection_Provider {
 		// autoload=true matches Atmosphere\get_identity()'s lazy-migration write
 		// so subsequent get_option() calls hit the autoloaded cache rather than
 		// re-fetching from the options table.
-		update_option(
-			'atmosphere_identity',
-			array(
-				'did'          => $did,
-				'handle'       => $site_host,
-				'pds_endpoint' => $pds,
-			),
-			true
+		$identity = array(
+			'did'          => $did,
+			'handle'       => $site_host,
+			'pds_endpoint' => $pds,
 		);
+		update_option( 'atmosphere_identity', $identity, true );
+
+		// `update_option()` returns false both on DB write failure AND on
+		// "value didn't change" (e.g. a hostile filter pinning the option,
+		// or a stale autoloaded row that matches), so the return value
+		// alone isn't a reliable success signal. Re-read the option and
+		// verify the DID landed — if it didn't, surface the failure
+		// instead of cheerfully telling the admin recovery succeeded
+		// while the well-known route stays dark.
+		$persisted = get_option( 'atmosphere_identity', array() );
+		if ( ! is_array( $persisted ) || ( $persisted['did'] ?? '' ) !== $did ) {
+			$this->redirect_with_notice(
+				__( 'Could not persist the restored Bluesky identity. The option write failed or was overridden by a filter. Check database write access and try again.', 'fosse' ),
+				'error'
+			);
+			return;
+		}
 
 		$this->redirect_with_notice(
 			sprintf(
