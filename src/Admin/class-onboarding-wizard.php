@@ -1724,17 +1724,7 @@ class Onboarding_Wizard {
 			$bluesky_summary = $includes_bluesky ? __( 'Not connected', 'fosse' ) : __( 'Skipped', 'fosse' );
 		}
 
-		$cta = self::resolve_publish_cta( $post_types );
-		if ( $publishes_bluesky ) {
-			$cta_help = __( 'Bluesky sharing is ready too.', 'fosse' );
-		} elseif ( $bluesky['connected'] ) {
-			$cta_help = __( 'Bluesky is connected, but automatic sharing is off.', 'fosse' );
-		} elseif ( $includes_bluesky ) {
-			$cta_help = __( 'Connect Bluesky to share there too.', 'fosse' );
-		} else {
-			$cta_help = '';
-		}
-
+		$cta                   = self::resolve_publish_cta( $post_types );
 		$next_steps_publishing = self::get_next_steps_publishing_copy( $bluesky, $publishes_bluesky );
 
 		?>
@@ -1746,11 +1736,7 @@ class Onboarding_Wizard {
 				<div class="fosse-wizard__complete-message">
 					<h1 class="fosse-wizard__title"><?php esc_html_e( 'You\'re all set!', 'fosse' ); ?></h1>
 					<p class="fosse-wizard__description">
-						<strong><?php esc_html_e( 'Your sharing setup is ready.', 'fosse' ); ?></strong>
-						<?php esc_html_e( 'Review it below, then publish from WordPress when you are ready.', 'fosse' ); ?>
-						<?php if ( '' !== $cta_help ) : ?>
-							<span class="fosse-wizard__cta-help"><?php echo esc_html( $cta_help ); ?></span>
-						<?php endif; ?>
+						<?php esc_html_e( 'Review your setup below, then publish from WordPress when you are ready.', 'fosse' ); ?>
 					</p>
 				</div>
 			</div>

@@ -1946,16 +1946,18 @@ class Onboarding_WizardTest extends BaseTestCase {
 	}
 
 	/**
-	 * The publish CTA's helper paragraph reflects the selected destinations
-	 * when Bluesky has not been connected yet.
+	 * The completion header stays concise and leaves destination-specific
+	 * status to the summary rows and next-steps checklist.
 	 */
-	public function test_render_complete_step_cta_uses_destination_specific_language(): void {
+	public function test_render_complete_step_header_stays_concise(): void {
 		Onboarding_Wizard::mark_complete();
 
 		$output = $this->render_wizard_step( 'complete' );
 
-		$this->assertStringContainsString( 'Your sharing setup is ready.', $output );
-		$this->assertStringContainsString( 'Connect Bluesky to share there too.', $output );
+		$this->assertStringContainsString( 'Review your setup below, then publish from WordPress when you are ready.', $output );
+		$this->assertStringNotContainsString( 'Your sharing setup is ready.', $output );
+		$this->assertStringNotContainsString( 'Connect Bluesky to share there too.', $output );
+		$this->assertStringNotContainsString( 'Bluesky sharing is ready too.', $output );
 		$this->assertStringNotContainsString( 'Your post can reach people on Fediverse apps like Mastodon.', $output );
 	}
 
@@ -1970,8 +1972,8 @@ class Onboarding_WizardTest extends BaseTestCase {
 
 		$output = $this->render_wizard_step( 'complete' );
 
-		$this->assertStringContainsString( 'Bluesky sharing is ready too.', $output );
 		$this->assertStringContainsString( 'FOSSE shares eligible new public content to the fediverse and Bluesky automatically.', $output );
+		$this->assertStringNotContainsString( 'Bluesky sharing is ready too.', $output );
 		$this->assertStringNotContainsString( 'Your post can reach people on Fediverse apps like Mastodon', $output );
 	}
 

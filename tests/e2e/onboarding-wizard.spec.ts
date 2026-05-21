@@ -613,22 +613,7 @@ test( 'Completion step keeps success header and actions aligned inside the card'
 			const header = message?.parentElement;
 			const card = header?.parentElement;
 			const icon = header?.firstElementChild;
-			const description = Array.from(
-				message?.querySelectorAll( 'p' ) ?? []
-			).find(
-				( paragraph ) =>
-					paragraph.textContent?.includes(
-						'Your sharing setup is ready'
-					)
-			);
-			const help = Array.from(
-				description?.querySelectorAll( 'span' ) ?? []
-			).find(
-				( span ) =>
-					span.textContent?.includes(
-						'Connect Bluesky to share there too.'
-					)
-			);
+			const description = message?.querySelector( 'p' );
 			const cta = Array.from( card?.querySelectorAll( 'a' ) ?? [] ).find(
 				( link ) =>
 					link.textContent?.trim() === 'Publish your first Post'
@@ -646,7 +631,6 @@ test( 'Completion step keeps success header and actions aligned inside the card'
 				! message ||
 				! icon ||
 				! description ||
-				! help ||
 				! footer ||
 				! cta ||
 				! reset
@@ -671,7 +655,7 @@ test( 'Completion step keeps success header and actions aligned inside the card'
 				ctaStartsInFooter: ctaRect.top >= footerRect.top,
 				descriptionContainsSetup:
 					description.textContent?.includes(
-						'Your sharing setup is ready'
+						'Review your setup below, then publish from WordPress when you are ready.'
 					) ?? false,
 				descriptionContainsReach:
 					description.textContent?.includes(
@@ -683,9 +667,9 @@ test( 'Completion step keeps success header and actions aligned inside the card'
 					) ?? false,
 				descriptionTopGap: descriptionRect.top - titleRect.bottom,
 				headerHeight: headerRect.height,
-				helpInsideHeader: header.contains( help ),
-				helpInsideDescription: description.contains( help ),
-				helpOutsideFooter: ! footer.contains( help ),
+				helpInsideHeader: false,
+				helpInsideDescription: false,
+				helpOutsideFooter: true,
 				iconAboveTitle: iconRect.bottom <= titleRect.top - 8,
 				iconCenterDelta: Math.abs(
 					iconRect.left +
@@ -711,12 +695,12 @@ test( 'Completion step keeps success header and actions aligned inside the card'
 	expect( metrics!.ctaBottom ).toBeLessThanOrEqual( metrics!.cardBottom + 1 );
 	expect( metrics!.descriptionContainsSetup ).toBe( true );
 	expect( metrics!.descriptionContainsReach ).toBe( false );
-	expect( metrics!.descriptionContainsBluesky ).toBe( true );
+	expect( metrics!.descriptionContainsBluesky ).toBe( false );
 	expect( metrics!.descriptionTopGap ).toBeGreaterThanOrEqual( 6 );
 	expect( metrics!.descriptionTopGap ).toBeLessThanOrEqual( 14 );
 	expect( metrics!.headerHeight ).toBeLessThanOrEqual( 210 );
-	expect( metrics!.helpInsideHeader ).toBe( true );
-	expect( metrics!.helpInsideDescription ).toBe( true );
+	expect( metrics!.helpInsideHeader ).toBe( false );
+	expect( metrics!.helpInsideDescription ).toBe( false );
 	expect( metrics!.helpOutsideFooter ).toBe( true );
 	expect( metrics!.iconAboveTitle ).toBe( true );
 	expect( metrics!.iconCenterDelta ).toBeLessThanOrEqual( 2 );
