@@ -886,6 +886,61 @@ class Bluesky_ProviderTest extends BaseTestCase {
 	}
 
 	/**
+	 * Tripwire: Atmosphere's bundled well-known handler must stay hooked at
+	 * `template_redirect` priority > 1.
+	 *
+	 * FOSSE's suppression hook runs at priority 1 and clears
+	 * `atmosphere_wellknown` before Atmosphere's handler reads it. If a
+	 * future bundled resync moves the handler to priority 0 or 1 (or
+	 * removes it entirely), the opt-out contract silently breaks and the
+	 * existing direct-call suppression tests stay green. Catch the drift
+	 * at the registration layer instead.
+	 */
+	public function test_atmosphere_serves_wellknown_after_fosse_suppression_priority() {
+		// `plugins_loaded` may not have fired in WorDBless's minimal boot;
+		// run it now so Atmosphere's `init()` registers its hooks.
+		do_action( 'plugins_loaded' );
+
+		global $wp_filter;
+		$this->assertArrayHasKey(
+			'template_redirect',
+			$wp_filter,
+			'No template_redirect callbacks registered — Atmosphere did not boot in this test context.'
+		);
+
+		$atmosphere_priority = null;
+		foreach ( $wp_filter['template_redirect']->callbacks as $priority => $callbacks ) {
+			foreach ( $callbacks as $info ) {
+				$cb = $info['function'];
+				if (
+					is_array( $cb )
+					&& isset( $cb[0] )
+					&& isset( $cb[1] )
+					&& is_object( $cb[0] )
+					&& 'Atmosphere\\Atmosphere' === get_class( $cb[0] )
+					&& 'serve_wellknown_atproto_did' === $cb[1]
+				) {
+					$atmosphere_priority = $priority;
+					break 2;
+				}
+			}
+		}
+
+		$this->assertNotNull(
+			$atmosphere_priority,
+			'Atmosphere\\Atmosphere::serve_wellknown_atproto_did is not hooked on template_redirect. '
+				. 'FOSSE delegates the well-known route to Atmosphere; if the handler moved or was renamed in a bundled resync, '
+				. '/.well-known/atproto-did will silently 404.'
+		);
+		$this->assertGreaterThan(
+			1,
+			$atmosphere_priority,
+			'Atmosphere\\Atmosphere::serve_wellknown_atproto_did is hooked at template_redirect priority ' . $atmosphere_priority
+				. ' but FOSSE\'s suppression hook runs at priority 1. The opt-out filter will not work.'
+		);
+	}
+
+	/**
 	 * Opting out via filter clears Atmosphere's query var and forces a 404.
 	 */
 	public function test_maybe_suppress_atmosphere_well_known_clears_query_var_and_404s_when_opted_out() {
