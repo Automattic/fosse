@@ -923,7 +923,7 @@ class Bluesky_ProviderTest extends BaseTestCase {
 	 * without a live access token. Atmosphere lazily migrates this shape into
 	 * `atmosphere_identity`, and FOSSE should follow that source of truth.
 	 */
-	public function test_atproto_did_well_known_response_migrates_legacy_identity_without_live_connection() {
+	public function test_atproto_did_well_known_response_serves_did_from_legacy_connection_row() {
 		update_option(
 			'atmosphere_connection',
 			array(

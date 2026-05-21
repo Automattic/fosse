@@ -754,33 +754,22 @@ class Bluesky_Provider implements Connection_Provider {
 			return null;
 		}
 
-		$did = '';
-
-		if ( function_exists( '\Atmosphere\has_identity' ) && function_exists( '\Atmosphere\get_did' ) ) {
-			if ( ! \Atmosphere\has_identity() ) {
-				return array(
-					'status' => 404,
-					'did'    => '',
-				);
-			}
-
-			$did = \Atmosphere\get_did();
-		} elseif ( function_exists( '\Atmosphere\is_connected' ) && function_exists( '\Atmosphere\get_connection' ) ) {
-			if ( ! \Atmosphere\is_connected() ) {
-				return array(
-					'status' => 404,
-					'did'    => '',
-				);
-			}
-
-			$connection = \Atmosphere\get_connection();
-			$did        = isset( $connection['did'] ) ? (string) $connection['did'] : '';
-		} else {
-			// Atmosphere isn't loaded. That's a structural error, not a
-			// user-facing "no connection" state. Decline to handle so a
-			// normal 404 happens via WordPress's main request flow.
+		if ( ! function_exists( '\Atmosphere\has_identity' ) || ! function_exists( '\Atmosphere\get_did' ) ) {
+			// Atmosphere isn't loaded, or is too old to expose the persisted
+			// identity contract. That's a structural error, not a user-facing
+			// "no connection" state. Decline to handle so a normal 404 happens
+			// via WordPress's main request flow.
 			return null;
 		}
+
+		if ( ! \Atmosphere\has_identity() ) {
+			return array(
+				'status' => 404,
+				'did'    => '',
+			);
+		}
+
+		$did = \Atmosphere\get_did();
 
 		// Validate the DID against AT Proto syntax before promising to serve it.
 		// The response is plain text and a malformed value (newlines, control chars,
