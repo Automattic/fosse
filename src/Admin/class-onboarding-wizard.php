@@ -705,10 +705,9 @@ class Onboarding_Wizard {
 	 * actor unavailable) — never shows an `@` with no local-part.
 	 *
 	 * Returns an HTML string. Single-identity branches inline the handle
-	 * after a space; the multi-identity `actor_blog` branch separates
-	 * label and handle with `<br />` and joins lines with `<br />`. The
-	 * consumer escapes via `wp_kses` with `code` (allowing the `class`
-	 * attribute that the token markup carries), `br`, and `wbr` allowed.
+	 * after a space; the multi-identity `actor_blog` branch uses structured
+	 * rows so labels and handles can sit inline on wide screens and stack on
+	 * narrow screens. The consumer escapes via `wp_kses`.
 	 *
 	 * @param string $mode        Actor mode value.
 	 * @param string $user_handle Normalized `@user@host` for the current user, or empty.
@@ -734,19 +733,43 @@ class Onboarding_Wizard {
 					. ' ' . self::format_complete_identity_token( $site_host ? $site_host : 'yoursite.com', 'host' );
 
 			case 'actor_blog':
-				$lines = array( esc_html__( 'Both (site + authors)', 'fosse' ) );
+				$lines = array(
+					sprintf(
+						'<span class="fosse-complete-identity__mode">%s</span>',
+						esc_html__( 'Both (site + authors)', 'fosse' )
+					),
+				);
 				if ( '' !== $user_handle ) {
-					$lines[] = esc_html__( 'As you:', 'fosse' )
-						. '<br />' . self::format_complete_identity_token( $user_handle, 'ap-address' );
+					$lines[] = self::format_complete_identity_row(
+						esc_html__( 'As you:', 'fosse' ),
+						self::format_complete_identity_token( $user_handle, 'ap-address' )
+					);
 				}
 				if ( '' !== $blog_handle ) {
-					$lines[] = esc_html__( 'As your site:', 'fosse' )
-						. '<br />' . self::format_complete_identity_token( $blog_handle, 'ap-address' );
+					$lines[] = self::format_complete_identity_row(
+						esc_html__( 'As your site:', 'fosse' ),
+						self::format_complete_identity_token( $blog_handle, 'ap-address' )
+					);
 				}
-				return implode( '<br />', $lines );
+				return '<span class="fosse-complete-identity">' . implode( '', $lines ) . '</span>';
 		}
 
 		return esc_html( $mode );
+	}
+
+	/**
+	 * Format a multi-identity completion row.
+	 *
+	 * @param string $label Label text.
+	 * @param string $token Token HTML.
+	 * @return string
+	 */
+	private static function format_complete_identity_row( string $label, string $token ): string {
+		return sprintf(
+			'<span class="fosse-complete-identity__row"><span class="fosse-complete-identity__label">%1$s</span> %2$s</span>',
+			$label,
+			$token
+		);
 	}
 
 	/**
@@ -1755,6 +1778,9 @@ class Onboarding_Wizard {
 									'class' => array(),
 								),
 								'br'   => array(),
+								'span' => array(
+									'class' => array(),
+								),
 								'wbr'  => array(),
 							)
 						);

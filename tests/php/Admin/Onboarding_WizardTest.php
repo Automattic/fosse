@@ -1673,11 +1673,12 @@ class Onboarding_WizardTest extends BaseTestCase {
 		$this->assertStringContainsString( 'Both (site + authors)', $output );
 		$this->assertStringContainsString( 'As you:', $output );
 		$this->assertStringContainsString( 'As your site:', $output );
-		// Fediverse handle markup should be wrapped in token-styled <code>,
-		// with a `<br />` between the label and the handle so long handles
-		// don't wrap mid-token (#72).
-		$this->assertMatchesRegularExpression( '~As you:<br\s*/?>\s*<code class="fosse-token fosse-admin-token fosse-token--ap-address fosse-admin-token--ap-address">@[^<]+<wbr>@[^<]+(?:<wbr>[^<]+)*</code>~', $output );
-		$this->assertMatchesRegularExpression( '~As your site:<br\s*/?>\s*<code class="fosse-token fosse-admin-token fosse-token--ap-address fosse-admin-token--ap-address">@[^<]+<wbr>@[^<]+(?:<wbr>[^<]+)*</code>~', $output );
+		$this->assertStringContainsString( 'fosse-complete-identity', $output );
+		$this->assertStringContainsString( 'fosse-complete-identity__row', $output );
+		$this->assertMatchesRegularExpression( '~<span class="fosse-complete-identity__row">\s*<span class="fosse-complete-identity__label">As you:</span>\s*<code class="fosse-token fosse-admin-token fosse-token--ap-address fosse-admin-token--ap-address">@[^<]+<wbr>@[^<]+(?:<wbr>[^<]+)*</code>\s*</span>~', $output );
+		$this->assertMatchesRegularExpression( '~<span class="fosse-complete-identity__row">\s*<span class="fosse-complete-identity__label">As your site:</span>\s*<code class="fosse-token fosse-admin-token fosse-token--ap-address fosse-admin-token--ap-address">@[^<]+<wbr>@[^<]+(?:<wbr>[^<]+)*</code>\s*</span>~', $output );
+		$this->assertDoesNotMatchRegularExpression( '~As you:<br\s*/?>~', $output );
+		$this->assertDoesNotMatchRegularExpression( '~As your site:<br\s*/?>~', $output );
 	}
 
 	/**

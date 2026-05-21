@@ -730,6 +730,32 @@
 	font-weight: 400;
 }
 
+.fosse-complete-identity,
+.fosse-complete-identity__mode,
+.fosse-complete-identity__row {
+	display: block;
+}
+
+.fosse-complete-identity__mode {
+	margin-bottom: 6px;
+}
+
+.fosse-complete-identity__row {
+	display: flex;
+	align-items: baseline;
+	gap: 6px;
+	min-width: 0;
+	margin-top: 6px;
+}
+
+.fosse-complete-identity__label {
+	flex: 0 0 auto;
+}
+
+.fosse-complete-identity__row .fosse-token {
+	min-width: 0;
+}
+
 .fosse-detail-list__term:nth-last-child(2),
 .fosse-detail-list__term:nth-last-child(2) + .fosse-detail-list__description {
 	border-bottom: 0;
@@ -948,6 +974,12 @@
 
 	.fosse-detail-list__description {
 		padding-top: 0;
+	}
+
+	.fosse-complete-identity__row {
+		align-items: flex-start;
+		flex-direction: column;
+		gap: 4px;
 	}
 }
 

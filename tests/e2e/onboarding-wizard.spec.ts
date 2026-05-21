@@ -3,6 +3,7 @@ import {
 	expectNoHorizontalOverflow,
 	numericCssValueFor,
 	resetBlueskyState,
+	resetWizardIfComplete,
 	setBlueskyState,
 } from './test-helpers';
 
@@ -541,6 +542,52 @@ test( 'Completion step shows summary', async ( { page } ) => {
 	await expect(
 		page.locator( 'dt' ).filter( { hasText: /^Bluesky$/ } )
 	).toBeVisible();
+} );
+
+test( 'Completion summary keeps both fediverse handles inline on wide screens', async ( {
+	page,
+} ) => {
+	await page.setViewportSize( { width: 1440, height: 900 } );
+	await resetWizardIfComplete( page );
+	await selectDestination( page, 'Fediverse only' );
+
+	await page.getByText( 'Both', { exact: true } ).click();
+	await page.getByRole( 'button', { name: 'Continue' } ).click();
+	await expect( page ).toHaveURL( /step=content/ );
+
+	await page.getByRole( 'checkbox', { name: 'Posts' } ).check();
+	await page.getByRole( 'button', { name: 'Continue' } ).click();
+	await expect( page ).toHaveURL( /step=complete/ );
+
+	await expect( page.locator( '.fosse-complete-identity br' ) ).toHaveCount(
+		0
+	);
+	await expect( page.locator( '.fosse-complete-identity__row' ) ).toHaveCount(
+		2
+	);
+
+	const rowsInline = await page
+		.locator( '.fosse-complete-identity__row' )
+		.evaluateAll( ( rows ) =>
+			rows.map( ( row ) => {
+				const label = row.querySelector(
+					'.fosse-complete-identity__label'
+				);
+				const token = row.querySelector( 'code' );
+				if ( ! label || ! token ) {
+					return false;
+				}
+
+				const labelRect = label.getBoundingClientRect();
+				const tokenRect = token.getBoundingClientRect();
+				return (
+					tokenRect.left >= labelRect.right &&
+					Math.abs( tokenRect.top - labelRect.top ) <= 6
+				);
+			} )
+		);
+
+	expect( rowsInline ).toEqual( [ true, true ] );
 } );
 
 test( 'Completion step exposes "Publish your first Post" CTA to post-new.php', async ( {
