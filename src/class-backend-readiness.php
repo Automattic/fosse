@@ -32,16 +32,13 @@ namespace Automattic\Fosse;
  * Minimum-version policy:
  *
  *   `MIN_ACTIVITYPUB_VERSION` and `MIN_ATMOSPHERE_VERSION` point at the
- *   first upstream release that contains the surface FOSSE relies on. They
- *   are deliberately *ahead* of today's WordPress.org-released versions —
- *   FOSSE's `Blurhash` injector needs the `toot:blurhash` JSON-LD context
- *   term (upstream PR 3327) and `Photo_Post_Atmosphere` needs the
- *   `atmosphere_post_embed` filter (upstream PR 72), and neither is in a
- *   tagged release yet. See `audits/2026-05-20-backend-dependency-delta.md`.
- *
- *   When upstream cuts releases that contain those PRs, bump the
- *   constants to the real release numbers. The constants live here so the
- *   bump is a one-line change with no scattered version literals.
+ *   first upstream release that contains the surface FOSSE relies on.
+ *   `MIN_ATMOSPHERE_VERSION = '1.1.0'` matches a real released version;
+ *   `MIN_ACTIVITYPUB_VERSION` is a forward-pointer placeholder until
+ *   upstream cuts a release containing the `toot:blurhash` JSON-LD context
+ *   term FOSSE's `Blurhash` injector relies on (PR 3327). Bump the AP
+ *   constant to the real release number once that tag lands. See
+ *   `audits/2026-05-20-backend-dependency-delta.md`.
  */
 class Backend_Readiness {
 
@@ -58,11 +55,10 @@ class Backend_Readiness {
 	/**
 	 * Minimum Atmosphere version FOSSE supports as a standalone install.
 	 *
-	 * Placeholder until upstream cuts a release containing
-	 * https://github.com/Automattic/wordpress-atmosphere/pull/72
-	 * (the `atmosphere_post_embed` filter and `Post::upload_image_blob()`
-	 * helper). The current WordPress.org stable is `1.0.0`, which predates
-	 * that PR.
+	 * 1.1.0 is the first upstream release containing
+	 * https://github.com/Automattic/wordpress-atmosphere/pull/72 (the
+	 * `atmosphere_post_embed` filter and `Post::upload_image_blob()`
+	 * helper) that FOSSE's `Photo_Post_Atmosphere` projector relies on.
 	 */
 	public const MIN_ATMOSPHERE_VERSION = '1.1.0';
 

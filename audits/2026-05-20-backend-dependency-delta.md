@@ -10,8 +10,9 @@ and `wordpress-atmosphere` to the latest WordPress.org-released versions today,
 what would we lose? Can the dependency-header cutover (`Requires Plugins:
 activitypub, atmosphere`) ship now, or do we need to wait for upstream releases?
 
-Short answer: **wait**. Both bundles are ahead of their last WordPress.org
-release by changes FOSSE actively depends on.
+Short answer: **wait on ActivityPub**. Atmosphere has cut a 1.1.0 release that
+matches what FOSSE needs; ActivityPub's `toot:blurhash` JSON-LD context term
+is still only on trunk.
 
 ## What FOSSE ships on `trunk`
 
@@ -29,7 +30,7 @@ though their code is past it.)
 | Plugin      | Stable tag | Notes                                        |
 | ----------- | ---------- | -------------------------------------------- |
 | ActivityPub | `8.3.0`    | <https://wordpress.org/plugins/activitypub/> |
-| Atmosphere  | `1.0.0`    | <https://wordpress.org/plugins/atmosphere/>  |
+| Atmosphere  | `1.1.0`    | <https://wordpress.org/plugins/atmosphere/>  |
 
 ## Delta — what we'd lose by switching to the released versions
 
@@ -53,27 +54,23 @@ bundle but are not load-bearing for FOSSE:
 -   `0de6d768` — surface `ap_tombstone` in the dev debug menu (#3318)
 -   four dependency bumps
 
-### Atmosphere: lose the `atmosphere_post_embed` filter and its helpers
+### Atmosphere: 1.1.0 covers what FOSSE needs
 
 Upstream PR <https://github.com/Automattic/wordpress-atmosphere/pull/72>
 adds the `atmosphere_post_embed` filter to `Atmosphere\Transformer\Post`
 and renames `Post::upload_thumbnail()` to `Post::upload_image_blob()` with
 the old name kept as a back-compat alias. It also exposes
-`Post::get_attachment_aspect_ratio()`. The PR landed on trunk after the
-1.0.0 cut.
-
+`Post::get_attachment_aspect_ratio()`. That PR shipped in Atmosphere
+**1.1.0** on WordPress.org, so the released version is now sufficient for
 FOSSE's `Automattic\Fosse\Photo_Post_Atmosphere`
-(`src/class-photo-post-atmosphere.php:139`) registers
-`add_filter( 'atmosphere_post_embed', [...] )` to project a WordPress
-photo-shaped post onto Bluesky as `app.bsky.embed.images`. Without the
-filter, Atmosphere ships the default `app.bsky.embed.external` link card
-for every photo post — the entire photo-post AT projection feature
-becomes a no-op.
+(`src/class-photo-post-atmosphere.php:139`), which projects WordPress
+photo-shaped posts onto Bluesky as `app.bsky.embed.images` via that
+filter.
 
-Other Atmosphere commits past 1.0.0 that the current bundle picks up:
+Other Atmosphere changes in 1.1.0 that this resync picks up:
 
--   `26010ec` — publication link tag for standard.site discovery (#75)
--   `2a0383a` — re-sync publication on theme / site-URL changes (#76)
+-   publication link tag for standard.site discovery (#75)
+-   re-sync publication on theme / site-URL changes (#76)
 
 Neither is currently consumed from FOSSE's source, but operators rely on
 the discovery link tag for federation hygiene.
@@ -81,12 +78,13 @@ the discovery link tag for federation hygiene.
 ## Implications
 
 1. **The `Requires Plugins: activitypub, atmosphere` cutover is blocked
-   on upstream releases.** Adding the header today would make the public
-   plugin require AP 8.3.0 / Atmosphere 1.0.0 with no way to express
-   "and you need PR 3327 on AP, PR 72 on Atmosphere". Users would install
-   the released plugins, the dependency check would pass, and federation
-   would silently regress in two visible ways (Mastodon attachments lose
-   blurhash; Bluesky photo posts become link cards).
+   on the next ActivityPub release.** Atmosphere 1.1.0 is sufficient, but
+   the released ActivityPub 8.3.0 still lacks the `toot:blurhash` JSON-LD
+   context term FOSSE relies on. Adding the header today and pinning
+   minimums to `(8.3.0, 1.1.0)` would let users install released AP, pass
+   WordPress's dependency check, and silently lose Mastodon-side blurhash
+   rendering. We hold the cutover until ActivityPub cuts a release
+   containing PR 3327.
 
 2. **The readiness layer should ship first.** Per
    `sdd/bundled-backends-migration/plan.md` task 1, FOSSE needs runtime
@@ -96,18 +94,15 @@ the discovery link tag for federation hygiene.
    "is this build good enough?" question lives in one place, ready to be
    wired into setup/status UX in a follow-up.
 
-3. **Minimum-version anchors are placeholders.** Until upstream cuts
-   releases that include the two PRs above, the constants in
-   `Backend_Readiness` are forward-pointers — they reject the current
-   released versions on purpose. They must be bumped to the real release
-   numbers as soon as each upstream tags.
+3. **Minimum-version anchors.** The constants in `Backend_Readiness` are:
 
-    - ActivityPub: the first release containing
-      <https://github.com/Automattic/wordpress-activitypub/pull/3327>
-      (placeholder: `8.4.0`).
-    - Atmosphere: the first release containing
-      <https://github.com/Automattic/wordpress-atmosphere/pull/72>
-      (placeholder: `1.1.0`).
+    - `MIN_ATMOSPHERE_VERSION = '1.1.0'` — a real released version. No
+      further bump needed until FOSSE depends on a future Atmosphere
+      surface.
+    - `MIN_ACTIVITYPUB_VERSION = '8.4.0'` — a forward-pointer placeholder
+      until upstream cuts a release containing
+      <https://github.com/Automattic/wordpress-activitypub/pull/3327>.
+      Bump to the real number when that tag lands.
 
 4. **No effect on today's installs.** Bundled copies stay loaded, the
    activation flow is unchanged, and the readiness checks treat a

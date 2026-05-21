@@ -33,7 +33,7 @@ Implementation step 1 (runtime readiness checks) is in flight under [DOTCOM-1718
 
 4. **Define backend compatibility gates.**
    - **Status**: ✅ Done (anchored in [DOTCOM-17180](https://linear.app/a8c/issue/DOTCOM-17180); see `audits/2026-05-20-backend-dependency-delta.md`)
-   - **Decision recorded**: FOSSE tracks two minimum-version anchors in `Backend_Readiness::MIN_ACTIVITYPUB_VERSION` and `MIN_ATMOSPHERE_VERSION`. They point at the first upstream releases that contain the surface FOSSE relies on (AP: `toot:blurhash` JSON-LD context term from [PR 3327](https://github.com/Automattic/wordpress-activitypub/pull/3327); Atmosphere: `atmosphere_post_embed` filter from [PR 72](https://github.com/Automattic/wordpress-atmosphere/pull/72)). Neither is in a tagged release yet, so the constants are deliberate forward-pointers that fail today's released versions.
+   - **Decision recorded**: FOSSE tracks two minimum-version anchors in `Backend_Readiness::MIN_ACTIVITYPUB_VERSION` and `MIN_ATMOSPHERE_VERSION`. They point at the first upstream releases that contain the surface FOSSE relies on. Atmosphere `1.1.0` is a real released version containing the `atmosphere_post_embed` filter ([PR 72](https://github.com/Automattic/wordpress-atmosphere/pull/72)). ActivityPub `8.4.0` is a forward-pointer placeholder until upstream cuts a release containing the `toot:blurhash` JSON-LD context term ([PR 3327](https://github.com/Automattic/wordpress-activitypub/pull/3327)) — the released `8.3.0` predates it.
    - **Verify**: `tests/php/Backend_ReadinessTest.php` covers the version comparison + source-detection logic without relying on `bundled/` internals.
 
 5. **Define wp.com Simple artifact ownership.**
@@ -72,4 +72,4 @@ Each step is tracked as a sub-issue under the umbrella [DOTCOM-16826](https://li
 
 ## What to do right now
 
-Review the updated SDD. Land the readiness layer ([DOTCOM-17180](https://linear.app/a8c/issue/DOTCOM-17180)) — it touches no loader behavior and ships safely. Do not remove `bundled/`, add the dependency header, or change loaders until reviewers approve the public dependency strategy, upgrade sequence, and wp.com Simple artifact owner, and until upstream cuts the AP + Atmosphere releases the readiness anchors point at.
+Review the updated SDD. Land the readiness layer ([DOTCOM-17180](https://linear.app/a8c/issue/DOTCOM-17180)) — it touches no loader behavior and ships safely. Do not remove `bundled/`, add the dependency header, or change loaders until reviewers approve the public dependency strategy, upgrade sequence, and wp.com Simple artifact owner, and until ActivityPub cuts the release the AP readiness anchor points at. (Atmosphere 1.1.0 already covers what FOSSE needs.)
