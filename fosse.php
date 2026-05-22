@@ -29,6 +29,35 @@ define( 'FOSSE_VERSION', '0.1.2-alpha' );
 
 if ( file_exists( __DIR__ . '/vendor/autoload_packages.php' ) ) {
 	require_once __DIR__ . '/vendor/autoload_packages.php';
+} else {
+	/*
+	 * Composer autoload missing. The rest of `fosse.php` already degrades
+	 * cleanly via `class_exists` guards (no menu, no projectors, no
+	 * provider boot), but that leaves an admin staring at silence. Surface
+	 * a `manage_options`-only notice so the operator knows the deploy is
+	 * incomplete instead of assuming FOSSE is broken or inactive.
+	 */
+	add_action(
+		'admin_notices',
+		static function () {
+			if ( ! current_user_can( 'manage_options' ) ) {
+				return;
+			}
+			?>
+			<div class="notice notice-error">
+				<p>
+					<strong><?php esc_html_e( 'FOSSE is missing its Composer dependencies.', 'fosse' ); ?></strong>
+					<?php
+					esc_html_e(
+						'Run `composer install` inside the FOSSE plugin directory, or redeploy a release build that includes the `vendor/` directory. Most FOSSE features are disabled until this is resolved.',
+						'fosse'
+					);
+					?>
+				</p>
+			</div>
+			<?php
+		}
+	);
 }
 
 /*

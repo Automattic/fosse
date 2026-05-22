@@ -104,6 +104,16 @@ class AP_ProviderTest extends BaseTestCase {
 	}
 
 	/**
+	 * `is_connected()` mirrors the `connected` key of `get_status()`.
+	 */
+	public function test_is_connected_matches_status() {
+		$this->assertSame(
+			(bool) $this->provider->get_status()['connected'],
+			$this->provider->is_connected()
+		);
+	}
+
+	/**
 	 * Default actor mode is 'actor'.
 	 */
 	public function test_status_default_actor_mode() {

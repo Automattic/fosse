@@ -16,7 +16,7 @@ $available       = array_filter(
 );
 $connected       = array_filter(
 	$available,
-	static fn( $p ) => ! empty( $p->get_status()['connected'] )
+	static fn( $p ) => $p->is_connected()
 );
 $available_count = count( $available );
 $connected_count = count( $connected );

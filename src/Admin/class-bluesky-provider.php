@@ -189,6 +189,20 @@ class Bluesky_Provider implements Connection_Provider {
 	}
 
 	/**
+	 * Whether Bluesky currently has a working connection.
+	 *
+	 * Mirrors the `connected` key of {@see self::get_status()}. Reads
+	 * through the memoized status so the token-health probe in
+	 * {@see self::get_status()} still runs and clears stale connections
+	 * before the answer is returned.
+	 *
+	 * @return bool
+	 */
+	public function is_connected(): bool {
+		return (bool) $this->get_status()['connected'];
+	}
+
+	/**
 	 * Whether Bluesky auto-publishing is enabled for this site.
 	 *
 	 * Centralizes the "absent option reads as enabled" rule that
@@ -1552,7 +1566,7 @@ class Bluesky_Provider implements Connection_Provider {
 
 		// Only show for connected sites — a disconnected site has nothing
 		// to publish to anyway, so the notice would be noise.
-		if ( ! $this->get_status()['connected'] ) {
+		if ( ! $this->is_connected() ) {
 			return;
 		}
 
