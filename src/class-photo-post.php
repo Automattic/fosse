@@ -257,9 +257,23 @@ class Photo_Post {
 	 * @return bool True if the post matches one of the built-in rules.
 	 */
 	private static function detect( WP_Post $post ): bool {
+		// Bundled AP supports disabling attachments entirely via
+		// `activitypub_max_image_attachments = 0`. Photo treatment
+		// makes no sense in that mode — the content stripper would
+		// remove every image figure while AP emits zero attachments,
+		// leaving a caption-only Note with no image. Reject before
+		// ANY rule fires (including the empty-body / featured-image
+		// early return below) so the cap-zero contract holds for
+		// the "set thumbnail, hit publish" flow too.
+		$max_attachments = self::get_max_image_attachments( $post );
+		if ( $max_attachments <= 0 ) {
+			return false;
+		}
+
 		$format        = \get_post_format( $post );
 		$has_format    = 'image' === $format || 'gallery' === $format;
 		$has_thumbnail = self::has_image_thumbnail( $post );
+		$thumbnail_id  = $has_thumbnail ? (int) \get_post_thumbnail_id( $post ) : 0;
 
 		// Empty body + featured image = "Set thumbnail, hit publish"
 		// flow (Rule 3 with zero paragraphs). Catch this before the
@@ -298,20 +312,20 @@ class Photo_Post {
 		$paragraph_count          = 0;
 		$other_count              = 0;
 		$unresolvable_image_count = 0;
-		// Flattened count of individual images that would actually
-		// federate as attachments. `image_count` counts image-like
-		// BLOCKS for Rule 2's shape check ("exactly one image-like
-		// block"), but `total_image_count` counts gallery children
-		// individually so the `max_image_attachments` cap can be
-		// compared against what bundled AP will really emit.
-		$total_image_count = 0;
-		// True when a `core/post-featured-image` block is present in
-		// the body. Bundled AP unshifts the post thumbnail into the
-		// media list AND extracts the featured-image block via
-		// `get_block_attachments`, then dedupes by id — both resolve
-		// to the same attachment. Tracking this lets the cap check
-		// avoid double-counting one image as two.
-		$has_featured_image_block = false;
+		// Resolvable attachment ids contributed by image-like blocks
+		// in document order (`core/image` ids and `core/gallery`
+		// inner `core/image` ids; `core/post-featured-image` blocks
+		// contribute nothing here because their resolved id is the
+		// thumbnail id, which is appended once after the loop). The
+		// `activitypub_max_image_attachments` cap compares against
+		// `count( array_unique( … ) )` of this list plus the
+		// thumbnail id — bundled AP dedupes by id before applying
+		// the cap, so any attachment that appears via multiple
+		// paths (featured-image block + thumbnail, or `core/image`
+		// block carrying the same id as the thumbnail) must count
+		// once. Tracking ids rather than a flat count means the
+		// dedup happens naturally on the cap comparison.
+		$attachment_ids = array();
 
 		foreach ( $blocks as $block ) {
 			$name = $block['blockName'] ?? null;
@@ -385,9 +399,17 @@ class Photo_Post {
 				// the external URL stays in the body.
 				if ( self::block_resolves_locally( $block, $post ) ) {
 					++$image_count;
-					$total_image_count += self::count_resolvable_images( $block, $post );
-					if ( 'core/post-featured-image' === $name ) {
-						$has_featured_image_block = true;
+					// Collect attachment ids contributed by this
+					// block. `block_image_ids()` returns the
+					// resolvable `core/image` and gallery-child
+					// ids; `core/post-featured-image` blocks
+					// contribute nothing here because the thumbnail
+					// id is appended once after the loop. Deduping
+					// the combined list against the cap matches
+					// what bundled AP actually emits after its own
+					// id-based dedup.
+					foreach ( self::block_image_ids( $block, $post ) as $id ) {
+						$attachment_ids[] = $id;
 					}
 				} else {
 					++$other_count;
@@ -397,10 +419,27 @@ class Photo_Post {
 			}
 
 			if ( 'core/paragraph' === $name ) {
+				$inner_html = $block['innerHTML'] ?? '';
 				// An empty paragraph block ("<p></p>") is structural
 				// padding from the editor, not a real caption.
-				$inner = \trim( \wp_strip_all_tags( $block['innerHTML'] ?? '' ) );
+				$inner = \trim( \wp_strip_all_tags( $inner_html ) );
 				if ( '' === $inner ) {
+					continue;
+				}
+				// Inline `<img>` / `<figure>` inside a paragraph
+				// block lands in the same cascade as the freeform
+				// branch above: `filter_content()`'s orphan-img
+				// pass strips the image, but bundled AP's block
+				// extractor only walks `core/image` /
+				// `core/gallery` / `core/cover` — it doesn't scan
+				// paragraph innerHTML — so the inline image
+				// disappears entirely from the federated post.
+				// Treat as unresolvable so Rule 1's format bypass
+				// disqualifies the post and the figure stays
+				// inline in the article body.
+				if ( \preg_match( '#<(?:img|figure)\b#i', $inner_html ) ) {
+					++$other_count;
+					++$unresolvable_image_count;
 					continue;
 				}
 				++$paragraph_count;
@@ -419,30 +458,19 @@ class Photo_Post {
 		// every figure inline AND still emits the first `cap`
 		// images as supplementary attachments, so receivers never
 		// see fewer images than the body declares.
-		// Effective attachment count: resolvable images in the body
-		// PLUS the featured image when set (bundled AP unshifts the
-		// thumbnail into the media list before walking blocks).
-		// Skip the thumbnail bump when a `core/post-featured-image`
-		// block is already in the body — that block resolves to the
-		// same attachment id, and bundled AP dedupes by id before
-		// emitting attachments. Counting it twice would over-report
-		// against the cap and reject otherwise-valid single-photo
-		// posts when the cap is set tight (e.g., 1).
-		$effective_image_count = $total_image_count;
-		if ( $has_thumbnail && ! $has_featured_image_block ) {
-			++$effective_image_count;
+		// Effective attachment count: unique resolvable ids across
+		// every source bundled AP considers — the post thumbnail
+		// (unshifted into the media list) plus every id contributed
+		// by image-like blocks. Deduping by id mirrors bundled AP's
+		// own pre-cap dedup, so an attachment that appears via
+		// multiple paths (featured image + matching `core/image`
+		// block, or `core/post-featured-image` block + thumbnail)
+		// counts once instead of inflating the cap comparison.
+		if ( $thumbnail_id > 0 ) {
+			$attachment_ids[] = $thumbnail_id;
 		}
+		$effective_image_count = \count( \array_unique( $attachment_ids ) );
 
-		// Bundled AP supports disabling attachments entirely via
-		// `activitypub_max_image_attachments = 0`. Photo treatment
-		// makes no sense in that mode — the content stripper would
-		// remove every image figure while AP emits zero attachments,
-		// leaving a caption-only Note with no image. Reject before
-		// any rule fires.
-		$max_attachments = self::get_max_image_attachments( $post );
-		if ( $max_attachments <= 0 ) {
-			return false;
-		}
 		if ( $effective_image_count > $max_attachments ) {
 			return false;
 		}
@@ -601,46 +629,6 @@ class Photo_Post {
 		}
 
 		return false;
-	}
-
-	/**
-	 * Flattened count of individual resolvable images an image-like
-	 * block would contribute as AP attachments. For `core/image` and
-	 * `core/post-featured-image` that's 1; for `core/gallery` it's
-	 * the count of resolvable inner `core/image` children. Used for
-	 * the `activitypub_max_image_attachments` cap check — that cap
-	 * operates on individual images, not on image-bearing blocks.
-	 *
-	 * @param array<string, mixed> $block The parsed block.
-	 * @param \WP_Post             $post  The post being evaluated.
-	 * @return int Count of resolvable images contributed by the block.
-	 */
-	private static function count_resolvable_images( array $block, WP_Post $post ): int {
-		$name = $block['blockName'] ?? '';
-
-		if ( 'core/post-featured-image' === $name ) {
-			return self::has_image_thumbnail( $post ) ? 1 : 0;
-		}
-
-		if ( 'core/image' === $name ) {
-			$id = (int) ( $block['attrs']['id'] ?? 0 );
-			return $id > 0 && \wp_attachment_is_image( $id ) ? 1 : 0;
-		}
-
-		if ( 'core/gallery' === $name ) {
-			$count        = 0;
-			$inner_blocks = $block['innerBlocks'] ?? array();
-			if ( \is_array( $inner_blocks ) ) {
-				foreach ( $inner_blocks as $sub_block ) {
-					if ( \is_array( $sub_block ) ) {
-						$count += self::count_resolvable_images( $sub_block, $post );
-					}
-				}
-			}
-			return $count;
-		}
-
-		return 0;
 	}
 
 	/**

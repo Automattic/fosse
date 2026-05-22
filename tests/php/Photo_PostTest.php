@@ -584,6 +584,48 @@ class Photo_PostTest extends BaseTestCase {
 	}
 
 	/**
+	 * `core/image` block carrying the same attachment id as the
+	 * post's Featured Image is one image to bundled AP — its
+	 * extraction pipeline dedupes by attachment id before applying
+	 * the cap. FOSSE's cap math must agree: count the unique
+	 * resolvable ids across every source (thumbnail + block ids),
+	 * not the sum of separate counts. With cap=1, a post that
+	 * embeds its featured image as a `core/image` block in the
+	 * body must still detect as a photo post — pre-fix this
+	 * incorrectly counted 2 (1 from the block + 1 from the
+	 * thumbnail bump) and rejected the post even though AP would
+	 * emit exactly one attachment.
+	 */
+	public function test_core_image_block_matching_thumbnail_id_does_not_double_count_against_cap(): void {
+		add_filter(
+			'activitypub_max_image_attachments',
+			static function () {
+				return 1;
+			}
+		);
+
+		// Build a post whose Featured Image AND inline `core/image`
+		// block both point at the same attachment id. The fixture
+		// attachment from setUp (`$this->image_id`) doubles as the
+		// thumbnail so the block markup and `_thumbnail_id` postmeta
+		// agree.
+		$post_id = wp_insert_post(
+			array(
+				'post_title'   => '',
+				'post_content' => $this->resolve_image_placeholders(
+					'<!-- wp:image {"id":PHOTO_ID} --><figure class="wp-block-image"><img/></figure><!-- /wp:image -->'
+				),
+				'post_status'  => 'publish',
+				'post_type'    => 'post',
+			)
+		);
+		update_post_meta( $post_id, '_thumbnail_id', $this->image_id );
+		$post = get_post( $post_id );
+
+		$this->assertTrue( Photo_Post::is_photo_post( $post ) );
+	}
+
+	/**
 	 * `activitypub_max_image_attachments = 0` disables attachments
 	 * entirely in bundled AP. Photo treatment in that mode would
 	 * strip image figures while AP emits nothing — caption-only
@@ -607,6 +649,30 @@ class Photo_PostTest extends BaseTestCase {
 	}
 
 	/**
+	 * Regression: an empty body + Featured Image normally triggers
+	 * Rule 3's "set thumbnail, hit publish" early return at the top
+	 * of `detect()`. With `activitypub_max_image_attachments = 0` the
+	 * cap-zero rejection must fire FIRST — otherwise photo treatment
+	 * strips the (empty) body to caption-only Note while bundled AP
+	 * emits zero attachments, leaving a Note with neither caption
+	 * nor image. Mirrors the
+	 * `test_zero_attachment_cap_rejects_photo_treatment` regression
+	 * for the empty-body / featured-image entry path.
+	 */
+	public function test_zero_attachment_cap_rejects_empty_body_with_thumbnail(): void {
+		add_filter(
+			'activitypub_max_image_attachments',
+			static function () {
+				return 0;
+			}
+		);
+
+		$post = $this->make_post( '', '', '', 1 );
+
+		$this->assertFalse( Photo_Post::is_photo_post( $post ) );
+	}
+
+	/**
 	 * Freeform / classic-editor body with an inline `<img>` (no
 	 * block wrapper, no `attrs.id` — typically an external URL)
 	 * must NOT pass Rule 1 even when a Featured Image anchors
@@ -617,6 +683,27 @@ class Photo_PostTest extends BaseTestCase {
 	 */
 	public function test_image_format_with_thumbnail_plus_freeform_inline_img_does_not_detect(): void {
 		$post = $this->make_post( '<p>See <img src="https://elsewhere.test/inline.jpg"/> the photo.</p>', '', 'image', 1 );
+
+		$this->assertFalse( Photo_Post::is_photo_post( $post ) );
+	}
+
+	/**
+	 * Same cascade as the freeform-inline-`<img>` case, but for a
+	 * proper `core/paragraph` block whose innerHTML embeds an
+	 * inline `<img>` (e.g. an editor that pasted an external image
+	 * into a paragraph rather than wrapping it in a `core/image`
+	 * block). `filter_content()`'s orphan-img pass strips the
+	 * image, bundled AP's block extractor only walks
+	 * `core/image` / `core/gallery` / `core/cover` — it doesn't
+	 * scan paragraph innerHTML — so the inline image disappears
+	 * entirely from the federated post if Rule 1 fires. Detection
+	 * must treat the inline `<img>` as unresolvable so Rule 1's
+	 * format bypass disqualifies the post and the figure stays
+	 * inline in the article body.
+	 */
+	public function test_image_format_with_thumbnail_plus_paragraph_block_inline_img_does_not_detect(): void {
+		$paragraph_with_img = '<!-- wp:paragraph --><p>Look at <img src="https://elsewhere.test/inline.jpg"/> the photo.</p><!-- /wp:paragraph -->';
+		$post               = $this->make_post( $paragraph_with_img, '', 'image', 1 );
 
 		$this->assertFalse( Photo_Post::is_photo_post( $post ) );
 	}
