@@ -2,9 +2,9 @@
 
 Based on: [sdd/bundled-backends-migration/spec.md](./spec.md)
 
-## Status: PLANNING
+## Status: IN PROGRESS
 
-**No implementation tasks are scheduled in this PR.** The plan tracks the review work needed now that Atmosphere is available on WordPress.org and FOSSE can resolve backends as standalone WordPress.org plugins.
+The SDD doc itself merged in PR 93 and the 2026-05-22 direction change is in PR 176. **No implementation tasks have started yet** — the plan tracks the review work needed now that Atmosphere is available on WordPress.org and FOSSE can resolve backends as standalone WordPress.org plugins.
 
 See [requirements.md](./requirements.md#direction-change-2026-05-22) for the 2026-05-22 direction change: `Requires Plugins` was rejected in favor of an install-if-missing guided UX. DOTCOM-17184 was cancelled; DOTCOM-17181 expands in scope to own the install flow.
 

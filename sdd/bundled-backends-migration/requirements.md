@@ -2,11 +2,9 @@
 
 Tracked under: [DOTCOM-16826](https://linear.app/a8c/issue/DOTCOM-16826) "Plan migration off bundled-backends bootstrap".
 
-## Status: PLANNING
+## Status: IN PROGRESS
 
-This SDD is **open for review, not active for implementation**. The original deferred design captured useful caution, but the underlying dependency landscape has changed: Atmosphere is now published on WordPress.org alongside ActivityPub, so FOSSE can finally talk about a future where it doesn't carry checked-in backend source.
-
-This refresh remains docs-only until reviewers approve the migration approach.
+The SDD itself merged in PR 93 and the 2026-05-22 direction change is in PR 176. **No implementation has started yet** — the plan stays in review until reviewers approve the install-if-missing direction. The original deferred design captured useful caution, but the underlying dependency landscape has changed: Atmosphere is now published on WordPress.org alongside ActivityPub, so FOSSE can finally talk about a future where it doesn't carry checked-in backend source.
 
 ## Direction change (2026-05-22)
 
