@@ -20,7 +20,7 @@ People receive posts by following the fediverse address shown in FOSSE Settings 
 
 ## Why did old posts not publish?
 
-FOSSE does not send existing content just because you finished setup. Only new eligible public content is shared automatically.
+FOSSE does not backfill existing content when you finish setup. New posts you publish from the selected content types are shared automatically. Editing or republishing an older eligible post can also share it for the first time.
 
 ## How do I edit the site fediverse profile?
 
