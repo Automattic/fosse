@@ -77,6 +77,8 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		remove_all_filters( 'status_header' );
 		remove_all_filters( 'pre_http_request' );
 		remove_all_filters( 'pre_option_atmosphere_connection' );
+		remove_all_filters( 'pre_option_atmosphere_identity' );
+		remove_all_filters( 'pre_update_option_atmosphere_identity' );
 		remove_all_filters( Bluesky_Domain_Handle::FILTER_ENABLED );
 		remove_all_filters( Bluesky_Domain_Handle::FILTER_PRE_UPDATE );
 		remove_all_filters( 'home_url' );
@@ -101,6 +103,8 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		remove_all_filters( 'wp_die_handler' );
 		remove_all_filters( 'pre_http_request' );
 		remove_all_filters( 'pre_option_atmosphere_connection' );
+		remove_all_filters( 'pre_option_atmosphere_identity' );
+		remove_all_filters( 'pre_update_option_atmosphere_identity' );
 	}
 
 	/**
@@ -332,6 +336,56 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		$this->assertStringContainsString( 'Connect Bluesky', $output );
 		$this->assertStringContainsString( 'Disconnected', $output );
 		$this->assertStringNotContainsString( 'class="form-table"', $output );
+	}
+
+	/**
+	 * Disconnected sites without a persisted AT Protocol identity get a
+	 * quiet secondary recovery disclosure after the primary Connect action.
+	 */
+	public function test_render_connection_actions_disconnected_shows_identity_recovery_when_identity_missing(): void {
+		$this->force_home_url( 'https://example.com' );
+
+		ob_start();
+		$this->provider->render_connection_actions();
+		$output = ob_get_clean();
+
+		$connect_position  = strpos( $output, 'Connect Bluesky' );
+		$recovery_position = strpos( $output, 'Trouble reconnecting a domain handle?' );
+
+		$this->assertStringContainsString( 'class="fosse-identity-recovery"', $output );
+		$this->assertStringContainsString( 'class="fosse-identity-recovery__summary"', $output );
+		$this->assertStringContainsString( 'Trouble reconnecting a domain handle?', $output );
+		$this->assertStringContainsString( 'fosse_restore_bluesky_identity', $output );
+		$this->assertStringContainsString( 'name="bluesky_did"', $output );
+		$this->assertStringContainsString( 'aria-describedby="fosse_bluesky_did_description"', $output );
+		$this->assertStringContainsString( 'https://bsky.app/settings/account', $output );
+		$this->assertIsInt( $connect_position );
+		$this->assertIsInt( $recovery_position );
+		$this->assertGreaterThan( $connect_position, $recovery_position );
+		$this->assertStringNotContainsString( 'Trouble reconnecting with your domain as a handle? Restore from a DID.', $output );
+	}
+
+	/**
+	 * Disconnected-but-identified sites should use the normal reconnect form
+	 * only; showing DID recovery there would create a second path for users
+	 * who already have the verification anchor needed for reconnect.
+	 */
+	public function test_render_connection_actions_disconnected_omits_identity_recovery_when_identity_exists(): void {
+		update_option(
+			'atmosphere_identity',
+			array(
+				'did'          => 'did:plc:test123',
+				'handle'       => 'example.com',
+				'pds_endpoint' => 'https://bsky.social',
+			)
+		);
+
+		ob_start();
+		$this->provider->render_connection_actions();
+		$output = ob_get_clean();
+
+		$this->assertStringNotContainsString( 'fosse-identity-recovery', $output );
+		$this->assertStringNotContainsString( 'fosse_restore_bluesky_identity', $output );
 	}
 
 	/**
@@ -2505,6 +2559,36 @@ class Bluesky_ProviderTest extends BaseTestCase {
 	}
 
 	/**
+	 * Mock a plc.directory DID document lookup.
+	 *
+	 * @param string               $did      DID to match in the request URL.
+	 * @param array<string, mixed> $document Decoded DID document response.
+	 * @return void
+	 */
+	private function mock_did_document_response( string $did, array $document ): void {
+		$body = (string) wp_json_encode(
+			$document,
+			JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT
+		);
+
+		add_filter(
+			'pre_http_request',
+			static function ( $preempt, $parsed_args, $url ) use ( $did, $body ) { // phpcs:ignore VariableAnalysis.CodeAnalysis.VariableAnalysis.UnusedVariable -- pre_http_request signature.
+				if ( false === strpos( (string) $url, 'plc.directory/' . $did ) ) {
+					return $preempt;
+				}
+
+				return array(
+					'response' => array( 'code' => 200 ),
+					'body'     => $body,
+				);
+			},
+			10,
+			3
+		);
+	}
+
+	/**
 	 * Seed the OAuth transients Atmosphere\OAuth\Client::handle_callback()
 	 * expects to find when validating an inbound callback.
 	 *
@@ -3266,5 +3350,1136 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		$this->assertFalse( \Atmosphere\is_connected() );
 		// Snapshot is preserved — the legitimate account may reconnect later.
 		$this->assertNotFalse( get_option( Bluesky_Domain_Handle::OPTION_PREVIOUS_HANDLE ) );
+	}
+
+	/**
+	 * Restore identity: success path writes atmosphere_identity from a DID
+	 * whose document lists the site host in alsoKnownAs.
+	 *
+	 * Recovery escape hatch for sites that lost identity (e.g. pre-fix
+	 * disconnect that wiped it). The handler fetches the DID document via
+	 * Resolver::resolve_did, verifies the bidirectional claim, extracts
+	 * the PDS endpoint, and persists the identity trio so the
+	 * .well-known/atproto-did route starts serving again.
+	 */
+	public function test_handle_restore_identity_writes_atmosphere_identity(): void {
+		$this->force_home_url( 'https://example.com' );
+		$this->mock_did_document_response(
+			'did:plc:abcdefghij1234567890wxyz',
+			array(
+				'id'          => 'did:plc:abcdefghij1234567890wxyz',
+				'alsoKnownAs' => array( 'at://example.com' ),
+				'service'     => array(
+					array(
+						'id'              => '#atproto_pds',
+						'type'            => 'AtprotoPersonalDataServer',
+						'serviceEndpoint' => 'https://pds.example.com',
+					),
+				),
+			)
+		);
+
+		$this->become_admin();
+
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
+		$_POST    = array(
+			'_wpnonce'    => wp_create_nonce( 'fosse_restore_bluesky_identity' ),
+			'bluesky_did' => 'did:plc:abcdefghij1234567890wxyz',
+		);
+		$_REQUEST = $_POST;
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+
+		add_filter(
+			'wp_redirect',
+			static function () {
+				throw new RedirectFired( 'redirect' );
+			}
+		);
+
+		try {
+			$this->provider->handle_restore_identity();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$identity = get_option( 'atmosphere_identity' );
+		$this->assertSame(
+			array(
+				'did'          => 'did:plc:abcdefghij1234567890wxyz',
+				'handle'       => 'example.com',
+				'pds_endpoint' => 'https://pds.example.com',
+			),
+			$identity
+		);
+
+		$errors = get_settings_errors( 'atmosphere' );
+		$types  = wp_list_pluck( $errors, 'type' );
+		$this->assertContains( 'success', $types );
+	}
+
+	/**
+	 * Restore identity must not report success unless the option write
+	 * actually converges on the desired identity payload.
+	 */
+	public function test_handle_restore_identity_reports_error_when_identity_write_fails(): void {
+		$this->force_home_url( 'https://example.com' );
+		$this->mock_did_document_response(
+			'did:plc:abcdefghij1234567890wxyz',
+			array(
+				'id'          => 'did:plc:abcdefghij1234567890wxyz',
+				'alsoKnownAs' => array( 'at://example.com' ),
+				'service'     => array(
+					array(
+						'id'              => '#atproto_pds',
+						'type'            => 'AtprotoPersonalDataServer',
+						'serviceEndpoint' => 'https://pds.example.com',
+					),
+				),
+			)
+		);
+		add_filter(
+			'pre_update_option_atmosphere_identity',
+			static function ( $value, $old_value ) { // phpcs:ignore VariableAnalysis.CodeAnalysis.VariableAnalysis.UnusedVariable -- filter signature.
+				return $old_value;
+			},
+			10,
+			2
+		);
+
+		$this->become_admin();
+
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
+		$_POST    = array(
+			'_wpnonce'    => wp_create_nonce( 'fosse_restore_bluesky_identity' ),
+			'bluesky_did' => 'did:plc:abcdefghij1234567890wxyz',
+		);
+		$_REQUEST = $_POST;
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+
+		add_filter(
+			'wp_redirect',
+			static function () {
+				throw new RedirectFired( 'redirect' );
+			}
+		);
+
+		try {
+			$this->provider->handle_restore_identity();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$this->assertFalse( get_option( 'atmosphere_identity', false ) );
+
+		$errors   = get_settings_errors( 'atmosphere' );
+		$types    = wp_list_pluck( $errors, 'type' );
+		$messages = wp_list_pluck( $errors, 'message' );
+
+		$this->assertContains( 'error', $types );
+		$this->assertNotContains( 'success', $types );
+		$this->assertNotEmpty(
+			array_filter(
+				$messages,
+				static fn( $message ) => false !== strpos( (string) $message, 'Could not persist the restored Bluesky identity' )
+			)
+		);
+	}
+
+	/**
+	 * Restore identity: malformed DID is rejected before any HTTP traffic.
+	 * The user gets an actionable hint rather than a confusing upstream
+	 * "Unsupported DID method" error from the resolver.
+	 */
+	public function test_handle_restore_identity_rejects_malformed_did(): void {
+		$http_called = false;
+		add_filter(
+			'pre_http_request',
+			static function ( $preempt ) use ( &$http_called ) {
+				$http_called = true;
+				return $preempt;
+			}
+		);
+
+		$this->become_admin();
+
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
+		$_POST    = array(
+			'_wpnonce'    => wp_create_nonce( 'fosse_restore_bluesky_identity' ),
+			'bluesky_did' => 'not-a-did',
+		);
+		$_REQUEST = $_POST;
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+
+		add_filter(
+			'wp_redirect',
+			static function () {
+				throw new RedirectFired( 'redirect' );
+			}
+		);
+
+		try {
+			$this->provider->handle_restore_identity();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$this->assertFalse( get_option( 'atmosphere_identity', false ) );
+		$this->assertFalse( $http_called, 'Malformed DID must short-circuit before any HTTP call to plc.directory.' );
+
+		$errors = get_settings_errors( 'atmosphere' );
+		$types  = wp_list_pluck( $errors, 'type' );
+		$this->assertContains( 'error', $types );
+	}
+
+	/**
+	 * Restore identity: a DID whose document does NOT list this site in
+	 * alsoKnownAs is rejected. This is the integrity gate — without it, a
+	 * site admin could claim someone else's DID and the well-known route
+	 * would start serving a DID that doesn't actually belong to this site.
+	 */
+	public function test_handle_restore_identity_rejects_did_with_mismatched_aka(): void {
+		$this->force_home_url( 'https://example.com' );
+		$this->mock_did_document_response(
+			'did:plc:abcdefghij1234567890wxyz',
+			array(
+				'id'          => 'did:plc:abcdefghij1234567890wxyz',
+				'alsoKnownAs' => array( 'at://someone-else.test' ),
+				'service'     => array(
+					array(
+						'id'              => '#atproto_pds',
+						'type'            => 'AtprotoPersonalDataServer',
+						'serviceEndpoint' => 'https://pds.example.com',
+					),
+				),
+			)
+		);
+
+		$this->become_admin();
+
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
+		$_POST    = array(
+			'_wpnonce'    => wp_create_nonce( 'fosse_restore_bluesky_identity' ),
+			'bluesky_did' => 'did:plc:abcdefghij1234567890wxyz',
+		);
+		$_REQUEST = $_POST;
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+
+		add_filter(
+			'wp_redirect',
+			static function () {
+				throw new RedirectFired( 'redirect' );
+			}
+		);
+
+		try {
+			$this->provider->handle_restore_identity();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$this->assertFalse(
+			get_option( 'atmosphere_identity', false ),
+			'Identity must NOT be written when the DID document does not list this site.'
+		);
+
+		$errors = get_settings_errors( 'atmosphere' );
+		$types  = wp_list_pluck( $errors, 'type' );
+		$this->assertContains( 'error', $types );
+	}
+
+	/**
+	 * Restore identity: a successful DID-doc fetch followed by an option
+	 * write that gets reverted by a hostile filter must surface an error,
+	 * not a cheerful success. update_option's return value is ambiguous
+	 * (false means either "DB failure" or "value didn't change"), so the
+	 * handler re-reads the option and verifies the DID landed before
+	 * declaring victory.
+	 */
+	public function test_handle_restore_identity_surfaces_persist_failure(): void {
+		add_filter( 'home_url', static fn( $url ) => 'https://example.com', 10, 1 ); // phpcs:ignore VariableAnalysis.CodeAnalysis.VariableAnalysis.UnusedVariable -- filter signature requires the URL arg.
+
+		$body = (string) wp_json_encode(
+			array(
+				'id'          => 'did:plc:abcdefghij1234567890wxyz',
+				'alsoKnownAs' => array( 'at://example.com' ),
+				'service'     => array(
+					array(
+						'id'              => '#atproto_pds',
+						'type'            => 'AtprotoPersonalDataServer',
+						'serviceEndpoint' => 'https://pds.example.com',
+					),
+				),
+			),
+			JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT
+		);
+		add_filter(
+			'pre_http_request',
+			static function ( $preempt, $parsed_args, $url ) use ( $body ) { // phpcs:ignore VariableAnalysis.CodeAnalysis.VariableAnalysis.UnusedVariable -- pre_http_request signature.
+				if ( false === strpos( (string) $url, 'plc.directory/did:plc:abcdefghij1234567890wxyz' ) ) {
+					return $preempt;
+				}
+				return array(
+					'response' => array( 'code' => 200 ),
+					'body'     => $body,
+				);
+			},
+			10,
+			3
+		);
+
+		// Pin the option to a sentinel that won't match the DID we're
+		// trying to write. Simulates either a DB write failure or a
+		// hostile filter overriding the option.
+		add_filter(
+			'pre_option_atmosphere_identity',
+			static fn() => array( 'did' => 'did:plc:different0000000000wxyz' )
+		);
+
+		$this->become_admin();
+
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
+		$_POST    = array(
+			'_wpnonce'    => wp_create_nonce( 'fosse_restore_bluesky_identity' ),
+			'bluesky_did' => 'did:plc:abcdefghij1234567890wxyz',
+		);
+		$_REQUEST = $_POST;
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+
+		add_filter(
+			'wp_redirect',
+			static function () {
+				throw new RedirectFired( 'redirect' );
+			}
+		);
+
+		try {
+			$this->provider->handle_restore_identity();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$errors = get_settings_errors( 'atmosphere' );
+		$types  = wp_list_pluck( $errors, 'type' );
+		$this->assertContains( 'error', $types, 'Handler must surface an error when the option write does not persist.' );
+		$this->assertNotContains( 'success', $types, 'Handler must NOT tell the admin recovery succeeded if the option write failed.' );
+	}
+
+	/**
+	 * Restore identity: non-admin subscriber is blocked with wp_die. This
+	 * is an option-write endpoint; only manage_options users may invoke it.
+	 */
+	public function test_handle_restore_identity_rejects_subscriber(): void {
+		$this->become_subscriber();
+
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
+		$_POST    = array(
+			'_wpnonce'    => wp_create_nonce( 'fosse_restore_bluesky_identity' ),
+			'bluesky_did' => 'did:plc:abcdefghij1234567890wxyz',
+		);
+		$_REQUEST = $_POST;
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+
+		add_filter(
+			'wp_die_handler',
+			static fn() => static function () {
+				throw new \RuntimeException( 'wp_die' );
+			}
+		);
+
+		$threw = false;
+		try {
+			$this->provider->handle_restore_identity();
+		} catch ( \RuntimeException $e ) {
+			$threw = 'wp_die' === $e->getMessage();
+		}
+
+		$this->assertTrue( $threw, 'Non-admin must be blocked with wp_die().' );
+		$this->assertFalse( get_option( 'atmosphere_identity', false ) );
+	}
+
+	/**
+	 * Bundled-atmosphere regression: `Client::disconnect()` must not delete
+	 * `atmosphere_identity`. The whole PR is built on this invariant; a
+	 * future resync that re-introduced the delete would break every
+	 * domain-handle site without any FOSSE-side test catching it.
+	 */
+	public function test_disconnect_preserves_atmosphere_identity(): void {
+		$identity = array(
+			'did'          => 'did:plc:testidentity1234567890',
+			'handle'       => 'example.com',
+			'pds_endpoint' => 'https://pds.example.com',
+		);
+		update_option( 'atmosphere_identity', $identity, true );
+		update_option(
+			'atmosphere_connection',
+			array(
+				'did'          => 'did:plc:testidentity1234567890',
+				'handle'       => 'example.com',
+				'pds_endpoint' => 'https://pds.example.com',
+				'access_token' => Encryption::encrypt( 'token' ),
+			)
+		);
+
+		\Atmosphere\OAuth\Client::disconnect();
+
+		$this->assertSame( array(), get_option( 'atmosphere_connection', array() ), 'Disconnect must clear atmosphere_connection.' );
+		$this->assertSame(
+			$identity,
+			get_option( 'atmosphere_identity' ),
+			'Disconnect must preserve atmosphere_identity so .well-known/atproto-did keeps serving and the user can reconnect with a domain handle.'
+		);
+	}
+
+	/**
+	 * Recovery handler rejects when identity is already on file. The
+	 * renderer hides the panel in that case, but the admin-post hook
+	 * stays wired up — a stale form tab or a direct POST with a valid
+	 * nonce could otherwise overwrite identity on a connected site,
+	 * producing split-brain state where get_status() reports the
+	 * connected DID while the well-known route serves the overwritten
+	 * DID.
+	 */
+	public function test_handle_restore_identity_rejects_when_identity_already_present(): void {
+		add_filter( 'home_url', static fn( $url ) => 'https://example.com', 10, 1 ); // phpcs:ignore VariableAnalysis.CodeAnalysis.VariableAnalysis.UnusedVariable -- filter signature.
+
+		$existing = array(
+			'did'          => 'did:plc:existing0000000000000',
+			'handle'       => 'example.com',
+			'pds_endpoint' => 'https://pds.example.com',
+		);
+		update_option( 'atmosphere_identity', $existing, true );
+
+		$http_called = false;
+		add_filter(
+			'pre_http_request',
+			static function ( $preempt ) use ( &$http_called ) {
+				$http_called = true;
+				return $preempt;
+			}
+		);
+
+		$this->become_admin();
+
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
+		$_POST    = array(
+			'_wpnonce'    => wp_create_nonce( 'fosse_restore_bluesky_identity' ),
+			'bluesky_did' => 'did:plc:attacker00000000000000',
+		);
+		$_REQUEST = $_POST;
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+
+		add_filter(
+			'wp_redirect',
+			static function () {
+				throw new RedirectFired( 'redirect' );
+			}
+		);
+
+		try {
+			$this->provider->handle_restore_identity();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$this->assertSame( $existing, get_option( 'atmosphere_identity' ), 'Existing identity must not be overwritten.' );
+		$this->assertFalse( $http_called, 'Handler must short-circuit before fetching the DID document when identity already exists.' );
+
+		$errors = get_settings_errors( 'atmosphere' );
+		$types  = wp_list_pluck( $errors, 'type' );
+		$this->assertContains( 'error', $types );
+	}
+
+	/**
+	 * Recovery handler refuses to run when the site isn't in an eligible
+	 * shape to host a Bluesky domain handle (subdirectory install,
+	 * non-routable host, port-bearing URL). Without this, the panel can
+	 * report success on `example.com/blog` and then the user discovers
+	 * reconnect still fails because the well-known route can't actually
+	 * serve from the subpath. Mirrors the eligibility checks
+	 * `Bluesky_Domain_Handle::set_handle()` already enforces.
+	 */
+	public function test_handle_restore_identity_rejects_when_site_ineligible(): void {
+		// Subdirectory install — is_root_install() returns false.
+		add_filter( 'home_url', static fn( $url ) => 'https://example.com/blog', 10, 1 ); // phpcs:ignore VariableAnalysis.CodeAnalysis.VariableAnalysis.UnusedVariable -- filter signature.
+
+		$http_called = false;
+		add_filter(
+			'pre_http_request',
+			static function ( $preempt ) use ( &$http_called ) {
+				$http_called = true;
+				return $preempt;
+			}
+		);
+
+		$this->become_admin();
+
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
+		$_POST    = array(
+			'_wpnonce'    => wp_create_nonce( 'fosse_restore_bluesky_identity' ),
+			'bluesky_did' => 'did:plc:abcdefghij1234567890wxyz',
+		);
+		$_REQUEST = $_POST;
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+
+		add_filter(
+			'wp_redirect',
+			static function () {
+				throw new RedirectFired( 'redirect' );
+			}
+		);
+
+		try {
+			$this->provider->handle_restore_identity();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$this->assertFalse( get_option( 'atmosphere_identity', false ) );
+		$this->assertFalse( $http_called, 'Handler must short-circuit before any HTTP call when the site is ineligible.' );
+
+		$errors = get_settings_errors( 'atmosphere' );
+		$types  = wp_list_pluck( $errors, 'type' );
+		$this->assertContains( 'error', $types );
+	}
+
+	/**
+	 * Tightened persist re-check catches handle drift, not just DID drift.
+	 * A hostile `pre_option_atmosphere_identity` filter could pin the
+	 * same DID but a different handle — the well-known route stays
+	 * correct (DID matches) but `Atmosphere\get_identity()['handle']`
+	 * and the publication link tag silently operate on the attacker
+	 * value. Handler must refuse.
+	 */
+	public function test_handle_restore_identity_persist_check_catches_handle_drift(): void {
+		add_filter( 'home_url', static fn( $url ) => 'https://example.com', 10, 1 ); // phpcs:ignore VariableAnalysis.CodeAnalysis.VariableAnalysis.UnusedVariable -- filter signature.
+
+		$body = (string) wp_json_encode(
+			array(
+				'id'          => 'did:plc:abcdefghij1234567890wxyz',
+				'alsoKnownAs' => array( 'at://example.com' ),
+				'service'     => array(
+					array(
+						'id'              => '#atproto_pds',
+						'type'            => 'AtprotoPersonalDataServer',
+						'serviceEndpoint' => 'https://pds.example.com',
+					),
+				),
+			),
+			JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT
+		);
+		add_filter(
+			'pre_http_request',
+			static function ( $preempt, $parsed_args, $url ) use ( $body ) { // phpcs:ignore VariableAnalysis.CodeAnalysis.VariableAnalysis.UnusedVariable -- pre_http_request signature.
+				if ( false === strpos( (string) $url, 'plc.directory/did:plc:abcdefghij1234567890wxyz' ) ) {
+					return $preempt;
+				}
+				return array(
+					'response' => array( 'code' => 200 ),
+					'body'     => $body,
+				);
+			},
+			10,
+			3
+		);
+
+		// Pin to same DID + same PDS but ATTACKER handle.
+		add_filter(
+			'pre_option_atmosphere_identity',
+			static fn() => array(
+				'did'          => 'did:plc:abcdefghij1234567890wxyz',
+				'handle'       => 'attacker.example',
+				'pds_endpoint' => 'https://pds.example.com',
+			)
+		);
+
+		$this->become_admin();
+
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
+		$_POST    = array(
+			'_wpnonce'    => wp_create_nonce( 'fosse_restore_bluesky_identity' ),
+			'bluesky_did' => 'did:plc:abcdefghij1234567890wxyz',
+		);
+		$_REQUEST = $_POST;
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+
+		add_filter(
+			'wp_redirect',
+			static function () {
+				throw new RedirectFired( 'redirect' );
+			}
+		);
+
+		try {
+			$this->provider->handle_restore_identity();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$errors = get_settings_errors( 'atmosphere' );
+		$types  = wp_list_pluck( $errors, 'type' );
+		$this->assertContains( 'error', $types, 'Handler must report failure when the persisted handle differs from what was written.' );
+		$this->assertNotContains( 'success', $types );
+	}
+
+	/**
+	 * Recovery success after writing must make `Atmosphere\has_identity()`
+	 * return true. The raw-option assertion alone could pass through a
+	 * lazy-migration or filter quirk that leaves `has_identity()` still
+	 * false, in which case the well-known route stays dark and recovery
+	 * is meaningless.
+	 */
+	public function test_handle_restore_identity_success_makes_has_identity_true(): void {
+		add_filter( 'home_url', static fn( $url ) => 'https://example.com', 10, 1 ); // phpcs:ignore VariableAnalysis.CodeAnalysis.VariableAnalysis.UnusedVariable -- filter signature.
+
+		$body = (string) wp_json_encode(
+			array(
+				'id'          => 'did:plc:abcdefghij1234567890wxyz',
+				'alsoKnownAs' => array( 'at://example.com' ),
+				'service'     => array(
+					array(
+						'id'              => '#atproto_pds',
+						'type'            => 'AtprotoPersonalDataServer',
+						'serviceEndpoint' => 'https://pds.example.com',
+					),
+				),
+			),
+			JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT
+		);
+		add_filter(
+			'pre_http_request',
+			static function ( $preempt, $parsed_args, $url ) use ( $body ) { // phpcs:ignore VariableAnalysis.CodeAnalysis.VariableAnalysis.UnusedVariable -- pre_http_request signature.
+				if ( false === strpos( (string) $url, 'plc.directory' ) ) {
+					return $preempt;
+				}
+				return array(
+					'response' => array( 'code' => 200 ),
+					'body'     => $body,
+				);
+			},
+			10,
+			3
+		);
+
+		$this->become_admin();
+
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
+		$_POST    = array(
+			'_wpnonce'    => wp_create_nonce( 'fosse_restore_bluesky_identity' ),
+			'bluesky_did' => 'did:plc:abcdefghij1234567890wxyz',
+		);
+		$_REQUEST = $_POST;
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+
+		add_filter(
+			'wp_redirect',
+			static function () {
+				throw new RedirectFired( 'redirect' );
+			}
+		);
+
+		try {
+			$this->provider->handle_restore_identity();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$this->assertTrue(
+			\Atmosphere\has_identity(),
+			'After a successful restore, has_identity() must return true so .well-known/atproto-did starts serving the DID.'
+		);
+
+		$messages = wp_list_pluck( get_settings_errors( 'atmosphere' ), 'message' );
+		$this->assertNotEmpty(
+			array_filter(
+				$messages,
+				static fn( $m ) => false !== strpos( $m, 'did:plc:abcdefghij1234567890wxyz' )
+					&& false !== strpos( $m, 'https://pds.example.com' )
+			),
+			'Success notice must echo the persisted DID and PDS so the admin can verify before reauthorizing.'
+		);
+	}
+
+	/**
+	 * Empty / missing DID submission short-circuits with a clear error
+	 * before any HTTP traffic.
+	 */
+	public function test_handle_restore_identity_rejects_empty_did(): void {
+		add_filter( 'home_url', static fn( $url ) => 'https://example.com', 10, 1 ); // phpcs:ignore VariableAnalysis.CodeAnalysis.VariableAnalysis.UnusedVariable -- filter signature.
+
+		$http_called = false;
+		add_filter(
+			'pre_http_request',
+			static function ( $preempt ) use ( &$http_called ) {
+				$http_called = true;
+				return $preempt;
+			}
+		);
+
+		$this->become_admin();
+
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
+		$_POST    = array(
+			'_wpnonce'    => wp_create_nonce( 'fosse_restore_bluesky_identity' ),
+			'bluesky_did' => '   ',
+		);
+		$_REQUEST = $_POST;
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+
+		add_filter(
+			'wp_redirect',
+			static function () {
+				throw new RedirectFired( 'redirect' );
+			}
+		);
+
+		try {
+			$this->provider->handle_restore_identity();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$this->assertFalse( get_option( 'atmosphere_identity', false ) );
+		$this->assertFalse( $http_called );
+
+		$errors = get_settings_errors( 'atmosphere' );
+		$types  = wp_list_pluck( $errors, 'type' );
+		$this->assertContains( 'error', $types );
+	}
+
+	/**
+	 * Resolver returning WP_Error (network failure, plc.directory 5xx) is
+	 * surfaced to the admin with the upstream message, not collapsed into
+	 * a generic success/failure.
+	 */
+	public function test_handle_restore_identity_surfaces_resolver_wp_error(): void {
+		add_filter( 'home_url', static fn( $url ) => 'https://example.com', 10, 1 ); // phpcs:ignore VariableAnalysis.CodeAnalysis.VariableAnalysis.UnusedVariable -- filter signature.
+
+		add_filter(
+			'pre_http_request',
+			static function ( $preempt, $parsed_args, $url ) { // phpcs:ignore VariableAnalysis.CodeAnalysis.VariableAnalysis.UnusedVariable -- pre_http_request signature.
+				if ( false === strpos( (string) $url, 'plc.directory' ) ) {
+					return $preempt;
+				}
+				return new \WP_Error( 'http_request_failed', 'cURL error 28: Operation timed out' );
+			},
+			10,
+			3
+		);
+
+		$this->become_admin();
+
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
+		$_POST    = array(
+			'_wpnonce'    => wp_create_nonce( 'fosse_restore_bluesky_identity' ),
+			'bluesky_did' => 'did:plc:abcdefghij1234567890wxyz',
+		);
+		$_REQUEST = $_POST;
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+
+		add_filter(
+			'wp_redirect',
+			static function () {
+				throw new RedirectFired( 'redirect' );
+			}
+		);
+
+		try {
+			$this->provider->handle_restore_identity();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$this->assertFalse( get_option( 'atmosphere_identity', false ) );
+
+		$messages = wp_list_pluck( get_settings_errors( 'atmosphere' ), 'message' );
+		$this->assertNotEmpty(
+			array_filter(
+				$messages,
+				static fn( $m ) => false !== strpos( $m, 'Could not fetch the DID document' )
+			)
+		);
+	}
+
+	/**
+	 * DID document missing the required `service` entry must surface as a
+	 * concrete error from `pds_from_did_doc()` rather than silently
+	 * passing through.
+	 */
+	public function test_handle_restore_identity_surfaces_pds_extraction_error(): void {
+		add_filter( 'home_url', static fn( $url ) => 'https://example.com', 10, 1 ); // phpcs:ignore VariableAnalysis.CodeAnalysis.VariableAnalysis.UnusedVariable -- filter signature.
+
+		$body = (string) wp_json_encode(
+			array(
+				'id'          => 'did:plc:abcdefghij1234567890wxyz',
+				'alsoKnownAs' => array( 'at://example.com' ),
+				// Intentionally no `service` array — pds_from_did_doc()
+				// returns atmosphere_no_pds.
+			),
+			JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT
+		);
+		add_filter(
+			'pre_http_request',
+			static function ( $preempt, $parsed_args, $url ) use ( $body ) { // phpcs:ignore VariableAnalysis.CodeAnalysis.VariableAnalysis.UnusedVariable -- pre_http_request signature.
+				if ( false === strpos( (string) $url, 'plc.directory' ) ) {
+					return $preempt;
+				}
+				return array(
+					'response' => array( 'code' => 200 ),
+					'body'     => $body,
+				);
+			},
+			10,
+			3
+		);
+
+		$this->become_admin();
+
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
+		$_POST    = array(
+			'_wpnonce'    => wp_create_nonce( 'fosse_restore_bluesky_identity' ),
+			'bluesky_did' => 'did:plc:abcdefghij1234567890wxyz',
+		);
+		$_REQUEST = $_POST;
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+
+		add_filter(
+			'wp_redirect',
+			static function () {
+				throw new RedirectFired( 'redirect' );
+			}
+		);
+
+		try {
+			$this->provider->handle_restore_identity();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$this->assertFalse( get_option( 'atmosphere_identity', false ) );
+
+		$messages = wp_list_pluck( get_settings_errors( 'atmosphere' ), 'message' );
+		$this->assertNotEmpty(
+			array_filter(
+				$messages,
+				static fn( $m ) => false !== strpos( $m, 'PDS endpoint' )
+			)
+		);
+	}
+
+	/**
+	 * Bad nonce → wp_die. Same pattern as every other admin-post handler
+	 * in this class; missing on `handle_restore_identity` was a coverage
+	 * gap previously surfaced in review.
+	 */
+	public function test_handle_restore_identity_rejects_bad_nonce(): void {
+		$this->become_admin();
+
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
+		$_POST    = array(
+			'_wpnonce'    => 'invalid-nonce',
+			'bluesky_did' => 'did:plc:abcdefghij1234567890wxyz',
+		);
+		$_REQUEST = $_POST;
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+
+		add_filter(
+			'wp_die_handler',
+			static fn() => static function () {
+				throw new \RuntimeException( 'wp_die' );
+			}
+		);
+
+		$threw = false;
+		try {
+			$this->provider->handle_restore_identity();
+		} catch ( \RuntimeException $e ) {
+			$threw = 'wp_die' === $e->getMessage();
+		}
+
+		$this->assertTrue( $threw, 'Bad nonce must be blocked with wp_die().' );
+		$this->assertFalse( get_option( 'atmosphere_identity', false ) );
+	}
+
+	// ---------- handle_forget_identity ----------
+
+	/**
+	 * Forget identity clears `atmosphere_identity` and surfaces a success
+	 * notice that echoes the cleared DID so the admin sees exactly what
+	 * was removed.
+	 */
+	public function test_handle_forget_identity_clears_persisted_identity(): void {
+		$cleared = array(
+			'did'          => 'did:plc:abcdefghij1234567890wxyz',
+			'handle'       => 'example.com',
+			'pds_endpoint' => 'https://pds.example.com',
+		);
+		update_option( 'atmosphere_identity', $cleared, true );
+
+		$this->become_admin();
+
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
+		$_POST    = array(
+			'_wpnonce' => wp_create_nonce( 'fosse_forget_bluesky_identity' ),
+		);
+		$_REQUEST = $_POST;
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+
+		add_filter(
+			'wp_redirect',
+			static function () {
+				throw new RedirectFired( 'redirect' );
+			}
+		);
+
+		try {
+			$this->provider->handle_forget_identity();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$this->assertFalse( get_option( 'atmosphere_identity', false ), 'Forget must delete atmosphere_identity.' );
+		$this->assertFalse( \Atmosphere\has_identity(), 'has_identity() must return false after forget.' );
+
+		$messages = wp_list_pluck( get_settings_errors( 'atmosphere' ), 'message' );
+		$this->assertNotEmpty(
+			array_filter(
+				$messages,
+				static fn( $m ) => false !== strpos( $m, 'did:plc:abcdefghij1234567890wxyz' )
+			),
+			'Success notice must echo the cleared DID for audit visibility.'
+		);
+	}
+
+	/**
+	 * A stale Forget form from a disconnected tab must not clear identity
+	 * after the admin reconnects in another tab. Otherwise the site keeps
+	 * valid OAuth credentials while its DID verification anchor disappears.
+	 */
+	public function test_handle_forget_identity_rejects_while_connected(): void {
+		$this->seed_connected_atmosphere_connection();
+
+		$identity = array(
+			'did'          => 'did:plc:abcdefghij1234567890wxyz',
+			'handle'       => 'example.com',
+			'pds_endpoint' => 'https://pds.example.com',
+		);
+		update_option( 'atmosphere_identity', $identity, true );
+
+		$this->become_admin();
+
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
+		$_POST    = array(
+			'_wpnonce' => wp_create_nonce( 'fosse_forget_bluesky_identity' ),
+		);
+		$_REQUEST = $_POST;
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+
+		add_filter(
+			'wp_redirect',
+			static function () {
+				throw new RedirectFired( 'redirect' );
+			}
+		);
+
+		try {
+			$this->provider->handle_forget_identity();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$this->assertSame( $identity, get_option( 'atmosphere_identity' ), 'Forget must not clear identity while the site is connected.' );
+		$this->assertTrue( \Atmosphere\is_connected(), 'Forget must not disconnect or orphan the OAuth connection.' );
+
+		$errors   = get_settings_errors( 'atmosphere' );
+		$types    = wp_list_pluck( $errors, 'type' );
+		$messages = wp_list_pluck( $errors, 'message' );
+
+		$this->assertContains( 'error', $types );
+		$this->assertNotContains( 'success', $types );
+		$this->assertNotEmpty(
+			array_filter(
+				$messages,
+				static fn( $message ) => false !== strpos( (string) $message, 'Disconnect Bluesky before forgetting this site' )
+			)
+		);
+	}
+
+	/**
+	 * Forget on a site with no identity on file returns an info notice,
+	 * not an error — a double-click on a fresh install shouldn't read as
+	 * a failure.
+	 */
+	public function test_handle_forget_identity_when_no_identity_present(): void {
+		$this->become_admin();
+
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
+		$_POST    = array(
+			'_wpnonce' => wp_create_nonce( 'fosse_forget_bluesky_identity' ),
+		);
+		$_REQUEST = $_POST;
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+
+		add_filter(
+			'wp_redirect',
+			static function () {
+				throw new RedirectFired( 'redirect' );
+			}
+		);
+
+		try {
+			$this->provider->handle_forget_identity();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$errors = get_settings_errors( 'atmosphere' );
+		$types  = wp_list_pluck( $errors, 'type' );
+		$this->assertContains( 'info', $types );
+		$this->assertNotContains( 'error', $types, 'No-op forget must not read as a failure.' );
+	}
+
+	/**
+	 * Forget is a destructive admin-only action — subscribers are blocked
+	 * with wp_die just like every other admin-post handler in this class.
+	 */
+	public function test_handle_forget_identity_rejects_subscriber(): void {
+		update_option(
+			'atmosphere_identity',
+			array(
+				'did'          => 'did:plc:abcdefghij1234567890wxyz',
+				'handle'       => 'example.com',
+				'pds_endpoint' => 'https://pds.example.com',
+			),
+			true
+		);
+
+		$this->become_subscriber();
+
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
+		$_POST    = array(
+			'_wpnonce' => wp_create_nonce( 'fosse_forget_bluesky_identity' ),
+		);
+		$_REQUEST = $_POST;
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+
+		add_filter(
+			'wp_die_handler',
+			static fn() => static function () {
+				throw new \RuntimeException( 'wp_die' );
+			}
+		);
+
+		$threw = false;
+		try {
+			$this->provider->handle_forget_identity();
+		} catch ( \RuntimeException $e ) {
+			$threw = 'wp_die' === $e->getMessage();
+		}
+
+		$this->assertTrue( $threw, 'Subscriber must be blocked with wp_die().' );
+		$this->assertNotFalse( get_option( 'atmosphere_identity', false ), 'Identity must NOT be cleared when subscriber attempt is blocked.' );
+	}
+
+	/**
+	 * Forget with a bad nonce → wp_die. CSRF defense.
+	 */
+	public function test_handle_forget_identity_rejects_bad_nonce(): void {
+		update_option(
+			'atmosphere_identity',
+			array(
+				'did'          => 'did:plc:abcdefghij1234567890wxyz',
+				'handle'       => 'example.com',
+				'pds_endpoint' => 'https://pds.example.com',
+			),
+			true
+		);
+
+		$this->become_admin();
+
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
+		$_POST    = array(
+			'_wpnonce' => 'invalid-nonce',
+		);
+		$_REQUEST = $_POST;
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+
+		add_filter(
+			'wp_die_handler',
+			static fn() => static function () {
+				throw new \RuntimeException( 'wp_die' );
+			}
+		);
+
+		$threw = false;
+		try {
+			$this->provider->handle_forget_identity();
+		} catch ( \RuntimeException $e ) {
+			$threw = 'wp_die' === $e->getMessage();
+		}
+
+		$this->assertTrue( $threw );
+		$this->assertNotFalse( get_option( 'atmosphere_identity', false ) );
+	}
+
+	/**
+	 * Forget panel renders on the disconnected state when identity is on
+	 * file — the case where the admin wants to fully sever the link.
+	 * The recovery panel does NOT render in this state (identity exists);
+	 * the Forget panel is the visible action.
+	 */
+	public function test_render_connection_actions_shows_forget_panel_when_disconnected_with_identity(): void {
+		delete_option( 'atmosphere_connection' );
+		update_option(
+			'atmosphere_identity',
+			array(
+				'did'          => 'did:plc:abcdefghij1234567890wxyz',
+				'handle'       => 'example.com',
+				'pds_endpoint' => 'https://pds.example.com',
+			),
+			true
+		);
+
+		$this->become_admin();
+
+		ob_start();
+		$this->provider->render_connection_actions();
+		$html = (string) ob_get_clean();
+
+		$this->assertStringContainsString(
+			'fosse-identity-forget',
+			$html,
+			'Forget panel must render when disconnected with identity on file.'
+		);
+		$this->assertStringContainsString(
+			'fosse_forget_bluesky_identity',
+			$html,
+			'Forget form must wire to the fosse_forget_bluesky_identity admin-post action.'
+		);
+		$this->assertStringNotContainsString(
+			'fosse-identity-recovery',
+			$html,
+			'Recovery panel must NOT render when identity already exists.'
+		);
+	}
+
+	/**
+	 * Forget panel is suppressed when no identity is on file (nothing to
+	 * forget). The recovery panel is the one that renders in this state.
+	 */
+	public function test_render_connection_actions_hides_forget_panel_when_no_identity(): void {
+		delete_option( 'atmosphere_connection' );
+		delete_option( 'atmosphere_identity' );
+
+		$this->become_admin();
+
+		ob_start();
+		$this->provider->render_connection_actions();
+		$html = (string) ob_get_clean();
+
+		$this->assertStringNotContainsString(
+			'fosse-identity-forget',
+			$html,
+			'Forget panel must NOT render when there is no identity to forget.'
+		);
 	}
 }

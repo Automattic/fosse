@@ -585,6 +585,19 @@ class Bluesky_Domain_Handle {
 		delete_option( self::OPTION_PREVIOUS_HANDLE );
 		self::sync_local_connection_handle( $previous );
 
+		// Clear the persisted Atmosphere identity (DID + handle + PDS) when
+		// the revert succeeded. Without this, `/.well-known/atproto-did`
+		// keeps serving the DID against a domain the account no longer
+		// claims — the PDS-side handle was just reverted away from this
+		// site, so the DID's `alsoKnownAs` no longer lists `at://<host>`,
+		// and the well-known route becomes a stale public claim that fails
+		// bidirectional verification. The disconnect-preserves-identity
+		// contract only makes sense when the binding still holds; once
+		// the revert removes it, the verification anchor should go with
+		// it. A reconnect with the original (now-restored) handle
+		// rebuilds identity from the token exchange, so nothing is lost.
+		delete_option( 'atmosphere_identity' );
+
 		self::add_settings_notice(
 			sprintf(
 				/* translators: %s: the handle that was restored (e.g. alice.bsky.social). */

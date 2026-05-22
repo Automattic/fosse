@@ -475,6 +475,64 @@
 	margin-top: 12px;
 }
 
+.fosse-identity-recovery {
+	border-top: 1px solid var(--fosse-ui-border-soft);
+	background: var(--fosse-ui-surface);
+}
+
+.fosse-identity-recovery__summary {
+	box-sizing: border-box;
+	padding: 14px 24px;
+	cursor: pointer;
+	font-size: 13px;
+	font-weight: 500;
+	line-height: 1.45;
+	color: var(--fosse-ui-accent);
+}
+
+.fosse-identity-recovery__summary:hover {
+	text-decoration: underline;
+	text-decoration-thickness: from-font;
+	text-underline-offset: 2px;
+}
+
+.fosse-identity-recovery__summary:focus-visible {
+	outline: 2px solid var(--fosse-ui-accent);
+	outline-offset: -2px;
+}
+
+.fosse-identity-recovery__body {
+	padding: 0 24px 20px;
+}
+
+.fosse-identity-recovery__body > :first-child {
+	margin-top: 0;
+}
+
+.fosse-identity-recovery__body > :last-child {
+	margin-bottom: 0;
+}
+
+.fosse-identity-recovery__body p {
+	max-width: 720px;
+	color: var(--fosse-ui-muted);
+}
+
+.fosse-identity-recovery__form {
+	max-width: 720px;
+	margin-top: 14px;
+	padding: 14px 16px;
+	border: 1px solid var(--fosse-ui-border-soft);
+	border-radius: var(--fosse-ui-radius);
+	background: var(--fosse-ui-surface-muted);
+}
+
+.fosse-identity-recovery__actions {
+	margin-top: 14px;
+	padding-top: 14px;
+	border-top: 1px solid var(--fosse-ui-border-soft);
+}
+
 .fosse-settings-actions {
 	display: flex;
 	align-items: center;
@@ -908,6 +966,16 @@
 	.fosse-card-body,
 	.fosse-card-footer {
 		padding: 18px;
+	}
+
+	.fosse-identity-recovery__summary {
+		padding-right: 18px;
+		padding-left: 18px;
+	}
+
+	.fosse-identity-recovery__body {
+		padding-right: 18px;
+		padding-left: 18px;
 	}
 
 	.fosse-card-header,
