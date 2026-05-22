@@ -874,6 +874,11 @@ class AP_ProviderTest extends BaseTestCase {
 		$this->assertStringContainsString( 'Your fediverse address', $output );
 		$this->assertStringContainsString( 'Site fediverse address', $output );
 		$this->assertStringContainsString( 'name="activitypub_blog_identifier"', $output );
+
+		// CSS-contract: the AP-address tokens emitted here must match the
+		// modifier classes asserted in Admin_CSS_Test.
+		$this->assertStringContainsString( 'fosse-token--ap-address', $output );
+		$this->assertStringContainsString( 'fosse-admin-token--ap-address', $output );
 	}
 
 	/**
@@ -890,5 +895,21 @@ class AP_ProviderTest extends BaseTestCase {
 		$this->assertStringContainsString( '<dd', $output );
 		$this->assertStringContainsString( 'ActivityPub profile', $output );
 		$this->assertStringNotContainsString( 'widefat striped', $output );
+	}
+
+	/**
+	 * Status card emits the AP-address token with the
+	 * `fosse-status-card__token--ap-address` modifier so the CSS rule
+	 * in `admin.css` targets a real DOM node.
+	 */
+	public function test_render_status_card_emits_status_card_ap_address_token() {
+		update_option( 'activitypub_actor_mode', 'blog' );
+		update_option( 'activitypub_blog_identifier', 'my-site' );
+
+		ob_start();
+		$this->provider->render_status_card();
+		$output = ob_get_clean();
+
+		$this->assertStringContainsString( 'fosse-status-card__token--ap-address', $output );
 	}
 }

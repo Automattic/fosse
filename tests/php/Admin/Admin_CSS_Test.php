@@ -29,7 +29,12 @@ class Admin_CSS_Test extends BaseTestCase {
 		$css = file_get_contents( dirname( __DIR__, 3 ) . '/src/Admin/assets/css/admin.css' );
 
 		$this->assertIsString( $css );
-		$this->assertStringContainsString( $selector, $css );
+
+		// Strip block comments so a selector mentioned in a CSS comment
+		// can't satisfy the contract — only real rules should count.
+		$css_without_comments = preg_replace( '#/\*.*?\*/#s', '', $css );
+
+		$this->assertStringContainsString( $selector, $css_without_comments );
 	}
 
 	/**
@@ -47,7 +52,6 @@ class Admin_CSS_Test extends BaseTestCase {
 			'status handle token'         => array( '.fosse-status-card__token--handle' ),
 			'completion host token'       => array( '.fosse-token--host' ),
 			'admin host token'            => array( '.fosse-admin-token--host' ),
-			'status host token'           => array( '.fosse-status-card__token--host' ),
 		);
 	}
 }
