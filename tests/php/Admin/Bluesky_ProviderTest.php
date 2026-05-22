@@ -54,6 +54,7 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		// invocation in the same PHP process if the static `$booted` flag leaked.
 		Provider_Loader::reset();
 		delete_option( 'atmosphere_connection' );
+		delete_option( 'atmosphere_identity' );
 		delete_option( 'atmosphere_auto_publish' );
 		delete_option( Bluesky_Domain_Handle::OPTION_PREVIOUS_HANDLE );
 		delete_transient( 'fosse_bluesky_profile_' . sanitize_key( 'did:plc:test123' ) );
@@ -1346,13 +1347,15 @@ class Bluesky_ProviderTest extends BaseTestCase {
 	 */
 	public static function invalid_handle_provider(): array {
 		return array(
-			'no dot, single label' => array( 'alice' ),
-			'leading dot'          => array( '.bsky.social' ),
-			'trailing dot'         => array( 'alice.bsky.social.' ),
-			'space inside'         => array( 'alice bsky.social' ),
-			'underscore'           => array( 'al_ice.bsky.social' ),
-			'mastodon style'       => array( '@alice@host.example' ),
-			'leading hyphen label' => array( '-alice.bsky.social' ),
+			'no dot, single label'                 => array( 'alice' ),
+			'leading dot'                          => array( '.bsky.social' ),
+			'trailing dot'                         => array( 'alice.bsky.social.' ),
+			'space inside'                         => array( 'alice bsky.social' ),
+			'underscore'                           => array( 'al_ice.bsky.social' ),
+			'mastodon style'                       => array( '@alice@host.example' ),
+			'leading hyphen label'                 => array( '-alice.bsky.social' ),
+			'interior zero-width space (U+200B)'   => array( "alice\u{200B}.bsky.social" ),
+			'interior left-to-right mark (U+200E)' => array( "alice.bsky\u{200E}.social" ),
 		);
 	}
 
@@ -1773,6 +1776,84 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		$this->assertStringContainsString( 'alice.bsky.social', $captured_handle );
 		$this->assertStringNotContainsString( '@alice', $captured_handle );
 		$this->assertStringNotContainsString( '%40alice', $captured_handle );
+	}
+
+	/**
+	 * Invisible Unicode formatting bytes at the edges of a copied handle
+	 * are stripped before validation. They are visually indistinguishable
+	 * from a valid handle, but the ASCII handle regex would reject them if
+	 * they survived. Interior formatting bytes are NOT stripped — see
+	 * {@see self::invalid_handle_provider()} for those cases.
+	 *
+	 * @dataProvider boundary_invisible_handle_provider
+	 *
+	 * @param string $raw_handle Raw user input.
+	 */
+	#[DataProvider( 'boundary_invisible_handle_provider' )]
+	public function test_handle_connect_strips_edge_invisible_unicode_formatting( string $raw_handle ) {
+		$this->become_admin();
+
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
+		$_POST    = array(
+			'_wpnonce'       => wp_create_nonce( 'fosse_connect_bluesky' ),
+			'bluesky_handle' => $raw_handle,
+		);
+		$_REQUEST = $_POST;
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+
+		$captured_url = null;
+		add_filter(
+			'pre_http_request',
+			static function ( $preempt, $args, $url ) use ( &$captured_url ) {
+				$captured_url = $url;
+				return new \WP_Error( 'fosse_test_intercept', 'intercepted' );
+			},
+			10,
+			3
+		);
+
+		add_filter(
+			'wp_redirect',
+			static function () {
+				throw new RedirectFired( 'redirect' );
+			}
+		);
+
+		try {
+			$this->provider->handle_connect();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$this->assertNotNull(
+			$captured_url,
+			'Expected pre_http_request to fire from Client::authorize() after removing invisible formatting bytes.'
+		);
+		$this->assertSame(
+			'fosse.example.com',
+			wp_parse_url( (string) $captured_url, PHP_URL_HOST ),
+			'Normalized handle should be the resolved host of the authorize lookup URL.'
+		);
+	}
+
+	/**
+	 * Data provider for edge-placed invisible Unicode formatting bytes.
+	 *
+	 * Uses an `example.com` subdomain (IANA-owned per RFC 2606) so the
+	 * DNS TXT probe in `Resolver::handle_to_did()` deterministically misses
+	 * and falls through to the HTTPS well-known path the `pre_http_request`
+	 * filter intercepts. Reserved TLDs (`.invalid`, `.test`, `.example`,
+	 * `.localhost`) are not usable here — Atmosphere's `is_valid_handle()`
+	 * rejects them before resolution.
+	 *
+	 * @return array<string, array{0: string}>
+	 */
+	public static function boundary_invisible_handle_provider(): array {
+		return array(
+			'trailing pop directional formatting (U+202C)' => array( "fosse.example.com\u{202C}" ),
+			'leading byte-order mark (U+FEFF)'             => array( "\u{FEFF}fosse.example.com" ),
+			'leading and trailing zero-width space (U+200B)' => array( "\u{200B}fosse.example.com\u{200B}" ),
+		);
 	}
 
 	/**

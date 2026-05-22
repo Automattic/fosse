@@ -773,7 +773,7 @@ class Bluesky_Provider implements Connection_Provider {
 		);
 
 		$handle = sanitize_text_field( wp_unslash( $_POST['bluesky_handle'] ?? '' ) );
-		$handle = strtolower( trim( ltrim( trim( $handle ), '@' ) ) );
+		$handle = self::normalize_submitted_handle( $handle );
 
 		if ( empty( $handle ) ) {
 			self::record_connection_failed( 'bluesky', $source, 'invalid_handle' );
@@ -886,6 +886,36 @@ class Bluesky_Provider implements Connection_Provider {
 		}
 
 		$this->redirect_with_notice( __( 'Disconnected from Bluesky.', 'fosse' ), 'info' );
+	}
+
+	/**
+	 * Normalize a submitted Bluesky handle before validation.
+	 *
+	 * Peels ASCII whitespace and invisible Unicode formatting bytes
+	 * (`\p{Cf}`: BOM, ZWSP, bidi marks, etc.) from both edges of the
+	 * handle, then strips a leading `@`. Formatting bytes in the
+	 * interior of the handle are intentionally left in place — they
+	 * change the semantic shape of what the user typed and the
+	 * downstream ASCII validation should surface that as an
+	 * `invalid_handle` error rather than silently coercing the input
+	 * into a different valid handle.
+	 *
+	 * @param string $handle Raw sanitized handle from the form submission.
+	 * @return string Normalized handle.
+	 */
+	private static function normalize_submitted_handle( string $handle ): string {
+		// ASCII whitespace is listed explicitly rather than via `\s` so the
+		// pattern doesn't quietly grow if PCRE2 is ever compiled with UCP
+		// (PHP's bundled build isn't, but the explicit class removes the
+		// dependency on that). Non-ASCII whitespace stays intact and falls
+		// through to the AT Protocol ASCII validator downstream.
+		$edge_pattern = '/^[ \t\n\r\f\v\p{Cf}]+|[ \t\n\r\f\v\p{Cf}]+$/u';
+
+		$handle = (string) preg_replace( $edge_pattern, '', $handle );
+		$handle = ltrim( $handle, '@' );
+		$handle = (string) preg_replace( $edge_pattern, '', $handle );
+
+		return strtolower( $handle );
 	}
 
 	/**
