@@ -844,8 +844,8 @@ class Bluesky_Provider implements Connection_Provider {
 		add_action( 'admin_post_fosse_enable_bluesky_auto_publish', array( $this, 'handle_enable_auto_publish' ) );
 		add_action( 'admin_init', array( $this, 'handle_oauth_callback' ) );
 		add_action( 'admin_notices', array( $this, 'maybe_render_auto_publish_disabled_notice' ) );
-		add_action( 'init', array( $this, 'serve_atproto_did_well_known' ), 1 );
 		add_action( 'template_redirect', array( $this, 'maybe_suppress_atmosphere_well_known' ), 1 );
+		add_action( 'template_redirect', array( $this, 'send_atproto_did_nocache_headers' ), 2 );
 
 		// Override Atmosphere's OAuth redirect URI so the auth server callback
 		// and the client-metadata REST endpoint both advertise FOSSE's page.
@@ -874,107 +874,51 @@ class Bluesky_Provider implements Connection_Provider {
 	}
 
 	/**
-	 * Serve /.well-known/atproto-did when FOSSE owns the route.
+	 * Apply `nocache_headers()` to `/.well-known/atproto-did` responses before
+	 * Atmosphere's handler sends the body.
 	 *
-	 * Returns silently for unrelated paths, when the
-	 * `fosse_serve_atproto_did_well_known` filter opts out, and when
-	 * Atmosphere isn't loaded. Sends a 404 and exits when Atmosphere is
-	 * loaded but no identity DID is available; otherwise sends a
-	 * `text/plain` body containing the DID and exits.
+	 * The deleted FOSSE handler sent `nocache_headers()` on both 200 and 404
+	 * responses; Atmosphere's `serve_wellknown_atproto_did()` doesn't. Without
+	 * the headers, fronting page/CDN caches can keep a pre-connect 404 after
+	 * OAuth completes, or keep a stale 200 DID after disconnect — either
+	 * defeats Bluesky's bidirectional handle resolution. This shim runs at
+	 * `template_redirect` priority 2 (after the opt-out suppression at
+	 * priority 1, before Atmosphere's serve at priority 10) so the headers
+	 * are queued before any body is sent. The opt-out path already calls
+	 * `nocache_headers()` directly, so this hook short-circuits when the
+	 * filter is false.
+	 *
+	 * Track wordpress-atmosphere#83 — once upstream sends `nocache_headers()`
+	 * itself, this shim can be deleted.
 	 *
 	 * @return void
 	 */
-	public function serve_atproto_did_well_known(): void {
-		// Path-match below uses strict equality; sanitize_text_field can normalize
-		// encoded characters in surprising ways, so read raw.
-		// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
-		$request_uri = isset( $_SERVER['REQUEST_URI'] ) ? (string) wp_unslash( $_SERVER['REQUEST_URI'] ) : '';
-		$response    = $this->get_atproto_did_well_known_response( $request_uri );
-
-		if ( null === $response ) {
+	public function send_atproto_did_nocache_headers(): void {
+		if ( 'atproto-did' !== get_query_var( 'atmosphere_wellknown' ) ) {
 			return;
 		}
 
-		if ( 404 === $response['status'] ) {
-			status_header( 404 );
-			nocache_headers();
-			exit;
-		}
-
-		header( 'Content-Type: text/plain; charset=utf-8' );
-		nocache_headers();
-		echo $response['did']; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- text/plain response; DID syntax validated in get_atproto_did_well_known_response().
-		exit;
-	}
-
-	/**
-	 * Resolve the response data for FOSSE's /.well-known/atproto-did handler.
-	 *
-	 * @param string $request_uri Request URI.
-	 * @return array{status:200|404,did:string}|null Null when FOSSE should not handle the request; otherwise a status code and the DID (empty for 404).
-	 */
-	private function get_atproto_did_well_known_response( string $request_uri ): ?array {
-		$path = wp_parse_url( $request_uri, PHP_URL_PATH );
-
-		if ( '/.well-known/atproto-did' !== $path ) {
-			return null;
-		}
-
-		/**
-		 * Filter whether FOSSE serves the /.well-known/atproto-did route.
-		 *
-		 * Disable to let another component (CDN, custom rewrite, etc.) own the path.
-		 *
-		 * @param bool $serve Default true.
-		 */
 		if ( ! apply_filters( 'fosse_serve_atproto_did_well_known', true ) ) {
-			return null;
+			return;
 		}
 
-		if ( ! function_exists( '\Atmosphere\has_identity' ) || ! function_exists( '\Atmosphere\get_did' ) ) {
-			// Atmosphere isn't loaded, or is too old to expose the persisted
-			// identity contract. That's a structural error, not a user-facing
-			// "no connection" state. Decline to handle so a normal 404 happens
-			// via WordPress's main request flow.
-			return null;
-		}
-
-		if ( ! \Atmosphere\has_identity() ) {
-			return array(
-				'status' => 404,
-				'did'    => '',
-			);
-		}
-
-		$did = \Atmosphere\get_did();
-
-		// Validate the DID against AT Proto syntax before promising to serve it.
-		// The response is plain text and a malformed value (newlines, control chars,
-		// HTML bytes) would corrupt the body or worse. Valid AT Proto DIDs are
-		// "did:" + method + ":" + ASCII alphanumerics with a small punctuation set.
-		// \A and \z anchor strictly so a stored DID with a trailing newline (which
-		// PHP's $ anchor permits) doesn't slip a stray byte into the response.
-		if ( ! preg_match( '/\Adid:[a-z]+:[A-Za-z0-9._:%\-]*[A-Za-z0-9._\-]\z/', $did ) ) {
-			return array(
-				'status' => 404,
-				'did'    => '',
-			);
-		}
-
-		return array(
-			'status' => 200,
-			'did'    => $did,
-		);
+		nocache_headers();
 	}
 
 	/**
 	 * Suppress bundled Atmosphere's /.well-known/atproto-did handler when FOSSE opts out.
 	 *
-	 * The fosse_serve_atproto_did_well_known filter only controls FOSSE's own handler.
-	 * Atmosphere registers an independent template_redirect handler that would otherwise
-	 * still serve the route, defeating the opt-out. Clearing Atmosphere's query var
-	 * makes its handler return early so neither plugin serves the route. Also flags the
-	 * request 404 so WordPress doesn't render the front page for the well-known URL.
+	 * Atmosphere owns the route end-to-end now: its `serve_wellknown_atproto_did()`
+	 * runs on `template_redirect` priority 10 and gates the response on
+	 * `\Atmosphere\has_identity()`, which is the contract FOSSE was previously
+	 * mirroring. The `fosse_serve_atproto_did_well_known` filter remains as a
+	 * site-level opt-out: when it returns false, this hook (priority 1) clears
+	 * Atmosphere's query var so its handler returns early and marks the request
+	 * 404 so WordPress doesn't render the front page for the well-known URL.
+	 *
+	 * Third-party handlers attached at `template_redirect` priority > 1 can still
+	 * take over by calling `status_header( 200 )`, `$wp_query->set_404( false )`,
+	 * and `exit()`.
 	 *
 	 * @return void
 	 */
@@ -983,6 +927,15 @@ class Bluesky_Provider implements Connection_Provider {
 			return;
 		}
 
+		/**
+		 * Filter whether the bundled Atmosphere handler serves /.well-known/atproto-did.
+		 *
+		 * Return false to let another component (CDN, custom rewrite, etc.) own the path.
+		 * When false, FOSSE clears Atmosphere's query var and forces a 404 so neither
+		 * plugin responds to the request.
+		 *
+		 * @param bool $serve Default true.
+		 */
 		if ( apply_filters( 'fosse_serve_atproto_did_well_known', true ) ) {
 			return;
 		}

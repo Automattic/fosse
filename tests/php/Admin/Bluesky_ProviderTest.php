@@ -906,170 +906,75 @@ class Bluesky_ProviderTest extends BaseTestCase {
 	}
 
 	/**
-	 * The well-known route helper ignores unrelated request paths.
+	 * The nocache shim sends cache-busting headers for the atproto-did route.
+	 *
+	 * Atmosphere's upstream `serve_wellknown_atproto_did()` doesn't call
+	 * `nocache_headers()`; the deleted FOSSE handler did. The shim restores
+	 * that behavior until wordpress-atmosphere#83 lands upstream.
 	 */
-	public function test_atproto_did_well_known_response_ignores_other_paths() {
-		$this->assertNull( $this->get_atproto_did_well_known_response( '/about' ) );
+	public function test_send_atproto_did_nocache_headers_sends_headers_for_atproto_did_query_var() {
+		set_query_var( 'atmosphere_wellknown', 'atproto-did' );
+
+		$nocache_called = false;
+		add_action(
+			'nocache_headers',
+			static function ( $headers ) use ( &$nocache_called ) {
+				$nocache_called = true;
+				return $headers;
+			}
+		);
+
+		$this->provider->send_atproto_did_nocache_headers();
+
+		$this->assertTrue( $nocache_called, 'nocache_headers() should fire for atproto-did query var when filter is true.' );
 	}
 
 	/**
-	 * The well-known route helper returns the connected DID as plain response data.
+	 * The nocache shim is a no-op for unrelated atmosphere_wellknown query vars.
+	 *
+	 * It must not pollute cache headers on the publication well-known route
+	 * (or any other Atmosphere-served route) — only the atproto-did response
+	 * needed `nocache_headers()` parity with the deleted FOSSE handler.
 	 */
-	public function test_atproto_did_well_known_response_returns_connected_did() {
-		update_option(
-			'atmosphere_connection',
-			array(
-				'did'          => 'did:plc:test123',
-				'handle'       => 'alice.bsky.social',
-				'pds_endpoint' => 'https://bsky.social',
-				'access_token' => Encryption::encrypt( 'token' ),
-			)
+	public function test_send_atproto_did_nocache_headers_no_op_for_other_query_vars() {
+		set_query_var( 'atmosphere_wellknown', 'publication' );
+
+		$nocache_called = false;
+		add_action(
+			'nocache_headers',
+			static function ( $headers ) use ( &$nocache_called ) {
+				$nocache_called = true;
+				return $headers;
+			}
 		);
 
-		$this->assertSame(
-			array(
-				'status' => 200,
-				'did'    => 'did:plc:test123',
-			),
-			$this->get_atproto_did_well_known_response( '/.well-known/atproto-did?ignored=1' )
-		);
+		$this->provider->send_atproto_did_nocache_headers();
+
+		$this->assertFalse( $nocache_called, 'nocache_headers() should not fire for unrelated query vars.' );
 	}
 
 	/**
-	 * The well-known route must keep serving the DID while a stored identity
-	 * needs OAuth reauthorization. Domain handles depend on this endpoint to
-	 * resolve before the reconnect flow can even redirect to the auth server.
+	 * The nocache shim short-circuits on opt-out so the suppression hook owns
+	 * the no-cache headers in that path (which it already sends).
 	 */
-	public function test_atproto_did_well_known_response_uses_identity_during_reauth() {
-		update_option(
-			'atmosphere_identity',
-			array(
-				'did'          => 'did:plc:test123',
-				'handle'       => 'example.com',
-				'pds_endpoint' => 'https://bsky.social',
-			)
-		);
-		update_option(
-			'atmosphere_connection',
-			array(
-				'did'          => 'did:plc:test123',
-				'handle'       => 'example.com',
-				'pds_endpoint' => 'https://bsky.social',
-				'access_token' => '',
-				'needs_reauth' => true,
-			)
-		);
-
-		$this->assertFalse( \Atmosphere\is_connected() );
-		$this->assertTrue( \Atmosphere\has_identity() );
-
-		$this->assertSame(
-			array(
-				'status' => 200,
-				'did'    => 'did:plc:test123',
-			),
-			$this->get_atproto_did_well_known_response( '/.well-known/atproto-did' )
-		);
-	}
-
-	/**
-	 * A legacy connection row with identity data still serves the DID even
-	 * without a live access token. Atmosphere lazily migrates this shape into
-	 * `atmosphere_identity`, and FOSSE should follow that source of truth.
-	 */
-	public function test_atproto_did_well_known_response_serves_did_from_legacy_connection_row() {
-		update_option(
-			'atmosphere_connection',
-			array(
-				'did'    => 'did:plc:test123',
-				'handle' => 'alice.bsky.social',
-			)
-		);
-
-		$this->assertSame(
-			array(
-				'status' => 200,
-				'did'    => 'did:plc:test123',
-			),
-			$this->get_atproto_did_well_known_response( '/.well-known/atproto-did' )
-		);
-	}
-
-	/**
-	 * Sites without any persisted AT Protocol identity return 404.
-	 */
-	public function test_atproto_did_well_known_response_returns_404_without_identity() {
-		$this->assertSame(
-			array(
-				'status' => 404,
-				'did'    => '',
-			),
-			$this->get_atproto_did_well_known_response( '/.well-known/atproto-did' )
-		);
-	}
-
-	/**
-	 * The FOSSE opt-out filter prevents FOSSE from serving the well-known route.
-	 */
-	public function test_atproto_did_well_known_response_respects_opt_out_filter() {
-		update_option(
-			'atmosphere_connection',
-			array(
-				'did'          => 'did:plc:test123',
-				'handle'       => 'alice.bsky.social',
-				'pds_endpoint' => 'https://bsky.social',
-				'access_token' => Encryption::encrypt( 'token' ),
-			)
-		);
-
+	public function test_send_atproto_did_nocache_headers_no_op_when_opted_out() {
+		set_query_var( 'atmosphere_wellknown', 'atproto-did' );
 		add_filter( 'fosse_serve_atproto_did_well_known', '__return_false' );
 
-		$this->assertNull( $this->get_atproto_did_well_known_response( '/.well-known/atproto-did' ) );
-	}
-
-	/**
-	 * A stored DID that doesn't match AT Proto syntax is rejected with a 404.
-	 */
-	public function test_atproto_did_well_known_response_rejects_malformed_did() {
-		update_option(
-			'atmosphere_connection',
-			array(
-				'did'          => "did:plc:abc\n<script>alert(1)</script>",
-				'handle'       => 'alice.bsky.social',
-				'pds_endpoint' => 'https://bsky.social',
-				'access_token' => Encryption::encrypt( 'token' ),
-			)
+		$nocache_called = false;
+		add_action(
+			'nocache_headers',
+			static function ( $headers ) use ( &$nocache_called ) {
+				$nocache_called = true;
+				return $headers;
+			}
 		);
 
-		$this->assertSame(
-			array(
-				'status' => 404,
-				'did'    => '',
-			),
-			$this->get_atproto_did_well_known_response( '/.well-known/atproto-did' )
-		);
-	}
+		$this->provider->send_atproto_did_nocache_headers();
 
-	/**
-	 * A stored DID with a single trailing newline is rejected (PHP's $ would have allowed it).
-	 */
-	public function test_atproto_did_well_known_response_rejects_did_with_trailing_newline() {
-		update_option(
-			'atmosphere_connection',
-			array(
-				'did'          => "did:plc:test123\n",
-				'handle'       => 'alice.bsky.social',
-				'pds_endpoint' => 'https://bsky.social',
-				'access_token' => Encryption::encrypt( 'token' ),
-			)
-		);
-
-		$this->assertSame(
-			array(
-				'status' => 404,
-				'did'    => '',
-			),
-			$this->get_atproto_did_well_known_response( '/.well-known/atproto-did' )
+		$this->assertFalse(
+			$nocache_called,
+			'nocache_headers() should not fire from the shim when opted out — the suppression hook handles that path.'
 		);
 	}
 
@@ -1106,6 +1011,72 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		$this->assertSame( 'atproto-did', get_query_var( 'atmosphere_wellknown' ) );
 		$this->assertFalse( $wp_query->is_404() );
 		$this->assertNull( $status_header_called->code, 'status_header should not be called when FOSSE will serve the route.' );
+	}
+
+	/**
+	 * Tripwire: Atmosphere's bundled well-known handler must stay hooked at
+	 * `template_redirect` priority > 1.
+	 *
+	 * FOSSE's suppression hook runs at priority 1 and clears
+	 * `atmosphere_wellknown` before Atmosphere's handler reads it. If a
+	 * future bundled resync moves the handler to priority 0 or 1 (or
+	 * removes it entirely), the opt-out contract silently breaks and the
+	 * existing direct-call suppression tests stay green. Catch the drift
+	 * at the registration layer instead.
+	 */
+	public function test_atmosphere_serves_wellknown_after_fosse_suppression_priority() {
+		// Atmosphere registers its `template_redirect` hook from its
+		// `plugins_loaded` callback. WorDBless may fire `plugins_loaded`
+		// before `fosse.php` registers Atmosphere's callback, so check
+		// whether Atmosphere's hook is already present and only re-fire
+		// `plugins_loaded` if not. Guarding against the hook directly (not
+		// via `did_action()`) avoids both the "Atmosphere never booted" and
+		// "re-firing stacks duplicate callbacks across tests" failure modes.
+		global $wp_filter;
+		$find_atmosphere_priority = static function () use ( &$wp_filter ): ?int {
+			if ( ! isset( $wp_filter['template_redirect'] ) ) {
+				return null;
+			}
+			foreach ( $wp_filter['template_redirect']->callbacks as $priority => $callbacks ) {
+				foreach ( $callbacks as $info ) {
+					$cb = $info['function'];
+					if (
+						is_array( $cb )
+						&& isset( $cb[0] )
+						&& isset( $cb[1] )
+						&& is_object( $cb[0] )
+						&& 'Atmosphere\\Atmosphere' === get_class( $cb[0] )
+						&& 'serve_wellknown_atproto_did' === $cb[1]
+					) {
+						return (int) $priority;
+					}
+				}
+			}
+			return null;
+		};
+
+		$atmosphere_priority = $find_atmosphere_priority();
+		if ( null === $atmosphere_priority ) {
+			do_action( 'plugins_loaded' );
+			$atmosphere_priority = $find_atmosphere_priority();
+		}
+
+		$this->assertNotNull(
+			$atmosphere_priority,
+			'Atmosphere\\Atmosphere::serve_wellknown_atproto_did is not hooked on template_redirect. '
+				. 'FOSSE delegates the well-known route to Atmosphere; if the handler moved or was renamed in a bundled resync, '
+				. '/.well-known/atproto-did will silently 404.'
+		);
+		// > 2 (not just > 1) because FOSSE now also hooks
+		// `send_atproto_did_nocache_headers` at priority 2 — if Atmosphere
+		// moves to priority 2, the shim's `nocache_headers()` would queue
+		// after Atmosphere's `exit` and never reach the response.
+		$this->assertGreaterThan(
+			2,
+			$atmosphere_priority,
+			'Atmosphere\\Atmosphere::serve_wellknown_atproto_did is hooked at template_redirect priority ' . $atmosphere_priority
+				. ' but FOSSE\'s suppression hook runs at priority 1 and the nocache shim runs at priority 2. The opt-out filter or nocache headers will not work.'
+		);
 	}
 
 	/**
@@ -2036,8 +2007,8 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		$this->assertNotFalse( has_action( 'admin_post_fosse_enable_bluesky_auto_publish', array( $this->provider, 'handle_enable_auto_publish' ) ) );
 		$this->assertNotFalse( has_action( 'admin_init', array( $this->provider, 'handle_oauth_callback' ) ) );
 		$this->assertNotFalse( has_action( 'admin_notices', array( $this->provider, 'maybe_render_auto_publish_disabled_notice' ) ) );
-		$this->assertSame( 1, has_action( 'init', array( $this->provider, 'serve_atproto_did_well_known' ) ) );
 		$this->assertSame( 1, has_action( 'template_redirect', array( $this->provider, 'maybe_suppress_atmosphere_well_known' ) ) );
+		$this->assertSame( 2, has_action( 'template_redirect', array( $this->provider, 'send_atproto_did_nocache_headers' ) ) );
 		$this->assertNotFalse( has_filter( 'atmosphere_oauth_redirect_uri', array( $this->provider, 'filter_oauth_redirect_uri' ) ) );
 	}
 
@@ -2326,17 +2297,6 @@ class Bluesky_ProviderTest extends BaseTestCase {
 				'Subscriber must not be able to flip the option.'
 			);
 		}
-	}
-
-	/**
-	 * Invoke the private well-known response helper via reflection.
-	 *
-	 * @param string $request_uri Request URI.
-	 * @return array{status:int,did:string}|null
-	 */
-	private function get_atproto_did_well_known_response( string $request_uri ): ?array {
-		$method = new ReflectionMethod( Bluesky_Provider::class, 'get_atproto_did_well_known_response' );
-		return $method->invoke( $this->provider, $request_uri );
 	}
 
 	/**
