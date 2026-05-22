@@ -1847,15 +1847,6 @@
 	text-align: center;
 }
 
-.fosse-wizard__complete-message .fosse-wizard__description strong {
-	font-weight: 600;
-	color: var(--fosse-ui-text);
-}
-
-.fosse-wizard__complete-message .fosse-wizard__cta-help {
-	display: inline;
-}
-
 .fosse-wizard__next-steps {
 	margin-top: 22px;
 	padding-top: 18px;
@@ -1957,14 +1948,6 @@
 /* Completion publish CTA */
 .fosse-wizard__cta-publish {
 	min-width: 0;
-}
-
-.fosse-wizard__cta-help {
-	text-align: left;
-	margin: 0;
-	font-size: 13px;
-	color: var(--fosse-ui-muted);
-	max-width: 720px;
 }
 
 .fosse-wizard__completion-actions {

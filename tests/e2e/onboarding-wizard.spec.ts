@@ -640,9 +640,6 @@ test( 'Completion step keeps success header and actions aligned inside the card'
 		descriptionContainsBluesky: boolean;
 		descriptionTopGap: number;
 		headerHeight: number;
-		helpInsideHeader: boolean;
-		helpInsideDescription: boolean;
-		helpOutsideFooter: boolean;
 		iconAboveTitle: boolean;
 		iconCenterDelta: number;
 		messageCenterDelta: number;
@@ -714,9 +711,6 @@ test( 'Completion step keeps success header and actions aligned inside the card'
 					) ?? false,
 				descriptionTopGap: descriptionRect.top - titleRect.bottom,
 				headerHeight: headerRect.height,
-				helpInsideHeader: false,
-				helpInsideDescription: false,
-				helpOutsideFooter: true,
 				iconAboveTitle: iconRect.bottom <= titleRect.top - 8,
 				iconCenterDelta: Math.abs(
 					iconRect.left +
@@ -746,9 +740,6 @@ test( 'Completion step keeps success header and actions aligned inside the card'
 	expect( metrics!.descriptionTopGap ).toBeGreaterThanOrEqual( 6 );
 	expect( metrics!.descriptionTopGap ).toBeLessThanOrEqual( 14 );
 	expect( metrics!.headerHeight ).toBeLessThanOrEqual( 210 );
-	expect( metrics!.helpInsideHeader ).toBe( false );
-	expect( metrics!.helpInsideDescription ).toBe( false );
-	expect( metrics!.helpOutsideFooter ).toBe( true );
 	expect( metrics!.iconAboveTitle ).toBe( true );
 	expect( metrics!.iconCenterDelta ).toBeLessThanOrEqual( 2 );
 	expect( metrics!.messageCenterDelta ).toBeLessThanOrEqual( 2 );
