@@ -1,12 +1,12 @@
 ---
-status: planning
+status: in-progress
 ---
 
 # Spec: Bundled Backends Migration
 
-## Status: PLANNING
+## Status: IN PROGRESS
 
-This SDD is open for review after the 2026-05 dependency refresh and the 2026-05-22 direction change. **No code implementation is planned in this PR.** The bundled-backends approach (`bundled/activitypub/` and `bundled/atmosphere/` checked into the FOSSE repo, included in the standalone zip and the wp.com Simple artifact) remains the production architecture until reviewers approve a migration path.
+The SDD doc itself merged in PR 93 and the 2026-05-22 direction change is in PR 176. **No code implementation has started yet.** The bundled-backends approach (`bundled/activitypub/` and `bundled/atmosphere/` checked into the FOSSE repo, included in the standalone zip and the wp.com Simple artifact) remains the production architecture until reviewers approve the install-if-missing migration path described below.
 
 The original design captured why removing `bundled/` was too risky before Atmosphere had a public release. That caution still matters, but the public dependency facts have changed enough that this SDD should be reviewed instead of left on the shelf.
 

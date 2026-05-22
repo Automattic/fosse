@@ -21,8 +21,8 @@ See [requirements.md](./requirements.md#direction-change-2026-05-22) for the 202
 ## Review tasks
 
 1. **Refresh SDD assumptions.**
-   - **Status**: Done (PR 93)
-   - **Verify**: The requirements, spec, and plan acknowledge <https://wordpress.org/plugins/atmosphere/> and describe install-if-missing as the public distribution direction.
+   - **Status**: Done (PR 93, PR 176)
+   - **Verify**: The requirements, spec, and plan acknowledge <https://wordpress.org/plugins/atmosphere/> (landed in PR 93) and describe install-if-missing as the public distribution direction (landed in PR 176).
 
 2. **Approve install-if-missing as the public distribution model.**
    - **Status**: Not started
