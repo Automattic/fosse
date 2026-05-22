@@ -4314,6 +4314,60 @@ class Bluesky_ProviderTest extends BaseTestCase {
 	}
 
 	/**
+	 * A stale Forget form from a disconnected tab must not clear identity
+	 * after the admin reconnects in another tab. Otherwise the site keeps
+	 * valid OAuth credentials while its DID verification anchor disappears.
+	 */
+	public function test_handle_forget_identity_rejects_while_connected(): void {
+		$this->seed_connected_atmosphere_connection();
+
+		$identity = array(
+			'did'          => 'did:plc:abcdefghij1234567890wxyz',
+			'handle'       => 'example.com',
+			'pds_endpoint' => 'https://pds.example.com',
+		);
+		update_option( 'atmosphere_identity', $identity, true );
+
+		$this->become_admin();
+
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
+		$_POST    = array(
+			'_wpnonce' => wp_create_nonce( 'fosse_forget_bluesky_identity' ),
+		);
+		$_REQUEST = $_POST;
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+
+		add_filter(
+			'wp_redirect',
+			static function () {
+				throw new RedirectFired( 'redirect' );
+			}
+		);
+
+		try {
+			$this->provider->handle_forget_identity();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$this->assertSame( $identity, get_option( 'atmosphere_identity' ), 'Forget must not clear identity while the site is connected.' );
+		$this->assertTrue( \Atmosphere\is_connected(), 'Forget must not disconnect or orphan the OAuth connection.' );
+
+		$errors   = get_settings_errors( 'atmosphere' );
+		$types    = wp_list_pluck( $errors, 'type' );
+		$messages = wp_list_pluck( $errors, 'message' );
+
+		$this->assertContains( 'error', $types );
+		$this->assertNotContains( 'success', $types );
+		$this->assertNotEmpty(
+			array_filter(
+				$messages,
+				static fn( $message ) => false !== strpos( (string) $message, 'Disconnect Bluesky before forgetting this site' )
+			)
+		);
+	}
+
+	/**
 	 * Forget on a site with no identity on file returns an info notice,
 	 * not an error — a double-click on a fresh install shouldn't read as
 	 * a failure.

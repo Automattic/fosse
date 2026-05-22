@@ -1484,6 +1484,14 @@ class Bluesky_Provider implements Connection_Provider {
 
 		check_admin_referer( 'fosse_forget_bluesky_identity' );
 
+		if ( function_exists( '\Atmosphere\is_connected' ) && \Atmosphere\is_connected() ) {
+			$this->redirect_with_notice(
+				__( 'Disconnect Bluesky before forgetting this site\'s identity. You can forget the saved identity after the Bluesky account is disconnected.', 'fosse' ),
+				'error'
+			);
+			return;
+		}
+
 		// Capture the DID before deletion so the notice can confirm what
 		// just went away (and so a "did nothing" double-click on a fresh
 		// install doesn't read as success).
