@@ -668,6 +668,7 @@ class Bluesky_Provider implements Connection_Provider {
 		add_action( 'admin_init', array( $this, 'handle_oauth_callback' ) );
 		add_action( 'admin_notices', array( $this, 'maybe_render_auto_publish_disabled_notice' ) );
 		add_action( 'template_redirect', array( $this, 'maybe_suppress_atmosphere_well_known' ), 1 );
+		add_action( 'template_redirect', array( $this, 'send_atproto_did_nocache_headers' ), 2 );
 
 		// Override Atmosphere's OAuth redirect URI so the auth server callback
 		// and the client-metadata REST endpoint both advertise FOSSE's page.
@@ -693,6 +694,38 @@ class Bluesky_Provider implements Connection_Provider {
 	 */
 	public function save_settings( array $post_data ): bool { // phpcs:ignore VariableAnalysis.CodeAnalysis.VariableAnalysis.UnusedVariable -- Connection_Provider interface contract; no Bluesky-side fields to persist after the auto-publish toggle removal.
 		return true;
+	}
+
+	/**
+	 * Apply `nocache_headers()` to `/.well-known/atproto-did` responses before
+	 * Atmosphere's handler sends the body.
+	 *
+	 * The deleted FOSSE handler sent `nocache_headers()` on both 200 and 404
+	 * responses; Atmosphere's `serve_wellknown_atproto_did()` doesn't. Without
+	 * the headers, fronting page/CDN caches can keep a pre-connect 404 after
+	 * OAuth completes, or keep a stale 200 DID after disconnect — either
+	 * defeats Bluesky's bidirectional handle resolution. This shim runs at
+	 * `template_redirect` priority 2 (after the opt-out suppression at
+	 * priority 1, before Atmosphere's serve at priority 10) so the headers
+	 * are queued before any body is sent. The opt-out path already calls
+	 * `nocache_headers()` directly, so this hook short-circuits when the
+	 * filter is false.
+	 *
+	 * Track wordpress-atmosphere#83 — once upstream sends `nocache_headers()`
+	 * itself, this shim can be deleted.
+	 *
+	 * @return void
+	 */
+	public function send_atproto_did_nocache_headers(): void {
+		if ( 'atproto-did' !== get_query_var( 'atmosphere_wellknown' ) ) {
+			return;
+		}
+
+		if ( ! apply_filters( 'fosse_serve_atproto_did_well_known', true ) ) {
+			return;
+		}
+
+		nocache_headers();
 	}
 
 	/**

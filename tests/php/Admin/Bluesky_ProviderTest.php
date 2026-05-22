@@ -852,6 +852,79 @@ class Bluesky_ProviderTest extends BaseTestCase {
 	}
 
 	/**
+	 * The nocache shim sends cache-busting headers for the atproto-did route.
+	 *
+	 * Atmosphere's upstream `serve_wellknown_atproto_did()` doesn't call
+	 * `nocache_headers()`; the deleted FOSSE handler did. The shim restores
+	 * that behavior until wordpress-atmosphere#83 lands upstream.
+	 */
+	public function test_send_atproto_did_nocache_headers_sends_headers_for_atproto_did_query_var() {
+		set_query_var( 'atmosphere_wellknown', 'atproto-did' );
+
+		$nocache_called = false;
+		add_action(
+			'nocache_headers',
+			static function ( $headers ) use ( &$nocache_called ) {
+				$nocache_called = true;
+				return $headers;
+			}
+		);
+
+		$this->provider->send_atproto_did_nocache_headers();
+
+		$this->assertTrue( $nocache_called, 'nocache_headers() should fire for atproto-did query var when filter is true.' );
+	}
+
+	/**
+	 * The nocache shim is a no-op for unrelated atmosphere_wellknown query vars.
+	 *
+	 * It must not pollute cache headers on the publication well-known route
+	 * (or any other Atmosphere-served route) — only the atproto-did response
+	 * needed `nocache_headers()` parity with the deleted FOSSE handler.
+	 */
+	public function test_send_atproto_did_nocache_headers_no_op_for_other_query_vars() {
+		set_query_var( 'atmosphere_wellknown', 'publication' );
+
+		$nocache_called = false;
+		add_action(
+			'nocache_headers',
+			static function ( $headers ) use ( &$nocache_called ) {
+				$nocache_called = true;
+				return $headers;
+			}
+		);
+
+		$this->provider->send_atproto_did_nocache_headers();
+
+		$this->assertFalse( $nocache_called, 'nocache_headers() should not fire for unrelated query vars.' );
+	}
+
+	/**
+	 * The nocache shim short-circuits on opt-out so the suppression hook owns
+	 * the no-cache headers in that path (which it already sends).
+	 */
+	public function test_send_atproto_did_nocache_headers_no_op_when_opted_out() {
+		set_query_var( 'atmosphere_wellknown', 'atproto-did' );
+		add_filter( 'fosse_serve_atproto_did_well_known', '__return_false' );
+
+		$nocache_called = false;
+		add_action(
+			'nocache_headers',
+			static function ( $headers ) use ( &$nocache_called ) {
+				$nocache_called = true;
+				return $headers;
+			}
+		);
+
+		$this->provider->send_atproto_did_nocache_headers();
+
+		$this->assertFalse(
+			$nocache_called,
+			'nocache_headers() should not fire from the shim when opted out — the suppression hook handles that path.'
+		);
+	}
+
+	/**
 	 * The suppression hook is a no-op for unrelated atmosphere_wellknown query vars.
 	 */
 	public function test_maybe_suppress_atmosphere_well_known_no_op_for_other_query_vars() {
@@ -898,33 +971,40 @@ class Bluesky_ProviderTest extends BaseTestCase {
 	 * at the registration layer instead.
 	 */
 	public function test_atmosphere_serves_wellknown_after_fosse_suppression_priority() {
-		// `plugins_loaded` may not have fired in WorDBless's minimal boot;
-		// run it now so Atmosphere's `init()` registers its hooks.
-		do_action( 'plugins_loaded' );
-
+		// Atmosphere registers its `template_redirect` hook from its
+		// `plugins_loaded` callback. WorDBless may fire `plugins_loaded`
+		// before `fosse.php` registers Atmosphere's callback, so check
+		// whether Atmosphere's hook is already present and only re-fire
+		// `plugins_loaded` if not. Guarding against the hook directly (not
+		// via `did_action()`) avoids both the "Atmosphere never booted" and
+		// "re-firing stacks duplicate callbacks across tests" failure modes.
 		global $wp_filter;
-		$this->assertArrayHasKey(
-			'template_redirect',
-			$wp_filter,
-			'No template_redirect callbacks registered — Atmosphere did not boot in this test context.'
-		);
-
-		$atmosphere_priority = null;
-		foreach ( $wp_filter['template_redirect']->callbacks as $priority => $callbacks ) {
-			foreach ( $callbacks as $info ) {
-				$cb = $info['function'];
-				if (
-					is_array( $cb )
-					&& isset( $cb[0] )
-					&& isset( $cb[1] )
-					&& is_object( $cb[0] )
-					&& 'Atmosphere\\Atmosphere' === get_class( $cb[0] )
-					&& 'serve_wellknown_atproto_did' === $cb[1]
-				) {
-					$atmosphere_priority = $priority;
-					break 2;
+		$find_atmosphere_priority = static function () use ( &$wp_filter ): ?int {
+			if ( ! isset( $wp_filter['template_redirect'] ) ) {
+				return null;
+			}
+			foreach ( $wp_filter['template_redirect']->callbacks as $priority => $callbacks ) {
+				foreach ( $callbacks as $info ) {
+					$cb = $info['function'];
+					if (
+						is_array( $cb )
+						&& isset( $cb[0] )
+						&& isset( $cb[1] )
+						&& is_object( $cb[0] )
+						&& 'Atmosphere\\Atmosphere' === get_class( $cb[0] )
+						&& 'serve_wellknown_atproto_did' === $cb[1]
+					) {
+						return (int) $priority;
+					}
 				}
 			}
+			return null;
+		};
+
+		$atmosphere_priority = $find_atmosphere_priority();
+		if ( null === $atmosphere_priority ) {
+			do_action( 'plugins_loaded' );
+			$atmosphere_priority = $find_atmosphere_priority();
 		}
 
 		$this->assertNotNull(
@@ -933,11 +1013,15 @@ class Bluesky_ProviderTest extends BaseTestCase {
 				. 'FOSSE delegates the well-known route to Atmosphere; if the handler moved or was renamed in a bundled resync, '
 				. '/.well-known/atproto-did will silently 404.'
 		);
+		// > 2 (not just > 1) because FOSSE now also hooks
+		// `send_atproto_did_nocache_headers` at priority 2 — if Atmosphere
+		// moves to priority 2, the shim's `nocache_headers()` would queue
+		// after Atmosphere's `exit` and never reach the response.
 		$this->assertGreaterThan(
-			1,
+			2,
 			$atmosphere_priority,
 			'Atmosphere\\Atmosphere::serve_wellknown_atproto_did is hooked at template_redirect priority ' . $atmosphere_priority
-				. ' but FOSSE\'s suppression hook runs at priority 1. The opt-out filter will not work.'
+				. ' but FOSSE\'s suppression hook runs at priority 1 and the nocache shim runs at priority 2. The opt-out filter or nocache headers will not work.'
 		);
 	}
 
@@ -1870,6 +1954,7 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		$this->assertNotFalse( has_action( 'admin_init', array( $this->provider, 'handle_oauth_callback' ) ) );
 		$this->assertNotFalse( has_action( 'admin_notices', array( $this->provider, 'maybe_render_auto_publish_disabled_notice' ) ) );
 		$this->assertSame( 1, has_action( 'template_redirect', array( $this->provider, 'maybe_suppress_atmosphere_well_known' ) ) );
+		$this->assertSame( 2, has_action( 'template_redirect', array( $this->provider, 'send_atproto_did_nocache_headers' ) ) );
 		$this->assertNotFalse( has_filter( 'atmosphere_oauth_redirect_uri', array( $this->provider, 'filter_oauth_redirect_uri' ) ) );
 	}
 
