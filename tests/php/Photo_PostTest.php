@@ -710,6 +710,27 @@ class Photo_PostTest extends BaseTestCase {
 	}
 
 	/**
+	 * Same cascade as the paragraph-block-with-text-and-img case
+	 * above, but the paragraph's innerHTML is just `<p><img/></p>` —
+	 * no surrounding text. `wp_strip_all_tags()` reduces this to an
+	 * empty string, so a check on stripped text would treat the
+	 * block as editor padding and skip it; the inline `<img>` then
+	 * vanishes on federation while detection still sees a single
+	 * resolvable `core/image` block and fires Rule 2. The raw-HTML
+	 * `<img>` / `<figure>` guard must run before the empty-text
+	 * skip so this case is treated as unresolvable.
+	 */
+	public function test_image_only_paragraph_block_treated_as_unresolvable(): void {
+		$image     = $this->resolve_image_placeholders(
+			'<!-- wp:image {"id":PHOTO_ID} --><figure class="wp-block-image"><img/></figure><!-- /wp:image -->'
+		);
+		$paragraph = '<!-- wp:paragraph --><p><img src="https://elsewhere.test/only.jpg"/></p><!-- /wp:paragraph -->';
+		$post      = $this->make_post( $image . $paragraph );
+
+		$this->assertFalse( Photo_Post::is_photo_post( $post ) );
+	}
+
+	/**
 	 * Per-post `activitypub_max_image_attachments` postmeta wins
 	 * over the site-level option/filter (mirrors bundled AP's read
 	 * order). A two-image gallery passes when the per-post override

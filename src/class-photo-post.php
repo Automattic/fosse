@@ -420,12 +420,6 @@ class Photo_Post {
 
 			if ( 'core/paragraph' === $name ) {
 				$inner_html = $block['innerHTML'] ?? '';
-				// An empty paragraph block ("<p></p>") is structural
-				// padding from the editor, not a real caption.
-				$inner = \trim( \wp_strip_all_tags( $inner_html ) );
-				if ( '' === $inner ) {
-					continue;
-				}
 				// Inline `<img>` / `<figure>` inside a paragraph
 				// block lands in the same cascade as the freeform
 				// branch above: `filter_content()`'s orphan-img
@@ -437,9 +431,21 @@ class Photo_Post {
 				// Treat as unresolvable so Rule 1's format bypass
 				// disqualifies the post and the figure stays
 				// inline in the article body.
+				//
+				// Check the raw innerHTML BEFORE the empty-text
+				// guard below: a paragraph whose only content is
+				// `<img>` strips to empty text but still carries an
+				// image that would vanish on federation. Reversing
+				// the order would `continue` past this case.
 				if ( \preg_match( '#<(?:img|figure)\b#i', $inner_html ) ) {
 					++$other_count;
 					++$unresolvable_image_count;
+					continue;
+				}
+				// An empty paragraph block ("<p></p>") is structural
+				// padding from the editor, not a real caption.
+				$inner = \trim( \wp_strip_all_tags( $inner_html ) );
+				if ( '' === $inner ) {
 					continue;
 				}
 				++$paragraph_count;
