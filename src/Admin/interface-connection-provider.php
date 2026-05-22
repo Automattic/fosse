@@ -75,6 +75,18 @@ interface Connection_Provider {
 	public function get_status(): array;
 
 	/**
+	 * Whether the provider currently has a working connection.
+	 *
+	 * Mirrors `get_status()['connected']` as a typed shortcut so callers
+	 * don't have to inspect a loosely-typed array just to ask a yes/no
+	 * question. Implementations should keep this in lockstep with the
+	 * `connected` key of {@see self::get_status()}.
+	 *
+	 * @return bool
+	 */
+	public function is_connected(): bool;
+
+	/**
 	 * Render this provider's settings fields inside the unified Settings form.
 	 *
 	 * Implementations render protocol-specific form rows only — no opening

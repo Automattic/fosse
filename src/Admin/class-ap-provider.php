@@ -113,6 +113,19 @@ class AP_Provider implements Connection_Provider {
 	}
 
 	/**
+	 * Whether ActivityPub is connected.
+	 *
+	 * AP has no external auth step — the bundled/standalone plugin is
+	 * either loaded (connected) or not. Mirrors the `connected` key of
+	 * {@see self::get_status()}.
+	 *
+	 * @return bool
+	 */
+	public function is_connected(): bool {
+		return (bool) $this->get_status()['connected'];
+	}
+
+	/**
 	 * Per-request memo for {@see self::get_status()}. The Status page
 	 * renders each provider's status twice in the same request — once
 	 * filtering on `connected`, once inside `render_status_card()` —
@@ -637,7 +650,10 @@ class AP_Provider implements Connection_Provider {
 			$count = \Activitypub\Collection\Followers::count( get_current_user_id() );
 			?>
 			<dt class="fosse-detail-list__term"><?php esc_html_e( 'Your Followers', 'fosse' ); ?></dt>
-			<dd class="fosse-detail-list__description"><?php echo esc_html( number_format_i18n( $count ) ); ?></dd>
+			<dd class="fosse-detail-list__description">
+				<?php echo esc_html( number_format_i18n( $count ) ); ?>
+				<p class="description"><?php esc_html_e( 'This count reflects your own author profile, not a site-wide total.', 'fosse' ); ?></p>
+			</dd>
 			<?php
 		}
 	}

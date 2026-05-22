@@ -23,7 +23,9 @@ class Connection_Provider_Registry {
 	private static array $providers = array();
 
 	/**
-	 * Register a provider. Duplicate slugs are silently ignored (first wins).
+	 * Register a provider. Duplicate slugs are rejected — first registration
+	 * wins — and surface a `_doing_it_wrong()` so the caller knows the
+	 * duplicate didn't take effect instead of debugging a phantom no-op.
 	 *
 	 * @param Connection_Provider $provider Provider instance.
 	 * @return void
@@ -32,6 +34,11 @@ class Connection_Provider_Registry {
 		$slug = $provider->get_slug();
 
 		if ( isset( self::$providers[ $slug ] ) ) {
+			_doing_it_wrong(
+				__METHOD__,
+				sprintf( 'Connection provider "%s" is already registered.', esc_html( $slug ) ),
+				'0.1.0'
+			);
 			return;
 		}
 
