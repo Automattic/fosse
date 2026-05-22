@@ -77,6 +77,7 @@ class Photo_PostTest extends BaseTestCase {
 		remove_all_filters( 'activitypub_attachment' );
 		remove_all_filters( 'fosse_pre_is_photo_post' );
 		remove_all_filters( 'fosse_is_photo_post' );
+		remove_all_filters( 'activitypub_max_image_attachments' );
 		remove_all_filters( 'get_the_terms' );
 		remove_all_filters( 'wp_insert_post_empty_content' );
 
