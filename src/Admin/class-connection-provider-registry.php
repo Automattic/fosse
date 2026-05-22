@@ -37,7 +37,7 @@ class Connection_Provider_Registry {
 			_doing_it_wrong(
 				__METHOD__,
 				sprintf( 'Connection provider "%s" is already registered.', esc_html( $slug ) ),
-				'0.1.0'
+				esc_html( FOSSE_VERSION )
 			);
 			return;
 		}
