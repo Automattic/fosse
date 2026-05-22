@@ -88,16 +88,21 @@ test.describe( 'short-form facet capture', () => {
 		).toBe( 200 );
 
 		// Connect Bluesky and reset the capture so only this test's
-		// publish populates it.
+		// publish populates it. Assert the DELETE succeeded — a silent
+		// failure would let prior runs' stale calls leak into the
+		// later "captured.calls" assertions and make this spec
+		// order-dependent.
 		await setBlueskyState( page, { connected: true } );
-		await page.evaluate( async () => {
-			await fetch( '/wp-json/fosse-e2e/v1/apply-writes', {
+		const resetStatus = await page.evaluate( async () => {
+			const res = await fetch( '/wp-json/fosse-e2e/v1/apply-writes', {
 				method: 'DELETE',
 				headers: {
 					'X-WP-Nonce': ( window as any ).wpApiSettings.nonce,
 				},
 			} );
+			return res.status;
 		} );
+		expect( resetStatus, 'apply-writes DELETE succeeded' ).toBe( 200 );
 
 		const body = 'hello #world @alice.test https://example.com';
 
