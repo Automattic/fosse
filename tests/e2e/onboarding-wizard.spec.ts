@@ -3,6 +3,7 @@ import {
 	expectNoHorizontalOverflow,
 	numericCssValueFor,
 	resetBlueskyState,
+	resetWizardIfComplete,
 	setBlueskyState,
 } from './test-helpers';
 
@@ -64,7 +65,7 @@ test( 'Destination step shows two destination cards', async ( { page } ) => {
 
 	await expect(
 		page.getByText(
-			/Fediverse sharing is enabled by default.*Fediverse apps like Mastodon/
+			/Fediverse publishing creates a profile at your site's domain/
 		)
 	).toBeVisible();
 	await expect(
@@ -84,7 +85,7 @@ test( 'Destination step shows two destination cards', async ( { page } ) => {
 	await expect( destinations.getByRole( 'radio' ) ).toHaveCount( 2 );
 	await expect(
 		destinations.getByRole( 'radio', {
-			name: /Fediverse apps like Mastodon/,
+			name: /fediverse profile at your site's domain/,
 		} )
 	).toHaveCount( 2 );
 	await expect(
@@ -543,10 +544,73 @@ test( 'Completion step shows summary', async ( { page } ) => {
 	).toBeVisible();
 } );
 
+test( 'Completion summary keeps both fediverse handles inline on wide screens', async ( {
+	page,
+} ) => {
+	await page.setViewportSize( { width: 1440, height: 900 } );
+	await resetWizardIfComplete( page );
+	await selectDestination( page, 'Fediverse only' );
+
+	await page.getByText( 'Both', { exact: true } ).click();
+	await page.getByRole( 'button', { name: 'Continue' } ).click();
+	await expect( page ).toHaveURL( /step=content/ );
+
+	await page.getByRole( 'checkbox', { name: 'Posts' } ).check();
+	await page.getByRole( 'button', { name: 'Continue' } ).click();
+	await expect( page ).toHaveURL( /step=complete/ );
+
+	await expect( page.locator( '.fosse-complete-identity br' ) ).toHaveCount(
+		0
+	);
+	await expect( page.locator( '.fosse-complete-identity__row' ) ).toHaveCount(
+		2
+	);
+
+	const rowsInline = await page
+		.locator( '.fosse-complete-identity__row' )
+		.evaluateAll( ( rows ) =>
+			rows.map( ( row ) => {
+				const label = row.querySelector(
+					'.fosse-complete-identity__label'
+				);
+				const token = row.querySelector( 'code' );
+				if ( ! label || ! token ) {
+					return false;
+				}
+
+				const labelRect = label.getBoundingClientRect();
+				const tokenRect = token.getBoundingClientRect();
+				return (
+					tokenRect.left >= labelRect.right &&
+					Math.abs( tokenRect.top - labelRect.top ) <= 6
+				);
+			} )
+		);
+
+	expect( rowsInline ).toEqual( [ true, true ] );
+} );
+
 test( 'Completion step exposes "Publish your first Post" CTA to post-new.php', async ( {
 	page,
 } ) => {
 	await completeThroughBlueskySkip( page );
+
+	await expect(
+		page.getByRole( 'heading', { name: 'What happens next' } )
+	).toBeVisible();
+	await expect(
+		page.getByText( 'Publish in WordPress as usual.' )
+	).toBeVisible();
+	await expect(
+		page.getByText(
+			'FOSSE shares eligible new public content to the fediverse automatically.'
+		)
+	).toBeVisible();
+	await expect(
+		page.getByText(
+			'People follow your fediverse address to receive updates.'
+		)
+	).toBeVisible();
 
 	const publishCta = page.getByRole( 'link', {
 		name: 'Publish your first Post',
@@ -576,9 +640,6 @@ test( 'Completion step keeps success header and actions aligned inside the card'
 		descriptionContainsBluesky: boolean;
 		descriptionTopGap: number;
 		headerHeight: number;
-		helpInsideHeader: boolean;
-		helpInsideDescription: boolean;
-		helpOutsideFooter: boolean;
 		iconAboveTitle: boolean;
 		iconCenterDelta: number;
 		messageCenterDelta: number;
@@ -596,22 +657,7 @@ test( 'Completion step keeps success header and actions aligned inside the card'
 			const header = message?.parentElement;
 			const card = header?.parentElement;
 			const icon = header?.firstElementChild;
-			const description = Array.from(
-				message?.querySelectorAll( 'p' ) ?? []
-			).find(
-				( paragraph ) =>
-					paragraph.textContent?.includes(
-						'Your sharing setup is ready'
-					)
-			);
-			const help = Array.from(
-				description?.querySelectorAll( 'span' ) ?? []
-			).find(
-				( span ) =>
-					span.textContent?.includes(
-						'Connect Bluesky to share there too.'
-					)
-			);
+			const description = message?.querySelector( 'p' );
 			const cta = Array.from( card?.querySelectorAll( 'a' ) ?? [] ).find(
 				( link ) =>
 					link.textContent?.trim() === 'Publish your first Post'
@@ -629,7 +675,6 @@ test( 'Completion step keeps success header and actions aligned inside the card'
 				! message ||
 				! icon ||
 				! description ||
-				! help ||
 				! footer ||
 				! cta ||
 				! reset
@@ -654,7 +699,7 @@ test( 'Completion step keeps success header and actions aligned inside the card'
 				ctaStartsInFooter: ctaRect.top >= footerRect.top,
 				descriptionContainsSetup:
 					description.textContent?.includes(
-						'Your sharing setup is ready'
+						'Review your setup below, then publish from WordPress when you are ready.'
 					) ?? false,
 				descriptionContainsReach:
 					description.textContent?.includes(
@@ -666,9 +711,6 @@ test( 'Completion step keeps success header and actions aligned inside the card'
 					) ?? false,
 				descriptionTopGap: descriptionRect.top - titleRect.bottom,
 				headerHeight: headerRect.height,
-				helpInsideHeader: header.contains( help ),
-				helpInsideDescription: description.contains( help ),
-				helpOutsideFooter: ! footer.contains( help ),
 				iconAboveTitle: iconRect.bottom <= titleRect.top - 8,
 				iconCenterDelta: Math.abs(
 					iconRect.left +
@@ -694,13 +736,10 @@ test( 'Completion step keeps success header and actions aligned inside the card'
 	expect( metrics!.ctaBottom ).toBeLessThanOrEqual( metrics!.cardBottom + 1 );
 	expect( metrics!.descriptionContainsSetup ).toBe( true );
 	expect( metrics!.descriptionContainsReach ).toBe( false );
-	expect( metrics!.descriptionContainsBluesky ).toBe( true );
+	expect( metrics!.descriptionContainsBluesky ).toBe( false );
 	expect( metrics!.descriptionTopGap ).toBeGreaterThanOrEqual( 6 );
 	expect( metrics!.descriptionTopGap ).toBeLessThanOrEqual( 14 );
 	expect( metrics!.headerHeight ).toBeLessThanOrEqual( 210 );
-	expect( metrics!.helpInsideHeader ).toBe( true );
-	expect( metrics!.helpInsideDescription ).toBe( true );
-	expect( metrics!.helpOutsideFooter ).toBe( true );
 	expect( metrics!.iconAboveTitle ).toBe( true );
 	expect( metrics!.iconCenterDelta ).toBeLessThanOrEqual( 2 );
 	expect( metrics!.messageCenterDelta ).toBeLessThanOrEqual( 2 );

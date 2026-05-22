@@ -704,12 +704,13 @@ class Onboarding_WizardTest extends BaseTestCase {
 		$output = $this->render_wizard_step( '' );
 
 		$this->assertStringContainsString( 'Where should your WordPress posts appear?', $output );
-		$this->assertStringContainsString( 'Fediverse sharing is enabled by default, so people can follow your site from Fediverse apps like Mastodon. You can also connect Bluesky now or set it up later.', $output );
+		$this->assertStringContainsString( 'Fediverse publishing creates a profile at your site&#039;s domain.', $output );
+		$this->assertStringContainsString( 'Bluesky connects an existing account.', $output );
 		$this->assertStringContainsString( 'Fediverse + Bluesky', $output );
 		$this->assertStringContainsString( 'Fediverse only', $output );
 		$this->assertStringContainsString( 'Simple setup', $output );
-		$this->assertSame( 3, substr_count( $output, 'Fediverse apps like Mastodon' ) );
-		$this->assertStringContainsString( 'Let people follow your site from Fediverse apps like Mastodon. You can connect Bluesky later.', $output );
+		$this->assertStringContainsString( 'Create a fediverse profile at your site&#039;s domain and connect an existing Bluesky account.', $output );
+		$this->assertStringContainsString( 'Create a fediverse profile at your site&#039;s domain. You can connect Bluesky later.', $output );
 		$this->assertStringNotContainsString( 'Mastodon and similar apps', $output );
 		$this->assertStringContainsString( 'name="fosse_onboarding_destination"', $output );
 		$this->assertStringContainsString( 'data-fosse-lizard-toggle', $output );
@@ -1681,11 +1682,12 @@ class Onboarding_WizardTest extends BaseTestCase {
 		$this->assertStringContainsString( 'Both (site + authors)', $output );
 		$this->assertStringContainsString( 'As you:', $output );
 		$this->assertStringContainsString( 'As your site:', $output );
-		// Fediverse handle markup should be wrapped in token-styled <code>,
-		// with a `<br />` between the label and the handle so long handles
-		// don't wrap mid-token (#72).
-		$this->assertMatchesRegularExpression( '~As you:<br\s*/?>\s*<code class="fosse-token fosse-admin-token fosse-token--ap-address fosse-admin-token--ap-address">@[^<]+<wbr>@[^<]+(?:<wbr>[^<]+)*</code>~', $output );
-		$this->assertMatchesRegularExpression( '~As your site:<br\s*/?>\s*<code class="fosse-token fosse-admin-token fosse-token--ap-address fosse-admin-token--ap-address">@[^<]+<wbr>@[^<]+(?:<wbr>[^<]+)*</code>~', $output );
+		$this->assertStringContainsString( 'fosse-complete-identity', $output );
+		$this->assertStringContainsString( 'fosse-complete-identity__row', $output );
+		$this->assertMatchesRegularExpression( '~<span class="fosse-complete-identity__row">\s*<span class="fosse-complete-identity__label">As you:</span>\s*<code class="fosse-token fosse-admin-token fosse-token--ap-address fosse-admin-token--ap-address">@[^<]+<wbr>@[^<]+(?:<wbr>[^<]+)*</code>\s*</span>~', $output );
+		$this->assertMatchesRegularExpression( '~<span class="fosse-complete-identity__row">\s*<span class="fosse-complete-identity__label">As your site:</span>\s*<code class="fosse-token fosse-admin-token fosse-token--ap-address fosse-admin-token--ap-address">@[^<]+<wbr>@[^<]+(?:<wbr>[^<]+)*</code>\s*</span>~', $output );
+		$this->assertDoesNotMatchRegularExpression( '~As you:<br\s*/?>~', $output );
+		$this->assertDoesNotMatchRegularExpression( '~As your site:<br\s*/?>~', $output );
 	}
 
 	/**
@@ -1940,6 +1942,12 @@ class Onboarding_WizardTest extends BaseTestCase {
 		$output = $this->render_wizard_step( 'complete' );
 
 		$this->assertStringContainsString( 'Publish your first Post', $output );
+		$this->assertStringContainsString( 'What happens next', $output );
+		$this->assertStringContainsString( 'Publish in WordPress as usual.', $output );
+		$this->assertStringContainsString( 'FOSSE shares eligible new public content to the fediverse automatically.', $output );
+		$this->assertStringNotContainsString( 'Connect Bluesky later to share there too.', $output );
+		$this->assertStringContainsString( 'People follow your fediverse address to receive updates.', $output );
+		$this->assertStringNotContainsString( 'There is no separate fediverse publish button.', $output );
 		$this->assertMatchesRegularExpression(
 			'/<a[^>]*href="[^"]*post-new\.php[^"]*"[^>]*>\s*Publish your first Post/i',
 			$output,
@@ -1948,16 +1956,18 @@ class Onboarding_WizardTest extends BaseTestCase {
 	}
 
 	/**
-	 * The publish CTA's helper paragraph reflects the selected destinations
-	 * when Bluesky has not been connected yet.
+	 * The completion header stays concise and leaves destination-specific
+	 * status to the summary rows and next-steps checklist.
 	 */
-	public function test_render_complete_step_cta_uses_destination_specific_language(): void {
+	public function test_render_complete_step_header_stays_concise(): void {
 		Onboarding_Wizard::mark_complete();
 
 		$output = $this->render_wizard_step( 'complete' );
 
-		$this->assertStringContainsString( 'Your sharing setup is ready.', $output );
-		$this->assertStringContainsString( 'Connect Bluesky to share there too.', $output );
+		$this->assertStringContainsString( 'Review your setup below, then publish from WordPress when you are ready.', $output );
+		$this->assertStringNotContainsString( 'Your sharing setup is ready.', $output );
+		$this->assertStringNotContainsString( 'Connect Bluesky to share there too.', $output );
+		$this->assertStringNotContainsString( 'Bluesky sharing is ready too.', $output );
 		$this->assertStringNotContainsString( 'Your post can reach people on Fediverse apps like Mastodon.', $output );
 	}
 
@@ -1972,7 +1982,8 @@ class Onboarding_WizardTest extends BaseTestCase {
 
 		$output = $this->render_wizard_step( 'complete' );
 
-		$this->assertStringContainsString( 'Bluesky sharing is ready too.', $output );
+		$this->assertStringContainsString( 'FOSSE shares eligible new public content to the fediverse and Bluesky automatically.', $output );
+		$this->assertStringNotContainsString( 'Bluesky sharing is ready too.', $output );
 		$this->assertStringNotContainsString( 'Your post can reach people on Fediverse apps like Mastodon', $output );
 	}
 
@@ -1989,7 +2000,23 @@ class Onboarding_WizardTest extends BaseTestCase {
 		$output = $this->render_wizard_step( 'complete' );
 
 		$this->assertStringContainsString( 'automatic sharing is off.', $output );
+		$this->assertStringContainsString( 'FOSSE shares eligible new public content to the fediverse automatically. Bluesky is connected, but automatic sharing is off.', $output );
 		$this->assertStringNotContainsString( 'Your post can reach people on Fediverse apps like Mastodon', $output );
+	}
+
+	/**
+	 * The next-steps checklist stays simpler when the user selected
+	 * Fediverse-only and has no connected Bluesky account.
+	 */
+	public function test_render_complete_step_next_steps_stay_fediverse_only_without_bluesky(): void {
+		Onboarding_Wizard::mark_complete();
+		update_option( Onboarding_Wizard::DESTINATION_OPTION, 'fediverse_only' );
+
+		$output = $this->render_wizard_step( 'complete' );
+
+		$this->assertStringContainsString( 'FOSSE shares eligible new public content to the fediverse automatically.', $output );
+		$this->assertStringNotContainsString( 'Connect Bluesky later to share there too.', $output );
+		$this->assertStringNotContainsString( 'to the fediverse and Bluesky automatically.', $output );
 	}
 
 	/**

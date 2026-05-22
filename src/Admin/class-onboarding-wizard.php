@@ -705,10 +705,9 @@ class Onboarding_Wizard {
 	 * actor unavailable) — never shows an `@` with no local-part.
 	 *
 	 * Returns an HTML string. Single-identity branches inline the handle
-	 * after a space; the multi-identity `actor_blog` branch separates
-	 * label and handle with `<br />` and joins lines with `<br />`. The
-	 * consumer escapes via `wp_kses` with `code` (allowing the `class`
-	 * attribute that the token markup carries), `br`, and `wbr` allowed.
+	 * after a space; the multi-identity `actor_blog` branch uses structured
+	 * rows so labels and handles can sit inline on wide screens and stack on
+	 * narrow screens. The consumer escapes via `wp_kses`.
 	 *
 	 * @param string $mode        Actor mode value.
 	 * @param string $user_handle Normalized `@user@host` for the current user, or empty.
@@ -734,19 +733,43 @@ class Onboarding_Wizard {
 					. ' ' . self::format_complete_identity_token( $site_host ? $site_host : 'yoursite.com', 'host' );
 
 			case 'actor_blog':
-				$lines = array( esc_html__( 'Both (site + authors)', 'fosse' ) );
+				$lines = array(
+					sprintf(
+						'<span class="fosse-complete-identity__mode">%s</span>',
+						esc_html__( 'Both (site + authors)', 'fosse' )
+					),
+				);
 				if ( '' !== $user_handle ) {
-					$lines[] = esc_html__( 'As you:', 'fosse' )
-						. '<br />' . self::format_complete_identity_token( $user_handle, 'ap-address' );
+					$lines[] = self::format_complete_identity_row(
+						esc_html__( 'As you:', 'fosse' ),
+						self::format_complete_identity_token( $user_handle, 'ap-address' )
+					);
 				}
 				if ( '' !== $blog_handle ) {
-					$lines[] = esc_html__( 'As your site:', 'fosse' )
-						. '<br />' . self::format_complete_identity_token( $blog_handle, 'ap-address' );
+					$lines[] = self::format_complete_identity_row(
+						esc_html__( 'As your site:', 'fosse' ),
+						self::format_complete_identity_token( $blog_handle, 'ap-address' )
+					);
 				}
-				return implode( '<br />', $lines );
+				return '<span class="fosse-complete-identity">' . implode( '', $lines ) . '</span>';
 		}
 
 		return esc_html( $mode );
+	}
+
+	/**
+	 * Format a multi-identity completion row.
+	 *
+	 * @param string $label Label text.
+	 * @param string $token Token HTML.
+	 * @return string
+	 */
+	private static function format_complete_identity_row( string $label, string $token ): string {
+		return sprintf(
+			'<span class="fosse-complete-identity__row"><span class="fosse-complete-identity__label">%1$s</span> %2$s</span>',
+			$label,
+			$token
+		);
 	}
 
 	/**
@@ -1041,14 +1064,14 @@ class Onboarding_Wizard {
 				'icon'  => 'dashicons-star-filled',
 				'badge' => __( 'Recommended', 'fosse' ),
 				'title' => __( 'Fediverse + Bluesky', 'fosse' ),
-				'desc'  => __( 'Let people follow your site from Fediverse apps like Mastodon, and share eligible posts to Bluesky.', 'fosse' ),
+				'desc'  => __( 'Create a fediverse profile at your site\'s domain and connect an existing Bluesky account.', 'fosse' ),
 			),
 			self::DESTINATION_FEDIVERSE_ONLY    => array(
 				'class' => 'fosse-destination-card--fediverse-only',
 				'icon'  => 'dashicons-networking',
 				'badge' => __( 'Simple setup', 'fosse' ),
 				'title' => __( 'Fediverse only', 'fosse' ),
-				'desc'  => __( 'Let people follow your site from Fediverse apps like Mastodon. You can connect Bluesky later.', 'fosse' ),
+				'desc'  => __( 'Create a fediverse profile at your site\'s domain. You can connect Bluesky later.', 'fosse' ),
 			),
 		);
 		?>
@@ -1061,7 +1084,7 @@ class Onboarding_Wizard {
 				<?php
 				self::render_step_card_header(
 					__( 'Where should your WordPress posts appear?', 'fosse' ),
-					__( 'Fediverse sharing is enabled by default, so people can follow your site from Fediverse apps like Mastodon. You can also connect Bluesky now or set it up later.', 'fosse' )
+					__( 'Fediverse publishing creates a profile at your site\'s domain. Bluesky connects an existing account.', 'fosse' )
 				);
 				?>
 				<div class="fosse-card-body">
@@ -1724,16 +1747,8 @@ class Onboarding_Wizard {
 			$bluesky_summary = $includes_bluesky ? __( 'Not connected', 'fosse' ) : __( 'Skipped', 'fosse' );
 		}
 
-		$cta = self::resolve_publish_cta( $post_types );
-		if ( $publishes_bluesky ) {
-			$cta_help = __( 'Bluesky sharing is ready too.', 'fosse' );
-		} elseif ( $bluesky['connected'] ) {
-			$cta_help = __( 'Bluesky is connected, but automatic sharing is off.', 'fosse' );
-		} elseif ( $includes_bluesky ) {
-			$cta_help = __( 'Connect Bluesky to share there too.', 'fosse' );
-		} else {
-			$cta_help = '';
-		}
+		$cta                   = self::resolve_publish_cta( $post_types );
+		$next_steps_publishing = self::get_next_steps_publishing_copy( $bluesky, $publishes_bluesky );
 
 		?>
 		<div class="fosse-wizard__card fosse-admin-card fosse-wizard__complete-card">
@@ -1744,11 +1759,7 @@ class Onboarding_Wizard {
 				<div class="fosse-wizard__complete-message">
 					<h1 class="fosse-wizard__title"><?php esc_html_e( 'You\'re all set!', 'fosse' ); ?></h1>
 					<p class="fosse-wizard__description">
-						<strong><?php esc_html_e( 'Your sharing setup is ready.', 'fosse' ); ?></strong>
-						<?php esc_html_e( 'Review it below, then publish from WordPress when you are ready.', 'fosse' ); ?>
-						<?php if ( '' !== $cta_help ) : ?>
-							<span class="fosse-wizard__cta-help"><?php echo esc_html( $cta_help ); ?></span>
-						<?php endif; ?>
+						<?php esc_html_e( 'Review your setup below, then publish from WordPress when you are ready.', 'fosse' ); ?>
 					</p>
 				</div>
 			</div>
@@ -1767,6 +1778,9 @@ class Onboarding_Wizard {
 									'class' => array(),
 								),
 								'br'   => array(),
+								'span' => array(
+									'class' => array(),
+								),
 								'wbr'  => array(),
 							)
 						);
@@ -1795,9 +1809,23 @@ class Onboarding_Wizard {
 					<dd class="fosse-detail-list__description"><?php echo esc_html( implode( ', ', $type_labels ) ); ?></dd>
 				</dl>
 
-				<div class="fosse-wizard__hint">
-					<p><?php esc_html_e( 'You can change any of these settings from the FOSSE Settings page at any time.', 'fosse' ); ?></p>
-				</div>
+				<section class="fosse-wizard__next-steps" aria-labelledby="fosse-wizard-next-steps-title">
+					<h2 id="fosse-wizard-next-steps-title"><?php esc_html_e( 'What happens next', 'fosse' ); ?></h2>
+					<ul>
+						<li>
+							<span class="dashicons dashicons-yes" aria-hidden="true"></span>
+							<span><?php esc_html_e( 'Publish in WordPress as usual.', 'fosse' ); ?></span>
+						</li>
+						<li>
+							<span class="dashicons dashicons-yes" aria-hidden="true"></span>
+							<span><?php echo esc_html( $next_steps_publishing ); ?></span>
+						</li>
+						<li>
+							<span class="dashicons dashicons-yes" aria-hidden="true"></span>
+							<span><?php esc_html_e( 'People follow your fediverse address to receive updates.', 'fosse' ); ?></span>
+						</li>
+					</ul>
+				</section>
 			</div>
 			<div class="fosse-card-footer fosse-wizard__completion-footer">
 				<div class="fosse-wizard__completion-actions">
@@ -1821,6 +1849,25 @@ class Onboarding_Wizard {
 			</a>
 		</p>
 		<?php
+	}
+
+	/**
+	 * Resolve the publishing item shown in the completion next-steps list.
+	 *
+	 * @param array<string, mixed> $bluesky           Bluesky status.
+	 * @param bool                 $publishes_bluesky Whether new eligible content will currently publish to Bluesky.
+	 * @return string
+	 */
+	private static function get_next_steps_publishing_copy( array $bluesky, bool $publishes_bluesky ): string {
+		if ( $publishes_bluesky ) {
+			return __( 'FOSSE shares eligible new public content to the fediverse and Bluesky automatically.', 'fosse' );
+		}
+
+		if ( $bluesky['connected'] ) {
+			return __( 'FOSSE shares eligible new public content to the fediverse automatically. Bluesky is connected, but automatic sharing is off.', 'fosse' );
+		}
+
+		return __( 'FOSSE shares eligible new public content to the fediverse automatically.', 'fosse' );
 	}
 
 	/**

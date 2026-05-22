@@ -716,7 +716,7 @@
 
 .fosse-choice-card__body {
 	display: block;
-	padding: 14px 16px 14px 41px;
+	padding: 14px 16px 14px 54px;
 }
 
 .fosse-choice-card__label {
@@ -786,6 +786,32 @@
 .fosse-detail-list__description--muted {
 	color: var(--fosse-ui-muted);
 	font-weight: 400;
+}
+
+.fosse-complete-identity,
+.fosse-complete-identity__mode,
+.fosse-complete-identity__row {
+	display: block;
+}
+
+.fosse-complete-identity__mode {
+	margin-bottom: 6px;
+}
+
+.fosse-complete-identity__row {
+	display: flex;
+	align-items: baseline;
+	gap: 6px;
+	min-width: 0;
+	margin-top: 6px;
+}
+
+.fosse-complete-identity__label {
+	flex: 0 0 auto;
+}
+
+.fosse-complete-identity__row .fosse-token {
+	min-width: 0;
 }
 
 .fosse-detail-list__term:nth-last-child(2),
@@ -1012,6 +1038,12 @@
 
 	.fosse-detail-list__description {
 		padding-top: 0;
+	}
+
+	.fosse-complete-identity__row {
+		align-items: flex-start;
+		flex-direction: column;
+		gap: 4px;
 	}
 }
 
@@ -1815,13 +1847,54 @@
 	text-align: center;
 }
 
-.fosse-wizard__complete-message .fosse-wizard__description strong {
-	font-weight: 600;
+.fosse-wizard__next-steps {
+	margin-top: 22px;
+	padding-top: 18px;
+	border-top: 1px solid var(--fosse-ui-border-soft);
+}
+
+.fosse-wizard__next-steps h2 {
+	margin: 0 0 12px;
+	padding: 0;
+	font-size: 13px;
+	line-height: 1.3;
+	color: var(--fosse-ui-muted);
+	text-transform: uppercase;
+}
+
+.fosse-wizard__next-steps ul {
+	display: grid;
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+	gap: 12px 16px;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.fosse-wizard__next-steps li {
+	display: flex;
+	align-items: flex-start;
+	gap: 8px;
+	min-width: 0;
+	margin: 0;
+	font-size: 13px;
+	line-height: 1.45;
 	color: var(--fosse-ui-text);
 }
 
-.fosse-wizard__complete-message .fosse-wizard__cta-help {
-	display: inline;
+.fosse-wizard__next-steps .dashicons {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	flex: 0 0 20px;
+	width: 20px;
+	height: 20px;
+	margin-top: 0;
+	border-radius: 50%;
+	background: var(--fosse-ui-success-soft);
+	color: var(--fosse-ui-success);
+	font-size: 14px;
+	line-height: 20px;
 }
 
 .fosse-complete-icon {
@@ -1875,14 +1948,6 @@
 /* Completion publish CTA */
 .fosse-wizard__cta-publish {
 	min-width: 0;
-}
-
-.fosse-wizard__cta-help {
-	text-align: left;
-	margin: 0;
-	font-size: 13px;
-	color: var(--fosse-ui-muted);
-	max-width: 720px;
 }
 
 .fosse-wizard__completion-actions {
@@ -2262,6 +2327,10 @@
 
 	.fosse-wizard__completion-actions .button {
 		text-align: center;
+	}
+
+	.fosse-wizard__next-steps ul {
+		grid-template-columns: 1fr;
 	}
 
 	.fosse-wizard__reset {

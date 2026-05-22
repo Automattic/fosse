@@ -31,6 +31,8 @@ After activation, go to **FOSSE** in wp-admin:
 -   **Status** shows the available providers and connection health.
 -   The first-run wizard walks through the basic ActivityPub and Bluesky setup.
 
+See the [FOSSE Publishing FAQ](./docs/fosse-publishing-faq.md) for how fediverse publishing works, how it differs from Bluesky, and how to edit the site fediverse profile.
+
 ## Local Setup
 
 ```bash

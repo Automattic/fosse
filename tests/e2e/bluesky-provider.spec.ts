@@ -117,7 +117,7 @@ test.describe( 'Bluesky provider UI', () => {
 		).toBeVisible();
 		await expect(
 			connections.locator( '#fosse-provider-activitypub-connection' )
-		).toContainText( 'Connected automatically' );
+		).toContainText( 'Fediverse profile active' );
 		await expect(
 			blueskyConnection.getByLabel( 'Bluesky handle' )
 		).toBeVisible();
@@ -260,6 +260,20 @@ test.describe( 'Bluesky provider UI', () => {
 		await page.goto( '/wp-admin/admin.php?page=fosse' );
 		await expectNoCriticalText( page );
 		await expectNoHorizontalOverflow( page );
+		const actorModeRadio = page.getByRole( 'radio', {
+			name: /Both author and blog profiles/,
+		} );
+		const actorModeLabel = actorModeRadio
+			.locator( 'xpath=..' )
+			.locator( '.fosse-choice-card__label' );
+		const actorModeRadioBox = await actorModeRadio.boundingBox();
+		const actorModeLabelBox = await actorModeLabel.boundingBox();
+		expect( actorModeRadioBox ).not.toBeNull();
+		expect( actorModeLabelBox ).not.toBeNull();
+		expect(
+			actorModeLabelBox!.x -
+				( actorModeRadioBox!.x + actorModeRadioBox!.width )
+		).toBeGreaterThanOrEqual( 10 );
 		expect(
 			await numericCssValueFor(
 				page.getByRole( 'heading', { name: 'FOSSE Settings' } ),

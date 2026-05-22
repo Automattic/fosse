@@ -603,6 +603,48 @@ class Setup_PageTest extends BaseTestCase {
 	}
 
 	/**
+	 * Settings explains the publishing model without turning the page into a
+	 * full support article.
+	 */
+	public function test_render_general_section_explains_automatic_publishing_model(): void {
+		$this->become_admin();
+
+		$output = $this->capture_render();
+
+		$this->assertStringContainsString(
+			'FOSSE shares newly published public content from the selected content types automatically.',
+			$output
+		);
+		$this->assertStringContainsString(
+			'Existing content is not sent automatically.',
+			$output
+		);
+	}
+
+	/**
+	 * Settings points profile-editing questions to the blog profile surface
+	 * while still keeping the main Settings page lightweight.
+	 */
+	public function test_render_activitypub_profile_guidance_points_to_blog_profile_settings(): void {
+		$this->become_admin();
+
+		$output = $this->capture_render();
+
+		$this->assertStringContainsString(
+			'Your WordPress site becomes a fediverse profile.',
+			$output
+		);
+		$this->assertStringContainsString(
+			'Edit the site profile',
+			$output
+		);
+		$this->assertStringContainsString(
+			'Blog profile settings',
+			$output
+		);
+	}
+
+	/**
 	 * The Settings post-types chooser deliberately hides `attachment`
 	 * (Media). DOTCOM-17047: enabling it federates every image upload
 	 * - including images attached to drafts - which doesn't match what

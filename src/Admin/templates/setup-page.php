@@ -71,6 +71,9 @@ defined( 'ABSPATH' ) || exit;
 					<p class="fosse-settings-panel__description">
 						<?php esc_html_e( 'Choose the content types FOSSE publishes and the fediverse identity people can follow.', 'fosse' ); ?>
 					</p>
+					<p class="fosse-settings-panel__description">
+						<?php esc_html_e( 'FOSSE shares newly published public content from the selected content types automatically. Existing content is not sent automatically.', 'fosse' ); ?>
+					</p>
 				</div>
 
 				<div class="fosse-card-body">
@@ -188,7 +191,7 @@ defined( 'ABSPATH' ) || exit;
 													echo wp_kses(
 														sprintf(
 															/* translators: %s: anchor link reading "Blog profile settings" pointing to the ActivityPub blog profile tab. */
-															__( 'Configure the site-wide blog profile name, image, and description in %s.', 'fosse' ),
+															__( 'Your WordPress site becomes a fediverse profile. Edit the site profile handle, image, description, and extra fields in %s.', 'fosse' ),
 															'<a href="' . esc_url( admin_url( 'options-general.php?page=activitypub&tab=blog-profile' ) ) . '">' . esc_html__( 'Blog profile settings', 'fosse' ) . '</a>'
 														),
 														array(

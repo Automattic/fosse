@@ -25,17 +25,17 @@ if ( 0 === $connected_count ) {
 	$summary_description = __( 'Connect a provider to start publishing your WordPress posts across the social web.', 'fosse' );
 } elseif ( $connected_count < $available_count ) {
 	$summary_description = sprintf(
-		/* translators: %s: number of connected providers */
+		/* translators: %s: number of active providers */
 		_n(
-			'FOSSE can publish through %s connected provider. Connect another provider if you want to publish there too.',
-			'FOSSE can publish through %s connected providers. Connect another provider if you want to publish there too.',
+			'FOSSE can publish through %s active provider. Connect another provider if you want to publish there too.',
+			'FOSSE can publish through %s active providers. Connect another provider if you want to publish there too.',
 			$connected_count,
 			'fosse'
 		),
 		number_format_i18n( $connected_count )
 	);
 } else {
-	$summary_description = __( 'All available providers are connected and ready to publish.', 'fosse' );
+	$summary_description = __( 'All available providers are active and ready to publish.', 'fosse' );
 }
 ?>
 <div class="wrap fosse-admin-page fosse-admin-shell fosse-admin-page--status">
@@ -43,7 +43,7 @@ if ( 0 === $connected_count ) {
 		<p class="fosse-admin-page__eyebrow"><?php esc_html_e( 'Social web', 'fosse' ); ?></p>
 		<h1 class="fosse-admin-page__title"><?php esc_html_e( 'FOSSE Status', 'fosse' ); ?></h1>
 		<p class="fosse-admin-page__description">
-			<?php esc_html_e( 'See whether each network is connected and which identities FOSSE will publish from.', 'fosse' ); ?>
+			<?php esc_html_e( 'See whether each network is active and which identities FOSSE will publish from.', 'fosse' ); ?>
 		</p>
 	</header>
 
@@ -63,8 +63,8 @@ if ( 0 === $connected_count ) {
 				<p class="fosse-status-summary__count">
 					<?php
 					printf(
-						/* translators: 1: number of connected providers, 2: total available providers */
-						esc_html__( '%1$s of %2$s providers connected', 'fosse' ),
+						/* translators: 1: number of active providers, 2: total available providers */
+						esc_html__( '%1$s of %2$s providers active', 'fosse' ),
 						esc_html( number_format_i18n( $connected_count ) ),
 						esc_html( number_format_i18n( $available_count ) )
 					);
