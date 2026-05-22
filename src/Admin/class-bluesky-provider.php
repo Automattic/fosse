@@ -179,9 +179,9 @@ class Bluesky_Provider implements Connection_Provider {
 
 		$this->status_cache = array(
 			'connected'    => $connected,
-			'handle'       => $connection['handle'] ?? '',
-			'did'          => $connection['did'] ?? '',
-			'pds_endpoint' => $connection['pds_endpoint'] ?? '',
+			'handle'       => is_string( $connection['handle'] ?? null ) ? $connection['handle'] : '',
+			'did'          => is_string( $connection['did'] ?? null ) ? $connection['did'] : '',
+			'pds_endpoint' => is_string( $connection['pds_endpoint'] ?? null ) ? $connection['pds_endpoint'] : '',
 			'token_error'  => $token_error,
 		);
 

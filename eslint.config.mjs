@@ -14,6 +14,7 @@ export default [
 			'test-results/**',
 			'coverage/**',
 			'.claude/**',
+			'.worktrees/**',
 		],
 	},
 	...wp.configs.recommended,
