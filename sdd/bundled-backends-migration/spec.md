@@ -1,12 +1,12 @@
 ---
-status: planning
+status: in-progress
 ---
 
 # Spec: Bundled Backends Migration
 
-## Status: PLANNING
+## Status: IN PROGRESS
 
-This SDD is open for review after the 2026-05 dependency refresh. **No code implementation is planned in this PR.** The bundled-backends approach (`bundled/activitypub/` and `bundled/atmosphere/` checked into the FOSSE repo, included in the standalone zip and the wp.com Simple artifact) remains the production architecture until reviewers approve a migration path.
+The 2026-05 dependency refresh is merged. The readiness layer (implementation step 1) is in flight; the `Requires Plugins` cutover and bundled removal still wait on review-task approvals and on upstream releases that contain the surface FOSSE relies on. The bundled-backends approach (`bundled/activitypub/` and `bundled/atmosphere/` checked into the FOSSE repo, included in the standalone zip and the wp.com Simple artifact) remains the production architecture until those gates clear.
 
 The original design captured why removing `bundled/` was too risky before ATmosphere had a public release and before FOSSE could rely on native WordPress plugin dependencies. That caution still matters, but the public dependency facts have changed enough that this SDD should be reviewed instead of left on the shelf.
 
@@ -69,7 +69,7 @@ These are constraints today's architectural decisions should respect until imple
 
 4. **Document the load contract at every coupling point.** The wp.com Simple load-order contract comment near the top of `fosse.php` is a model. When FOSSE adds a new touchpoint with bundled code, document the contract in-line so the migration team can find the contracts to redesign.
 
-5. **Keep `bin/build-zip.sh` validation strict.** The bundled `vendor/autoload.php` existence check in `bin/build-zip.sh` protects the bundled artifact from silent breakage. Add similar guards for any new bundled file that load-bearing code depends on.
+5. **Keep `bin/build-zip.sh` validation strict.** The post-install sanity check in `bin/build-zip.sh` confirms `fosse/vendor/autoload.php`, `fosse/vendor/autoload_packages.php`, `fosse/bundled/activitypub/activitypub.php`, and `fosse/bundled/atmosphere/atmosphere.php` are present in the staged tree before the zip is built, which protects the bundled artifact from silent breakage. Add similar guards for any new bundled file that load-bearing code depends on.
 
 ## Proposed direction (pending review)
 
