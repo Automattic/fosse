@@ -168,6 +168,37 @@ class Bluesky_ProviderTest extends BaseTestCase {
 	}
 
 	/**
+	 * `is_connected()` mirrors the `connected` key of `get_status()`,
+	 * both when disconnected and connected.
+	 */
+	public function test_is_connected_matches_status() {
+		// Fresh provider, no Atmosphere connection seeded -> disconnected.
+		$disconnected = new Bluesky_Provider();
+		$this->assertSame(
+			(bool) $disconnected->get_status()['connected'],
+			$disconnected->is_connected()
+		);
+		$this->assertFalse( $disconnected->is_connected() );
+
+		update_option(
+			'atmosphere_connection',
+			array(
+				'did'          => 'did:plc:test123',
+				'handle'       => 'alice.bsky.social',
+				'pds_endpoint' => 'https://bsky.social',
+				'access_token' => Encryption::encrypt( 'token' ),
+			)
+		);
+
+		$connected = new Bluesky_Provider();
+		$this->assertSame(
+			(bool) $connected->get_status()['connected'],
+			$connected->is_connected()
+		);
+		$this->assertTrue( $connected->is_connected() );
+	}
+
+	/**
 	 * Connected status reflects the Atmosphere connection option.
 	 */
 	public function test_status_connected_reflects_connection() {

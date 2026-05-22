@@ -1266,6 +1266,15 @@ class Onboarding_WizardTest extends BaseTestCase {
 				}
 
 				/**
+				 * Whether the provider is connected.
+				 *
+				 * @return bool
+				 */
+				public function is_connected(): bool {
+					return false;
+				}
+
+				/**
 				 * Render setup UI.
 				 *
 				 * @return void
