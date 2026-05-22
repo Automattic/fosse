@@ -1,5 +1,10 @@
-import { test, expect, type Page } from '@playwright/test';
-import { resetBlueskyState, setBlueskyState } from './test-helpers';
+import { test, expect } from '@playwright/test';
+import {
+	nonceHeaders,
+	resetApplyWritesCapture,
+	resetBlueskyState,
+	setBlueskyState,
+} from './test-helpers';
 
 type BskyRecord = {
 	$type?: string;
@@ -38,13 +43,6 @@ type PostMetaResponse = {
 	post_id: number;
 	meta: Record< string, unknown >;
 };
-
-const nonceHeaders = async ( page: Page ) => ( {
-	'Content-Type': 'application/json',
-	'X-WP-Nonce': await page.evaluate(
-		() => ( window as any ).wpApiSettings.nonce
-	),
-} );
 
 /**
  * Exercise the long-form `teaser-thread` strategy end-to-end.
@@ -133,21 +131,11 @@ test.describe( 'long-form teaser-thread path', () => {
 		).toBe( 200 );
 
 		// Connect Bluesky and reset the capture so only this test's
-		// publish populates it. Assert the DELETE succeeded — the
-		// "exactly 3 applyWrites calls" assertion below is especially
-		// sensitive to stale state, since a leaked call from a prior
-		// run would push the count past 3 and fail in a confusing way.
+		// publish populates it. The helper asserts the DELETE succeeded
+		// so a silent failure can't let stale calls from a prior run
+		// leak in and push the "exactly 3 calls" assertion past 3.
 		await setBlueskyState( page, { connected: true } );
-		const resetStatus = await page.evaluate( async () => {
-			const res = await fetch( '/wp-json/fosse-e2e/v1/apply-writes', {
-				method: 'DELETE',
-				headers: {
-					'X-WP-Nonce': ( window as any ).wpApiSettings.nonce,
-				},
-			} );
-			return res.status;
-		} );
-		expect( resetStatus, 'apply-writes DELETE succeeded' ).toBe( 200 );
+		await resetApplyWritesCapture( page );
 
 		const postTitle = 'Long-form post composed as a teaser thread';
 		// Curated excerpt drives the hook (≥ 10 chars triggers the

@@ -1,5 +1,10 @@
-import { test, expect, type Page } from '@playwright/test';
-import { resetBlueskyState, setBlueskyState } from './test-helpers';
+import { test, expect } from '@playwright/test';
+import {
+	nonceHeaders,
+	resetApplyWritesCapture,
+	resetBlueskyState,
+	setBlueskyState,
+} from './test-helpers';
 
 type BskyRecord = {
 	$type?: string;
@@ -28,13 +33,6 @@ type Call = {
 type CapturedCalls = {
 	calls: Call[];
 };
-
-const nonceHeaders = async ( page: Page ) => ( {
-	'Content-Type': 'application/json',
-	'X-WP-Nonce': await page.evaluate(
-		() => ( window as any ).wpApiSettings.nonce
-	),
-} );
 
 /**
  * Complements short-form-facets.spec.ts by exercising the *pass-through*
@@ -113,21 +111,11 @@ test.describe( 'pass-through long-form link-card path', () => {
 		).toBe( 200 );
 
 		// Connect Bluesky and reset the capture so only this test's
-		// publish populates it. Assert the DELETE succeeded — a silent
-		// failure would let prior runs' stale calls leak into the
-		// later "captured.calls" assertions and make this spec
-		// order-dependent.
+		// publish populates it. The helper asserts the DELETE succeeded
+		// so a silent failure can't let prior runs' stale calls leak
+		// into the later "captured.calls" assertions.
 		await setBlueskyState( page, { connected: true } );
-		const resetStatus = await page.evaluate( async () => {
-			const res = await fetch( '/wp-json/fosse-e2e/v1/apply-writes', {
-				method: 'DELETE',
-				headers: {
-					'X-WP-Nonce': ( window as any ).wpApiSettings.nonce,
-				},
-			} );
-			return res.status;
-		} );
-		expect( resetStatus, 'apply-writes DELETE succeeded' ).toBe( 200 );
+		await resetApplyWritesCapture( page );
 
 		const postTitle = 'A long-form post that should become a link card';
 		const body = 'This is the full body content of a long-form blog post.';

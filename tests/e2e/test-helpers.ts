@@ -130,6 +130,59 @@ export const resetBlueskyState = async (
 };
 
 /**
+ * Build the JSON + nonce headers required to POST to authenticated WP REST
+ * endpoints from a Playwright `page.request` call.
+ *
+ * Reads `wpApiSettings.nonce` from the current page's window object, so the
+ * caller must already be on a wp-admin screen that localizes wpApiSettings
+ * (e.g. `post-new.php`). Shared across the Bluesky e2e specs that issue
+ * authenticated REST calls outside of `page.evaluate()`.
+ *
+ * @param {Page} page Playwright page; must be on a wp-admin screen so
+ *                    `wpApiSettings.nonce` is available.
+ * @return {Promise<Record<string, string>>} Headers object suitable for
+ *                                           `page.request.get/post/delete`.
+ */
+export const nonceHeaders = async (
+	page: Page
+): Promise< Record< string, string > > => ( {
+	'Content-Type': 'application/json',
+	'X-WP-Nonce': await page.evaluate(
+		() => ( window as any ).wpApiSettings.nonce
+	),
+} );
+
+/**
+ * Reset the captured `applyWrites` batches recorded by the e2e mu-plugin
+ * (`tests/e2e/mu-plugins/fosse-bsky-capture.php`).
+ *
+ * Issues a DELETE to `/wp-json/fosse-e2e/v1/apply-writes` from inside the
+ * page's browser context so the request carries the wp-admin session
+ * cookie, then asserts the response status so a silent failure can't let
+ * stale batches from a prior test leak into the current spec's
+ * assertions. Specs that publish a post and then assert on captured
+ * applyWrites batches should call this immediately before publish.
+ *
+ * @param {Page} page Playwright page; must be on a wp-admin screen so
+ *                    `wpApiSettings.nonce` is available.
+ * @return {Promise<void>} Resolves once the reset returns 200.
+ */
+export const resetApplyWritesCapture = async (
+	page: Page
+): Promise< void > => {
+	const resetStatus = await page.evaluate( async () => {
+		const res = await fetch( '/wp-json/fosse-e2e/v1/apply-writes', {
+			method: 'DELETE',
+			headers: {
+				'X-WP-Nonce': ( window as any ).wpApiSettings.nonce,
+			},
+		} );
+		return res.status;
+	} );
+	expect( resetStatus, 'apply-writes DELETE succeeded' ).toBe( 200 );
+};
+
+/**
  * Reset the FOSSE onboarding wizard back to the destinations step when it is
  * currently in the completed state.
  *
