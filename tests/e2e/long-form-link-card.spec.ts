@@ -150,7 +150,11 @@ test.describe( 'pass-through long-form link-card path', () => {
 		// Publisher emits and runs the publish inline on
 		// transition_post_status (so we don't need to wait on
 		// Playground's cron loop). Poll briefly in case the REST
-		// request returns before the option write has flushed.
+		// request returns before the option write has flushed. The
+		// link-card path publishes via `publish_single`, which emits
+		// exactly one batch — asserting the count is `1` (not `>= 1`)
+		// catches future regressions where the Publisher accidentally
+		// fans out to extra batches on the pass-through long-form path.
 		const headers = await nonceHeaders( page );
 		let captured: CapturedCalls | null = null;
 		await expect
@@ -168,7 +172,7 @@ test.describe( 'pass-through long-form link-card path', () => {
 				},
 				{ timeout: 5_000, intervals: [ 100, 250, 500 ] }
 			)
-			.toBeGreaterThanOrEqual( 1 );
+			.toBe( 1 );
 
 		// link-card path: one applyWrites call, two writes
 		// (app.bsky.feed.post root + site.standard.document).

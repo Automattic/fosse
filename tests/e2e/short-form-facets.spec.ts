@@ -122,7 +122,10 @@ test.describe( 'short-form facet capture', () => {
 		// Publisher emits and runs the publish inline on
 		// transition_post_status, so the capture option is populated
 		// by the time POST /posts returns. Poll briefly in case the
-		// option write hasn't flushed yet.
+		// option write hasn't flushed yet. Short-form publishes through
+		// `publish_single`, which emits exactly one batch — asserting
+		// the count is `1` (not `>= 1`) catches future regressions
+		// where the Publisher accidentally fans out to extra batches.
 		const headers = await nonceHeaders( page );
 		let captured: CapturedCalls | null = null;
 		await expect
@@ -140,7 +143,7 @@ test.describe( 'short-form facet capture', () => {
 				},
 				{ timeout: 5_000, intervals: [ 100, 250, 500 ] }
 			)
-			.toBeGreaterThanOrEqual( 1 );
+			.toBe( 1 );
 
 		// Short-form path: one applyWrites call, two writes
 		// (app.bsky.feed.post + site.standard.document atomically).
