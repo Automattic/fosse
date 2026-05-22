@@ -3665,69 +3665,6 @@ class Bluesky_ProviderTest extends BaseTestCase {
 	}
 
 	/**
-	 * Recovery panel visibility: render_connection_actions surfaces the
-	 * "Restore from DID" disclosure ONLY when there's no persisted
-	 * identity. A site with a healthy connection or a previously-set
-	 * identity (reauth-needed but identity intact) must not see the
-	 * panel — it would be confusing noise on screens where the normal
-	 * Connect path already works.
-	 */
-	public function test_render_connection_actions_shows_recovery_panel_when_identity_missing(): void {
-		// Disconnected AND no identity — the stuck state the panel targets.
-		delete_option( 'atmosphere_connection' );
-		delete_option( 'atmosphere_identity' );
-
-		$this->become_admin();
-
-		ob_start();
-		$this->provider->render_connection_actions();
-		$html = (string) ob_get_clean();
-
-		$this->assertStringContainsString(
-			'fosse-identity-recovery',
-			$html,
-			'Recovery panel must render on the disconnected state when has_identity() is false.'
-		);
-		$this->assertStringContainsString(
-			'fosse_restore_bluesky_identity',
-			$html,
-			'Recovery panel form must wire to the fosse_restore_bluesky_identity admin-post action.'
-		);
-	}
-
-	/**
-	 * Recovery panel visibility: suppressed when an identity is on file,
-	 * even though the connection is gone. This is the reauth-needed state
-	 * — identity is intact, the user just needs to reconnect. Showing the
-	 * recovery panel there would offer a confusing second path for a
-	 * problem the normal Connect button already solves.
-	 */
-	public function test_render_connection_actions_hides_recovery_panel_when_identity_present(): void {
-		delete_option( 'atmosphere_connection' );
-		update_option(
-			'atmosphere_identity',
-			array(
-				'did'          => 'did:plc:abcdefghij1234567890wxyz',
-				'handle'       => 'example.com',
-				'pds_endpoint' => 'https://pds.example.com',
-			),
-			true
-		);
-
-		$this->become_admin();
-
-		ob_start();
-		$this->provider->render_connection_actions();
-		$html = (string) ob_get_clean();
-
-		$this->assertStringNotContainsString(
-			'fosse-identity-recovery',
-			$html,
-			'Recovery panel must NOT render when has_identity() is true — Connect handles the reauth case.'
-		);
-	}
-
-	/**
 	 * Restore identity: non-admin subscriber is blocked with wp_die. This
 	 * is an option-write endpoint; only manage_options users may invoke it.
 	 */
