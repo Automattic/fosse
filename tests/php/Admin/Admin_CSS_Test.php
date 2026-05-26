@@ -74,8 +74,14 @@ class Admin_CSS_Test extends BaseTestCase {
 	 */
 	public static function provide_identity_token_modifier_selectors(): array {
 		return array(
-			'completion host token' => array( '.fosse-token--host' ),
-			'admin host token'      => array( '.fosse-admin-token--host' ),
+			'completion host token'        => array( '.fosse-token--host' ),
+			'admin host token'             => array( '.fosse-admin-token--host' ),
+			'completion handle token'      => array( '.fosse-token--handle' ),
+			'admin handle token'           => array( '.fosse-admin-token--handle' ),
+			'status card handle token'     => array( '.fosse-status-card__token--handle' ),
+			'completion ap-address token'  => array( '.fosse-token--ap-address' ),
+			'admin ap-address token'       => array( '.fosse-admin-token--ap-address' ),
+			'status card ap-address token' => array( '.fosse-status-card__token--ap-address' ),
 		);
 	}
 }

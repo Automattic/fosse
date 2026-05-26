@@ -836,6 +836,12 @@
 	-webkit-box-decoration-break: clone;
 }
 
+.fosse-token--ap-address,
+.fosse-admin-token--ap-address,
+.fosse-status-card__token--ap-address,
+.fosse-token--handle,
+.fosse-admin-token--handle,
+.fosse-status-card__token--handle,
 .fosse-token--host,
 .fosse-admin-token--host {
 	font-weight: 500;
