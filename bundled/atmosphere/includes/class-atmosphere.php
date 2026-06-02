@@ -173,8 +173,21 @@ class Atmosphere {
 		// Token refresh cron.
 		\add_action( 'atmosphere_refresh_token', array( $this, 'cron_refresh_token' ) );
 
+		/*
+		 * Migrate sites that scheduled this event on a previous version
+		 * (twicedaily) to the hourly cadence. Bluesky access tokens live
+		 * 60 minutes and the auth server's DPoP nonces only 3 minutes,
+		 * so a 12-hour interval left the refresh worker far too sparse
+		 * to recover from a single failed run before the session aged
+		 * past the refresh-token replay window.
+		 */
+		$schedule = \wp_get_schedule( 'atmosphere_refresh_token' );
+		if ( false !== $schedule && 'hourly' !== $schedule ) {
+			\wp_clear_scheduled_hook( 'atmosphere_refresh_token' );
+		}
+
 		if ( ! \wp_next_scheduled( 'atmosphere_refresh_token' ) && is_connected() ) {
-			\wp_schedule_event( \time(), 'twicedaily', 'atmosphere_refresh_token' );
+			\wp_schedule_event( \time(), 'hourly', 'atmosphere_refresh_token' );
 		}
 
 		/*
@@ -212,6 +225,16 @@ class Atmosphere {
 	 * verification link survives a temporary OAuth refresh failure —
 	 * the document AT-URI is computed from the DID, which is stable
 	 * across session expiry and `needs_reauth` states.
+	 *
+	 * Also gated on `META_URI` so the link is emitted only for posts
+	 * the Publisher actually wrote to the PDS. Without this check, a
+	 * disconnected site (identity preserved, no live session) would
+	 * advertise document AT-URIs for every published WP post and lazy-
+	 * mint META_TID rows for posts that have no corresponding record
+	 * on the PDS — federation/discovery consumers would 404 each one.
+	 * Posts published before a disconnect already carry META_URI and
+	 * remain correctly advertised; new posts created during a disconnect
+	 * stay silent until reconnect + publish lands a real record.
 	 */
 	public function output_document_link(): void {
 		if ( ! has_identity() || ! \is_singular() ) {
@@ -225,6 +248,11 @@ class Atmosphere {
 		}
 
 		if ( ! is_post_publishable( $post ) ) {
+			return;
+		}
+
+		$bsky_uri = \get_post_meta( $post->ID, Post::META_URI, true );
+		if ( empty( $bsky_uri ) ) {
 			return;
 		}
 
@@ -316,20 +344,28 @@ class Atmosphere {
 	}
 
 	/**
+	 * Regex patterns of the well-known rewrite rules this plugin owns.
+	 *
+	 * Maps each pattern to its `index.php` query target. Kept as a single
+	 * source of truth so {@see register_wellknown_rewrite()} and
+	 * {@see maybe_flush_wellknown_rewrites()} stay in lockstep — if a
+	 * future rule is added or renamed, both surfaces pick it up without
+	 * a separate edit, and the persisted-rules check still detects drift.
+	 *
+	 * @var array<string, string>
+	 */
+	private const WELLKNOWN_REWRITE_PATTERNS = array(
+		'^\.well-known/atproto-did$'                 => 'index.php?atmosphere_wellknown=atproto-did',
+		'^\.well-known/site\.standard\.publication$' => 'index.php?atmosphere_wellknown=publication',
+	);
+
+	/**
 	 * Register rewrite rules for well-known endpoints.
 	 */
 	public function register_wellknown_rewrite(): void {
-		\add_rewrite_rule(
-			'^\.well-known/atproto-did$',
-			'index.php?atmosphere_wellknown=atproto-did',
-			'top'
-		);
-
-		\add_rewrite_rule(
-			'^\.well-known/site\.standard\.publication$',
-			'index.php?atmosphere_wellknown=publication',
-			'top'
-		);
+		foreach ( self::WELLKNOWN_REWRITE_PATTERNS as $pattern => $target ) {
+			\add_rewrite_rule( $pattern, $target, 'top' );
+		}
 
 		\add_filter(
 			'query_vars',
@@ -338,6 +374,87 @@ class Atmosphere {
 				return $vars;
 			}
 		);
+	}
+
+	/**
+	 * Ensure the well-known rewrite rules are present in the persisted
+	 * `rewrite_rules` option, and flush them in if not.
+	 *
+	 * The activation hook flushes once, but the rule set can drift away
+	 * from the persisted array later for several real install paths:
+	 *
+	 * - Programmatic loads (FOSSE bundle, `require_once`, mu-plugin,
+	 *   etc.) never fire `register_activation_hook`, so the initial
+	 *   flush never runs.
+	 * - Some plugins or hosts wipe `wp_options.rewrite_rules` outside
+	 *   of activation. WP then rebuilds the array from whatever rules
+	 *   happen to be registered at that moment, which may or may not
+	 *   include ours.
+	 * - Another plugin that flushes earlier on `init` than our rule
+	 *   registration produces a persisted array missing our patterns.
+	 *
+	 * In all three cases the runtime registration in
+	 * {@see register_wellknown_rewrite()} keeps happening on every
+	 * request but is functionally inert, because WP routes from the
+	 * persisted array, not the in-memory one. The user-facing symptom
+	 * is "External handle did not resolve to DID" when the PDS fetches
+	 * `/.well-known/atproto-did` and WP serves the normal 404 template
+	 * instead of our handler.
+	 *
+	 * Called surgically from the moments that matter so this is not
+	 * paid on every request:
+	 *
+	 * - After a successful OAuth handshake persists an identity —
+	 *   {@see \Atmosphere\OAuth\Client::handle_callback()}.
+	 * - When an administrator loads the Atmosphere settings page —
+	 *   {@see \Atmosphere\WP_Admin\Admin::add_menu()}.
+	 * - Before the `updateHandle` XRPC call, which triggers the PDS to
+	 *   fetch the well-known endpoint immediately —
+	 *   {@see \Atmosphere\Handle::set_handle()}.
+	 *
+	 * Uses a soft flush (no `.htaccess` rewrite): WordPress's default
+	 * rewrite fallback already routes unmatched URLs to `index.php`, so
+	 * refreshing the persisted `rewrite_rules` option is enough to make
+	 * our rules take effect without touching the webserver config.
+	 */
+	public static function maybe_flush_wellknown_rewrites(): void {
+		global $wp_rewrite;
+
+		/*
+		 * Plain permalinks (the WordPress default `?p=N` scheme) keep
+		 * `rewrite_rules` empty and route every request through the query
+		 * string. Our `^\.well-known/...$` patterns can never appear in
+		 * the persisted array on such a site, and the endpoints cannot
+		 * resolve via rewrite there regardless. Bail before the
+		 * missing-pattern check so we do not read an always-empty array
+		 * as "patterns missing" and burn an `update_option` write on
+		 * every call.
+		 *
+		 * Read the state from `$wp_rewrite` rather than the
+		 * `permalink_structure` option: `flush_rewrite_rules()` rebuilds
+		 * from `$wp_rewrite`'s in-memory structure, so gating on the same
+		 * source keeps the guard and the flush in agreement even if
+		 * something wrote the option directly after `WP_Rewrite::init()`
+		 * ran this request.
+		 */
+		if ( ! $wp_rewrite instanceof \WP_Rewrite || ! $wp_rewrite->using_permalinks() ) {
+			return;
+		}
+
+		$rules = \get_option( 'rewrite_rules' );
+
+		if ( \is_array( $rules ) ) {
+			foreach ( self::WELLKNOWN_REWRITE_PATTERNS as $pattern => $target ) {
+				if ( ! isset( $rules[ $pattern ] ) || $rules[ $pattern ] !== $target ) {
+					\flush_rewrite_rules( false );
+					return;
+				}
+			}
+
+			return;
+		}
+
+		\flush_rewrite_rules( false );
 	}
 
 	/**
@@ -1049,9 +1166,23 @@ class Atmosphere {
 
 	/**
 	 * Cron: proactively refresh the access token.
+	 *
+	 * Skips when the stored access token still has more than ten
+	 * minutes of life on it — the hourly cadence catches up before
+	 * any genuine expiry, and an unconditional refresh on every tick
+	 * burns a refresh-token rotation that does not need to happen.
+	 * Each rotation is also another chance for the dead-holder
+	 * scenario (worker dies mid-flight after the auth server has
+	 * already rotated) to bite, so refreshing less aggressively is
+	 * strictly more reliable on a healthy session.
 	 */
 	public function cron_refresh_token(): void {
 		if ( ! is_connected() ) {
+			return;
+		}
+
+		$conn = \get_option( 'atmosphere_connection', array() );
+		if ( ! empty( $conn['expires_at'] ) && $conn['expires_at'] > \time() + 600 ) {
 			return;
 		}
 
