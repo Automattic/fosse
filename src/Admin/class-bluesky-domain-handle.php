@@ -257,7 +257,22 @@ class Bluesky_Domain_Handle {
 			$host = $ascii;
 		}
 
-		return strtolower( $host );
+		$host = strtolower( $host );
+
+		// Enforce the LDH label grammar on the final ASCII host. The
+		// STD3 branch above only runs for non-ASCII input, so without
+		// this an ASCII-only but still-invalid host (`bad_label.example`)
+		// would skip validation entirely and surface later as an opaque
+		// PDS lexicon rejection instead of a clean local refusal. Each
+		// label: alphanumeric ends, hyphens inside, 1-63 octets — the
+		// same set STD3 rules permit.
+		foreach ( explode( '.', $host ) as $label ) {
+			if ( ! preg_match( '/^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/', $label ) ) {
+				return '';
+			}
+		}
+
+		return $host;
 	}
 
 	/**

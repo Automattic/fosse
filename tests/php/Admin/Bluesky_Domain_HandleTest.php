@@ -242,6 +242,43 @@ class Bluesky_Domain_HandleTest extends BaseTestCase {
 		$this->assertSame( '', Bluesky_Domain_Handle::get_target_handle() );
 	}
 
+	/**
+	 * ASCII-only hosts get the same LDH enforcement as IDN hosts.
+	 *
+	 * The STD3 branch only runs when the host carries non-ASCII bytes,
+	 * so a pure-ASCII invalid host (`bad_label.example`) used to bypass
+	 * validation entirely and fail later with an opaque PDS lexicon
+	 * rejection. The explicit label check refuses it locally. Runs
+	 * without intl — the LDH check is plain PHP.
+	 *
+	 * @dataProvider provider_ascii_ldh_hosts
+	 * @param string $url      home_url() value.
+	 * @param string $expected Expected target handle ('' = refused).
+	 */
+	#[DataProvider( 'provider_ascii_ldh_hosts' )]
+	public function test_get_target_handle_enforces_ldh_on_ascii_hosts( string $url, string $expected ): void {
+		$this->force_home_url( $url );
+
+		$this->assertSame( $expected, Bluesky_Domain_Handle::get_target_handle() );
+	}
+
+	/**
+	 * ASCII LDH cases: underscores, hyphen placement, label length.
+	 *
+	 * @return array<string, array{string, string}>
+	 */
+	public static function provider_ascii_ldh_hosts(): array {
+		return array(
+			'underscore label refused'   => array( 'https://bad_label.example', '' ),
+			'leading hyphen refused'     => array( 'https://-bad.example', '' ),
+			'trailing hyphen refused'    => array( 'https://bad-.example', '' ),
+			'64-char label refused'      => array( 'https://' . str_repeat( 'a', 64 ) . '.example', '' ),
+			'63-char label accepted'     => array( 'https://' . str_repeat( 'a', 63 ) . '.example', str_repeat( 'a', 63 ) . '.example' ),
+			'hyphen inside accepted'     => array( 'https://my-site.example.com', 'my-site.example.com' ),
+			'digits-only label accepted' => array( 'https://123.example', '123.example' ),
+		);
+	}
+
 	// ---- is_resolvable_host ----
 
 	/**
