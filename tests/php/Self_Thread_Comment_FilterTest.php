@@ -132,6 +132,24 @@ class Self_Thread_Comment_FilterTest extends BaseTestCase {
 	}
 
 	/**
+	 * A prior subscriber returning a non-bool (e.g. null) must not fatal.
+	 * The callback's `$should` parameter is loosely typed and cast to bool
+	 * internally, matching WP filter convention — a scalar type hint would
+	 * raise a TypeError even in coercive mode when fed null. A null
+	 * `$should` is falsy, so the early-return path keeps it false.
+	 */
+	public function test_survives_null_upstream_should(): void {
+		add_filter( 'atmosphere_should_sync_reply', fn() => null, 5 );
+
+		$notification = $this->build_notification( self::OWN_DID, self::REPLY_URI );
+
+		$this->assertFalse(
+			apply_filters( 'atmosphere_should_sync_reply', true, $notification, self::POST_ID, 0 ),
+			'A null upstream value must coerce to false, not fatal.'
+		);
+	}
+
+	/**
 	 * Build a minimal `Reaction_Sync` reply notification for the filter to inspect.
 	 *
 	 * @param string $author_did Author DID to put on the notification.

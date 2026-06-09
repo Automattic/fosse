@@ -47,13 +47,19 @@ class Self_Thread_Comment_Filter {
 	 * chunks; otherwise pass through whatever value the upstream filter
 	 * chain has produced.
 	 *
-	 * @param bool  $should       Default true (or whatever a prior callback returned).
+	 * @param mixed $should       Default true (or whatever a prior callback returned).
+	 *                            Loosely typed and cast to bool below: another
+	 *                            callback on this filter could return a non-bool
+	 *                            (e.g. null), and a scalar hint would fatal even
+	 *                            in coercive mode.
 	 * @param array $notification Notification or synthesized own-record (must include
 	 *                            `uri` and `author.did`).
 	 * @param int   $post_id      Resolved WP post the reply targets.
 	 * @return bool
 	 */
-	public static function suppress_own_thread_chunks( bool $should, array $notification, int $post_id ): bool {
+	public static function suppress_own_thread_chunks( $should, array $notification, int $post_id ): bool {
+		$should = (bool) $should;
+
 		if ( ! $should ) {
 			return false;
 		}

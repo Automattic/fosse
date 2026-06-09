@@ -151,6 +151,22 @@ class Object_TypeTest extends BaseTestCase {
 	}
 
 	/**
+	 * A prior subscriber returning a non-bool (e.g. null) must not fatal.
+	 * The callback's first parameter is loosely typed and cast to bool
+	 * internally, matching WP filter convention — a scalar type hint would
+	 * raise a TypeError even in coercive mode when fed null. A null
+	 * pass-through with no AP option resolves to false.
+	 */
+	public function test_atmosphere_filter_survives_null_upstream_value(): void {
+		add_filter( 'atmosphere_is_short_form_post', fn() => null, 5 );
+
+		$this->assertFalse(
+			apply_filters( 'atmosphere_is_short_form_post', false, $this->post ),
+			'A null upstream value must coerce to false, not fatal.'
+		);
+	}
+
+	/**
 	 * The AP-side filter is no longer registered by FOSSE. ActivityPub reads
 	 * `activitypub_object_type` directly when computing object type, and
 	 * FOSSE registering its own callback would only re-create the desync the

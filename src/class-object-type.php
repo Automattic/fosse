@@ -69,13 +69,19 @@ class Object_Type {
 	 * in normal filter contexts, but loosening the hint keeps the bridge
 	 * defensive if the upstream filter contract ever drifts.
 	 *
-	 * @param bool  $is_short Upstream-computed short-form default.
+	 * @param mixed $is_short Upstream-computed short-form default. Loosely
+	 *                        typed and cast to bool below: another callback
+	 *                        on this filter could return a non-bool (e.g.
+	 *                        null), and a scalar hint would fatal even in
+	 *                        coercive mode.
 	 * @param mixed $post     The post being transformed (unused).
 	 * @return bool Forced true when AP says `'note'` (or, pre-migration,
 	 *              when the legacy FOSSE option says `'note'`), else input.
 	 */
-	public static function filter_atmosphere( bool $is_short, $post ): bool {
+	public static function filter_atmosphere( $is_short, $post ): bool {
 		unset( $post );
+
+		$is_short = (bool) $is_short;
 
 		if ( self::NOTE_VALUE === \get_option( self::AP_OBJECT_TYPE_OPTION ) ) {
 			return true;
