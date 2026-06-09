@@ -362,16 +362,45 @@ class Publish_Events {
 	private const ATMOSPHERE_BACKFILL_ACTION = 'wp_ajax_atmosphere_backfill_batch';
 
 	/**
+	 * Cron actions under which Atmosphere re-publishes already-counted posts.
+	 *
+	 * Every `Publisher::publish_post()` invocation reached from inside
+	 * these cron callbacks (`bundled/atmosphere/includes/class-atmosphere.php`)
+	 * is a re-publish, never a first publish:
+	 *
+	 * - `atmosphere_update_post` routes through `Publisher::update_post()`,
+	 *   which only falls through to `publish_post()` for (a) the retry of a
+	 *   post whose prior publish attempt already fired the result hook —
+	 *   so the funnel entry was already recorded — or (b) the
+	 *   `rewrite_thread()` delete-and-republish of a post whose records are
+	 *   already live (composition/shape change on edit). Pristine posts
+	 *   with no publish history take the `atmosphere_update_skipped_unsynced_post`
+	 *   early return and never reach the hook.
+	 * - `atmosphere_delete_post` only reaches `publish_post()` on its
+	 *   became-publishable-again reconcile branch — a re-publish of content
+	 *   whose original publish was already counted.
+	 *
+	 * The funnel-entry `fosse_post_published` is therefore suppressed while
+	 * either action runs; `fosse_publish_result` still fires (a real AT
+	 * Protocol write occurred).
+	 */
+	private const ATMOSPHERE_REPUBLISH_CRON_ACTIONS = array(
+		'atmosphere_update_post',
+		'atmosphere_delete_post',
+	);
+
+	/**
 	 * Handle the Atmosphere publish-result action.
 	 *
 	 * `atmosphere_publish_post_result` fires from several
 	 * `Publisher::publish_post()` entry points
 	 * (`bundled/atmosphere/includes/class-publisher.php`): the genuine
 	 * first-publish cron path, the update-falls-through-to-publish retry,
+	 * the `rewrite_thread()` delete-and-republish on shape-changing edits,
 	 * the not-publishable early return, and the admin Backfill of
 	 * pre-existing posts. The raw hook does not discriminate between them.
 	 *
-	 * This subscriber filters two cases it can detect reliably:
+	 * This subscriber filters three cases it can detect reliably:
 	 *
 	 * - **Not publishable.** When `$result` is the
 	 *   `atmosphere_post_not_publishable` WP_Error, no publish happened —
@@ -381,15 +410,18 @@ class Publish_Events {
 	 *   is not a first publish. `fosse_publish_result` still fires for
 	 *   backfill — it measures the render-quality outcome of an actual
 	 *   AT Protocol write, which a backfill genuinely performs.
+	 * - **Update/delete cron re-publishes.** Same suppression while the
+	 *   `atmosphere_update_post` / `atmosphere_delete_post` cron callbacks
+	 *   run — every `publish_post()` reached from those is a retry or a
+	 *   `rewrite_thread()` republish of a post whose funnel entry was
+	 *   already recorded (see `ATMOSPHERE_REPUBLISH_CRON_ACTIONS`).
 	 *
-	 * Known gap: the update-falls-through-to-publish retry
-	 * (`Publisher::update_post()` → `publish_post()` for a post whose prior
-	 * publish failed) is indistinguishable from a first publish at this
-	 * hook without reaching into Atmosphere's private post meta, so it is
-	 * still counted as a `fosse_post_published`. This over-counts only
-	 * posts that previously failed to publish and are retried — a small,
-	 * bounded population — and is preferred over a fragile meta probe into
-	 * bundled internals.
+	 * Known gap: a previously-synced post that re-enters publication via
+	 * the `atmosphere_publish_post` cron (unpublish → republish before
+	 * the cleanup delete ran) is indistinguishable from a first publish
+	 * at this hook and is counted again. That population is small and
+	 * bounded, and the alternative — probing Atmosphere's private post
+	 * meta — couples this subscriber to bundled internals.
 	 *
 	 * Emits `fosse_post_published` once (network-agnostic entry-step
 	 * signal) plus `fosse_publish_result` once with `network: 'bluesky'`.
@@ -409,9 +441,9 @@ class Publish_Events {
 			return;
 		}
 
-		// Backfill of pre-existing posts is a deliberate re-sync, not a
-		// first publish — keep it out of the publish funnel's entry step.
-		if ( ! \doing_action( self::ATMOSPHERE_BACKFILL_ACTION ) ) {
+		// Backfill re-syncs and update/delete-cron re-publishes are not
+		// first publishes — keep them out of the funnel's entry step.
+		if ( self::is_first_publish_context() ) {
 			Recorder::record(
 				'fosse_post_published',
 				array(
@@ -438,6 +470,31 @@ class Publish_Events {
 		if ( 'success' === $status ) {
 			Recorder::bump( 'fosse-publish-success-bluesky' );
 		}
+	}
+
+	/**
+	 * Whether the current Atmosphere result hook represents a first publish.
+	 *
+	 * False while the Backfill AJAX action or one of the update/delete
+	 * cron callbacks runs — every `Publisher::publish_post()` reached
+	 * from those contexts is a re-sync, a retry of an already-counted
+	 * attempt, or a `rewrite_thread()` republish of live records (see
+	 * `ATMOSPHERE_BACKFILL_ACTION` / `ATMOSPHERE_REPUBLISH_CRON_ACTIONS`).
+	 *
+	 * @return bool
+	 */
+	private static function is_first_publish_context(): bool {
+		if ( \doing_action( self::ATMOSPHERE_BACKFILL_ACTION ) ) {
+			return false;
+		}
+
+		foreach ( self::ATMOSPHERE_REPUBLISH_CRON_ACTIONS as $action ) {
+			if ( \doing_action( $action ) ) {
+				return false;
+			}
+		}
+
+		return true;
 	}
 
 	/**
@@ -480,7 +537,10 @@ class Publish_Events {
 	 * @return string One of the documented strategy enum values.
 	 */
 	private static function resolve_strategy( \WP_Post $post ): string {
-		if ( (bool) \apply_filters( 'atmosphere_is_short_form_post', self::is_short_form_shape( $post ), $post ) ) {
+		// `wp_validate_boolean()` (not a `(bool)` cast) mirrors Atmosphere's
+		// own `is_short_form_post()` wrapper, so a filter returning the
+		// string `'false'` classifies the same way upstream publishes.
+		if ( \wp_validate_boolean( \apply_filters( 'atmosphere_is_short_form_post', self::is_short_form_shape( $post ), $post ) ) ) {
 			return 'short-form-note';
 		}
 

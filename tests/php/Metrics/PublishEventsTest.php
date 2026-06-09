@@ -774,4 +774,127 @@ class PublishEventsTest extends BaseTestCase {
 			)
 		);
 	}
+
+	/**
+	 * Fix 3: every `Publisher::publish_post()` reached from inside the
+	 * `atmosphere_update_post` / `atmosphere_delete_post` cron callbacks
+	 * is a re-publish — the retry of an already-counted attempt or the
+	 * `rewrite_thread()` delete-and-republish of live records on a
+	 * shape-changing edit. The funnel-entry `fosse_post_published` is
+	 * suppressed; `fosse_publish_result` still fires because a real AT
+	 * Protocol write happened.
+	 *
+	 * @param string $cron_action Atmosphere cron action wrapping the publish.
+	 *
+	 * @dataProvider provide_republish_cron_actions
+	 */
+	#[DataProvider( 'provide_republish_cron_actions' )]
+	public function test_atmosphere_republish_cron_suppresses_post_published_only( string $cron_action ): void {
+		\add_filter( 'atmosphere_is_short_form_post', '__return_true' );
+
+		$post_id = \wp_insert_post(
+			array(
+				'post_title'   => 'Edited post republished via ' . $cron_action,
+				'post_content' => 'Content',
+				'post_status'  => 'publish',
+			)
+		);
+		$post    = \get_post( $post_id );
+
+		// Fire the publish-result hook from inside the cron action, the way
+		// the bundled Atmosphere cron callbacks → Publisher::update_post()
+		// → publish_post() / rewrite_thread() do.
+		\add_action(
+			$cron_action,
+			function () use ( $post ) {
+				\do_action( 'atmosphere_publish_post_result', $post, array( 'commit' => array( 'cid' => 'baf' ) ) );
+			}
+		);
+		\do_action( $cron_action );
+
+		$this->assertNoEventRecorded( 'fosse_post_published' );
+		$this->assertEventRecorded(
+			'fosse_publish_result',
+			array(
+				'network' => 'bluesky',
+				'status'  => 'success',
+			)
+		);
+	}
+
+	/**
+	 * Cron actions whose `publish_post()` invocations are always re-publishes.
+	 *
+	 * @return array<string, array{string}>
+	 */
+	public static function provide_republish_cron_actions(): array {
+		return array(
+			'update cron (retry / rewrite_thread)' => array( 'atmosphere_update_post' ),
+			'delete cron (publishable reconcile)'  => array( 'atmosphere_delete_post' ),
+		);
+	}
+
+	/**
+	 * The genuine first-publish cron (`atmosphere_publish_post`) is NOT
+	 * suppressed — the funnel entry must still be recorded there.
+	 */
+	public function test_atmosphere_first_publish_cron_records_post_published(): void {
+		\add_filter( 'atmosphere_is_short_form_post', '__return_true' );
+
+		$post_id = \wp_insert_post(
+			array(
+				'post_title'   => 'Fresh post',
+				'post_content' => 'Content',
+				'post_status'  => 'publish',
+			)
+		);
+		$post    = \get_post( $post_id );
+
+		\add_action(
+			'atmosphere_publish_post',
+			function () use ( $post ) {
+				\do_action( 'atmosphere_publish_post_result', $post, array( 'commit' => array( 'cid' => 'baf' ) ) );
+			}
+		);
+		\do_action( 'atmosphere_publish_post' );
+
+		$this->assertEventRecorded( 'fosse_post_published', array( 'has_image' => false ) );
+		$this->assertEventRecorded(
+			'fosse_publish_result',
+			array(
+				'network' => 'bluesky',
+				'status'  => 'success',
+			)
+		);
+	}
+
+	/**
+	 * Fix 2 parity detail: the short-form filter result is coerced with
+	 * `wp_validate_boolean()`, mirroring Atmosphere's `is_short_form_post()`
+	 * wrapper. A filter returning the string `'false'` is falsy upstream
+	 * (long-form publish), so the recorded strategy must be long-form too —
+	 * a plain `(bool)` cast would misrecord it as `short-form-note`.
+	 */
+	public function test_strategy_filter_string_false_is_long_form(): void {
+		\add_filter( 'atmosphere_is_short_form_post', static fn () => 'false' );
+
+		$post_id = \wp_insert_post(
+			array(
+				'post_title'   => '',
+				'post_content' => 'Titleless, but the filter says long-form.',
+				'post_status'  => 'publish',
+			)
+		);
+		$post    = \get_post( $post_id );
+
+		\do_action( 'atmosphere_publish_post_result', $post, array( 'commit' => array( 'cid' => 'baf' ) ) );
+
+		$this->assertEventRecorded(
+			'fosse_publish_result',
+			array(
+				'network'  => 'bluesky',
+				'strategy' => 'link-card-fallback',
+			)
+		);
+	}
 }
