@@ -152,6 +152,29 @@ class Canonical_Options_Migrator {
 
 		if ( 'note' === $stored ) {
 			$sentinel = '__fosse_unset__';
+
+			/*
+			 * Distinguish "canonical option unset" from "explicitly set" via a
+			 * sentinel default. This read is filter-independent and does not
+			 * rely on running before AP's `Options::init` (init priority 10):
+			 *
+			 * 1. AP registers `option_activitypub_object_type` (the value-found
+			 *    path), not `default_option_activitypub_object_type`. WordPress
+			 *    applies the `option_{$option}` filter ONLY when the row exists;
+			 *    when the option is absent it returns the `default_option_*`
+			 *    filtered default and never runs `option_*`. So for an unset
+			 *    option the sentinel is returned verbatim regardless of whether
+			 *    AP's filter is registered — moving `Options::init` earlier than
+			 *    init priority 5 would not coerce it.
+			 * 2. Even if AP later switched to a `default_option_*` filter (which
+			 *    DOES run on the absent path), `default_object_type()` only
+			 *    rewrites falsy values (`! $value`). The sentinel is a non-empty
+			 *    string, so it survives that coercion untouched.
+			 *
+			 * The sentinel is therefore robust on two independent grounds; the
+			 * migrator's tests pin this so a future bundled-AP sync that adds
+			 * such a filter can't silently regress the read.
+			 */
 			$existing = \get_option( 'activitypub_object_type', $sentinel );
 			if ( $sentinel === $existing ) {
 				\update_option( 'activitypub_object_type', 'note' );
