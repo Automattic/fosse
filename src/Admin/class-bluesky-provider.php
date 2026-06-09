@@ -1605,15 +1605,42 @@ class Bluesky_Provider implements Connection_Provider {
 
 		$code  = sanitize_text_field( wp_unslash( $_GET['code'] ?? '' ) );
 		$state = sanitize_text_field( wp_unslash( $_GET['state'] ?? '' ) );
+		$error = sanitize_text_field( wp_unslash( $_GET['error'] ?? '' ) );
 		// phpcs:enable WordPress.Security.NonceVerification.Recommended
 
-		// No code and no state → ordinary page hit, not an OAuth callback.
-		if ( '' === $code && '' === $state ) {
+		// No code, no state, and no error → ordinary page hit, not an OAuth callback.
+		if ( '' === $code && '' === $state && '' === $error ) {
 			return;
 		}
 
 		if ( ! current_user_can( 'manage_options' ) ) {
 			wp_die( esc_html__( 'You do not have permission to complete the Bluesky connection.', 'fosse' ) );
+		}
+
+		// The authorization server redirected back with an error instead of a
+		// code (RFC 6749 §4.1.2.1) — e.g. the user clicked "Deny" on the
+		// consent screen, which sends `error=access_denied`. Recover the return
+		// context from the inbound state so a wizard-origin user lands back on
+		// the wizard step, then surface user-appropriate copy. This is a
+		// declined/aborted outcome, not a token-exchange auth failure, so it is
+		// recorded distinctly from the incomplete-response and `auth_failed`
+		// paths below.
+		if ( '' !== $error ) {
+			$return_context = $this->consume_oauth_return_context( $state );
+			$source         = self::context_to_source( $return_context );
+
+			// No dedicated "declined" value exists in the connection-failure
+			// `error_category` enum (`auth_failed|rate_limited|network_timeout|
+			// invalid_handle|other`); `other` is the closest valid bucket that
+			// avoids mislabeling a user-initiated decline as an auth failure.
+			self::record_connection_failed( 'bluesky', $source, 'other' );
+
+			$message = 'access_denied' === $error
+				? __( 'You declined the Bluesky connection.', 'fosse' )
+				: __( 'Bluesky could not complete the connection. Please try connecting again.', 'fosse' );
+
+			$this->redirect_with_notice( $message, 'error', $return_context );
+			return;
 		}
 
 		// Exactly one of code/state present means the auth server redirected
