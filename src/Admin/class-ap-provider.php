@@ -373,6 +373,28 @@ class AP_Provider implements Connection_Provider {
 				: '';
 			$raw       = trim( $raw_input );
 			if ( '' !== $raw ) {
+				// Pre-check the collision before writing. AP's sanitizer
+				// (`Sanitize::blog_identifier`) silently returns
+				// `Blog::get_default_username()` on a login/nicename
+				// collision, and `update_option` would then PERSIST that
+				// default, clobbering a previously saved custom handle
+				// (breaking the blog actor's existing followers) while the
+				// UI shows only the collision error. Guard against that
+				// here: when the canonical form of the requested handle
+				// collides, do not write the option (preserve the prior
+				// value) but still surface the user-facing error so the
+				// save is not silent.
+				if ( $this->blog_identifier_collides( $raw ) ) {
+					add_settings_error(
+						'fosse',
+						'activitypub_blog_identifier',
+						__( 'That site handle matches an existing author login or nickname. Your previous handle was kept.', 'fosse' ),
+						'error'
+					);
+
+					return false;
+				}
+
 				// Snapshot the queue length, not the codes. AP's sanitizer
 				// reuses a constant code (`activitypub_blog_identifier`) for
 				// every collision rejection — comparing by code would mask a
@@ -567,6 +589,33 @@ class AP_Provider implements Connection_Provider {
 		}
 
 		return false;
+	}
+
+	/**
+	 * Whether a requested site handle would be rejected as a collision.
+	 *
+	 * Canonicalizes the raw input the same way AP's
+	 * `Sanitize::blog_identifier` does (per-label `sanitize_title`) before
+	 * checking it against existing `user_login` / `user_nicename` values.
+	 * Used to pre-empt AP's sanitizer, which silently swaps a colliding
+	 * handle for the default — a value `update_option` would then persist
+	 * over the previously saved handle.
+	 *
+	 * @param string $raw Raw submitted site handle.
+	 * @return bool True when the canonical handle collides with an existing user.
+	 */
+	public function blog_identifier_collides( string $raw ): bool {
+		// Mirror AP's per-label canonicalization: it splits on `.` and runs
+		// `sanitize_title` on each label. A single-label handle reduces to a
+		// plain `sanitize_title`, which is what the stored option becomes.
+		$labels    = explode( '.', $raw );
+		$canonical = implode( '.', array_map( 'sanitize_title', $labels ) );
+
+		if ( '' === $canonical ) {
+			return false;
+		}
+
+		return self::blog_username_in_use( $canonical );
 	}
 
 	/**

@@ -1079,6 +1079,75 @@ class Onboarding_WizardTest extends BaseTestCase {
 	}
 
 	/**
+	 * A handle that collides with an existing user login leaves the
+	 * previously saved handle intact rather than letting AP's sanitizer swap
+	 * in the default and persist it. The wizard pre-checks the collision via
+	 * exact `get_user_by()` lookups (which WorDBless satisfies), so a real
+	 * seeded user reliably exercises the guarded path.
+	 */
+	public function test_handle_save_appearance_collision_preserves_existing_handle(): void {
+		update_option( 'activitypub_blog_identifier', 'preserved-handle' );
+
+		wp_insert_user(
+			array(
+				'user_login' => 'colliding-user',
+				'user_email' => 'colliding-user@example.test',
+				'user_pass'  => 'test-pass',
+			)
+		);
+
+		$this->simulate_save_request(
+			'appearance',
+			array(
+				'activitypub_actor_mode'      => 'blog',
+				'activitypub_blog_identifier' => 'colliding-user',
+			)
+		);
+
+		try {
+			Onboarding_Wizard::handle_save();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$this->assertSame( 'preserved-handle', get_option( 'activitypub_blog_identifier' ) );
+		$this->assertContains(
+			'activitypub_blog_identifier',
+			array_column( get_settings_errors( 'fosse' ), 'code' )
+		);
+	}
+
+	/**
+	 * The Site Handle input is hidden client-side in author-only mode, but a
+	 * hidden field still posts its value. The server gates the write on
+	 * whether the selected mode includes the blog actor, so a stale handle
+	 * submitted alongside `actor` mode is ignored (and a collision in that
+	 * invisible field can't bounce the user back to a field they can't see).
+	 */
+	public function test_handle_save_appearance_ignores_handle_when_mode_excludes_blog(): void {
+		update_option( 'activitypub_blog_identifier', 'kept' );
+
+		$this->simulate_save_request(
+			'appearance',
+			array(
+				'activitypub_actor_mode'      => 'actor',
+				'activitypub_blog_identifier' => 'should-be-ignored',
+			)
+		);
+
+		try {
+			Onboarding_Wizard::handle_save();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		// Author-only mode: the blog handle write is gated off, so the prior
+		// value stands and the submitted (potentially colliding) value never
+		// reaches update_option.
+		$this->assertSame( 'kept', get_option( 'activitypub_blog_identifier' ) );
+	}
+
+	/**
 	 * The appearance step renders `settings_errors( 'fosse' )` so a fresh
 	 * collision message persisted via the `settings_errors` transient on
 	 * redirect surfaces above the form on page load.

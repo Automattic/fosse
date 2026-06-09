@@ -807,6 +807,97 @@ class AP_ProviderTest extends BaseTestCase {
 	}
 
 	/**
+	 * A handle that collides with an existing user login leaves the
+	 * previously saved handle intact. Without the pre-check, AP's sanitizer
+	 * would swap the colliding input for `Blog::get_default_username()` and
+	 * `update_option` would persist that default — clobbering the saved
+	 * handle (and breaking the blog actor's existing followers).
+	 *
+	 * Unlike AP's own LIKE-based collision query (which WorDBless can't
+	 * satisfy), FOSSE's pre-check uses exact `get_user_by()` lookups, so a
+	 * real seeded user reliably triggers the guarded path under test.
+	 */
+	public function test_save_settings_collision_preserves_existing_blog_identifier() {
+		update_option( 'activitypub_blog_identifier', 'preserved-handle' );
+
+		wp_insert_user(
+			array(
+				'user_login' => 'colliding-user',
+				'user_email' => 'colliding-user@example.test',
+				'user_pass'  => 'test-pass',
+			)
+		);
+
+		$ok = $this->provider->save_settings(
+			$this->build_post(
+				array(
+					'activitypub_actor_mode'      => 'blog',
+					'activitypub_blog_identifier' => 'colliding-user',
+				)
+			)
+		);
+
+		// The stored option is unchanged.
+		$this->assertSame( 'preserved-handle', get_option( 'activitypub_blog_identifier' ) );
+		// And the caller learns the save was not fully successful.
+		$this->assertFalse( $ok );
+		// And a user-facing error explains why.
+		$this->assertContains(
+			'activitypub_blog_identifier',
+			array_column( get_settings_errors( 'fosse' ), 'code' )
+		);
+	}
+
+	/**
+	 * The collision pre-check canonicalizes the raw input the same way AP's
+	 * sanitizer does (per-label `sanitize_title`), so a handle that only
+	 * collides after canonicalization (`Colliding User` → `colliding-user`)
+	 * is still caught and the prior value preserved.
+	 */
+	public function test_save_settings_collision_canonicalizes_before_checking() {
+		update_option( 'activitypub_blog_identifier', 'preserved-handle' );
+
+		wp_insert_user(
+			array(
+				'user_login' => 'colliding-user',
+				'user_email' => 'colliding-user@example.test',
+				'user_pass'  => 'test-pass',
+			)
+		);
+
+		$this->provider->save_settings(
+			$this->build_post(
+				array(
+					'activitypub_actor_mode'      => 'blog',
+					'activitypub_blog_identifier' => 'Colliding User',
+				)
+			)
+		);
+
+		$this->assertSame( 'preserved-handle', get_option( 'activitypub_blog_identifier' ) );
+	}
+
+	/**
+	 * A non-colliding handle still writes through normally — the pre-check
+	 * only blocks the collision path, it doesn't break the happy path.
+	 */
+	public function test_save_settings_non_colliding_handle_still_persists() {
+		update_option( 'activitypub_blog_identifier', 'old-handle' );
+
+		$ok = $this->provider->save_settings(
+			$this->build_post(
+				array(
+					'activitypub_actor_mode'      => 'blog',
+					'activitypub_blog_identifier' => 'brand-new-handle',
+				)
+			)
+		);
+
+		$this->assertTrue( $ok );
+		$this->assertSame( 'brand-new-handle', get_option( 'activitypub_blog_identifier' ) );
+	}
+
+	/**
 	 * The Site handle field renders in `blog` mode with the current saved
 	 * value pre-filled so site owners can edit it from FOSSE's surface.
 	 */
