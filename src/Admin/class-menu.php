@@ -13,6 +13,25 @@ namespace Automattic\Fosse\Admin;
 class Menu {
 
 	/**
+	 * Hook suffixes / screen IDs of every FOSSE-owned admin page.
+	 *
+	 * Single source of truth shared by {@see self::enqueue_assets()}
+	 * (admin_enqueue_scripts passes these as hook suffixes) and
+	 * {@see self::is_fosse_admin_screen()} (WP_Screen IDs are identical
+	 * strings for plugin pages). Strict whitelist by design — a prefix or
+	 * substring match would also catch third-party plugins whose slugs
+	 * happen to start with or contain "fosse". Add new entries here when
+	 * registering new admin pages in {@see self::add_menu()}.
+	 *
+	 * @var array<string>
+	 */
+	private const SCREEN_IDS = array(
+		'toplevel_page_fosse',
+		'fosse_page_fosse-status',
+		'admin_page_fosse-wizard',
+	);
+
+	/**
 	 * Register admin menu pages, bundled-menu suppression, and CSS.
 	 *
 	 * Provider discovery and hook registration happen in Provider_Loader::boot(),
@@ -247,19 +266,11 @@ class Menu {
 	 * @return void
 	 */
 	public static function enqueue_assets( string $hook_suffix ): void {
-		// Strict whitelist of FOSSE's own admin hook suffixes. A prefix
-		// match (e.g. str_starts_with( $hook_suffix, 'toplevel_page_fosse' ))
-		// would also match a third-party plugin whose top-level slug starts
-		// with "fosse" (e.g. 'toplevel_page_fosse-companion'), loading
-		// FOSSE's admin CSS onto a foreign screen. These hook suffixes mirror
-		// the screen IDs whitelisted in {@see self::is_fosse_admin_screen()}.
-		$fosse_hook_suffixes = array(
-			'toplevel_page_fosse',
-			'fosse_page_fosse-status',
-			'admin_page_fosse-wizard',
-		);
-
-		if ( ! in_array( $hook_suffix, $fosse_hook_suffixes, true ) ) {
+		// Strict whitelist — see SCREEN_IDS for why prefix matching
+		// (e.g. str_starts_with( $hook_suffix, 'toplevel_page_fosse' ))
+		// would leak FOSSE's admin CSS onto foreign screens like
+		// 'toplevel_page_fosse-companion'.
+		if ( ! in_array( $hook_suffix, self::SCREEN_IDS, true ) ) {
 			return;
 		}
 
@@ -381,21 +392,13 @@ class Menu {
 	 *
 	 * Covers Settings (`toplevel_page_fosse`), Status
 	 * (`fosse_page_fosse-status`), and the hidden Setup Wizard
-	 * (`admin_page_fosse-wizard`). Add new FOSSE screen IDs here when
-	 * registering new admin pages in {@see self::add_menu()}.
+	 * (`admin_page_fosse-wizard`) — see {@see self::SCREEN_IDS}, the
+	 * shared whitelist this reads.
 	 *
 	 * @param \WP_Screen $screen Current admin screen.
 	 * @return bool
 	 */
 	public static function is_fosse_admin_screen( \WP_Screen $screen ): bool {
-		return in_array(
-			$screen->id,
-			array(
-				'toplevel_page_fosse',
-				'fosse_page_fosse-status',
-				'admin_page_fosse-wizard',
-			),
-			true
-		);
+		return in_array( $screen->id, self::SCREEN_IDS, true );
 	}
 }

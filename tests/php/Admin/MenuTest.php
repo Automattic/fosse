@@ -63,7 +63,7 @@ class MenuTest extends BaseTestCase {
 		// Snapshot REQUEST_METHOD so the POST-guard tests can mutate it and
 		// tear_down_state() can restore the original (or drop the key).
 		$this->had_request_method = array_key_exists( 'REQUEST_METHOD', $_SERVER );
-		// phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- Snapshotting the raw value to restore it verbatim in teardown.
+		// phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- Snapshotting for teardown restore (string-cast; null when the key is absent).
 		$this->old_request_method = isset( $_SERVER['REQUEST_METHOD'] ) ? (string) $_SERVER['REQUEST_METHOD'] : null;
 
 		wp_set_current_user( 0 );
