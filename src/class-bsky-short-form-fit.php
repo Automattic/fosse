@@ -32,12 +32,14 @@ namespace Automattic\Fosse;
  * a truly titleless post (its `empty( $post->post_title )` check), so
  * `$is_short` arrives `true` for those and this bridge passes through
  * without entering the force-to-short-form branch. The case upstream
- * misses — and the only one where that branch (and its
- * `fosse_bsky_link_card_when_post_fits` filter) actually fires — is a
- * post whose title is whitespace-only: `empty()` sees a non-empty string
- * and treats it as titled (long-form), while the `trim()`-based guard
- * below correctly recognizes it as titleless and lets the length check
- * decide.
+ * misses — and the only one where upstream's own computed value lets
+ * that branch (and its `fosse_bsky_link_card_when_post_fits` filter)
+ * fire — is a post whose title is whitespace-only: `empty()` sees a
+ * non-empty string and treats it as titled (long-form), while the
+ * `trim()`-based guard below correctly recognizes it as titleless and
+ * lets the length check decide. (An earlier subscriber on the filter
+ * returning falsy re-opens the branch for any titleless post — see the
+ * null-survival test.)
  *
  * Title-bearing posts are intentionally excluded: a non-empty title is
  * Atmosphere's own long-form signal (`build_text()` composes title +
