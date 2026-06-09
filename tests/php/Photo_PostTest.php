@@ -1924,8 +1924,9 @@ class Photo_PostTest extends BaseTestCase {
 	}
 
 	/**
-	 * Fix 3: a `w` + `h` pair is honored. A lone `w` (other axis scaled
-	 * to aspect, unknown) is declined rather than guessed.
+	 * Fix 3: a `w` + `h` pair is honored. A lone `w` with no local
+	 * attachment metadata (other axis scaled to aspect, underivable)
+	 * is declined rather than guessed.
 	 */
 	public function test_attachment_filter_uses_photon_w_h_pair_and_declines_lone_w(): void {
 		$paired = apply_filters(
@@ -1952,6 +1953,80 @@ class Photo_PostTest extends BaseTestCase {
 		);
 		$this->assertArrayNotHasKey( 'width', $lone );
 		$this->assertArrayNotHasKey( 'height', $lone );
+	}
+
+	/**
+	 * Fix 3: a lone `w=` on a local attachment is still a resize
+	 * transform — Photon scales the other axis to preserve aspect. The
+	 * delivered height is derived from the original's aspect ratio;
+	 * falling through to the metadata passes (which match the original
+	 * filename in the Photon path) would emit the full-size original's
+	 * dimensions for a resized delivery — the exact mismatch Pass 0
+	 * exists to prevent.
+	 */
+	public function test_attachment_filter_derives_height_for_lone_w_from_aspect(): void {
+		$attachment_id = wp_insert_post(
+			array(
+				'post_type'      => 'attachment',
+				'post_status'    => 'inherit',
+				'post_mime_type' => 'image/jpeg',
+				'post_title'     => 'photon-lone-w',
+			)
+		);
+		wp_update_attachment_metadata(
+			$attachment_id,
+			array(
+				'file'   => '2026/05/lone.jpg',
+				'width'  => 4000,
+				'height' => 3000,
+			)
+		);
+
+		$input = array(
+			'type'      => 'Image',
+			'url'       => 'https://i0.wp.com/example.test/wp-content/uploads/2026/05/lone.jpg?w=1024',
+			'mediaType' => 'image/jpeg',
+		);
+
+		$out = apply_filters( 'activitypub_attachment', $input, $attachment_id );
+
+		$this->assertSame( 1024, $out['width'], 'Lone w must not fall through to full-size metadata.' );
+		$this->assertSame( 768, $out['height'], 'Height must be derived from the original aspect ratio.' );
+	}
+
+	/**
+	 * Fix 3: Photon never upscales — a lone `w=` at or above the
+	 * original width serves the original unchanged, so the original's
+	 * dimensions are the delivered ones.
+	 */
+	public function test_attachment_filter_lone_w_above_original_uses_original_dims(): void {
+		$attachment_id = wp_insert_post(
+			array(
+				'post_type'      => 'attachment',
+				'post_status'    => 'inherit',
+				'post_mime_type' => 'image/jpeg',
+				'post_title'     => 'photon-no-upscale',
+			)
+		);
+		wp_update_attachment_metadata(
+			$attachment_id,
+			array(
+				'file'   => '2026/05/noup.jpg',
+				'width'  => 1600,
+				'height' => 1200,
+			)
+		);
+
+		$input = array(
+			'type'      => 'Image',
+			'url'       => 'https://i0.wp.com/example.test/wp-content/uploads/2026/05/noup.jpg?w=9999',
+			'mediaType' => 'image/jpeg',
+		);
+
+		$out = apply_filters( 'activitypub_attachment', $input, $attachment_id );
+
+		$this->assertSame( 1600, $out['width'] );
+		$this->assertSame( 1200, $out['height'] );
 	}
 
 	/**
@@ -2007,11 +2082,15 @@ class Photo_PostTest extends BaseTestCase {
 		$post = $this->make_post( '', '', '', 1 );
 		update_post_meta( $post->ID, 'activitypub_max_image_attachments', array( 'bogus' ) );
 
-		// Site-level cap of 0 disables attachments; if the bogus meta
-		// were used as the cap, `(int) array(...)` would be 1 and the
-		// post would still detect. The is_numeric fallback routes to the
-		// option instead.
-		add_filter( 'activitypub_max_image_attachments', static fn() => 0 );
+		// Site-level cap of 0 disables attachments. If the bogus meta
+		// were used as the cap (the old `false === $meta || '' === $meta`
+		// guard let it through), `(int) array( 'bogus' )` would be 1 and
+		// the post would still detect. The `is_numeric` fallback must
+		// route to the option instead, rejecting detection. The cap is
+		// pinned via the OPTION — not the
+		// `activitypub_max_image_attachments` filter, which runs after
+		// both branches and would mask which source was consulted.
+		update_option( 'activitypub_max_image_attachments', 0 );
 		Photo_Post::reset_cache_for_testing();
 
 		$this->assertFalse( Photo_Post::is_photo_post( $post ) );

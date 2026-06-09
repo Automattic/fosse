@@ -584,7 +584,13 @@ class Photo_Post_Atmosphere {
 			return \Atmosphere\truncate_text( \Atmosphere\sanitize_text( $alt ), 1000 );
 		}
 
-		$clean = \trim( \html_entity_decode( \wp_strip_all_tags( $alt ), ENT_QUOTES, 'UTF-8' ) );
+		// Fallback mirrors sanitize_text()'s ORDER: decode, then strip,
+		// then collapse. Stripping first would leave an entity-encoded
+		// tag (`&lt;script&gt;`) untouched for the decode to materialize
+		// into live markup in the embed's alt text.
+		$clean     = \wp_strip_all_tags( \html_entity_decode( $alt, ENT_QUOTES, 'UTF-8' ) );
+		$collapsed = \preg_replace( '/\s+/u', ' ', $clean );
+		$clean     = \trim( \is_string( $collapsed ) ? $collapsed : $clean );
 
 		return \mb_substr( $clean, 0, 1000 );
 	}

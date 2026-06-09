@@ -859,10 +859,11 @@ class Photo_Post {
 	 * uses, and then collapses to plain text — caption-shaped output
 	 * suitable for either an HTML-tolerant or plain-text backend.
 	 *
-	 * Untrimmed return preserves whitespace inside the caption (line
-	 * breaks between paragraphs) so callers can do their own truncation
-	 * against an external character cap (Bluesky's 300, for instance)
-	 * before normalizing.
+	 * The return is normalized the same way Atmosphere normalizes text
+	 * before publishing (`\Atmosphere\sanitize_text()`): entities
+	 * decoded, tags stripped, Unicode whitespace collapsed to single
+	 * spaces, trimmed. Callers apply their own truncation against an
+	 * external character cap (Bluesky's 300, for instance) on top.
 	 *
 	 * @param WP_Post $post The photo post.
 	 * @return string Plain-text caption with image markup removed.
@@ -936,9 +937,16 @@ class Photo_Post {
 			return \Atmosphere\sanitize_text( $stripped );
 		}
 
-		$plain = \html_entity_decode( \wp_strip_all_tags( $stripped ), ENT_QUOTES, 'UTF-8' );
+		// Fallback mirrors sanitize_text()'s ORDER: decode, then strip,
+		// then collapse. Stripping before decoding would leave an
+		// entity-encoded tag (`&lt;script&gt;`) untouched and the decode
+		// would then materialize live markup into the record text —
+		// the exact failure the upstream order comment warns about.
+		$plain     = \wp_strip_all_tags( \html_entity_decode( $stripped, ENT_QUOTES, 'UTF-8' ) );
+		$collapsed = \preg_replace( '/\s+/u', ' ', $plain );
+		$plain     = \is_string( $collapsed ) ? $collapsed : $plain;
 
-		return \trim( (string) $plain );
+		return \trim( $plain );
 	}
 
 	/**
@@ -1156,6 +1164,19 @@ class Photo_Post {
 			if ( null !== $dims ) {
 				return $dims;
 			}
+
+			// A lone `w=` / `h=` is still a resize transform — the
+			// delivered bytes are NOT the file the metadata passes below
+			// describe. Photon scales the other axis to preserve aspect
+			// (and never upscales), so when we have the original's
+			// metadata we can derive the delivered size exactly; without
+			// it we decline rather than fall through, which would emit
+			// the full-size original's dimensions for a resized delivery
+			// — the exact mismatch Pass 0 exists to prevent.
+			$lone = self::lone_resize_axis_from_query( $query );
+			if ( null !== $lone ) {
+				return self::dimensions_from_lone_axis( $lone[0], $lone[1], $id );
+			}
 		}
 
 		// When we have a local attachment id, prefer metadata-driven
@@ -1217,9 +1238,11 @@ class Photo_Post {
 	 *     delivered file against in the common "image larger than the
 	 *     box" case, and AP/Pixelfed treat dimensions as a hint, not a
 	 *     contract on the exact pixel count.
-	 *   - `w=W` and `h=H` — single-axis caps. Only usable as a pair;
-	 *     a lone `w` or `h` leaves the other axis unknown (Photon scales
-	 *     it to preserve aspect), so we decline rather than guess.
+	 *   - `w=W` and `h=H` — single-axis caps. Only resolvable here as a
+	 *     pair; a lone `w` or `h` leaves the other axis unknown (Photon
+	 *     scales it to preserve aspect), so this helper declines and the
+	 *     caller derives the missing axis from the attachment's original
+	 *     metadata via {@see self::dimensions_from_lone_axis()} instead.
 	 *
 	 * Values are clamped to positive integers; a `0`/negative/non-numeric
 	 * arg is treated as absent.
@@ -1262,6 +1285,83 @@ class Photo_Post {
 		}
 
 		return null;
+	}
+
+	/**
+	 * Detect a single-axis Photon resize transform (`?w=` XOR `?h=`)
+	 * in a URL query string. Returns `[axis, value]` (axis `'w'` or
+	 * `'h'`, value a positive int) when exactly one axis is pinned, or
+	 * `null` when neither — or both — axes carry a usable value (the
+	 * both-axes case is handled by {@see self::dimensions_from_query()}).
+	 *
+	 * Zero / negative / non-numeric values are treated as absent:
+	 * Photon ignores them and serves the untransformed file, so falling
+	 * through to the metadata passes is correct for those.
+	 *
+	 * @param string $query The URL's query component (no leading `?`).
+	 * @return array{0:string, 1:int}|null
+	 */
+	private static function lone_resize_axis_from_query( string $query ): ?array {
+		$args = array();
+		\wp_parse_str( $query, $args );
+
+		$width  = isset( $args['w'] ) && \is_numeric( $args['w'] ) ? (int) $args['w'] : 0;
+		$height = isset( $args['h'] ) && \is_numeric( $args['h'] ) ? (int) $args['h'] : 0;
+
+		if ( $width > 0 && $height <= 0 ) {
+			return array( 'w', $width );
+		}
+		if ( $height > 0 && $width <= 0 ) {
+			return array( 'h', $height );
+		}
+
+		return null;
+	}
+
+	/**
+	 * Derive delivered dimensions for a single-axis Photon transform
+	 * from the attachment's original metadata.
+	 *
+	 * Photon scales the unpinned axis to preserve the original's aspect
+	 * ratio and never upscales — a `w=` at or above the original width
+	 * serves the original unchanged. With the original's dimensions in
+	 * metadata the delivered size is therefore fully determined; without
+	 * them (no local id, missing/zero metadata) we return `null` so the
+	 * attachment ships without dimension claims rather than with the
+	 * untransformed original's.
+	 *
+	 * @param string $axis  `'w'` or `'h'` — the pinned axis.
+	 * @param int    $value The pinned axis value (positive).
+	 * @param mixed  $id    The WP attachment ID, if known.
+	 * @return array{0:int, 1:int}|null
+	 */
+	private static function dimensions_from_lone_axis( string $axis, int $value, $id ): ?array {
+		if ( ! \is_numeric( $id ) || (int) $id <= 0 ) {
+			return null;
+		}
+
+		$meta = \wp_get_attachment_metadata( (int) $id );
+		if ( ! \is_array( $meta ) ) {
+			return null;
+		}
+
+		$orig_width  = (int) ( $meta['width'] ?? 0 );
+		$orig_height = (int) ( $meta['height'] ?? 0 );
+		if ( $orig_width <= 0 || $orig_height <= 0 ) {
+			return null;
+		}
+
+		if ( 'w' === $axis ) {
+			if ( $value >= $orig_width ) {
+				return array( $orig_width, $orig_height );
+			}
+			return array( $value, \max( 1, (int) \round( $value * $orig_height / $orig_width ) ) );
+		}
+
+		if ( $value >= $orig_height ) {
+			return array( $orig_width, $orig_height );
+		}
+		return array( \max( 1, (int) \round( $value * $orig_width / $orig_height ) ), $value );
 	}
 
 	/**
