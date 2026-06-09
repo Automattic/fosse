@@ -23,8 +23,12 @@ namespace Automattic\Fosse\Metrics;
  *   final one.
  * - `activitypub_outbox_processing_complete` — merges any final-batch
  *   in-memory state with the persisted aggregate, emits one
- *   `fosse_publish_result` event with `network: 'activitypub'`, and
- *   clears both. AP fires this only on the final batch.
+ *   `fosse_publish_result` event with `network: 'mastodon'`, and
+ *   clears both. AP fires this only on the final batch — and only when
+ *   the outbox item is a post `Create`. Updates, Deletes, comment
+ *   activities, actor-profile Updates, and the dual-actor `Announce`
+ *   are filtered out so each post counts at most once on the fediverse
+ *   path (no double-count in `ACTIVITYPUB_ACTOR_AND_BLOG_MODE`).
  * - `atmosphere_publish_post_result` — emits one `fosse_post_published`
  *   plus one `fosse_publish_result` event with `network: 'bluesky'`. The
  *   upstream hook lands in wordpress-atmosphere PR 56; this subscriber
@@ -252,6 +256,16 @@ class Publish_Events {
 		$persisted = \get_post_meta( $outbox_item_id, self::AP_DISPATCH_STATE_META_KEY, true );
 		\delete_post_meta( $outbox_item_id, self::AP_DISPATCH_STATE_META_KEY );
 
+		// `activitypub_sent_to_inbox` accumulates for EVERY outbox dispatch
+		// (post Creates, Updates, Deletes, comment activities, actor-profile
+		// Updates, and the dual-actor `Announce`), so the in-memory and
+		// persisted aggregate state is always cleared above — even for the
+		// activities we do not emit on — to avoid leaking `_fosse_metrics_*`
+		// post meta. The emit itself is gated below to a post `Create` only.
+		if ( ! self::is_post_create_outbox_item( $outbox_item_id ) ) {
+			return;
+		}
+
 		if ( null === $in_memory && ! \is_array( $persisted ) ) {
 			// No `activitypub_sent_to_inbox` ever fired (zero-inbox publish).
 			return;
@@ -265,7 +279,7 @@ class Publish_Events {
 		$status = $state['successes'] > 0 ? 'success' : 'failure';
 
 		$properties = array(
-			'network' => 'activitypub',
+			'network' => 'mastodon',
 			'status'  => $status,
 		);
 
@@ -276,12 +290,106 @@ class Publish_Events {
 		Recorder::record( 'fosse_publish_result', $properties );
 
 		if ( 'success' === $status ) {
-			Recorder::bump( 'fosse-publish-success-activitypub' );
+			Recorder::bump( 'fosse-publish-success-mastodon' );
 		}
 	}
 
 	/**
+	 * Whether an AP outbox item represents a first-class post `Create`.
+	 *
+	 * The `activitypub_outbox_processing_complete` hook fires for every
+	 * outbox dispatch with no activity-type filter. Only a post `Create`
+	 * should bump the publish funnel: Updates and Deletes are edits, not
+	 * publishes; comment activities are reactions, not posts;
+	 * actor-profile Updates are not content; and in
+	 * `ACTIVITYPUB_ACTOR_AND_BLOG_MODE` the bundled scheduler enqueues a
+	 * second `Announce` outbox item per post (see
+	 * `bundled/activitypub/includes/class-scheduler.php`
+	 * `schedule_announce_activity()`) which would double-count.
+	 *
+	 * Discriminator (both signals read from the outbox item itself, set by
+	 * `bundled/activitypub/includes/collection/class-outbox.php` `add()`):
+	 *
+	 * 1. `_activitypub_activity_type` meta is the literal
+	 *    `$activity->get_type()` — `'Create'` only passes; `'Update'`,
+	 *    `'Delete'`, `'Announce'`, `'Like'`, etc. are rejected.
+	 * 2. `_activitypub_object_id` meta is the activity object's canonical
+	 *    URL. For a post Create this resolves back to a real post via
+	 *    `url_to_postid()`; a comment Create's object URL does not, which
+	 *    separates post Creates from comment Creates (both are `Create`s
+	 *    of a `Note`, so the activity type alone cannot tell them apart).
+	 *
+	 * Reading the persisted meta is reliable here: `add()` always writes
+	 * both keys, and the outbox item still exists at dispatch time (it is
+	 * only `wp_publish_post()`-ed, never deleted, by the dispatcher).
+	 *
+	 * @param int $outbox_item_id Outbox item post id.
+	 * @return bool
+	 */
+	private static function is_post_create_outbox_item( int $outbox_item_id ): bool {
+		$activity_type = \get_post_meta( $outbox_item_id, '_activitypub_activity_type', true );
+		if ( 'Create' !== $activity_type ) {
+			return false;
+		}
+
+		$object_id = \get_post_meta( $outbox_item_id, '_activitypub_object_id', true );
+		if ( ! \is_string( $object_id ) || '' === $object_id ) {
+			return false;
+		}
+
+		return \url_to_postid( $object_id ) > 0;
+	}
+
+	/**
+	 * WP_Error code Atmosphere uses for the not-publishable early return.
+	 *
+	 * `Publisher::publish_post()` fires `atmosphere_publish_post_result`
+	 * with this code before any AT Protocol write happens (see
+	 * `bundled/atmosphere/includes/class-publisher.php`). No publish
+	 * occurred, so neither publish event should fire.
+	 */
+	private const ATMOSPHERE_NOT_PUBLISHABLE_CODE = 'atmosphere_post_not_publishable';
+
+	/**
+	 * AJAX action under which the bundled Atmosphere Backfill runs.
+	 *
+	 * Backfill re-syncs pre-existing posts via `Publisher::publish_post()`
+	 * (see `bundled/atmosphere/includes/class-backfill.php`
+	 * `handle_batch()`), which fires `atmosphere_publish_post_result`.
+	 * Those are not genuine first publishes, so the funnel-entry
+	 * `fosse_post_published` event is suppressed while this action runs.
+	 */
+	private const ATMOSPHERE_BACKFILL_ACTION = 'wp_ajax_atmosphere_backfill_batch';
+
+	/**
 	 * Handle the Atmosphere publish-result action.
+	 *
+	 * `atmosphere_publish_post_result` fires from several
+	 * `Publisher::publish_post()` entry points
+	 * (`bundled/atmosphere/includes/class-publisher.php`): the genuine
+	 * first-publish cron path, the update-falls-through-to-publish retry,
+	 * the not-publishable early return, and the admin Backfill of
+	 * pre-existing posts. The raw hook does not discriminate between them.
+	 *
+	 * This subscriber filters two cases it can detect reliably:
+	 *
+	 * - **Not publishable.** When `$result` is the
+	 *   `atmosphere_post_not_publishable` WP_Error, no publish happened —
+	 *   skip both events entirely.
+	 * - **Backfill.** The funnel-entry `fosse_post_published` is suppressed
+	 *   while the Backfill AJAX action runs, since re-syncing old content
+	 *   is not a first publish. `fosse_publish_result` still fires for
+	 *   backfill — it measures the render-quality outcome of an actual
+	 *   AT Protocol write, which a backfill genuinely performs.
+	 *
+	 * Known gap: the update-falls-through-to-publish retry
+	 * (`Publisher::update_post()` → `publish_post()` for a post whose prior
+	 * publish failed) is indistinguishable from a first publish at this
+	 * hook without reaching into Atmosphere's private post meta, so it is
+	 * still counted as a `fosse_post_published`. This over-counts only
+	 * posts that previously failed to publish and are retried — a small,
+	 * bounded population — and is preferred over a fragile meta probe into
+	 * bundled internals.
 	 *
 	 * Emits `fosse_post_published` once (network-agnostic entry-step
 	 * signal) plus `fosse_publish_result` once with `network: 'bluesky'`.
@@ -295,13 +403,23 @@ class Publish_Events {
 			return;
 		}
 
-		Recorder::record(
-			'fosse_post_published',
-			array(
-				'post_format' => self::resolve_post_format( $post ),
-				'has_image'   => self::resolve_has_image( $post ),
-			)
-		);
+		// Not-publishable early return: no AT Protocol write happened, so
+		// nothing to record on either event.
+		if ( $result instanceof \WP_Error && self::ATMOSPHERE_NOT_PUBLISHABLE_CODE === $result->get_error_code() ) {
+			return;
+		}
+
+		// Backfill of pre-existing posts is a deliberate re-sync, not a
+		// first publish — keep it out of the publish funnel's entry step.
+		if ( ! \doing_action( self::ATMOSPHERE_BACKFILL_ACTION ) ) {
+			Recorder::record(
+				'fosse_post_published',
+				array(
+					'post_format' => self::resolve_post_format( $post ),
+					'has_image'   => self::resolve_has_image( $post ),
+				)
+			);
+		}
 
 		$status = \is_wp_error( $result ) ? 'failure' : 'success';
 
@@ -362,12 +480,42 @@ class Publish_Events {
 	 * @return string One of the documented strategy enum values.
 	 */
 	private static function resolve_strategy( \WP_Post $post ): string {
-		if ( (bool) \apply_filters( 'atmosphere_is_short_form_post', false, $post ) ) {
+		if ( (bool) \apply_filters( 'atmosphere_is_short_form_post', self::is_short_form_shape( $post ), $post ) ) {
 			return 'short-form-note';
 		}
 
 		$composition = (string) \apply_filters( 'atmosphere_long_form_composition', 'link-card', $post );
 		return 'teaser-thread' === $composition ? 'long-form-teaser-thread' : 'link-card-fallback';
+	}
+
+	/**
+	 * Replicate Atmosphere's shape-based short-form predicate as the
+	 * `atmosphere_is_short_form_post` filter seed.
+	 *
+	 * The bundled Atmosphere transformer seeds the same filter with this
+	 * exact predicate (see
+	 * `bundled/atmosphere/includes/transformer/class-post.php`
+	 * `is_short_form()`), so seeding with a hardcoded `false` here made
+	 * the recorded `strategy` disagree with what Atmosphere actually
+	 * published: titled posts carrying a post format, and titleless posts,
+	 * are published short-form upstream but were being recorded as
+	 * long-form. Mirroring the predicate keeps the metric honest when no
+	 * other code has overridden the filter.
+	 *
+	 * Short-form when:
+	 * - the post type does not support titles, OR
+	 * - the post has an empty title, OR
+	 * - the post has any non-empty post format.
+	 *
+	 * @param \WP_Post $post Post.
+	 * @return bool
+	 */
+	private static function is_short_form_shape( \WP_Post $post ): bool {
+		if ( ! \post_type_supports( $post->post_type, 'title' ) || empty( $post->post_title ) ) {
+			return true;
+		}
+
+		return (bool) \get_post_format( $post );
 	}
 
 	/**

@@ -9,6 +9,7 @@ namespace Automattic\Fosse\Tests\Metrics;
 
 use Automattic\Fosse\Metrics\Publish_Events;
 use PHPUnit\Framework\Attributes\Before;
+use PHPUnit\Framework\Attributes\DataProvider;
 use WorDBless\BaseTestCase;
 
 /**
@@ -55,11 +56,49 @@ class PublishEventsTest extends BaseTestCase {
 	}
 
 	/**
+	 * Create an AP outbox item that looks like a post `Create` to the
+	 * subscriber's discriminator.
+	 *
+	 * Mirrors what `Activitypub\Collection\Outbox::add()` persists for a
+	 * post Create: `_activitypub_activity_type = 'Create'` and
+	 * `_activitypub_object_id` set to the post's `?p=ID` permalink so
+	 * `url_to_postid()` resolves it back to a real post.
+	 *
+	 * @param string $activity_type Optional activity type meta. Default `'Create'`.
+	 * @param bool   $with_object   Optional. Whether to set a resolvable object id. Default true.
+	 * @return int Outbox item post id.
+	 */
+	private function make_outbox_item( string $activity_type = 'Create', bool $with_object = true ): int {
+		$source_post = \wp_insert_post(
+			array(
+				'post_title'  => 'Source post',
+				'post_status' => 'publish',
+				'post_type'   => 'post',
+			)
+		);
+
+		$outbox_id = \wp_insert_post(
+			array(
+				'post_title'  => '[' . $activity_type . '] outbox item',
+				'post_status' => 'pending',
+				'post_type'   => 'post',
+			)
+		);
+
+		\update_post_meta( $outbox_id, '_activitypub_activity_type', $activity_type );
+		if ( $with_object ) {
+			\update_post_meta( $outbox_id, '_activitypub_object_id', \add_query_arg( 'p', $source_post, \home_url( '/' ) ) );
+		}
+
+		return $outbox_id;
+	}
+
+	/**
 	 * AP dispatch with at least one successful inbox emits a
 	 * `success` `fosse_publish_result` and bumps the MC counter.
 	 */
 	public function test_ap_outbox_success_emits_success_event(): void {
-		$outbox_id = 4242;
+		$outbox_id = $this->make_outbox_item();
 
 		\do_action( 'activitypub_sent_to_inbox', array( 'response' => array( 'code' => 202 ) ), 'https://example.com/inbox', '{}', 1, $outbox_id );
 		\do_action( 'activitypub_outbox_processing_complete', array( 'https://example.com/inbox' ), '{}', 1, $outbox_id, 1, 0 );
@@ -67,11 +106,11 @@ class PublishEventsTest extends BaseTestCase {
 		$this->assertEventRecorded(
 			'fosse_publish_result',
 			array(
-				'network' => 'activitypub',
+				'network' => 'mastodon',
 				'status'  => 'success',
 			)
 		);
-		$this->assertMcBumped( 'fosse-publish-success-activitypub' );
+		$this->assertMcBumped( 'fosse-publish-success-mastodon' );
 	}
 
 	/**
@@ -80,7 +119,7 @@ class PublishEventsTest extends BaseTestCase {
 	 * `error_category` enum, and does NOT bump the success counter.
 	 */
 	public function test_ap_outbox_all_failures_emits_failure_event(): void {
-		$outbox_id = 4243;
+		$outbox_id = $this->make_outbox_item();
 
 		\do_action(
 			'activitypub_sent_to_inbox',
@@ -95,12 +134,12 @@ class PublishEventsTest extends BaseTestCase {
 		$this->assertEventRecorded(
 			'fosse_publish_result',
 			array(
-				'network'        => 'activitypub',
+				'network'        => 'mastodon',
 				'status'         => 'failure',
 				'error_category' => 'auth_failed',
 			)
 		);
-		$this->assertNoMcBumped( 'fosse-publish-success-activitypub' );
+		$this->assertNoMcBumped( 'fosse-publish-success-mastodon' );
 	}
 
 	/**
@@ -108,7 +147,7 @@ class PublishEventsTest extends BaseTestCase {
 	 * multi-inbox dispatch shouldn't downgrade the whole publish.
 	 */
 	public function test_ap_outbox_partial_success_emits_success_event(): void {
-		$outbox_id = 4244;
+		$outbox_id = $this->make_outbox_item();
 
 		\do_action(
 			'activitypub_sent_to_inbox',
@@ -131,7 +170,7 @@ class PublishEventsTest extends BaseTestCase {
 		$this->assertEventRecorded(
 			'fosse_publish_result',
 			array(
-				'network' => 'activitypub',
+				'network' => 'mastodon',
 				'status'  => 'success',
 			)
 		);
@@ -143,13 +182,7 @@ class PublishEventsTest extends BaseTestCase {
 	 * read path is exercised; the meta is just empty.
 	 */
 	public function test_ap_outbox_complete_without_sends_is_silent(): void {
-		$outbox_id = \wp_insert_post(
-			array(
-				'post_title'  => 'outbox item',
-				'post_status' => 'publish',
-				'post_type'   => 'post',
-			)
-		);
+		$outbox_id = $this->make_outbox_item();
 
 		\do_action( 'activitypub_outbox_processing_complete', array(), '{}', 1, $outbox_id, 0, 0 );
 
@@ -168,13 +201,7 @@ class PublishEventsTest extends BaseTestCase {
 	 * so a re-fired batch in the same request can't double-count.
 	 */
 	public function test_ap_outbox_multi_batch_aggregation(): void {
-		$outbox_id = \wp_insert_post(
-			array(
-				'post_title'  => 'outbox item',
-				'post_status' => 'publish',
-				'post_type'   => 'post',
-			)
-		);
+		$outbox_id = $this->make_outbox_item();
 
 		// First batch — 1 fail, 2 successes — then batch_complete (intermediate).
 		\do_action( 'activitypub_sent_to_inbox', new \WP_Error( '503', 'gateway' ), 'https://a.example/inbox', '{}', 1, $outbox_id );
@@ -203,7 +230,7 @@ class PublishEventsTest extends BaseTestCase {
 		$this->assertEventRecorded(
 			'fosse_publish_result',
 			array(
-				'network' => 'activitypub',
+				'network' => 'mastodon',
 				'status'  => 'success',
 			)
 		);
@@ -219,13 +246,7 @@ class PublishEventsTest extends BaseTestCase {
 	 * post-meta flush is there to provide.
 	 */
 	public function test_ap_outbox_persisted_state_survives_request_boundary(): void {
-		$outbox_id = \wp_insert_post(
-			array(
-				'post_title'  => 'outbox item',
-				'post_status' => 'publish',
-				'post_type'   => 'post',
-			)
-		);
+		$outbox_id = $this->make_outbox_item();
 
 		// Cron request 1: batch fires + batch_complete (state flushes to post meta).
 		\do_action( 'activitypub_sent_to_inbox', new \WP_Error( '401', 'unauthorized' ), 'https://x.example/inbox', '{}', 1, $outbox_id );
@@ -246,7 +267,7 @@ class PublishEventsTest extends BaseTestCase {
 		$this->assertEventRecorded(
 			'fosse_publish_result',
 			array(
-				'network' => 'activitypub',
+				'network' => 'mastodon',
 				'status'  => 'success',
 			)
 		);
@@ -314,13 +335,7 @@ class PublishEventsTest extends BaseTestCase {
 		foreach ( $cases as $i => $case ) {
 			[ $code, $expected ] = $case;
 
-			$outbox_id = \wp_insert_post(
-				array(
-					'post_title'  => 'outbox-' . $i,
-					'post_status' => 'publish',
-					'post_type'   => 'post',
-				)
-			);
+			$outbox_id = $this->make_outbox_item();
 
 			\do_action( 'activitypub_sent_to_inbox', new \WP_Error( $code, $code ), 'https://x.example/inbox', '{}', 1, $outbox_id );
 			\do_action( 'activitypub_outbox_processing_complete', array( 'https://x.example/inbox' ), '{}', 1, $outbox_id, 1, 0 );
@@ -498,5 +513,265 @@ class PublishEventsTest extends BaseTestCase {
 
 		$this->assertNoEventRecorded( 'fosse_post_published' );
 		$this->assertNoEventRecorded( 'fosse_publish_result' );
+	}
+
+	/**
+	 * A non-`Create` AP outbox dispatch (Update / Delete / actor-profile
+	 * Update) emits nothing on the fediverse path — only a post Create
+	 * counts toward the publish funnel.
+	 *
+	 * @param string $activity_type Activity type meta on the outbox item.
+	 *
+	 * @dataProvider provide_non_create_activity_types
+	 */
+	#[DataProvider( 'provide_non_create_activity_types' )]
+	public function test_ap_non_create_activity_is_silent( string $activity_type ): void {
+		$outbox_id = $this->make_outbox_item( $activity_type );
+
+		\do_action( 'activitypub_sent_to_inbox', array( 'response' => array( 'code' => 202 ) ), 'https://example.com/inbox', '{}', 1, $outbox_id );
+		\do_action( 'activitypub_outbox_processing_complete', array( 'https://example.com/inbox' ), '{}', 1, $outbox_id, 1, 0 );
+
+		$this->assertNoEventRecorded( 'fosse_publish_result' );
+		$this->assertNoMcBumped( 'fosse-publish-success-mastodon' );
+
+		// The aggregate post meta is still cleaned up so non-Create
+		// dispatches don't leak `_fosse_metrics_*` meta.
+		$this->assertSame( '', \get_post_meta( $outbox_id, '_fosse_metrics_ap_dispatch_state', true ) );
+	}
+
+	/**
+	 * Activity types that must NOT bump the publish funnel.
+	 *
+	 * @return array<string, array{string}>
+	 */
+	public static function provide_non_create_activity_types(): array {
+		return array(
+			'post/actor update' => array( 'Update' ),
+			'delete'            => array( 'Delete' ),
+			'announce'          => array( 'Announce' ),
+			'like'              => array( 'Like' ),
+		);
+	}
+
+	/**
+	 * In `ACTIVITYPUB_ACTOR_AND_BLOG_MODE` the bundled scheduler enqueues
+	 * a second `Announce` outbox item per post. The subscriber must count
+	 * the post once: the `Create` emits, the `Announce` does not — so a
+	 * post federated in dual-actor mode yields exactly one
+	 * `fosse_publish_result` / one MC bump, not two.
+	 */
+	public function test_ap_dual_actor_mode_does_not_double_count(): void {
+		$create_item   = $this->make_outbox_item( 'Create' );
+		$announce_item = $this->make_outbox_item( 'Announce' );
+
+		// The user-actor post Create.
+		\do_action( 'activitypub_sent_to_inbox', array( 'response' => array( 'code' => 202 ) ), 'https://example.com/inbox', '{}', 1, $create_item );
+		\do_action( 'activitypub_outbox_processing_complete', array( 'https://example.com/inbox' ), '{}', 1, $create_item, 1, 0 );
+
+		// The blog-actor Announce of that same post.
+		\do_action( 'activitypub_sent_to_inbox', array( 'response' => array( 'code' => 202 ) ), 'https://example.com/inbox', '{}', 1, $announce_item );
+		\do_action( 'activitypub_outbox_processing_complete', array( 'https://example.com/inbox' ), '{}', 1, $announce_item, 1, 0 );
+
+		$this->assertCount( 1, $this->tracks_channel()->events_for( 'fosse_publish_result' ) );
+
+		$bumps = \array_filter(
+			$this->mc_channel()->bumps(),
+			static fn ( $name ) => 'fosse-publish-success-mastodon' === $name
+		);
+		$this->assertCount( 1, $bumps );
+	}
+
+	/**
+	 * A `Create` whose object URL does not resolve to a post (a comment
+	 * Create — both are `Create`s of a `Note`) emits nothing on the
+	 * fediverse path.
+	 */
+	public function test_ap_comment_create_is_silent(): void {
+		// Create activity type, but the object id is a non-resolvable URL
+		// (a comment's AP id), so url_to_postid() returns 0.
+		$outbox_id = \wp_insert_post(
+			array(
+				'post_title'  => '[Create] comment',
+				'post_status' => 'pending',
+				'post_type'   => 'post',
+			)
+		);
+		\update_post_meta( $outbox_id, '_activitypub_activity_type', 'Create' );
+		\update_post_meta( $outbox_id, '_activitypub_object_id', 'https://remote.example/users/alice/statuses/42#comment' );
+
+		\do_action( 'activitypub_sent_to_inbox', array( 'response' => array( 'code' => 202 ) ), 'https://example.com/inbox', '{}', 1, $outbox_id );
+		\do_action( 'activitypub_outbox_processing_complete', array( 'https://example.com/inbox' ), '{}', 1, $outbox_id, 1, 0 );
+
+		$this->assertNoEventRecorded( 'fosse_publish_result' );
+	}
+
+	/**
+	 * Fix 2: the `atmosphere_is_short_form_post` filter is seeded with
+	 * Atmosphere's own shape predicate, not a hardcoded `false`. A
+	 * titleless post (short-form upstream) is recorded as
+	 * `short-form-note` even when no filter overrides the seed — it was
+	 * previously misrecorded as a long-form `link-card-fallback`.
+	 */
+	public function test_strategy_seed_matches_atmosphere_shape_for_titleless_post(): void {
+		// No `atmosphere_is_short_form_post` filter is added — the seed
+		// is what must classify this.
+		$post_id = \wp_insert_post(
+			array(
+				'post_title'   => '',
+				'post_content' => 'A quick note with no title.',
+				'post_status'  => 'publish',
+			)
+		);
+		$post    = \get_post( $post_id );
+
+		\do_action( 'atmosphere_publish_post_result', $post, array( 'commit' => array( 'cid' => 'baf' ) ) );
+
+		$this->assertEventRecorded(
+			'fosse_publish_result',
+			array(
+				'network'  => 'bluesky',
+				'strategy' => 'short-form-note',
+			)
+		);
+	}
+
+	/**
+	 * Fix 2: a titled post carrying a post format is short-form upstream
+	 * (the post-format branch of Atmosphere's predicate), so the seed
+	 * must classify it as `short-form-note` too.
+	 */
+	public function test_strategy_seed_treats_post_format_as_short_form(): void {
+		$post_id = \wp_insert_post(
+			array(
+				'post_title'   => 'Has a title',
+				'post_content' => 'But also a post format.',
+				'post_status'  => 'publish',
+			)
+		);
+
+		// WorDBless's database-less storage doesn't round-trip
+		// `set_post_format()`, so feed the format through the same
+		// `get_the_terms` path `get_post_format()` reads from.
+		\add_filter(
+			'get_the_terms',
+			static function ( $terms, $object_id, $taxonomy ) use ( $post_id ) {
+				if ( (int) $object_id === (int) $post_id && 'post_format' === $taxonomy ) {
+					return array(
+						(object) array(
+							'slug'     => 'post-format-aside',
+							'name'     => 'aside',
+							'taxonomy' => 'post_format',
+							'term_id'  => 999,
+						),
+					);
+				}
+				return $terms;
+			},
+			10,
+			3
+		);
+
+		$post = \get_post( $post_id );
+
+		\do_action( 'atmosphere_publish_post_result', $post, array( 'commit' => array( 'cid' => 'baf' ) ) );
+
+		$this->assertEventRecorded(
+			'fosse_publish_result',
+			array(
+				'network'  => 'bluesky',
+				'strategy' => 'short-form-note',
+			)
+		);
+	}
+
+	/**
+	 * Fix 2: a titled post with no post format is long-form upstream, so
+	 * the seed leaves it on the long-form path (link-card fallback by
+	 * default composition).
+	 */
+	public function test_strategy_seed_keeps_titled_plain_post_long_form(): void {
+		$post_id = \wp_insert_post(
+			array(
+				'post_title'   => 'A normal titled article',
+				'post_content' => 'Long-form body.',
+				'post_status'  => 'publish',
+			)
+		);
+		$post    = \get_post( $post_id );
+
+		\do_action( 'atmosphere_publish_post_result', $post, array( 'commit' => array( 'cid' => 'baf' ) ) );
+
+		$this->assertEventRecorded(
+			'fosse_publish_result',
+			array(
+				'network'  => 'bluesky',
+				'strategy' => 'link-card-fallback',
+			)
+		);
+	}
+
+	/**
+	 * Fix 3: the not-publishable early return fires
+	 * `atmosphere_publish_post_result` with the
+	 * `atmosphere_post_not_publishable` WP_Error before any AT Protocol
+	 * write — neither publish event should fire.
+	 */
+	public function test_atmosphere_not_publishable_emits_nothing(): void {
+		$post_id = \wp_insert_post(
+			array(
+				'post_title'   => 'Ineligible',
+				'post_content' => 'Content',
+				'post_status'  => 'publish',
+			)
+		);
+		$post    = \get_post( $post_id );
+
+		\do_action(
+			'atmosphere_publish_post_result',
+			$post,
+			new \WP_Error( 'atmosphere_post_not_publishable', 'nope' )
+		);
+
+		$this->assertNoEventRecorded( 'fosse_post_published' );
+		$this->assertNoEventRecorded( 'fosse_publish_result' );
+		$this->assertNoMcBumped( 'fosse-publish-success-bluesky' );
+	}
+
+	/**
+	 * Fix 3: a backfill run (the `wp_ajax_atmosphere_backfill_batch`
+	 * action) re-syncs pre-existing posts. The funnel-entry
+	 * `fosse_post_published` is suppressed, but `fosse_publish_result`
+	 * still fires because a real AT Protocol write happened.
+	 */
+	public function test_atmosphere_backfill_suppresses_post_published_only(): void {
+		\add_filter( 'atmosphere_is_short_form_post', '__return_true' );
+
+		$post_id = \wp_insert_post(
+			array(
+				'post_title'   => 'Backfilled post',
+				'post_content' => 'Content',
+				'post_status'  => 'publish',
+			)
+		);
+		$post    = \get_post( $post_id );
+
+		// Run the publish-result hook from inside the backfill AJAX action,
+		// the way Backfill::handle_batch() → Publisher::publish_post() does.
+		\add_action(
+			'wp_ajax_atmosphere_backfill_batch',
+			function () use ( $post ) {
+				\do_action( 'atmosphere_publish_post_result', $post, array( 'commit' => array( 'cid' => 'baf' ) ) );
+			}
+		);
+		\do_action( 'wp_ajax_atmosphere_backfill_batch' );
+
+		$this->assertNoEventRecorded( 'fosse_post_published' );
+		$this->assertEventRecorded(
+			'fosse_publish_result',
+			array(
+				'network' => 'bluesky',
+				'status'  => 'success',
+			)
+		);
 	}
 }
