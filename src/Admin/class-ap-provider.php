@@ -395,6 +395,23 @@ class AP_Provider implements Connection_Provider {
 					return false;
 				}
 
+				// Same guard for input that canonicalizes to nothing (e.g.
+				// `!!!`): AP's sanitizer discards it and returns the default
+				// username WITHOUT raising a settings error, so neither the
+				// collision pre-check above nor the error re-tag below would
+				// catch it — `update_option` would silently clobber the saved
+				// handle behind a success notice.
+				if ( $this->blog_identifier_canonicalizes_empty( $raw ) ) {
+					add_settings_error(
+						'fosse',
+						'activitypub_blog_identifier',
+						__( 'That site handle contains no usable characters. Your previous handle was kept.', 'fosse' ),
+						'error'
+					);
+
+					return false;
+				}
+
 				// Snapshot the queue length, not the codes. AP's sanitizer
 				// reuses a constant code (`activitypub_blog_identifier`) for
 				// every collision rejection — comparing by code would mask a
@@ -592,6 +609,25 @@ class AP_Provider implements Connection_Provider {
 	}
 
 	/**
+	 * Canonicalize a raw site handle the way AP's sanitizer does.
+	 *
+	 * Mirrors `Sanitize::blog_identifier`'s transformation exactly: split
+	 * on `.`, run `sanitize_title` on each label, rejoin. AP then treats an
+	 * `empty()` result — which in PHP includes the literal string `'0'` —
+	 * as "no value" and swaps in `Blog::get_default_username()`; collapse
+	 * those to `''` here so callers can detect that silent reset.
+	 *
+	 * @param string $raw Raw submitted site handle.
+	 * @return string Canonical handle, or `''` when AP would discard it.
+	 */
+	private static function canonicalize_blog_identifier( string $raw ): string {
+		$labels    = explode( '.', $raw );
+		$canonical = implode( '.', array_map( 'sanitize_title', $labels ) );
+
+		return empty( $canonical ) ? '' : $canonical;
+	}
+
+	/**
 	 * Whether a requested site handle would be rejected as a collision.
 	 *
 	 * Canonicalizes the raw input the same way AP's
@@ -605,17 +641,30 @@ class AP_Provider implements Connection_Provider {
 	 * @return bool True when the canonical handle collides with an existing user.
 	 */
 	public function blog_identifier_collides( string $raw ): bool {
-		// Mirror AP's per-label canonicalization: it splits on `.` and runs
-		// `sanitize_title` on each label. A single-label handle reduces to a
-		// plain `sanitize_title`, which is what the stored option becomes.
-		$labels    = explode( '.', $raw );
-		$canonical = implode( '.', array_map( 'sanitize_title', $labels ) );
+		$canonical = self::canonicalize_blog_identifier( $raw );
 
 		if ( '' === $canonical ) {
 			return false;
 		}
 
 		return self::blog_username_in_use( $canonical );
+	}
+
+	/**
+	 * Whether a requested site handle canonicalizes to nothing.
+	 *
+	 * AP's sanitizer hits its `empty()` branch for such input (e.g. `!!!`,
+	 * or the literal `0`) and returns the default username WITHOUT raising
+	 * a settings error — so an unguarded `update_option` would silently
+	 * clobber a previously saved handle with the default behind a success
+	 * notice. Callers use this to skip the write and surface an error
+	 * instead, mirroring the collision pre-check.
+	 *
+	 * @param string $raw Raw submitted site handle.
+	 * @return bool True when AP's sanitizer would discard the input.
+	 */
+	public function blog_identifier_canonicalizes_empty( string $raw ): bool {
+		return '' === self::canonicalize_blog_identifier( $raw );
 	}
 
 	/**

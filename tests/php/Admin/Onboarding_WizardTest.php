@@ -1118,6 +1118,38 @@ class Onboarding_WizardTest extends BaseTestCase {
 	}
 
 	/**
+	 * Input that canonicalizes to nothing (e.g. `!!!` → `''`) must also
+	 * preserve the saved handle. AP's sanitizer hits its `empty()` branch
+	 * for such input and returns the default username WITHOUT raising a
+	 * settings error — so neither the collision pre-check nor the error
+	 * re-tag fallback would catch it, and `update_option` would silently
+	 * clobber the saved handle behind the wizard's normal advance.
+	 */
+	public function test_handle_save_appearance_empty_canonical_input_preserves_existing_handle(): void {
+		update_option( 'activitypub_blog_identifier', 'preserved-handle' );
+
+		$this->simulate_save_request(
+			'appearance',
+			array(
+				'activitypub_actor_mode'      => 'blog',
+				'activitypub_blog_identifier' => '!!!',
+			)
+		);
+
+		try {
+			Onboarding_Wizard::handle_save();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$this->assertSame( 'preserved-handle', get_option( 'activitypub_blog_identifier' ) );
+		$this->assertContains(
+			'activitypub_blog_identifier',
+			array_column( get_settings_errors( 'fosse' ), 'code' )
+		);
+	}
+
+	/**
 	 * The Site Handle input is hidden client-side in author-only mode, but a
 	 * hidden field still posts its value. The server gates the write on
 	 * whether the selected mode includes the blog actor, so a stale handle
@@ -1553,6 +1585,57 @@ class Onboarding_WizardTest extends BaseTestCase {
 		$output = $this->render_wizard_step( 'bluesky' );
 
 		$this->assertStringNotContainsString( 'Successfully connected to Bluesky.', $output );
+	}
+
+	/**
+	 * FOSSE's own notices are stored pre-escaped (`esc_html()` at the
+	 * `add_settings_error()` storage site in
+	 * `Bluesky_Provider::redirect_with_notice()` and
+	 * `Bluesky_Domain_Handle::add_settings_notice()`), so the render loop
+	 * must not escape them again — that double-encodes entities and shows
+	 * the user literal `&#039;` text.
+	 */
+	public function test_render_bluesky_step_does_not_double_escape_fosse_notice(): void {
+		$this->seed_bluesky_connection( 'alice.bsky.social', 'did:plc:alice123' );
+
+		add_settings_error(
+			'atmosphere',
+			'fosse_bluesky_notice',
+			esc_html( "Bluesky doesn't accept that handle." ),
+			'error'
+		);
+
+		$output = $this->render_wizard_step( 'bluesky' );
+
+		$this->assertStringContainsString( 'doesn&#039;t accept', $output );
+		$this->assertStringNotContainsString( '&amp;#039;', $output );
+	}
+
+	/**
+	 * Bundled Atmosphere writes to the same `'atmosphere'` settings group
+	 * WITHOUT pre-escaping — `Handle::add_settings_notice()` stores raw
+	 * `WP_Error` text straight off the PDS response. Those messages are not
+	 * pre-escaped, so the render loop must `esc_html()` them (skipping
+	 * re-escape only for FOSSE's own pre-escaped notice codes). Otherwise a
+	 * hostile PDS error string would reach wp-admin with only kses-level
+	 * filtering, where markup like links still passes.
+	 */
+	public function test_render_bluesky_step_escapes_non_fosse_atmosphere_notice(): void {
+		$this->seed_bluesky_connection( 'alice.bsky.social', 'did:plc:alice123' );
+
+		// The shape Atmosphere's Handle::add_settings_notice() produces on a
+		// failed updateHandle call: raw, unescaped PDS error text.
+		add_settings_error(
+			'atmosphere',
+			'atmosphere_domain_handle',
+			'Could not set example.com as your Bluesky handle: <a href="https://evil.example/">verify here</a>',
+			'error'
+		);
+
+		$output = $this->render_wizard_step( 'bluesky' );
+
+		$this->assertStringNotContainsString( '<a href="https://evil.example/"', $output );
+		$this->assertStringContainsString( '&lt;a href=', $output );
 	}
 
 	/**

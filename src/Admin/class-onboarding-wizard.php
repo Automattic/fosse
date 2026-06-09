@@ -337,6 +337,21 @@ class Onboarding_Wizard {
 							__( 'That site handle matches an existing author login or nickname. Your previous handle was kept.', 'fosse' ),
 							'error'
 						);
+					} elseif ( $ap_provider->blog_identifier_canonicalizes_empty( $raw ) ) {
+						// Input that canonicalizes to nothing (e.g. `!!!`)
+						// hits AP's `empty()` branch, which swaps in the
+						// default username WITHOUT raising a settings error —
+						// so neither the collision pre-check nor the error
+						// re-tag below would catch it, and `update_option`
+						// would silently clobber the saved handle. Mirrors
+						// AP_Provider::save_settings.
+						$blog_identifier_rejected = true;
+						add_settings_error(
+							'fosse',
+							'activitypub_blog_identifier',
+							__( 'That site handle contains no usable characters. Your previous handle was kept.', 'fosse' ),
+							'error'
+						);
 					} else {
 						// Snapshot the queue length, not the codes — AP's
 						// sanitizer reuses a constant code
@@ -1540,17 +1555,28 @@ class Onboarding_Wizard {
 				continue;
 			}
 
-			// The message is already escaped at the storage site: both
+			// FOSSE's own notices are stored pre-escaped:
 			// Bluesky_Provider::redirect_with_notice() and
-			// Bluesky_Domain_Handle::add_settings_notice() store it via
-			// `add_settings_error( ..., esc_html( $message ), ... )`. Escaping
-			// again here would double-encode entities (e.g. apostrophes
-			// rendering as `&#039;`). Only the type — which we control and
-			// constrain to a known set — needs escaping for the attribute.
+			// Bluesky_Domain_Handle::add_settings_notice() both run the
+			// message through `esc_html()` at the `add_settings_error()`
+			// storage site, so escaping those again here would double-encode
+			// entities (e.g. apostrophes rendering as `&#039;`). But bundled
+			// Atmosphere ALSO writes to this group without escaping —
+			// `Handle::add_settings_notice()` stores raw `WP_Error` text
+			// straight off the PDS response — so only messages carrying a
+			// FOSSE-owned code may skip the `esc_html()`; everything else is
+			// escaped as untrusted plain text.
+			$is_pre_escaped_fosse_notice = in_array(
+				$notice_code,
+				array( Bluesky_Provider::NOTICE_CODE, Bluesky_Domain_Handle::NOTICE_CODE ),
+				true
+			);
+			$notice_message              = isset( $atmosphere_notice['message'] ) ? (string) $atmosphere_notice['message'] : '';
+
 			printf(
 				'<div class="notice notice-%1$s inline"><p>%2$s</p></div>',
 				esc_attr( $notice_type ),
-				wp_kses_post( isset( $atmosphere_notice['message'] ) ? (string) $atmosphere_notice['message'] : '' ) // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Message is pre-escaped via esc_html() at the add_settings_error() storage site; re-escaping would double-encode entities.
+				$is_pre_escaped_fosse_notice ? wp_kses_post( $notice_message ) : esc_html( $notice_message ) // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- FOSSE-owned notices are pre-escaped via esc_html() at the add_settings_error() storage site (re-escaping would double-encode entities) and pass wp_kses_post() as belt and braces; all other writers' messages go through esc_html() here.
 			);
 		}
 		?>

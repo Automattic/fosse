@@ -38,6 +38,17 @@ class Bluesky_Provider implements Connection_Provider {
 	public const RETURN_CONTEXT_WIZARD = 'wizard';
 
 	/**
+	 * Settings-error code for notices queued by {@see self::redirect_with_notice()}.
+	 *
+	 * Public so renderers of the shared `'atmosphere'` settings-error group
+	 * (e.g. the onboarding wizard's Bluesky step) can recognize FOSSE-owned
+	 * notices, whose messages are stored pre-escaped via `esc_html()`, and
+	 * skip re-escaping them — while still escaping messages from other
+	 * writers to the same group (bundled Atmosphere stores raw text).
+	 */
+	public const NOTICE_CODE = 'fosse_bluesky_notice';
+
+	/**
 	 * Per-user transient prefix for pending OAuth return context.
 	 */
 	private const OAUTH_RETURN_TRANSIENT_PREFIX = 'fosse_bluesky_oauth_return_';
@@ -1821,7 +1832,7 @@ class Bluesky_Provider implements Connection_Provider {
 	 * @return void
 	 */
 	private function redirect_with_notice( string $message, string $type, string $return_context = '' ): void {
-		add_settings_error( 'atmosphere', 'fosse_bluesky_notice', esc_html( $message ), $type );
+		add_settings_error( 'atmosphere', self::NOTICE_CODE, esc_html( $message ), $type );
 		User_Notices::persist();
 
 		wp_safe_redirect( $this->get_redirect_url( $return_context ) );

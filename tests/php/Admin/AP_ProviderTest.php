@@ -878,6 +878,56 @@ class AP_ProviderTest extends BaseTestCase {
 	}
 
 	/**
+	 * Input that canonicalizes to nothing (e.g. `!!!` → `''`) must also
+	 * preserve the saved handle. AP's sanitizer hits its `empty()` branch
+	 * for such input and returns the default username WITHOUT raising a
+	 * settings error — so neither the collision pre-check nor the error
+	 * re-tag fallback would catch it, and `update_option` would silently
+	 * clobber the saved handle with the default behind a success notice.
+	 */
+	public function test_save_settings_empty_canonical_input_preserves_existing_blog_identifier() {
+		update_option( 'activitypub_blog_identifier', 'preserved-handle' );
+
+		$ok = $this->provider->save_settings(
+			$this->build_post(
+				array(
+					'activitypub_actor_mode'      => 'blog',
+					'activitypub_blog_identifier' => '!!!',
+				)
+			)
+		);
+
+		$this->assertSame( 'preserved-handle', get_option( 'activitypub_blog_identifier' ) );
+		$this->assertFalse( $ok );
+		$this->assertContains(
+			'activitypub_blog_identifier',
+			array_column( get_settings_errors( 'fosse' ), 'code' )
+		);
+	}
+
+	/**
+	 * PHP's `empty( '0' )` is true, so AP's sanitizer treats a literal `0`
+	 * handle as "no value" and swaps in the default username — silently, no
+	 * settings error. The pre-check must mirror that `empty()` semantics
+	 * (not just `'' ===`) or `0` slips through to the clobber path.
+	 */
+	public function test_save_settings_literal_zero_input_preserves_existing_blog_identifier() {
+		update_option( 'activitypub_blog_identifier', 'preserved-handle' );
+
+		$ok = $this->provider->save_settings(
+			$this->build_post(
+				array(
+					'activitypub_actor_mode'      => 'blog',
+					'activitypub_blog_identifier' => '0',
+				)
+			)
+		);
+
+		$this->assertSame( 'preserved-handle', get_option( 'activitypub_blog_identifier' ) );
+		$this->assertFalse( $ok );
+	}
+
+	/**
 	 * A non-colliding handle still writes through normally — the pre-check
 	 * only blocks the collision path, it doesn't break the happy path.
 	 */
