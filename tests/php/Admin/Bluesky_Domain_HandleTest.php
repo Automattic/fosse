@@ -216,6 +216,32 @@ class Bluesky_Domain_HandleTest extends BaseTestCase {
 		$this->assertSame( 'xn--mnchen-3ya.example', Bluesky_Domain_Handle::get_target_handle() );
 	}
 
+	/**
+	 * IDN normalization punycodes a non-ASCII host so the value matches the
+	 * AT Protocol handle lexicon, AND rejects a host carrying an STD3-illegal
+	 * character (here `_`, outside the LDH set) rather than emitting it.
+	 *
+	 * The fix swaps the deprecated transitional `IDNA_DEFAULT` for
+	 * `IDNA_NONTRANSITIONAL_TO_ASCII | IDNA_USE_STD3_RULES` — the processing
+	 * WHATWG's URL Standard mandates. The transitional/non-transitional
+	 * divergence on characters like `ß` is ICU-version-dependent and so not
+	 * portable to assert on; the STD3 rejection it adds, however, is stable
+	 * and is the user-visible behavioral change this test locks in.
+	 */
+	public function test_get_target_handle_rejects_std3_illegal_host(): void {
+		if ( ! function_exists( 'idn_to_ascii' ) ) {
+			$this->markTestSkipped( 'intl extension not available; IDN normalization is environment-gated.' );
+		}
+
+		// Underscore is outside the LDH set STD3 permits. The host also
+		// carries a non-ASCII byte so the punycode branch runs; STD3 rules
+		// then refuse it, and get_target_handle() returns '' rather than
+		// shipping a malformed handle to the PDS.
+		$this->force_home_url( 'https://bad_läbel.example' );
+
+		$this->assertSame( '', Bluesky_Domain_Handle::get_target_handle() );
+	}
+
 	// ---- is_resolvable_host ----
 
 	/**
@@ -599,6 +625,142 @@ class Bluesky_Domain_HandleTest extends BaseTestCase {
 				$messages,
 				static fn( $m ) => false !== strpos( $m, 'Your Bluesky handle is now example.com' )
 			)
+		);
+	}
+
+	/**
+	 * A second handle change for the same DID must NOT overwrite the original
+	 * always-revertible snapshot.
+	 *
+	 * Scenario: the user first sets their handle to `old.example` (snapshotting
+	 * the pre-FOSSE `alice.bsky.social`), then later moves the site to
+	 * `new.example` and confirms again. The snapshot must still point at
+	 * `alice.bsky.social` — the real, pre-FOSSE identity — not the intermediate
+	 * FOSSE-set `old.example`. Overwriting it would strand the only handle that
+	 * leads back to the user's original account.
+	 */
+	public function test_set_handle_does_not_overwrite_existing_snapshot_for_same_did(): void {
+		$this->force_home_url( 'https://new.example' );
+		// Connection currently on the first FOSSE-set domain.
+		$this->seed_connection( 'old.example', 'did:plc:test123' );
+		// Snapshot from the FIRST change still points at the original handle.
+		$this->seed_snapshot( 'did:plc:test123', 'alice.bsky.social' );
+
+		add_filter( Bluesky_Domain_Handle::FILTER_PRE_UPDATE, '__return_true' );
+
+		$result = Bluesky_Domain_Handle::set_handle();
+
+		$this->assertTrue( $result );
+		$this->assertSame(
+			array(
+				'did'    => 'did:plc:test123',
+				'handle' => 'alice.bsky.social',
+			),
+			get_option( Bluesky_Domain_Handle::OPTION_PREVIOUS_HANDLE ),
+			'A second handle change must preserve the original pre-FOSSE snapshot.'
+		);
+	}
+
+	/**
+	 * A snapshot bound to a DIFFERENT account (DID) is replaced on success —
+	 * it could never be reverted to under the current DID anyway, so keeping
+	 * it would only block recording the genuinely revertible handle for the
+	 * account now connected.
+	 */
+	public function test_set_handle_replaces_snapshot_bound_to_different_did(): void {
+		$this->force_home_url( 'https://example.com' );
+		$this->seed_connection( 'bob.bsky.social', 'did:plc:bob456' );
+		// Stale snapshot from a prior, now-disconnected account.
+		$this->seed_snapshot( 'did:plc:alice123', 'alice.bsky.social' );
+
+		add_filter( Bluesky_Domain_Handle::FILTER_PRE_UPDATE, '__return_true' );
+
+		$this->assertTrue( Bluesky_Domain_Handle::set_handle() );
+		$this->assertSame(
+			array(
+				'did'    => 'did:plc:bob456',
+				'handle' => 'bob.bsky.social',
+			),
+			get_option( Bluesky_Domain_Handle::OPTION_PREVIOUS_HANDLE ),
+			'A snapshot for a different DID must be replaced with the current account\'s revertible handle.'
+		);
+	}
+
+	/**
+	 * A successful change mirrors the new handle into the canonical
+	 * `atmosphere_identity` store (when one exists), not just
+	 * `atmosphere_connection`. `\Atmosphere\get_identity()` reads from there,
+	 * and the public verification headers consult it directly — leaving it
+	 * stale would drift the handle on the public surface.
+	 */
+	public function test_set_handle_success_syncs_identity_handle(): void {
+		$this->force_home_url( 'https://example.com' );
+		$this->seed_connection( 'alice.bsky.social', 'did:plc:test123' );
+		update_option(
+			'atmosphere_identity',
+			array(
+				'did'          => 'did:plc:test123',
+				'handle'       => 'alice.bsky.social',
+				'pds_endpoint' => 'https://bsky.social',
+			),
+			true
+		);
+
+		add_filter( Bluesky_Domain_Handle::FILTER_PRE_UPDATE, '__return_true' );
+
+		$this->assertTrue( Bluesky_Domain_Handle::set_handle() );
+
+		$identity = get_option( 'atmosphere_identity' );
+		$this->assertSame( 'example.com', $identity['handle'] );
+		// The DID + PDS must be left untouched — only the handle changes.
+		$this->assertSame( 'did:plc:test123', $identity['did'] );
+		$this->assertSame( 'https://bsky.social', $identity['pds_endpoint'] );
+	}
+
+	/**
+	 * The identity-handle sync mirrors the new handle into an identity that
+	 * Atmosphere lazy-migrated from the connection.
+	 *
+	 * `set_handle()` calls `\Atmosphere\is_connected()`, which materializes
+	 * `atmosphere_identity` from the legacy connection shape on first read. By
+	 * the time the post-success sync runs, that identity exists and must
+	 * receive the new handle — otherwise the canonical store consulted by the
+	 * public verification headers drifts from the PDS.
+	 */
+	public function test_set_handle_success_syncs_migrated_identity_handle(): void {
+		$this->force_home_url( 'https://example.com' );
+		$this->seed_connection( 'alice.bsky.social', 'did:plc:test123' );
+		// No atmosphere_identity seeded — Atmosphere migrates one from the
+		// connection during the is_connected() check inside set_handle().
+
+		add_filter( Bluesky_Domain_Handle::FILTER_PRE_UPDATE, '__return_true' );
+
+		$this->assertTrue( Bluesky_Domain_Handle::set_handle() );
+
+		$identity = get_option( 'atmosphere_identity' );
+		$this->assertIsArray( $identity );
+		$this->assertSame( 'example.com', $identity['handle'] );
+		$this->assertSame( 'did:plc:test123', $identity['did'] );
+	}
+
+	/**
+	 * The sync guard refuses to fabricate identity state directly: invoking
+	 * the private sync with no identity on file (and no connection to migrate
+	 * from) leaves `atmosphere_identity` absent. Proves fix-4's
+	 * `! empty( $identity['did'] )` guard, isolated from the lazy-migration
+	 * that the full `set_handle()` path triggers via `is_connected()`.
+	 */
+	public function test_sync_local_connection_handle_does_not_create_identity_when_absent(): void {
+		// Seed only the connection cache the sync reads; no DID, so the lazy
+		// migration in get_identity() cannot fire, and no identity exists.
+		update_option( 'atmosphere_connection', array( 'handle' => 'alice.bsky.social' ) );
+
+		$method = new \ReflectionMethod( Bluesky_Domain_Handle::class, 'sync_local_connection_handle' );
+		$method->invoke( null, 'example.com' );
+
+		$this->assertFalse(
+			get_option( 'atmosphere_identity' ),
+			'sync must not fabricate an identity record when none exists and none can be migrated.'
 		);
 	}
 
