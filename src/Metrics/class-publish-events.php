@@ -351,43 +351,33 @@ class Publish_Events {
 	private const ATMOSPHERE_NOT_PUBLISHABLE_CODE = 'atmosphere_post_not_publishable';
 
 	/**
-	 * AJAX action under which the bundled Atmosphere Backfill runs.
+	 * The one Atmosphere context that is always a genuine first publish.
 	 *
-	 * Backfill re-syncs pre-existing posts via `Publisher::publish_post()`
-	 * (see `bundled/atmosphere/includes/class-backfill.php`
-	 * `handle_batch()`), which fires `atmosphere_publish_post_result`.
-	 * Those are not genuine first publishes, so the funnel-entry
-	 * `fosse_post_published` event is suppressed while this action runs.
+	 * Atmosphere's normal publish flow schedules an `atmosphere_publish_post`
+	 * single event on publish (`bundled/atmosphere/includes/class-atmosphere.php`)
+	 * whose cron callback runs `Publisher::publish_post()`. Every other
+	 * context that reaches the result hook is a re-sync or re-publish of
+	 * already-counted content:
+	 *
+	 * - The Backfill of pre-existing posts. Older Atmosphere runs it via
+	 *   the `wp_ajax_atmosphere_backfill_batch` action; upstream trunk
+	 *   replaced that with a WP-CLI command (`includes/cli/`) that calls
+	 *   `Publisher::publish_post()` directly with no marker action at
+	 *   all — which is why this gate is an allowlist on the publish cron
+	 *   rather than a deny-list of known backfill contexts.
+	 * - `atmosphere_update_post`, which only falls through to
+	 *   `publish_post()` for the retry of an attempt whose result hook
+	 *   already fired, or for `rewrite_thread()`'s delete-and-republish
+	 *   of live records. Pristine posts take the
+	 *   `atmosphere_update_skipped_unsynced_post` early return.
+	 * - `atmosphere_delete_post`, which only reaches `publish_post()` on
+	 *   its became-publishable-again reconcile branch.
+	 *
+	 * The funnel-entry `fosse_post_published` is therefore emitted only
+	 * inside this action; `fosse_publish_result` still fires from every
+	 * context (a real AT Protocol write occurred).
 	 */
-	private const ATMOSPHERE_BACKFILL_ACTION = 'wp_ajax_atmosphere_backfill_batch';
-
-	/**
-	 * Cron actions under which Atmosphere re-publishes already-counted posts.
-	 *
-	 * Every `Publisher::publish_post()` invocation reached from inside
-	 * these cron callbacks (`bundled/atmosphere/includes/class-atmosphere.php`)
-	 * is a re-publish, never a first publish:
-	 *
-	 * - `atmosphere_update_post` routes through `Publisher::update_post()`,
-	 *   which only falls through to `publish_post()` for (a) the retry of a
-	 *   post whose prior publish attempt already fired the result hook —
-	 *   so the funnel entry was already recorded — or (b) the
-	 *   `rewrite_thread()` delete-and-republish of a post whose records are
-	 *   already live (composition/shape change on edit). Pristine posts
-	 *   with no publish history take the `atmosphere_update_skipped_unsynced_post`
-	 *   early return and never reach the hook.
-	 * - `atmosphere_delete_post` only reaches `publish_post()` on its
-	 *   became-publishable-again reconcile branch — a re-publish of content
-	 *   whose original publish was already counted.
-	 *
-	 * The funnel-entry `fosse_post_published` is therefore suppressed while
-	 * either action runs; `fosse_publish_result` still fires (a real AT
-	 * Protocol write occurred).
-	 */
-	private const ATMOSPHERE_REPUBLISH_CRON_ACTIONS = array(
-		'atmosphere_update_post',
-		'atmosphere_delete_post',
-	);
+	private const ATMOSPHERE_PUBLISH_ACTION = 'atmosphere_publish_post';
 
 	/**
 	 * Handle the Atmosphere publish-result action.
@@ -397,24 +387,23 @@ class Publish_Events {
 	 * (`bundled/atmosphere/includes/class-publisher.php`): the genuine
 	 * first-publish cron path, the update-falls-through-to-publish retry,
 	 * the `rewrite_thread()` delete-and-republish on shape-changing edits,
-	 * the not-publishable early return, and the admin Backfill of
-	 * pre-existing posts. The raw hook does not discriminate between them.
+	 * the not-publishable early return, and the Backfill of pre-existing
+	 * posts (AJAX in older Atmosphere, WP-CLI on upstream trunk). The raw
+	 * hook does not discriminate between them.
 	 *
-	 * This subscriber filters three cases it can detect reliably:
+	 * This subscriber discriminates two ways:
 	 *
 	 * - **Not publishable.** When `$result` is the
 	 *   `atmosphere_post_not_publishable` WP_Error, no publish happened —
 	 *   skip both events entirely.
-	 * - **Backfill.** The funnel-entry `fosse_post_published` is suppressed
-	 *   while the Backfill AJAX action runs, since re-syncing old content
-	 *   is not a first publish. `fosse_publish_result` still fires for
-	 *   backfill — it measures the render-quality outcome of an actual
-	 *   AT Protocol write, which a backfill genuinely performs.
-	 * - **Update/delete cron re-publishes.** Same suppression while the
-	 *   `atmosphere_update_post` / `atmosphere_delete_post` cron callbacks
-	 *   run — every `publish_post()` reached from those is a retry or a
-	 *   `rewrite_thread()` republish of a post whose funnel entry was
-	 *   already recorded (see `ATMOSPHERE_REPUBLISH_CRON_ACTIONS`).
+	 * - **First-publish allowlist.** The funnel-entry `fosse_post_published`
+	 *   is emitted only while the `atmosphere_publish_post` cron callback
+	 *   runs — the one context that is always a genuine first publish (see
+	 *   `ATMOSPHERE_PUBLISH_ACTION` for why backfills and update/delete
+	 *   re-publishes, including upstream's action-less WP-CLI backfill,
+	 *   are excluded by construction). `fosse_publish_result` still fires
+	 *   from every context — it measures the render-quality outcome of an
+	 *   actual AT Protocol write, which those contexts genuinely perform.
 	 *
 	 * Known gap: a previously-synced post that re-enters publication via
 	 * the `atmosphere_publish_post` cron (unpublish → republish before
@@ -441,8 +430,9 @@ class Publish_Events {
 			return;
 		}
 
-		// Backfill re-syncs and update/delete-cron re-publishes are not
-		// first publishes — keep them out of the funnel's entry step.
+		// Only the publish cron is a genuine first publish — backfills
+		// (AJAX or the action-less WP-CLI command) and update/delete-cron
+		// re-publishes stay out of the funnel's entry step.
 		if ( self::is_first_publish_context() ) {
 			Recorder::record(
 				'fosse_post_published',
@@ -475,26 +465,16 @@ class Publish_Events {
 	/**
 	 * Whether the current Atmosphere result hook represents a first publish.
 	 *
-	 * False while the Backfill AJAX action or one of the update/delete
-	 * cron callbacks runs — every `Publisher::publish_post()` reached
-	 * from those contexts is a re-sync, a retry of an already-counted
-	 * attempt, or a `rewrite_thread()` republish of live records (see
-	 * `ATMOSPHERE_BACKFILL_ACTION` / `ATMOSPHERE_REPUBLISH_CRON_ACTIONS`).
+	 * True only while the `atmosphere_publish_post` cron callback runs.
+	 * An allowlist, not a deny-list: upstream's WP-CLI backfill calls
+	 * `Publisher::publish_post()` with no surrounding action at all, so
+	 * enumerating re-publish contexts can never be complete (see
+	 * `ATMOSPHERE_PUBLISH_ACTION`).
 	 *
 	 * @return bool
 	 */
 	private static function is_first_publish_context(): bool {
-		if ( \doing_action( self::ATMOSPHERE_BACKFILL_ACTION ) ) {
-			return false;
-		}
-
-		foreach ( self::ATMOSPHERE_REPUBLISH_CRON_ACTIONS as $action ) {
-			if ( \doing_action( $action ) ) {
-				return false;
-			}
-		}
-
-		return true;
+		return \doing_action( self::ATMOSPHERE_PUBLISH_ACTION );
 	}
 
 	/**

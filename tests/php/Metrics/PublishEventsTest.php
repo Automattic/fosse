@@ -56,6 +56,26 @@ class PublishEventsTest extends BaseTestCase {
 	}
 
 	/**
+	 * Fire the Atmosphere result hook from inside the publish cron action.
+	 *
+	 * The funnel-entry gate allowlists `doing_action( 'atmosphere_publish_post' )`,
+	 * so tests asserting `fosse_post_published` must deliver the result the
+	 * way production does: from the publish cron callback.
+	 *
+	 * @param \WP_Post        $post   Post the result is for.
+	 * @param array|\WP_Error $result Result payload.
+	 * @return void
+	 */
+	private function fire_publish_result_from_publish_cron( \WP_Post $post, $result ): void {
+		$relay = static function () use ( $post, $result ): void {
+			\do_action( 'atmosphere_publish_post_result', $post, $result );
+		};
+		\add_action( 'atmosphere_publish_post', $relay );
+		\do_action( 'atmosphere_publish_post' );
+		\remove_action( 'atmosphere_publish_post', $relay );
+	}
+
+	/**
 	 * Create an AP outbox item that looks like a post `Create` to the
 	 * subscriber's discriminator.
 	 *
@@ -293,7 +313,7 @@ class PublishEventsTest extends BaseTestCase {
 		$post    = \get_post( $post_id );
 
 		\add_filter( 'atmosphere_is_short_form_post', '__return_true' );
-		\do_action( 'atmosphere_publish_post_result', $post, array( 'commit' => array( 'cid' => 'baf' ) ) );
+		$this->fire_publish_result_from_publish_cron( $post, array( 'commit' => array( 'cid' => 'baf' ) ) );
 
 		// Exactly one event each — not three.
 		$this->assertCount( 1, $this->tracks_channel()->events_for( 'fosse_post_published' ) );
@@ -370,7 +390,7 @@ class PublishEventsTest extends BaseTestCase {
 		);
 		$post    = \get_post( $post_id );
 
-		\do_action( 'atmosphere_publish_post_result', $post, array( 'commit' => array( 'cid' => 'baf' ) ) );
+		$this->fire_publish_result_from_publish_cron( $post, array( 'commit' => array( 'cid' => 'baf' ) ) );
 
 		$this->assertEventRecorded( 'fosse_post_published', array( 'has_image' => false ) );
 		$this->assertEventRecorded(
@@ -831,6 +851,38 @@ class PublishEventsTest extends BaseTestCase {
 		return array(
 			'update cron (retry / rewrite_thread)' => array( 'atmosphere_update_post' ),
 			'delete cron (publishable reconcile)'  => array( 'atmosphere_delete_post' ),
+		);
+	}
+
+	/**
+	 * Upstream trunk's WP-CLI backfill calls `Publisher::publish_post()`
+	 * directly, with no surrounding action at all. The first-publish gate
+	 * is an allowlist on the `atmosphere_publish_post` cron precisely so
+	 * this action-less context stays out of the funnel entry — while the
+	 * result event (a real AT Protocol write) still records.
+	 */
+	public function test_atmosphere_actionless_backfill_suppresses_post_published_only(): void {
+		\add_filter( 'atmosphere_is_short_form_post', '__return_true' );
+
+		$post_id = \wp_insert_post(
+			array(
+				'post_title'   => 'Historical post',
+				'post_content' => 'Content',
+				'post_status'  => 'publish',
+			)
+		);
+		$post    = \get_post( $post_id );
+
+		// Bare invocation — exactly what the CLI backfill produces.
+		\do_action( 'atmosphere_publish_post_result', $post, array( 'commit' => array( 'cid' => 'baf' ) ) );
+
+		$this->assertNoEventRecorded( 'fosse_post_published' );
+		$this->assertEventRecorded(
+			'fosse_publish_result',
+			array(
+				'network' => 'bluesky',
+				'status'  => 'success',
+			)
 		);
 	}
 
