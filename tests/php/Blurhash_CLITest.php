@@ -174,6 +174,35 @@ class Blurhash_CLITest extends BaseTestCase {
 	}
 
 	/**
+	 * Write a syntactically valid PNG whose IHDR declares the given
+	 * dimensions but carries no pixel data — enough to exercise the
+	 * encoder's decode-bomb dimension gate without materializing the
+	 * bitmap. Mirrors the helper in {@see BlurhashTest}.
+	 *
+	 * @param int $width  Declared pixel width.
+	 * @param int $height Declared pixel height.
+	 * @return string Absolute file path to the crafted PNG.
+	 */
+	private function generate_png_with_declared_dimensions( int $width, int $height ): string {
+		$signature = "\x89PNG\r\n\x1a\n";
+		$ihdr_data = pack( 'NNCCCCC', $width, $height, 8, 2, 0, 0, 0 );
+		$ihdr      = pack( 'N', strlen( $ihdr_data ) )
+			. 'IHDR' . $ihdr_data
+			. pack( 'N', crc32( 'IHDR' . $ihdr_data ) );
+		$iend      = pack( 'N', 0 ) . 'IEND' . pack( 'N', crc32( 'IEND' ) );
+
+		$tmp = tempnam( sys_get_temp_dir(), 'fosse-blurhash-cli-dim-' );
+		$this->assertNotFalse( $tmp );
+		$path                  = $tmp . '.png';
+		$this->fixture_files[] = $tmp;
+		$this->fixture_files[] = $path;
+
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- test fixture write to tempdir.
+		file_put_contents( $path, $signature . $ihdr . $iend );
+		return $path;
+	}
+
+	/**
 	 * Stub `get_attached_file` to point a single attachment at the
 	 * given path.
 	 *
@@ -302,6 +331,32 @@ class Blurhash_CLITest extends BaseTestCase {
 		$last_success = WP_CLI::last_success();
 		$this->assertNotNull( $last_success );
 		$this->assertStringContainsString( 'skipped 1', $last_success );
+	}
+
+	/**
+	 * A decode-bomb source (declared dimensions over the encoder's
+	 * 50 MP cap) is a policy skip, not a failure: counted as
+	 * skipped, no warning, zero exit. Before the three-state
+	 * `encode_from_attachment()` return, the bomb landed in the
+	 * failure bucket — a warning plus nonzero exit on EVERY backfill
+	 * run, forever, since the attachment can never gain a hash.
+	 */
+	public function test_backfill_counts_decode_bomb_as_skipped_not_failed(): void {
+		$this->require_gd();
+
+		$bomb_id = $this->insert_image_attachment( 'bomb.png', 'image/png' );
+		$this->point_attachment_at( $bomb_id, $this->generate_png_with_declared_dimensions( 30000, 30000 ) );
+
+		$this->stub_query_pages( array( array( $bomb_id ), array() ) );
+
+		( new Blurhash_CLI() )->backfill( array(), array() );
+
+		$this->assertNull( Blurhash::get( $bomb_id ) );
+		$this->assertSame( array(), WP_CLI::warnings(), 'Policy skip must not emit a warning' );
+		$last_success = WP_CLI::last_success();
+		$this->assertNotNull( $last_success, 'Policy skip must exit zero (success), not error' );
+		$this->assertStringContainsString( 'skipped 1', $last_success );
+		$this->assertStringContainsString( 'failed 0', $last_success );
 	}
 
 	// ---------------------------------------------------------------

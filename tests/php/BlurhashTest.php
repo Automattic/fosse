@@ -175,6 +175,37 @@ class BlurhashTest extends BaseTestCase {
 	}
 
 	/**
+	 * Write a 16×16 PNG that is either fully transparent (alpha 127
+	 * over black RGB — the worst case for an alpha-unaware sampler)
+	 * or solid opaque white. The pair drives the transparency
+	 * flattening test: composited onto the encoder's white canvas,
+	 * both must produce the same all-white pixel field.
+	 *
+	 * @param bool $transparent True for fully transparent, false for solid white.
+	 * @return string Absolute file path to the PNG.
+	 */
+	private function generate_alpha_fixture_png( bool $transparent ): string {
+		$tmp = tempnam( sys_get_temp_dir(), 'fosse-blurhash-alpha-' );
+		$this->assertNotFalse( $tmp );
+		$path                  = $tmp . '.png';
+		$this->fixture_files[] = $tmp;
+		$this->fixture_files[] = $path;
+
+		$im = imagecreatetruecolor( 16, 16 );
+		if ( $transparent ) {
+			imagealphablending( $im, false );
+			$color = imagecolorallocatealpha( $im, 0, 0, 0, 127 );
+			imagefilledrectangle( $im, 0, 0, 15, 15, $color );
+			imagesavealpha( $im, true );
+		} else {
+			$color = imagecolorallocate( $im, 255, 255, 255 );
+			imagefilledrectangle( $im, 0, 0, 15, 15, $color );
+		}
+		imagepng( $im, $path );
+		return $path;
+	}
+
+	/**
 	 * Redirect `get_attached_file` for one attachment id to a
 	 * specific absolute path — the only-touch-this-one matcher
 	 * keeps fixtures from cross-contaminating sibling tests.
@@ -531,17 +562,52 @@ class BlurhashTest extends BaseTestCase {
 	 * BEFORE `imagecreatefromstring()` runs, so the multi-gigabyte
 	 * bitmap allocation that would OOM the cron worker never happens.
 	 * The crafted PNG is only a few dozen bytes (passes the byte cap)
-	 * but declares 30000×30000 ≈ 900 MP in its IHDR. Must return null,
-	 * routed to the silent-skip path (no exception, no error).
+	 * but declares 30000×30000 ≈ 900 MP in its IHDR. Must return
+	 * `false` — the policy-skip sentinel — NOT `null`: the fixture
+	 * has no pixel data, so if the gate didn't fire first,
+	 * `imagecreatefromstring()` would fail and produce `null`
+	 * (failure bucket). Asserting `false` therefore proves the
+	 * dimension gate rejected the bytes BEFORE any decode attempt.
 	 */
-	public function test_encode_returns_null_for_decode_bomb_dimensions(): void {
+	public function test_encode_skips_decode_bomb_dimensions_before_decode(): void {
 		$this->require_gd();
 
 		$id   = $this->insert_image_attachment();
 		$path = $this->generate_png_with_declared_dimensions( 30000, 30000 );
 		$this->point_attachment_at( $id, $path );
 
-		$this->assertNull( Blurhash::encode_from_attachment( $id ) );
+		$this->assertFalse( Blurhash::encode_from_attachment( $id ) );
+	}
+
+	/**
+	 * The cron callback routes the decode-bomb policy skip to the
+	 * SILENT path: no `fosse_blurhash_encode_failed` action, no
+	 * stored meta. Without the three-state return, `run_encode()`
+	 * treated the skip exactly like an unexpected failure
+	 * (`error_log` + action on every scheduled run) — the noise the
+	 * skip/failure split exists to prevent.
+	 */
+	public function test_run_encode_treats_decode_bomb_as_silent_skip(): void {
+		$this->require_gd();
+
+		$id   = $this->insert_image_attachment();
+		$path = $this->generate_png_with_declared_dimensions( 30000, 30000 );
+		$this->point_attachment_at( $id, $path );
+
+		$captured = array();
+		add_action(
+			'fosse_blurhash_encode_failed',
+			static function ( $failed_id ) use ( &$captured ) {
+				$captured[] = (int) $failed_id;
+			}
+		);
+
+		Blurhash::run_encode( $id );
+
+		$this->assertNull( Blurhash::get( $id ) );
+		$this->assertSame( array(), $captured, 'Policy skip must not fire the encode-failed action.' );
+
+		remove_all_actions( 'fosse_blurhash_encode_failed' );
 	}
 
 	/**
@@ -565,6 +631,31 @@ class BlurhashTest extends BaseTestCase {
 		$hash = Blurhash::encode_from_attachment( $id );
 		$this->assertIsString( $hash );
 		$this->assertNotSame( '', $hash );
+	}
+
+	/**
+	 * Transparency flattening: a fully transparent PNG (alpha 127
+	 * over black RGB) must encode to the SAME hash as a solid white
+	 * image of identical dimensions, because the encoder composites
+	 * onto an opaque white canvas before sampling. Without the
+	 * composite, `imagecolorsforindex()` reports the raw black RGB
+	 * of the transparent pixels and the hash comes out near-black —
+	 * the bug this guards against.
+	 */
+	public function test_encode_flattens_transparency_to_white(): void {
+		$this->require_gd();
+
+		$transparent_id = $this->insert_image_attachment( 'transparent.png' );
+		$this->point_attachment_at( $transparent_id, $this->generate_alpha_fixture_png( true ) );
+
+		$white_id = $this->insert_image_attachment( 'white.png' );
+		$this->point_attachment_at( $white_id, $this->generate_alpha_fixture_png( false ) );
+
+		$transparent_hash = Blurhash::encode_from_attachment( $transparent_id );
+		$white_hash       = Blurhash::encode_from_attachment( $white_id );
+
+		$this->assertIsString( $transparent_hash );
+		$this->assertSame( $white_hash, $transparent_hash );
 	}
 
 	/**
@@ -730,7 +821,12 @@ class BlurhashTest extends BaseTestCase {
 		$returned = Blurhash::schedule_encode( $metadata, $id );
 
 		$this->assertSame( $metadata, $returned );
-		$this->assertNotFalse( wp_next_scheduled( Blurhash::CRON_HOOK, array( $id ) ) );
+		$timestamp = wp_next_scheduled( Blurhash::CRON_HOOK, array( $id ) );
+		$this->assertNotFalse( $timestamp );
+		// Deferred into the future (one minute) so a concurrent
+		// wp-cron tick can't run the encode before
+		// `wp_update_attachment_metadata()` commits the sizes array.
+		$this->assertGreaterThan( time(), $timestamp );
 	}
 
 	/**

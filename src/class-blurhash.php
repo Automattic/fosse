@@ -123,7 +123,8 @@ class Blurhash {
 	 * multi-gigabyte allocation — an uncatchable OOM that kills the
 	 * cron worker or aborts a CLI backfill mid-run. We read the
 	 * declared dimensions with `getimagesizefromstring()` first and
-	 * skip (treated as "we don't encode this", not a failure) when the
+	 * skip (`encode_from_attachment()` returns `false`, which callers
+	 * treat as "we don't encode this", not a failure) when the
 	 * product exceeds this cap. 50 megapixels comfortably covers any
 	 * realistic camera/phone upload while rejecting decompression bombs.
 	 *
@@ -211,14 +212,21 @@ class Blurhash {
 	/**
 	 * Compute (synchronously) the blurhash for an attachment by
 	 * loading the configured size's file through GD and feeding the
-	 * pixel array to the encoder. Returns null on any failure path
-	 * — never throws, never warns. Used by both the cron handler
-	 * and the WP-CLI backfill.
+	 * pixel array to the encoder. Never throws, never warns. Used by
+	 * both the cron handler and the WP-CLI backfill.
+	 *
+	 * Three-state return so callers can route outcomes to the right
+	 * bucket: a string is success; `false` means the source is
+	 * deliberately outside encode policy (currently: declared pixel
+	 * count over {@see self::MAX_ENCODE_PIXELS}) and must be skipped
+	 * silently, same posture as a non-raster mime; `null` is an
+	 * unexpected failure (missing/corrupt file, GD or encoder error)
+	 * that callers surface for monitoring.
 	 *
 	 * @param int $attachment_id Attachment post ID.
-	 * @return string|null
+	 * @return string|false|null Hash on success, false on policy skip, null on failure.
 	 */
-	public static function encode_from_attachment( int $attachment_id ): ?string {
+	public static function encode_from_attachment( int $attachment_id ): string|false|null {
 		if ( ! self::is_encodable_attachment( $attachment_id ) ) {
 			return null;
 		}
@@ -267,7 +275,12 @@ class Blurhash {
 			return null;
 		}
 		if ( $declared_width * $declared_height > self::MAX_ENCODE_PIXELS ) {
-			return null;
+			// Policy skip, not a failure: `false` routes the caller
+			// to the same silent bucket as a non-raster mime, so a
+			// permanently over-cap source doesn't error_log on every
+			// cron run or hold the CLI backfill exit code nonzero
+			// forever.
+			return false;
 		}
 
 		// phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged -- corrupt image returns false and we handle.
@@ -598,8 +611,17 @@ class Blurhash {
 			return;
 		}
 		$hash = self::encode_from_attachment( $attachment_id );
-		if ( null !== $hash ) {
+		if ( \is_string( $hash ) ) {
 			self::set( $attachment_id, $hash );
+			return;
+		}
+
+		// `false` is a policy skip (source over the decode-bomb
+		// dimension cap): deliberate, deterministic, and global to
+		// the source bytes — logging it would re-introduce the
+		// per-run noise this bucket exists to avoid. Only `null`
+		// (unexpected failure) falls through to diagnostics.
+		if ( false === $hash ) {
 			return;
 		}
 
