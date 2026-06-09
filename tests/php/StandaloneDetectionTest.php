@@ -57,8 +57,12 @@ class StandaloneDetectionTest extends BaseTestCase {
 	 * A defined version constant means the standalone already loaded.
 	 */
 	public function test_defined_constant_reports_loaded(): void {
-		$const = 'FOSSE_TEST_STANDALONE_VERSION_' . strtoupper( substr( md5( (string) wp_rand() ), 0, 8 ) );
-		define( $const, '1.0.0' );
+		// Deterministic per-test name: unique within the process (no other
+		// test defines it) without random input that would vary across runs.
+		$const = 'FOSSE_TEST_STANDALONE_VERSION_' . strtoupper( substr( md5( __METHOD__ ), 0, 8 ) );
+		if ( ! defined( $const ) ) {
+			define( $const, '1.0.0' );
+		}
 
 		$this->assertSame(
 			'loaded',
