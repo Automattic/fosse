@@ -113,6 +113,25 @@ class Blurhash {
 	private const MAX_ENCODE_BYTES = 8388608;
 
 	/**
+	 * Hard upper bound on the DECODED pixel count (width × height) of
+	 * the source image. `imagecreatefromstring()` fully decodes the
+	 * compressed bytes into an uncompressed GD bitmap BEFORE
+	 * {@see self::encode_from_attachment()} downscales to
+	 * {@see self::MAX_ENCODE_EDGE}, so a small, highly compressible
+	 * source (e.g. a flat-color PNG declaring 30000×30000) slips past
+	 * the {@see self::MAX_ENCODE_BYTES} byte cap yet forces a
+	 * multi-gigabyte allocation — an uncatchable OOM that kills the
+	 * cron worker or aborts a CLI backfill mid-run. We read the
+	 * declared dimensions with `getimagesizefromstring()` first and
+	 * skip (treated as "we don't encode this", not a failure) when the
+	 * product exceeds this cap. 50 megapixels comfortably covers any
+	 * realistic camera/phone upload while rejecting decompression bombs.
+	 *
+	 * @var int
+	 */
+	private const MAX_ENCODE_PIXELS = 50000000;
+
+	/**
 	 * Raster MIME types GD can decode via `imagecreatefromstring`.
 	 * Used as the early gate that splits "we don't encode this"
 	 * (skip silently) from "encoder failed" (emit warning, count
@@ -228,6 +247,29 @@ class Blurhash {
 			return null;
 		}
 
+		// Decode-bomb guard. `imagecreatefromstring()` fully decodes
+		// the compressed bytes into an uncompressed bitmap before we
+		// get a chance to downscale, so a small but highly
+		// compressible source declaring huge dimensions (e.g. a
+		// flat-color 30000×30000 PNG) would force a multi-gigabyte
+		// allocation and OOM the worker — uncatchable, so we can't
+		// recover with the try/catch below. Read the declared
+		// dimensions cheaply first and skip (silent, not an error)
+		// anything past the megapixel cap.
+		// phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged -- malformed header returns false and we handle.
+		$dimensions = @\getimagesizefromstring( $bytes );
+		if ( false === $dimensions || ! isset( $dimensions[0] ) || ! isset( $dimensions[1] ) ) {
+			return null;
+		}
+		$declared_width  = (int) $dimensions[0];
+		$declared_height = (int) $dimensions[1];
+		if ( $declared_width < 1 || $declared_height < 1 ) {
+			return null;
+		}
+		if ( $declared_width * $declared_height > self::MAX_ENCODE_PIXELS ) {
+			return null;
+		}
+
 		// phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged -- corrupt image returns false and we handle.
 		$image = @\imagecreatefromstring( $bytes );
 		if ( false === $image ) {
@@ -268,6 +310,25 @@ class Blurhash {
 				$image  = $scaled;
 				$width  = $target_width;
 				$height = $target_height;
+			}
+
+			// Flatten transparency against a white background before
+			// sampling. `imagecolorsforindex()` reports the raw RGB of
+			// a transparent pixel (usually 0,0,0 → black) while
+			// discarding alpha, so a transparent PNG/GIF/WebP logo or
+			// sticker would otherwise encode to a near-black blurhash.
+			// Compositing onto an opaque white canvas yields the color
+			// a viewer actually sees over a typical light surface.
+			$canvas = \imagecreatetruecolor( $width, $height );
+			if ( false !== $canvas ) {
+				$white = \imagecolorallocate( $canvas, 255, 255, 255 );
+				if ( false !== $white ) {
+					\imagefilledrectangle( $canvas, 0, 0, $width - 1, $height - 1, $white );
+					\imagealphablending( $canvas, true );
+					if ( \imagecopy( $canvas, $image, 0, 0, 0, 0, $width, $height ) ) {
+						$image = $canvas;
+					}
+				}
 			}
 
 			$pixels = array();
@@ -405,7 +466,54 @@ class Blurhash {
 			return false;
 		}
 		$mime = \get_post_mime_type( $attachment_id );
-		return \is_string( $mime ) && \in_array( $mime, self::ENCODABLE_MIME_TYPES, true );
+		return \is_string( $mime ) && self::is_decodable_mime( $mime );
+	}
+
+	/**
+	 * Whether `$mime` is one we attempt AND one this host's GD build
+	 * can actually decode. Membership in {@see self::ENCODABLE_MIME_TYPES}
+	 * is necessary but not sufficient: AVIF, WebP, and BMP support are
+	 * compile-time codec options, so on a GD build without them every
+	 * such attachment would pass a bare `in_array()` gate, reach
+	 * `imagecreatefromstring()`, fail there, and land in the
+	 * "unexpected failure" bucket — an `error_log` line plus a
+	 * `fosse_blurhash_encode_failed` action on every cron run and a
+	 * nonzero CLI exit. Intersecting with the runtime `imagetypes()`
+	 * bitmask routes unsupported codecs to the silent-skip path
+	 * instead. JPEG/PNG/GIF are mandatory in every GD build, so they
+	 * need no flag check.
+	 *
+	 * @param string $mime Attachment MIME type.
+	 * @return bool
+	 */
+	private static function is_decodable_mime( string $mime ): bool {
+		if ( ! \in_array( $mime, self::ENCODABLE_MIME_TYPES, true ) ) {
+			return false;
+		}
+
+		// Codec-gated formats: only decodable when the corresponding
+		// `imagetypes()` flag is set on this GD build. Defensive
+		// `defined()` guards because the IMG_* constants themselves
+		// only exist when GD exposes them.
+		$flag = null;
+		if ( 'image/avif' === $mime ) {
+			$flag = \defined( 'IMG_AVIF' ) ? \IMG_AVIF : 0;
+		} elseif ( 'image/webp' === $mime ) {
+			$flag = \defined( 'IMG_WEBP' ) ? \IMG_WEBP : 0;
+		} elseif ( 'image/bmp' === $mime ) {
+			$flag = \defined( 'IMG_BMP' ) ? \IMG_BMP : 0;
+		}
+
+		if ( null === $flag ) {
+			// JPEG/PNG/GIF — mandatory in every GD build.
+			return true;
+		}
+
+		if ( 0 === $flag || ! \function_exists( 'imagetypes' ) ) {
+			return false;
+		}
+
+		return (bool) ( \imagetypes() & $flag );
 	}
 
 	/**
@@ -443,7 +551,16 @@ class Blurhash {
 		// nothing the underlying scheduler doesn't already do and
 		// added a needless read against the autoloaded cron option
 		// on every attachment metadata regen.
-		\wp_schedule_single_event( \time(), self::CRON_HOOK, array( $attachment_id ) );
+		//
+		// Defer one minute rather than firing at `time()`. This
+		// callback runs inside the `wp_generate_attachment_metadata`
+		// filter, BEFORE `wp_update_attachment_metadata()` commits the
+		// sizes array. A concurrent wp-cron tick could otherwise run
+		// `run_encode()` before that commit lands, find no thumbnail
+		// intermediate yet, and fall back to encoding the full-size
+		// original. The one-minute delay lets the metadata write
+		// settle first; single-event dedup semantics are unchanged.
+		\wp_schedule_single_event( \time() + \MINUTE_IN_SECONDS, self::CRON_HOOK, array( $attachment_id ) );
 	}
 
 	/**

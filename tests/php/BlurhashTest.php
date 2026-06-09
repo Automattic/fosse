@@ -138,6 +138,43 @@ class BlurhashTest extends BaseTestCase {
 	}
 
 	/**
+	 * Write a syntactically valid PNG whose IHDR declares the given
+	 * dimensions but whose pixel data is empty. `getimagesizefromstring()`
+	 * parses only the IHDR chunk, so this is enough to exercise the
+	 * decode-bomb dimension gate without allocating the bitmap a real
+	 * 30000×30000 PNG would force GD to materialize. Returns the
+	 * absolute tempfile path.
+	 *
+	 * @param int $width  Declared pixel width.
+	 * @param int $height Declared pixel height.
+	 * @return string Absolute file path to the crafted PNG.
+	 */
+	private function generate_png_with_declared_dimensions( int $width, int $height ): string {
+		$signature = "\x89PNG\r\n\x1a\n";
+
+		// IHDR: width, height, bit depth 8, color type 2 (truecolor),
+		// compression 0, filter 0, interlace 0.
+		$ihdr_data = pack( 'NNCCCCC', $width, $height, 8, 2, 0, 0, 0 );
+		$ihdr      = pack( 'N', strlen( $ihdr_data ) )
+			. 'IHDR' . $ihdr_data
+			. pack( 'N', crc32( 'IHDR' . $ihdr_data ) );
+
+		// Empty IEND chunk so the stream is well-formed enough for
+		// header parsers.
+		$iend = pack( 'N', 0 ) . 'IEND' . pack( 'N', crc32( 'IEND' ) );
+
+		$tmp = tempnam( sys_get_temp_dir(), 'fosse-blurhash-dim-' );
+		$this->assertNotFalse( $tmp );
+		$path                  = $tmp . '.png';
+		$this->fixture_files[] = $tmp;
+		$this->fixture_files[] = $path;
+
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- test fixture write to tempdir.
+		file_put_contents( $path, $signature . $ihdr . $iend );
+		return $path;
+	}
+
+	/**
 	 * Redirect `get_attached_file` for one attachment id to a
 	 * specific absolute path — the only-touch-this-one matcher
 	 * keeps fixtures from cross-contaminating sibling tests.
@@ -311,6 +348,75 @@ class BlurhashTest extends BaseTestCase {
 	}
 
 	/**
+	 * Mandatory raster formats (JPEG/PNG/GIF) are always encodable —
+	 * GD guarantees these codecs in every build, so the
+	 * `imagetypes()` intersection in `is_encodable_attachment` must
+	 * never gate them out.
+	 */
+	public function test_mandatory_mime_types_are_encodable(): void {
+		foreach ( array( 'image/jpeg', 'image/png', 'image/gif' ) as $mime ) {
+			$attachment_id = wp_insert_post(
+				array(
+					'post_type'      => 'attachment',
+					'post_status'    => 'inherit',
+					'post_mime_type' => $mime,
+					'post_title'     => 'fixture',
+				)
+			);
+			update_post_meta( $attachment_id, '_wp_attached_file', 'fixture.' . substr( $mime, 6 ) );
+
+			$this->assertTrue(
+				Blurhash::is_encodable_attachment( (int) $attachment_id ),
+				"Expected {$mime} to be encodable on every GD build."
+			);
+		}
+	}
+
+	/**
+	 * Codec-gated formats (AVIF/WebP/BMP) are encodable iff this
+	 * host's GD build actually supports decoding them. Fix 3: on a
+	 * build without AVIF, the bare mime-membership gate would let an
+	 * AVIF attachment through to `imagecreatefromstring()`, which
+	 * fails and lands in the "unexpected failure" bucket (error_log +
+	 * action per cron run, nonzero CLI exit). Intersecting with the
+	 * `imagetypes()` bitmask routes unsupported codecs to the
+	 * silent-skip path. We assert the gate tracks the host's real
+	 * capability rather than hardcoding a verdict, so the test stays
+	 * green on hosts with and without each codec.
+	 */
+	public function test_codec_gated_mime_tracks_host_imagetypes(): void {
+		if ( ! function_exists( 'imagetypes' ) ) {
+			$this->markTestSkipped( 'GD imagetypes() required for this test.' );
+		}
+
+		$cases = array(
+			'image/avif' => defined( 'IMG_AVIF' ) ? IMG_AVIF : 0,
+			'image/webp' => defined( 'IMG_WEBP' ) ? IMG_WEBP : 0,
+			'image/bmp'  => defined( 'IMG_BMP' ) ? IMG_BMP : 0,
+		);
+
+		foreach ( $cases as $mime => $flag ) {
+			$attachment_id = wp_insert_post(
+				array(
+					'post_type'      => 'attachment',
+					'post_status'    => 'inherit',
+					'post_mime_type' => $mime,
+					'post_title'     => 'fixture',
+				)
+			);
+			update_post_meta( $attachment_id, '_wp_attached_file', 'fixture.' . substr( $mime, 6 ) );
+
+			$host_supports = ( 0 !== $flag ) && (bool) ( imagetypes() & $flag );
+
+			$this->assertSame(
+				$host_supports,
+				Blurhash::is_encodable_attachment( (int) $attachment_id ),
+				"Encodability of {$mime} should match host imagetypes() support."
+			);
+		}
+	}
+
+	/**
 	 * Missing-file path: image attachment exists in DB but the
 	 * underlying file is gone (CDN purge, manual delete, S3 offload
 	 * pointing at a stale path). Returns null without warning.
@@ -417,6 +523,48 @@ class BlurhashTest extends BaseTestCase {
 		$this->point_attachment_at( $id, $path );
 
 		$this->assertNull( Blurhash::encode_from_attachment( $id ) );
+	}
+
+	/**
+	 * Decode-bomb guard: a small, well-formed file whose header
+	 * declares dimensions past MAX_ENCODE_PIXELS (50 MP) is rejected
+	 * BEFORE `imagecreatefromstring()` runs, so the multi-gigabyte
+	 * bitmap allocation that would OOM the cron worker never happens.
+	 * The crafted PNG is only a few dozen bytes (passes the byte cap)
+	 * but declares 30000×30000 ≈ 900 MP in its IHDR. Must return null,
+	 * routed to the silent-skip path (no exception, no error).
+	 */
+	public function test_encode_returns_null_for_decode_bomb_dimensions(): void {
+		$this->require_gd();
+
+		$id   = $this->insert_image_attachment();
+		$path = $this->generate_png_with_declared_dimensions( 30000, 30000 );
+		$this->point_attachment_at( $id, $path );
+
+		$this->assertNull( Blurhash::encode_from_attachment( $id ) );
+	}
+
+	/**
+	 * The decode-bomb guard is a ceiling, not a blanket ban on
+	 * large dimensions: a normal, fully-valid PNG whose pixel count
+	 * sits under the 50 MP cap still encodes. This is the companion
+	 * assertion to the bomb test — together they prove the gate
+	 * rejects the pathological case without being set so low it
+	 * would reject ordinary high-resolution photos. (The fixture is
+	 * small for test speed; the point is that it passes the dimension
+	 * gate and reaches a successful encode rather than being
+	 * short-circuited.)
+	 */
+	public function test_encode_dimension_gate_allows_normal_image(): void {
+		$this->require_gd();
+
+		$id   = $this->insert_image_attachment();
+		$path = $this->generate_fixture_image( false, 64, 64 );
+		$this->point_attachment_at( $id, $path );
+
+		$hash = Blurhash::encode_from_attachment( $id );
+		$this->assertIsString( $hash );
+		$this->assertNotSame( '', $hash );
 	}
 
 	/**
