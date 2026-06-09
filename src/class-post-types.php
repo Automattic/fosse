@@ -54,23 +54,39 @@ class Post_Types {
 	}
 
 	/**
-	 * Replace Atmosphere's post-type list with AP's stored value.
+	 * Project AP's stored post-type list onto Atmosphere's filter.
 	 *
-	 * The upstream default is intentionally discarded: FOSSE's contract is
-	 * that AP's option is the single source of truth, so any site-level
-	 * post-type change belongs in AP's settings, not in AT's filter.
+	 * AP's option is the source of truth for the *option-derived* list, so
+	 * FOSSE replaces the value Atmosphere built from its own option rather
+	 * than appending to it — a site-level selection belongs in AP's settings.
 	 *
-	 * @param array<string> $types Upstream default from Atmosphere (unused).
-	 * @return array<string> AP's stored list, or the default when the option
-	 *                      is unset or corrupted (non-array) — guards against
-	 *                      a misbehaving `option_activitypub_support_post_types`
-	 *                      filter returning a scalar.
+	 * Native opt-ins via `\add_post_type_support( $type, 'atmosphere' )` are a
+	 * documented public API of Atmosphere's upstream `get_supported()`, which
+	 * merges `\get_post_types_by_support( 'atmosphere' )` before this filter
+	 * runs. Those are merged back in here so a theme or plugin opting a post
+	 * type in natively still federates — discarding them would silently break
+	 * that contract. The merge is additive: an empty AP selection (user
+	 * unchecked everything) still yields no AP-derived types, with native
+	 * supports added on top.
+	 *
+	 * @param array<string> $types Upstream list from Atmosphere (replaced).
+	 * @return array<string> AP's stored list merged with native `atmosphere`
+	 *                      post-type supports, deduped and re-indexed. Falls
+	 *                      back to the default when AP's option is unset or
+	 *                      corrupted (non-array) — guards against a misbehaving
+	 *                      `option_activitypub_support_post_types` filter
+	 *                      returning a scalar.
 	 */
 	public static function filter_atmosphere( array $types ): array {
 		unset( $types );
 
-		$stored = \get_option( self::AP_OPTION, self::DEFAULT_TYPES );
+		$stored    = \get_option( self::AP_OPTION, self::DEFAULT_TYPES );
+		$ap_stored = \is_array( $stored ) ? $stored : self::DEFAULT_TYPES;
 
-		return \is_array( $stored ) ? $stored : self::DEFAULT_TYPES;
+		return \array_values(
+			\array_unique(
+				\array_merge( $ap_stored, \get_post_types_by_support( 'atmosphere' ) )
+			)
+		);
 	}
 }
