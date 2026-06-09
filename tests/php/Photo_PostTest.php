@@ -1864,4 +1864,196 @@ class Photo_PostTest extends BaseTestCase {
 		$this->assertArrayNotHasKey( 'width', $out );
 		$this->assertArrayNotHasKey( 'height', $out );
 	}
+
+	// ---------------------------------------------------------------
+	// Fix 3: Photon / Jetpack Site Accelerator query-arg dimensions.
+	// ---------------------------------------------------------------
+
+	/**
+	 * Fix 3: Photon serves the ORIGINAL filename and encodes the target
+	 * size as a `?resize=W,H` query arg — there are no named-size files.
+	 * The URL path therefore ends with `meta['file']`, so the old code
+	 * matched metadata Pass B and emitted the full-size original
+	 * dimensions (4000×3000) instead of the delivered derivative. The
+	 * query-arg pass must win and return the resize dimensions.
+	 */
+	public function test_attachment_filter_uses_photon_resize_query_dimensions(): void {
+		$attachment_id = wp_insert_post(
+			array(
+				'post_type'      => 'attachment',
+				'post_status'    => 'inherit',
+				'post_mime_type' => 'image/jpeg',
+				'post_title'     => 'photon-orig',
+			)
+		);
+		wp_update_attachment_metadata(
+			$attachment_id,
+			array(
+				'file'   => '2026/05/photon.jpg',
+				'width'  => 4000,
+				'height' => 3000,
+			)
+		);
+
+		$input = array(
+			'type'      => 'Image',
+			'url'       => 'https://i0.wp.com/example.test/wp-content/uploads/2026/05/photon.jpg?resize=1024,683',
+			'mediaType' => 'image/jpeg',
+		);
+
+		$out = apply_filters( 'activitypub_attachment', $input, $attachment_id );
+
+		$this->assertSame( 1024, $out['width'], 'Photon resize args must win over full-size metadata.' );
+		$this->assertSame( 683, $out['height'] );
+	}
+
+	/**
+	 * Fix 3: `?fit=W,H` is honored the same way (scale-to-fit box).
+	 */
+	public function test_attachment_filter_uses_photon_fit_query_dimensions(): void {
+		$input = array(
+			'type'      => 'Image',
+			'url'       => 'https://i0.wp.com/example.test/wp-content/uploads/2026/05/photon.jpg?fit=800,800',
+			'mediaType' => 'image/jpeg',
+		);
+
+		$out = apply_filters( 'activitypub_attachment', $input, 0 );
+
+		$this->assertSame( 800, $out['width'] );
+		$this->assertSame( 800, $out['height'] );
+	}
+
+	/**
+	 * Fix 3: a `w` + `h` pair is honored. A lone `w` (other axis scaled
+	 * to aspect, unknown) is declined rather than guessed.
+	 */
+	public function test_attachment_filter_uses_photon_w_h_pair_and_declines_lone_w(): void {
+		$paired = apply_filters(
+			'activitypub_attachment',
+			array(
+				'type'      => 'Image',
+				'url'       => 'https://i0.wp.com/example.test/photon.jpg?w=640&h=480',
+				'mediaType' => 'image/jpeg',
+			),
+			0
+		);
+		$this->assertSame( 640, $paired['width'] );
+		$this->assertSame( 480, $paired['height'] );
+
+		// Lone `w` with no local id and no suffix → no dimensions.
+		$lone = apply_filters(
+			'activitypub_attachment',
+			array(
+				'type'      => 'Image',
+				'url'       => 'https://i0.wp.com/example.test/photon.jpg?w=640',
+				'mediaType' => 'image/jpeg',
+			),
+			0
+		);
+		$this->assertArrayNotHasKey( 'width', $lone );
+		$this->assertArrayNotHasKey( 'height', $lone );
+	}
+
+	/**
+	 * Fix 3: when there are NO resize query args, resolution falls
+	 * through to the metadata / suffix passes as before — query parsing
+	 * is additive, not a replacement. A plain original URL still resolves
+	 * via full-size metadata.
+	 */
+	public function test_attachment_filter_falls_through_to_metadata_without_resize_args(): void {
+		$attachment_id = wp_insert_post(
+			array(
+				'post_type'      => 'attachment',
+				'post_status'    => 'inherit',
+				'post_mime_type' => 'image/jpeg',
+				'post_title'     => 'plain-orig',
+			)
+		);
+		wp_update_attachment_metadata(
+			$attachment_id,
+			array(
+				'file'   => '2026/05/plain.jpg',
+				'width'  => 1200,
+				'height' => 900,
+			)
+		);
+
+		$input = array(
+			'type'      => 'Image',
+			// A non-resize cache-bust query arg must not block fallback.
+			'url'       => 'https://example.test/wp-content/uploads/2026/05/plain.jpg?ver=42',
+			'mediaType' => 'image/jpeg',
+		);
+
+		$out = apply_filters( 'activitypub_attachment', $input, $attachment_id );
+
+		$this->assertSame( 1200, $out['width'] );
+		$this->assertSame( 900, $out['height'] );
+	}
+
+	// ---------------------------------------------------------------
+	// Fix 5: non-numeric per-post cap meta falls back to the option.
+	// ---------------------------------------------------------------
+
+	/**
+	 * Fix 5: a non-numeric `activitypub_max_image_attachments` postmeta
+	 * (e.g. a stray serialized array from a buggy importer) must fall
+	 * back to the site option, mirroring bundled AP's `! is_numeric()`
+	 * check — not be treated as the cap. With the meta non-numeric and
+	 * the site cap at 0, photo treatment is rejected (attachments
+	 * disabled), proving the option was consulted.
+	 */
+	public function test_non_numeric_cap_meta_falls_back_to_option(): void {
+		$post = $this->make_post( '', '', '', 1 );
+		update_post_meta( $post->ID, 'activitypub_max_image_attachments', array( 'bogus' ) );
+
+		// Site-level cap of 0 disables attachments; if the bogus meta
+		// were used as the cap, `(int) array(...)` would be 1 and the
+		// post would still detect. The is_numeric fallback routes to the
+		// option instead.
+		add_filter( 'activitypub_max_image_attachments', static fn() => 0 );
+		Photo_Post::reset_cache_for_testing();
+
+		$this->assertFalse( Photo_Post::is_photo_post( $post ) );
+	}
+
+	/**
+	 * Fix 5: a numeric `'0'` per-post meta is authoritative (per-post
+	 * "attachments disabled") and must NOT fall back to the option —
+	 * `is_numeric('0')` is true. The post is rejected for photo
+	 * treatment even when the site option would allow attachments.
+	 */
+	public function test_numeric_zero_cap_meta_is_authoritative(): void {
+		$post = $this->make_post( '', '', '', 1 );
+		update_post_meta( $post->ID, 'activitypub_max_image_attachments', '0' );
+
+		// Site cap defaults high; only the per-post '0' should win.
+		Photo_Post::reset_cache_for_testing();
+
+		$this->assertFalse( Photo_Post::is_photo_post( $post ) );
+	}
+
+	// ---------------------------------------------------------------
+	// Fix 8: decision cache is keyed per blog (multisite-safe).
+	// ---------------------------------------------------------------
+
+	/**
+	 * Fix 8: the decision memo is keyed by `"{blog_id}:{post_id}"`, so a
+	 * single-site round-trip still memoizes correctly (a repeated call
+	 * returns the cached value). This guards the key-construction change
+	 * without requiring a real multisite switch_to_blog() harness, which
+	 * WorDBless doesn't provide; the blog-id prefix is what prevents an
+	 * id collision between two blogs from returning a stale decision.
+	 */
+	public function test_decision_cache_memoizes_per_blog_key(): void {
+		// Empty body + live Featured Image = photo post (Rule 3).
+		$post = $this->make_post( '', '', '', 1 );
+
+		// First call populates the cache; second call must agree.
+		$first  = Photo_Post::is_photo_post( $post );
+		$second = Photo_Post::is_photo_post( $post );
+
+		$this->assertTrue( $first );
+		$this->assertSame( $first, $second );
+	}
 }

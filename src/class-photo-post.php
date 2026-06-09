@@ -103,10 +103,12 @@ class Photo_Post {
 	 * Detection runs `parse_blocks()` against the post body and can be
 	 * called from several hooks during a single federation pass (object
 	 * type, content stripping, attachment dimension enrichment). Keyed
-	 * by post ID; cleared between requests because the cache lives on a
-	 * static.
+	 * by `"{blog_id}:{post_id}"` — the blog id prefix keeps the memo
+	 * safe under `switch_to_blog()` on multisite, where post ids are not
+	 * globally unique and two blogs can share an id. Cleared between
+	 * requests because the cache lives on a static.
 	 *
-	 * @var array<int, bool>
+	 * @var array<string, bool>
 	 */
 	private static array $decision_cache = array();
 
@@ -167,8 +169,9 @@ class Photo_Post {
 			return false;
 		}
 
-		if ( isset( self::$decision_cache[ $resolved->ID ] ) ) {
-			return self::$decision_cache[ $resolved->ID ];
+		$cache_key = \get_current_blog_id() . ':' . $resolved->ID;
+		if ( isset( self::$decision_cache[ $cache_key ] ) ) {
+			return self::$decision_cache[ $cache_key ];
 		}
 
 		/**
@@ -207,7 +210,7 @@ class Photo_Post {
 		 */
 		$result = (bool) \apply_filters( 'fosse_is_photo_post', $result, $resolved );
 
-		self::$decision_cache[ $resolved->ID ] = $result;
+		self::$decision_cache[ $cache_key ] = $result;
 		return $result;
 	}
 
@@ -529,7 +532,14 @@ class Photo_Post {
 	 */
 	private static function get_max_image_attachments( WP_Post $post ): int {
 		$meta = \get_post_meta( $post->ID, 'activitypub_max_image_attachments', true );
-		if ( false === $meta || '' === $meta ) {
+		// Mirror bundled AP's read order
+		// (`bundled/activitypub/includes/transformer/class-post.php`
+		// `get_attachment()`): fall back to the site option whenever the
+		// per-post meta isn't numeric — not just when it's `false`/`''`.
+		// A meta of `'0'` is numeric and authoritative (attachments
+		// disabled per-post); a non-numeric stray ('', a serialized
+		// array from a buggy importer, etc.) defers to the option.
+		if ( ! \is_numeric( $meta ) ) {
 			$default = \defined( 'ACTIVITYPUB_MAX_IMAGE_ATTACHMENTS' ) ? ACTIVITYPUB_MAX_IMAGE_ATTACHMENTS : 4;
 			$max     = \get_option( 'activitypub_max_image_attachments', $default );
 		} else {
@@ -867,8 +877,17 @@ class Photo_Post {
 		// the prior global so we can restore it on the way out, then
 		// set up the global ourselves so the caption matches the
 		// front-end render byte-for-byte.
+		//
+		// `setup_postdata()` populates the loop globals ($id, $authordata,
+		// $page, $pages, …) but deliberately does NOT assign
+		// `$GLOBALS['post']`, so callbacks that read `get_post()` /
+		// `get_the_ID()` would still resolve against the stale (or null)
+		// global. Assign it explicitly here so the render is anchored to
+		// the post we're captioning.
 		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Read-and-restore of the WP loop global.
 		$previous_global = $GLOBALS['post'] ?? null;
+		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Anchor the loop global to the post being captioned; restored in finally.
+		$GLOBALS['post'] = $post;
 		\setup_postdata( $post );
 
 		try {
@@ -888,18 +907,36 @@ class Photo_Post {
 			);
 			$rendered = '';
 		} finally {
+			// `wp_reset_postdata()` restores the loop globals from
+			// `$GLOBALS['post']` — which we just overwrote — so it cannot
+			// undo our override on its own. Restore the snapshot plainly:
+			// reassign the captured value (including null, which is the
+			// correct "there was no loop post" state) rather than
+			// unsetting, so we don't fight `wp_reset_postdata()` or leave
+			// the global in a shape it never had.
 			\wp_reset_postdata();
-			if ( null !== $previous_global ) {
-				// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Restoring the prior global we explicitly captured.
-				$GLOBALS['post'] = $previous_global;
-			} else {
-				// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Cleaning up the global we created.
-				unset( $GLOBALS['post'] );
-			}
+			// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Restoring the prior global we explicitly captured.
+			$GLOBALS['post'] = $previous_global;
 		}
 
 		$stripped = '' === \trim( (string) $rendered ) ? '' : self::strip_image_block_markup( (string) $rendered );
-		$plain    = \wp_strip_all_tags( $stripped );
+
+		// Decode HTML entities BEFORE stripping tags, then collapse
+		// whitespace. `the_content` runs `wptexturize`, so curly quotes,
+		// dashes, and ampersands arrive entity-encoded (`&#8217;`,
+		// `&amp;`, `&nbsp;`); a bare `wp_strip_all_tags()` would leave
+		// those literal entities in the Bluesky record text and the AP
+		// content. `\Atmosphere\sanitize_text()` decodes first (so an
+		// entity-encoded tag becomes a real tag the strip then removes),
+		// strips tags, and collapses Unicode whitespace — the same
+		// normalization Atmosphere applies before publishing. Mirror
+		// `Bsky_Short_Form_Fit`'s guarded fallback for when Atmosphere
+		// isn't loaded.
+		if ( \function_exists( '\Atmosphere\sanitize_text' ) ) {
+			return \Atmosphere\sanitize_text( $stripped );
+		}
+
+		$plain = \html_entity_decode( \wp_strip_all_tags( $stripped ), ENT_QUOTES, 'UTF-8' );
 
 		return \trim( (string) $plain );
 	}
@@ -1032,17 +1069,24 @@ class Photo_Post {
 	 * original yields values that don't describe the linked 1024-pixel
 	 * file — Pixelfed enforces dimensions server-side against the
 	 * delivered bytes and rejects the mismatch. We resolve dimensions
-	 * in three passes:
+	 * in four passes:
 	 *
+	 *   0. Photon / Jetpack Site Accelerator query-arg transforms
+	 *      (`?w=`, `?h=`, `?resize=W,H`, `?fit=W,H`). Photon has no
+	 *      named-size files — it serves the original filename and encodes
+	 *      the target size as query args — so this pass runs FIRST. Were
+	 *      it not, a Photon URL (whose path ends with the original
+	 *      `meta['file']`) would fall through to Pass 3 and emit the
+	 *      full-size original dimensions instead of the delivered ones.
 	 *   1. WP's resized-image filename suffix (`-WIDTHxHEIGHT.ext`).
-	 *      Stable across core, Photon, and most CDN rewrites that
-	 *      preserve the source filename.
+	 *      Stable across core and most CDN rewrites that preserve the
+	 *      source filename.
 	 *   2. The attachment's registered intermediate sizes (`sizes[]`
 	 *      from `wp_get_attachment_metadata`), matching by filename
 	 *      against the URL.
 	 *   3. The attachment's original (full-size) metadata, used only
-	 *      when neither suffix nor any intermediate size matches the
-	 *      URL — i.e. the URL points at the original file.
+	 *      when no query transform, suffix, or intermediate size matches
+	 *      the URL — i.e. the URL points at the unresized original file.
 	 *
 	 * Zero / negative values are dropped rather than emitted: a
 	 * width-0 image attachment is one Pixelfed will reject in
@@ -1094,6 +1138,25 @@ class Photo_Post {
 	private static function dimensions_for_url( string $url, $id ): ?array {
 		$parsed = \wp_parse_url( $url );
 		$path   = (string) ( $parsed['path'] ?? '' );
+		$query  = (string) ( $parsed['query'] ?? '' );
+
+		// Pass 0 (Photon / Jetpack Site Accelerator query args). Photon
+		// has no named-size files: it serves the ORIGINAL filename and
+		// encodes the target dimensions as query-arg transforms
+		// (`?w=`, `?h=`, `?resize=W,H`, `?fit=W,H`). On a Photon URL the
+		// path therefore ends with `meta['file']`, so the metadata passes
+		// below would match Pass B and emit the full-size original
+		// dimensions — describing a 4000px original while the delivered
+		// bytes are the 1024px derivative Photon actually served. Recover
+		// the delivered size from the query args first; only fall through
+		// to the metadata / suffix passes when there are no resize args
+		// (a plain original URL with no Photon transform).
+		if ( '' !== $query ) {
+			$dims = self::dimensions_from_query( $query );
+			if ( null !== $dims ) {
+				return $dims;
+			}
+		}
 
 		// When we have a local attachment id, prefer metadata-driven
 		// resolution. Metadata describes the actual files on disk; the
@@ -1127,6 +1190,72 @@ class Photo_Post {
 		if ( '' !== $path && \preg_match( '/-(\d+)x(\d+)\.(?:jpe?g|png|gif|webp|avif|heic|heif|tiff?)$/i', $path, $matches ) ) {
 			$width  = (int) $matches[1];
 			$height = (int) $matches[2];
+			if ( $width > 0 && $height > 0 ) {
+				return array( $width, $height );
+			}
+		}
+
+		return null;
+	}
+
+	/**
+	 * Recover the delivered dimensions encoded in a Photon / Jetpack
+	 * Site Accelerator URL query string. Returns `[width, height]` when
+	 * both are positive integers, or `null` when the query carries no
+	 * dimension-bearing resize transform.
+	 *
+	 * Photon maps each registered image size onto query-arg transforms
+	 * against the original file rather than serving a named-size
+	 * derivative, so these args are the only signal for the delivered
+	 * dimensions. Supported transforms, in precedence order:
+	 *
+	 *   - `resize=W,H` — crop-to-fill at exactly W×H. Both values
+	 *     describe the output bytes, so this is the most authoritative.
+	 *   - `fit=W,H` — scale to fit inside the W×H box (aspect preserved,
+	 *     so the output may be smaller on one axis). We emit W×H as the
+	 *     best available bound; it matches what Pixelfed validates the
+	 *     delivered file against in the common "image larger than the
+	 *     box" case, and AP/Pixelfed treat dimensions as a hint, not a
+	 *     contract on the exact pixel count.
+	 *   - `w=W` and `h=H` — single-axis caps. Only usable as a pair;
+	 *     a lone `w` or `h` leaves the other axis unknown (Photon scales
+	 *     it to preserve aspect), so we decline rather than guess.
+	 *
+	 * Values are clamped to positive integers; a `0`/negative/non-numeric
+	 * arg is treated as absent.
+	 *
+	 * @param string $query The URL's query component (no leading `?`).
+	 * @return array{0:int, 1:int}|null
+	 */
+	private static function dimensions_from_query( string $query ): ?array {
+		$args = array();
+		\wp_parse_str( $query, $args );
+
+		// `resize` / `fit` carry a `W,H` pair directly. `resize` wins
+		// over `fit` when both are somehow present — it pins exact
+		// output dimensions, `fit` only bounds them.
+		foreach ( array( 'resize', 'fit' ) as $key ) {
+			if ( ! isset( $args[ $key ] ) || ! \is_string( $args[ $key ] ) ) {
+				continue;
+			}
+			$parts = \explode( ',', $args[ $key ] );
+			if ( 2 !== \count( $parts ) ) {
+				continue;
+			}
+			$width  = (int) \trim( $parts[0] );
+			$height = (int) \trim( $parts[1] );
+			if ( $width > 0 && $height > 0 ) {
+				return array( $width, $height );
+			}
+		}
+
+		// `w` + `h` as a pair. A lone `w` or `h` leaves the other axis
+		// scaled-to-aspect and therefore unknown, so require both.
+		$has_w = isset( $args['w'] ) && \is_numeric( $args['w'] );
+		$has_h = isset( $args['h'] ) && \is_numeric( $args['h'] );
+		if ( $has_w && $has_h ) {
+			$width  = (int) $args['w'];
+			$height = (int) $args['h'];
 			if ( $width > 0 && $height > 0 ) {
 				return array( $width, $height );
 			}

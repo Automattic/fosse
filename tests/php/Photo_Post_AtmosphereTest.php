@@ -984,4 +984,164 @@ class Photo_Post_AtmosphereTest extends BaseTestCase {
 
 		$this->assertSame( '', Photo_Post::caption_text( $post ) );
 	}
+
+	/**
+	 * Fix 1: the caption must ship decoded text, not raw HTML entities.
+	 * `the_content` runs `wptexturize` and the body itself may contain
+	 * entity-encoded characters (`&amp;`, `&#8217;`); a bare
+	 * `wp_strip_all_tags()` leaves those literal entities in the Bluesky
+	 * record. The caption is routed through `\Atmosphere\sanitize_text()`
+	 * (decode → strip → collapse), so the `&amp;` arrives as a literal
+	 * ampersand and no stray `&...;` token survives.
+	 */
+	public function test_caption_text_decodes_html_entities(): void {
+		$content = '<!-- wp:paragraph --><p>Salt &amp; pepper, &#8220;quoted&#8221; &amp; done.</p><!-- /wp:paragraph -->';
+		$post    = $this->make_post( $content, $this->image_id );
+
+		$text = Photo_Post::caption_text( $post );
+
+		$this->assertStringContainsString( 'Salt & pepper', $text );
+		$this->assertStringNotContainsString( '&amp;', $text );
+		$this->assertStringNotContainsString( '&#8220;', $text );
+		// No stray HTML entity tokens of any kind should survive.
+		$this->assertDoesNotMatchRegularExpression( '/&(?:[a-z]+|#\d+);/i', $text );
+	}
+
+	// ---------------------------------------------------------------
+	// Fix 2: failed projection suppresses the inherited embed.
+	// ---------------------------------------------------------------
+
+	/**
+	 * Fix 2: on a featured-image upload failure the embed filter must
+	 * return `null`, NOT the inbound `$embed`. On the short-form path
+	 * Atmosphere builds a body-images embed BEFORE this filter fires, so
+	 * the inbound embed can be a gallery missing the hero shot. Returning
+	 * it would ship exactly the partial gallery the failure branch exists
+	 * to prevent. Calls the filter directly with a non-null inbound embed
+	 * to prove the suppression (the end-to-end helper only passes null).
+	 */
+	public function test_post_embed_returns_null_not_inherited_on_featured_failure(): void {
+		// Featured image upload fails (not stubbed); a body image is
+		// stubbed and would upload.
+		$this->stub_blob_for( $this->image_id_alt );
+
+		$content = '<!-- wp:image {"id":' . $this->image_id_alt . '} --><figure class="wp-block-image"><img/></figure><!-- /wp:image -->';
+		$post    = $this->make_post( $content, $this->image_id );
+
+		$inherited = array(
+			'$type'  => 'app.bsky.embed.images',
+			'images' => array(
+				array(
+					'image' => array( '$type' => 'blob' ),
+					'alt'   => 'prebuilt',
+				),
+			),
+		);
+
+		$result = apply_filters( 'atmosphere_post_embed', $inherited, $post, 'short-form' );
+
+		$this->assertNull( $result, 'Featured-image failure must suppress the embed, not pass the inherited gallery through.' );
+	}
+
+	/**
+	 * Fix 2: when every upload fails the embed filter likewise returns
+	 * `null` rather than the inherited body-images gallery Atmosphere
+	 * may have prebuilt.
+	 */
+	public function test_post_embed_returns_null_not_inherited_when_all_uploads_fail(): void {
+		// No stubs → every upload fails.
+		$post = $this->make_post( '', $this->image_id );
+
+		$inherited = array(
+			'$type'  => 'app.bsky.embed.images',
+			'images' => array(
+				array(
+					'image' => array( '$type' => 'blob' ),
+					'alt'   => 'prebuilt',
+				),
+			),
+		);
+
+		$result = apply_filters( 'atmosphere_post_embed', $inherited, $post, 'short-form' );
+
+		$this->assertNull( $result, 'All-uploads-failed must suppress the embed, not pass the inherited gallery through.' );
+	}
+
+	// ---------------------------------------------------------------
+	// Fix 6 / Fix 7: alt-text sanitation + grapheme-safe truncation.
+	// ---------------------------------------------------------------
+
+	/**
+	 * Fix 6: alt text ships sanitized — HTML entities decoded, tags
+	 * stripped, whitespace collapsed — mirroring bundled Atmosphere's
+	 * `Post::image_alt_text()`. The emitted `alt` on the embed reflects
+	 * the cleaned value, not the raw postmeta.
+	 */
+	public function test_alt_text_is_sanitized_on_embed(): void {
+		update_post_meta( $this->image_id, '_wp_attachment_image_alt', 'A &amp; B <b>bold</b>  spaced' );
+		$this->stub_blob_for( $this->image_id );
+
+		$post  = $this->make_post( '', $this->image_id );
+		$embed = apply_filters( 'atmosphere_post_embed', null, $post, 'short-form' );
+
+		$this->assertSame( 'app.bsky.embed.images', $embed['$type'] );
+		$this->assertSame( 'A & B bold spaced', $embed['images'][0]['alt'] );
+	}
+
+	/**
+	 * Fix 6: very long alt text is truncated to the 1000-character cap
+	 * upstream applies, so the embed never exceeds the lexicon budget.
+	 */
+	public function test_alt_text_truncates_to_1000_chars(): void {
+		update_post_meta( $this->image_id, '_wp_attachment_image_alt', str_repeat( 'a', 1500 ) );
+		$this->stub_blob_for( $this->image_id );
+
+		$post  = $this->make_post( '', $this->image_id );
+		$embed = apply_filters( 'atmosphere_post_embed', null, $post, 'short-form' );
+
+		$this->assertLessThanOrEqual( 1000, mb_strlen( $embed['images'][0]['alt'] ) );
+	}
+
+	/**
+	 * Fix 7: caption truncation must not split a grapheme cluster. A
+	 * caption padded to exactly the budget boundary with a flag emoji
+	 * (two regional-indicator code points = one grapheme) straddling the
+	 * cut must not leave a lone half-flag at the tail. Skips when the
+	 * intl extension isn't available (the fallback can't be
+	 * grapheme-safe).
+	 */
+	public function test_transform_filter_truncation_is_grapheme_safe(): void {
+		if ( ! function_exists( 'grapheme_substr' ) || ! function_exists( 'grapheme_strlen' ) ) {
+			$this->markTestSkipped( 'intl extension not available; grapheme-safe truncation falls back to mb_substr.' );
+		}
+
+		// 299 ASCII chars, then a 🇫🇷 flag (2 regional-indicator code
+		// points = 1 grapheme) at grapheme index 300, then trailing
+		// filler so the total exceeds the 300-grapheme budget and
+		// truncation engages. A grapheme-aware cut at 300 keeps the
+		// whole flag (grapheme 300); a naive code-point cut at 300 would
+		// keep only the first regional indicator, splitting the flag.
+		$caption = str_repeat( 'a', 299 ) . "\u{1F1EB}\u{1F1F7}" . str_repeat( 'b', 10 );
+		update_post_meta( $this->image_id, '_wp_attachment_image_alt', '' );
+		$this->stub_blob_for( $this->image_id );
+
+		// Insert ASCII placeholder content, then swap in the emoji
+		// caption in-memory: WorDBless has no live mysqli connection, so
+		// persisting 4-byte UTF-8 through wp_insert_post() trips a
+		// charset check. caption_text() reads $post->post_content
+		// directly, so the in-memory swap exercises the same path.
+		$post               = $this->make_post( '<!-- wp:paragraph --><p>placeholder</p><!-- /wp:paragraph -->', $this->image_id );
+		$post->post_content = '<!-- wp:paragraph --><p>' . $caption . '</p><!-- /wp:paragraph -->';
+
+		$record = $this->apply_transform_filter( $post );
+		$text   = $record['text'];
+
+		$this->assertSame( 300, grapheme_strlen( $text ), 'Truncation should land on a grapheme boundary at the budget.' );
+		// The single regional indicator must never appear alone: either
+		// the whole flag survived or neither half did.
+		if ( false !== mb_strpos( $text, "\u{1F1EB}" ) ) {
+			$this->assertStringContainsString( "\u{1F1EB}\u{1F1F7}", $text, 'Flag emoji must not be split mid-cluster.' );
+		}
+		$this->assertStringEndsWith( "\u{1F1EB}\u{1F1F7}", $text, 'Cut should retain the full flag as grapheme 300.' );
+	}
 }
