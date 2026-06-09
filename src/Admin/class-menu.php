@@ -196,6 +196,15 @@ class Menu {
 			return;
 		}
 
+		// Don't consume a form POST. admin-post.php fires admin_init before
+		// dispatching its admin_post_* actions, so a POST that lands here
+		// (e.g. if the option survived to a later request) would be swallowed
+		// by the redirect+exit below, silently dropping the submitted data.
+		// Preserve the option so a later GET admin request can still redirect.
+		if ( 'POST' === strtoupper( sanitize_text_field( wp_unslash( $_SERVER['REQUEST_METHOD'] ?? '' ) ) ) ) {
+			return;
+		}
+
 		// Don't redirect if the wizard was already completed.
 		if ( Onboarding_Wizard::is_complete() ) {
 			// Return value unchecked: any of "deleted", "wasn't there",
@@ -238,7 +247,19 @@ class Menu {
 	 * @return void
 	 */
 	public static function enqueue_assets( string $hook_suffix ): void {
-		if ( ! str_starts_with( $hook_suffix, 'toplevel_page_fosse' ) && ! str_starts_with( $hook_suffix, 'fosse_page_' ) && 'admin_page_fosse-wizard' !== $hook_suffix ) {
+		// Strict whitelist of FOSSE's own admin hook suffixes. A prefix
+		// match (e.g. str_starts_with( $hook_suffix, 'toplevel_page_fosse' ))
+		// would also match a third-party plugin whose top-level slug starts
+		// with "fosse" (e.g. 'toplevel_page_fosse-companion'), loading
+		// FOSSE's admin CSS onto a foreign screen. These hook suffixes mirror
+		// the screen IDs whitelisted in {@see self::is_fosse_admin_screen()}.
+		$fosse_hook_suffixes = array(
+			'toplevel_page_fosse',
+			'fosse_page_fosse-status',
+			'admin_page_fosse-wizard',
+		);
+
+		if ( ! in_array( $hook_suffix, $fosse_hook_suffixes, true ) ) {
 			return;
 		}
 
