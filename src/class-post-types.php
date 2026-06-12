@@ -83,9 +83,16 @@ class Post_Types {
 		$stored    = \get_option( self::AP_OPTION, self::DEFAULT_TYPES );
 		$ap_stored = \is_array( $stored ) ? $stored : self::DEFAULT_TYPES;
 
+		// Filter to strings before dedup so a misbehaving
+		// `option_activitypub_support_post_types` filter that returns an
+		// array containing non-string entries (e.g. nested arrays from a
+		// rogue option_filter) doesn't trip `array_unique`'s implicit
+		// `__toString` cast with an `Array to string conversion` warning.
+		$ap_strings = \array_filter( $ap_stored, '\is_string' );
+
 		return \array_values(
 			\array_unique(
-				\array_merge( $ap_stored, \get_post_types_by_support( 'atmosphere' ) )
+				\array_merge( $ap_strings, \get_post_types_by_support( 'atmosphere' ) )
 			)
 		);
 	}
