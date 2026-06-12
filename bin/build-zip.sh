@@ -63,6 +63,19 @@ if [ -z "${FOSSE_VERSION:-}" ] && [ "${FOSSE_BUILD_DEV:-}" = "1" ]; then
 fi
 
 if [ -n "${FOSSE_VERSION:-}" ]; then
+	# Reject any value that isn't a plain plugin-version literal before
+	# it touches the staged fosse.php. The value gets stamped into a
+	# PHP single-quoted string, so a quote or backslash in it would
+	# either terminate the literal (turning the rest of the tag into
+	# executable PHP in the release zip) or smuggle in an escape that
+	# the WP Plugins screen renders weirdly. Tags come from
+	# github.event.release.tag_name in CI — git allows tags like
+	# `v1');die();#` — so this is the right gate.
+	if ! printf '%s' "$FOSSE_VERSION" | grep -qxE '[A-Za-z0-9][A-Za-z0-9._+-]*'; then
+		echo "error: FOSSE_VERSION='${FOSSE_VERSION}' is not a safe plugin-version literal (allowed: [A-Za-z0-9._+-], must start with alphanumeric)" >&2
+		exit 1
+	fi
+
 	# Escape characters special to sed's replacement text so a tag
 	# containing \, &, or the | delimiter can't corrupt (or break) the
 	# substitution. The replacement only ever interpolates the version,
