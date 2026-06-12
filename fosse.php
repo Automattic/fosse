@@ -375,28 +375,41 @@ add_action(
  */
 register_deactivation_hook(
 	__FILE__,
-	static function ( $network_wide ) {
-		// Decide cleanup ownership from PERSISTED state, not from whether
-		// the bundled file loaded this request. A prior request may have
-		// bootstrapped bundled AP/Atmosphere; if a canonical standalone
-		// directory was later installed but left deactivated,
-		// `fosse_detect_standalone()` now returns `'inactive'` and we
-		// stopped loading the bundled copy — but we still own the cron
-		// state and `fosse_bundled_*_bootstrapped` flags that prior boot
-		// created. Reading the persisted option closes that lifecycle gap.
-		$cleanup = static function () {
-			if ( get_option( 'fosse_bundled_ap_bootstrapped', false ) !== false
-				&& class_exists( '\Activitypub\Activitypub' ) ) {
-				// Per-site mode here: the outer loop (when present)
-				// already iterates sites, so we never double-loop. Pass
-				// false explicitly to match.
-				\Activitypub\Activitypub::deactivate( false );
+	static function ( $network_wide ) use ( $fosse_loaded_bundled_ap, $fosse_loaded_bundled_atmo ) {
+		// Two distinct signals drive cleanup, and conflating them either
+		// disables a standalone we don't own or leaks our cron state:
+		//
+		//  - `$fosse_loaded_bundled_*` is whether the bundled class loaded
+		//    THIS request. Only when we loaded it is the live
+		//    `\Activitypub\Activitypub` (or `\Atmosphere\…`) symbol ours
+		//    to call `deactivate()` on. If a standalone is currently
+		//    loaded, calling its `deactivate()` would unschedule its
+		//    cron — even though the user is keeping it active.
+		//
+		//  - `fosse_bundled_*_bootstrapped` persistence tells us whether
+		//    a PRIOR request bootstrapped a bundled copy. If yes and we
+		//    didn't load bundled this request (e.g. a standalone now
+		//    owns the namespace, or files are inactive on disk), the
+		//    orphaned cron rows still exist but the loaded symbol isn't
+		//    safe to invoke — we just clear our flag and accept that
+		//    a few stale cron entries may linger until the standalone
+		//    is also deactivated (or its activation hook reseats them).
+		$cleanup = static function () use ( $fosse_loaded_bundled_ap, $fosse_loaded_bundled_atmo ) {
+			$ap_flag_was_set = get_option( 'fosse_bundled_ap_bootstrapped', false ) !== false;
+			if ( $ap_flag_was_set ) {
+				if ( $fosse_loaded_bundled_ap && class_exists( '\Activitypub\Activitypub' ) ) {
+					// Per-site mode here: the outer loop (when present)
+					// already iterates sites, so we never double-loop.
+					\Activitypub\Activitypub::deactivate( false );
+				}
 				delete_option( 'fosse_bundled_ap_bootstrapped' );
 			}
 
-			if ( get_option( 'fosse_bundled_atmosphere_bootstrapped', false ) !== false
-				&& function_exists( '\Atmosphere\deactivate' ) ) {
-				\Atmosphere\deactivate();
+			$atmo_flag_was_set = get_option( 'fosse_bundled_atmosphere_bootstrapped', false ) !== false;
+			if ( $atmo_flag_was_set ) {
+				if ( $fosse_loaded_bundled_atmo && function_exists( '\Atmosphere\deactivate' ) ) {
+					\Atmosphere\deactivate();
+				}
 				delete_option( 'fosse_bundled_atmosphere_bootstrapped' );
 			}
 		};
