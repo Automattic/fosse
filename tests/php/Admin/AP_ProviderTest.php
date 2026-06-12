@@ -931,6 +931,64 @@ class AP_ProviderTest extends BaseTestCase {
 	 * A non-colliding handle still writes through normally — the pre-check
 	 * only blocks the collision path, it doesn't break the happy path.
 	 */
+	/**
+	 * If AP's sanitizer rejects the input despite our pre-check (e.g. a
+	 * third-party `sanitize_option_activitypub_blog_identifier` filter
+	 * adds the rejection after our check has passed, or a concurrent
+	 * user creation slips in between), the post-write inspection must
+	 * restore the prior option value. Without the restore, `update_option`
+	 * would persist AP's `Blog::get_default_username()` fallback over the
+	 * existing saved handle while our error notice claims "your previous
+	 * handle was kept" — exactly the silent clobber the PR is meant to
+	 * prevent.
+	 */
+	public function test_save_settings_restores_prior_value_when_post_write_check_trips() {
+		update_option( 'activitypub_blog_identifier', 'preserved-handle' );
+
+		// Simulate an upstream sanitizer that swaps the value AND raises
+		// the standard collision error AFTER our pre-check has run. Only
+		// fires on the colliding input so the in-function restore call
+		// (which writes back the prior value through the same filter
+		// chain) passes through unchanged.
+		$inject = static function ( $value ) {
+			if ( 'looks-fine-to-us' !== $value ) {
+				return $value;
+			}
+			add_settings_error(
+				'activitypub_blog_identifier',
+				'activitypub_blog_identifier',
+				'A user with that login already exists.',
+				'error'
+			);
+			return 'ap-fallback-default';
+		};
+		add_filter( 'sanitize_option_activitypub_blog_identifier', $inject, 99 );
+
+		try {
+			$ok = $this->provider->save_settings(
+				$this->build_post(
+					array(
+						'activitypub_actor_mode'      => 'blog',
+						'activitypub_blog_identifier' => 'looks-fine-to-us',
+					)
+				)
+			);
+		} finally {
+			remove_filter( 'sanitize_option_activitypub_blog_identifier', $inject, 99 );
+		}
+
+		$this->assertFalse( $ok );
+		$this->assertSame(
+			'preserved-handle',
+			get_option( 'activitypub_blog_identifier' ),
+			'Prior option must be restored when AP rejects the input after the pre-check passes.'
+		);
+		$this->assertContains(
+			'activitypub_blog_identifier',
+			array_column( get_settings_errors( 'fosse' ), 'code' )
+		);
+	}
+
 	public function test_save_settings_non_colliding_handle_still_persists() {
 		update_option( 'activitypub_blog_identifier', 'old-handle' );
 

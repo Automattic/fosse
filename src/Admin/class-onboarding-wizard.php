@@ -361,6 +361,13 @@ class Onboarding_Wizard {
 						// the queue. Mirrors AP_Provider::save_settings.
 						$ap_error_count_before = count( get_settings_errors( 'activitypub_blog_identifier' ) );
 
+						// Snapshot the prior option so a sanitizer collision
+						// the pre-check missed doesn't leave AP's fallback
+						// persisted over the previously saved handle. The
+						// rejection branch below restores the snapshot when
+						// fresh AP errors appear.
+						$prior_blog_identifier = get_option( 'activitypub_blog_identifier', '' );
+
 						update_option( 'activitypub_blog_identifier', $raw );
 
 						// Re-tag any fresh AP errors under our own group so the
@@ -378,6 +385,14 @@ class Onboarding_Wizard {
 								$ap_error['message'],
 								$ap_error['type']
 							);
+						}
+
+						// Restore the prior value if AP's sanitizer rejected
+						// the input. Without this, the wizard's "your previous
+						// handle was kept" message would be a lie — the option
+						// would already carry the AP default.
+						if ( ! empty( $new_ap_errors ) ) {
+							update_option( 'activitypub_blog_identifier', $prior_blog_identifier );
 						}
 					}
 				}
