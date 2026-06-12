@@ -65,21 +65,25 @@ class Post_Types {
 	 * merges `\get_post_types_by_support( 'atmosphere' )` before this filter
 	 * runs. Those are merged back in here so a theme or plugin opting a post
 	 * type in natively still federates — discarding them would silently break
-	 * that contract. The merge is additive: an empty AP selection (user
-	 * unchecked everything) still yields no AP-derived types, with native
-	 * supports added on top.
+	 * that contract.
 	 *
-	 * @param array<string> $types Upstream list from Atmosphere (replaced).
-	 * @return array<string> AP's stored list merged with native `atmosphere`
-	 *                      post-type supports, deduped and re-indexed. Falls
-	 *                      back to the default when AP's option is unset or
-	 *                      corrupted (non-array) — guards against a misbehaving
+	 * The native-support merge is intersected with `$types`, so any native
+	 * opt-in another integration explicitly removed at a lower filter priority
+	 * stays removed. AP's option, by contrast, is FOSSE's authoritative source
+	 * for the option-derived list, so it is not subject to that intersection.
+	 *
+	 * @param array<string> $types Upstream list from Atmosphere after any
+	 *                             earlier `atmosphere_syncable_post_types`
+	 *                             filters have run.
+	 * @return array<string> AP's stored list merged with the native `atmosphere`
+	 *                      supports that survived earlier filters, deduped and
+	 *                      re-indexed. Falls back to the default when AP's
+	 *                      option is unset or corrupted (non-array) — guards
+	 *                      against a misbehaving
 	 *                      `option_activitypub_support_post_types` filter
 	 *                      returning a scalar.
 	 */
 	public static function filter_atmosphere( array $types ): array {
-		unset( $types );
-
 		$stored    = \get_option( self::AP_OPTION, self::DEFAULT_TYPES );
 		$ap_stored = \is_array( $stored ) ? $stored : self::DEFAULT_TYPES;
 
@@ -90,9 +94,18 @@ class Post_Types {
 		// `__toString` cast with an `Array to string conversion` warning.
 		$ap_strings = \array_filter( $ap_stored, '\is_string' );
 
+		// Only re-add native supports that survived the earlier filter
+		// chain — preserves the semantic of `atmosphere_syncable_post_types`
+		// as a place plugins can also REMOVE native opt-ins (e.g. for a
+		// tenant-specific or temporary policy).
+		$surviving_natives = \array_intersect(
+			\get_post_types_by_support( 'atmosphere' ),
+			$types
+		);
+
 		return \array_values(
 			\array_unique(
-				\array_merge( $ap_strings, \get_post_types_by_support( 'atmosphere' ) )
+				\array_merge( $ap_strings, $surviving_natives )
 			)
 		);
 	}
