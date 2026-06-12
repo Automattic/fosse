@@ -50,28 +50,25 @@ class Self_Thread_Comment_Filter {
 	 * @param mixed $should       Default true (or whatever a prior callback returned).
 	 *                            Loosely typed so a non-bool from an earlier
 	 *                            callback (e.g. a buggy plugin returning null)
-	 *                            doesn't fatal the request. Only an explicit
-	 *                            boolean `false` is honored as an upstream
-	 *                            suppression decision; any other non-true value
-	 *                            is treated as "unknown" and falls through to
-	 *                            the own-thread evaluation. Coercing null to
-	 *                            false here would silently drop legitimate
-	 *                            external replies the moment any earlier
-	 *                            callback misbehaves.
+	 *                            doesn't fatal the request. Scalar-falsy values
+	 *                            (`false`, `0`, `'0'`, `''`) are honored as a
+	 *                            suppression decision, matching WP filter
+	 *                            convention. Only `null` is treated as
+	 *                            "unknown" and falls through to the own-thread
+	 *                            evaluation — coercing it to false would
+	 *                            silently drop legitimate external replies the
+	 *                            moment any earlier callback misbehaves.
 	 * @param array $notification Notification or synthesized own-record (must include
 	 *                            `uri` and `author.did`).
 	 * @param int   $post_id      Resolved WP post the reply targets.
 	 * @return bool
 	 */
 	public static function suppress_own_thread_chunks( $should, array $notification, int $post_id ): bool {
-		// Only an explicit `false` is honored as upstream suppression. A
-		// non-bool from a buggy earlier callback (null, '', 0) means
-		// "unknown" — fall through and evaluate own-thread membership,
-		// defaulting to true (sync) for anything we don't identify as one
-		// of our own teaser-thread chunks. Coercing the unknown value to
-		// bool here would silently drop external replies whenever an
-		// earlier filter callback misbehaves.
-		if ( false === $should ) {
+		// Honor scalar-falsy as suppression (matches WP filter convention),
+		// but treat `null` as "unknown" so a buggy upstream callback can't
+		// silently drop external replies. A noisy fatal is recoverable; a
+		// silent drop is not.
+		if ( null !== $should && ! $should ) {
 			return false;
 		}
 

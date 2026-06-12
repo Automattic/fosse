@@ -10,6 +10,7 @@ namespace Automattic\Fosse\Tests;
 use Atmosphere\Transformer\Post as BskyPost;
 use Automattic\Fosse\Self_Thread_Comment_Filter;
 use PHPUnit\Framework\Attributes\Before;
+use PHPUnit\Framework\Attributes\DataProvider;
 use WorDBless\BaseTestCase;
 
 /**
@@ -167,6 +168,45 @@ class Self_Thread_Comment_FilterTest extends BaseTestCase {
 		$this->assertTrue(
 			apply_filters( 'atmosphere_should_sync_reply', true, $notification, self::POST_ID, 0 ),
 			'A null upstream for an external reply must default to sync (true), not silently drop.'
+		);
+	}
+
+	/**
+	 * Scalar-falsy values from a prior callback (`0`, `'0'`, `''`) match
+	 * WP filter convention for "suppress" and must continue to do so,
+	 * even though `null` is exempted as "unknown". A site policy callback
+	 * that derives suppression from a numeric or string flag relies on
+	 * this — over-correcting to "only explicit boolean false suppresses"
+	 * would silently start syncing replies the site tried to block.
+	 *
+	 * @dataProvider scalar_falsy_provider
+	 *
+	 * @param mixed $falsy A scalar-falsy value an upstream callback might return.
+	 */
+	#[DataProvider( 'scalar_falsy_provider' )]
+	public function test_scalar_falsy_upstream_is_honored_as_suppression( $falsy ): void {
+		add_filter( 'atmosphere_should_sync_reply', static fn() => $falsy, 5 );
+
+		// External reply (different author) — would otherwise sync.
+		$notification = $this->build_notification( 'did:plc:someoneelse', 'at://did:plc:someoneelse/app.bsky.feed.post/abc' );
+
+		$this->assertFalse(
+			apply_filters( 'atmosphere_should_sync_reply', true, $notification, self::POST_ID, 0 ),
+			'Scalar-falsy upstream values must be treated as suppression, matching WP filter convention.'
+		);
+	}
+
+	/**
+	 * Scalar-falsy values an upstream callback might return.
+	 *
+	 * @return array<string, array{mixed}>
+	 */
+	public static function scalar_falsy_provider(): array {
+		return array(
+			'zero int'    => array( 0 ),
+			'zero string' => array( '0' ),
+			'empty string' => array( '' ),
+			'literal false' => array( false ),
 		);
 	}
 
