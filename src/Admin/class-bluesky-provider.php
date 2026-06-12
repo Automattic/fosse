@@ -1659,6 +1659,15 @@ class Bluesky_Provider implements Connection_Provider {
 			$return_context = $this->consume_oauth_return_context( $state );
 			$source         = self::context_to_source( $return_context );
 
+			// Terminate Atmosphere's pending OAuth session when the inbound
+			// state matches what `Client::authorize()` stashed. Without this,
+			// the verifier, DPoP key, resolved-account metadata, and the
+			// state itself linger for the full HOUR_IN_SECONDS transient TTL
+			// even though the user just declined. Gated on a hash_equals
+			// state match so an attacker can't drop a victim's in-flight
+			// session by hitting the callback with `?error=…`.
+			self::clear_atmosphere_oauth_session_if_state_matches( $state );
+
 			// No dedicated "declined" value exists in the connection-failure
 			// `error_category` enum (`auth_failed|rate_limited|network_timeout|
 			// invalid_handle|other`); `other` is the closest valid bucket that
@@ -1806,6 +1815,46 @@ class Bluesky_Provider implements Connection_Provider {
 		}
 
 		return 'other';
+	}
+
+	/**
+	 * Clear Atmosphere's pending OAuth-session transients when the inbound
+	 * callback `state` matches the stored Atmosphere `oauth_state`.
+	 *
+	 * The bundled `Atmosphere\OAuth\Client::handle_callback()` is the only
+	 * code path that normally deletes `atmosphere_oauth_state`,
+	 * `atmosphere_oauth_verifier`, `atmosphere_oauth_dpop_jwk`, and
+	 * `atmosphere_oauth_resolved`. When the authorization server returns an
+	 * error response, FOSSE finishes the user-facing flow before the bundled
+	 * client runs, so those transients linger for their full HOUR_IN_SECONDS
+	 * TTL. Mirror the upstream deletes so a declined attempt does not leave
+	 * a usable OAuth handshake in storage.
+	 *
+	 * Gated on a `hash_equals` match with the stored state so an attacker
+	 * cannot drop a victim's in-flight handshake by hitting the callback
+	 * URL with `?error=…&state=junk`.
+	 *
+	 * @param string $callback_state Inbound `state` query arg from the OAuth callback.
+	 * @return void
+	 */
+	private static function clear_atmosphere_oauth_session_if_state_matches( string $callback_state ): void {
+		if ( '' === $callback_state ) {
+			return;
+		}
+
+		$stored_state = \get_transient( 'atmosphere_oauth_state' );
+		if ( ! \is_string( $stored_state ) || '' === $stored_state ) {
+			return;
+		}
+
+		if ( ! \hash_equals( $stored_state, $callback_state ) ) {
+			return;
+		}
+
+		\delete_transient( 'atmosphere_oauth_state' );
+		\delete_transient( 'atmosphere_oauth_verifier' );
+		\delete_transient( 'atmosphere_oauth_dpop_jwk' );
+		\delete_transient( 'atmosphere_oauth_resolved' );
 	}
 
 	/**
