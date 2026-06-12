@@ -405,6 +405,15 @@ class Canonical_Options_MigratorTest extends BaseTestCase {
 		);
 	}
 
+	/**
+	 * Hostile upstream: a future AP (or a third-party policy filter) that
+	 * coerces every value — including our `__fosse_unset__` sentinel — to
+	 * the AP default would silently break unset-detection. The durable
+	 * outcome must protect user state: either the canonical row holds
+	 * `'note'` (copy succeeded) or the legacy row still holds it
+	 * (preserve-on-uncertainty). A bare conflict signal with both options
+	 * drifted is silent destruction; that is what we never accept.
+	 */
 	public function test_migrate_object_type_does_not_silently_destroy_legacy_when_sentinel_coerced(): void {
 		update_option( 'fosse_object_type', 'note' );
 
