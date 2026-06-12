@@ -133,19 +133,40 @@ class Self_Thread_Comment_FilterTest extends BaseTestCase {
 
 	/**
 	 * A prior subscriber returning a non-bool (e.g. null) must not fatal.
-	 * The callback's `$should` parameter is loosely typed and cast to bool
-	 * internally, matching WP filter convention — a scalar type hint would
-	 * raise a TypeError even in coercive mode when fed null. A null
-	 * `$should` is falsy, so the early-return path keeps it false.
+	 * The callback's `$should` parameter is loosely typed: a scalar type
+	 * hint would raise a TypeError even in coercive mode when fed null.
+	 * Only an explicit `false` is honored as upstream suppression, so a
+	 * null arriving alongside an own-thread chunk still suppresses
+	 * because the own-thread evaluation fires.
 	 */
-	public function test_survives_null_upstream_should(): void {
+	public function test_survives_null_upstream_should_for_own_thread_chunk(): void {
 		add_filter( 'atmosphere_should_sync_reply', fn() => null, 5 );
 
 		$notification = $this->build_notification( self::OWN_DID, self::REPLY_URI );
 
 		$this->assertFalse(
 			apply_filters( 'atmosphere_should_sync_reply', true, $notification, self::POST_ID, 0 ),
-			'A null upstream value must coerce to false, not fatal.'
+			'A null upstream still leads to suppression when the reply is an own-thread chunk.'
+		);
+	}
+
+	/**
+	 * A prior subscriber returning null for an EXTERNAL reply (different
+	 * author DID, or own DID but URI not in our META_URI_INDEX) must NOT
+	 * be coerced to a suppression decision. Coercing null to false would
+	 * silently drop legitimate external replies whenever an earlier filter
+	 * callback misbehaves — a noisy fatal is recoverable, a silent drop
+	 * is not. Regression guard for the "null → false fast-return" fix.
+	 */
+	public function test_null_upstream_does_not_suppress_external_reply(): void {
+		add_filter( 'atmosphere_should_sync_reply', fn() => null, 5 );
+
+		// Different author DID (external reply, not our own thread chunk).
+		$notification = $this->build_notification( 'did:plc:someoneelse', 'at://did:plc:someoneelse/app.bsky.feed.post/abc' );
+
+		$this->assertTrue(
+			apply_filters( 'atmosphere_should_sync_reply', true, $notification, self::POST_ID, 0 ),
+			'A null upstream for an external reply must default to sync (true), not silently drop.'
 		);
 	}
 

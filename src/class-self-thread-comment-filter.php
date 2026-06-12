@@ -48,37 +48,48 @@ class Self_Thread_Comment_Filter {
 	 * chain has produced.
 	 *
 	 * @param mixed $should       Default true (or whatever a prior callback returned).
-	 *                            Loosely typed and cast to bool below: another
-	 *                            callback on this filter could return a non-bool
-	 *                            (e.g. null), and a scalar hint would fatal even
-	 *                            in coercive mode.
+	 *                            Loosely typed so a non-bool from an earlier
+	 *                            callback (e.g. a buggy plugin returning null)
+	 *                            doesn't fatal the request. Only an explicit
+	 *                            boolean `false` is honored as an upstream
+	 *                            suppression decision; any other non-true value
+	 *                            is treated as "unknown" and falls through to
+	 *                            the own-thread evaluation. Coercing null to
+	 *                            false here would silently drop legitimate
+	 *                            external replies the moment any earlier
+	 *                            callback misbehaves.
 	 * @param array $notification Notification or synthesized own-record (must include
 	 *                            `uri` and `author.did`).
 	 * @param int   $post_id      Resolved WP post the reply targets.
 	 * @return bool
 	 */
 	public static function suppress_own_thread_chunks( $should, array $notification, int $post_id ): bool {
-		$should = (bool) $should;
-
-		if ( ! $should ) {
+		// Only an explicit `false` is honored as upstream suppression. A
+		// non-bool from a buggy earlier callback (null, '', 0) means
+		// "unknown" — fall through and evaluate own-thread membership,
+		// defaulting to true (sync) for anything we don't identify as one
+		// of our own teaser-thread chunks. Coercing the unknown value to
+		// bool here would silently drop external replies whenever an
+		// earlier filter callback misbehaves.
+		if ( false === $should ) {
 			return false;
 		}
 
 		$own_did = \Atmosphere\get_did();
 		if ( '' === $own_did ) {
-			return $should;
+			return true;
 		}
 
 		$author_did = $notification['author']['did'] ?? '';
 		$reply_uri  = $notification['uri'] ?? '';
 
 		if ( $author_did !== $own_did || '' === $reply_uri ) {
-			return $should;
+			return true;
 		}
 
 		$thread_uris = \get_post_meta( $post_id, BskyPost::META_URI_INDEX, false );
 		if ( ! \is_array( $thread_uris ) || ! \in_array( $reply_uri, $thread_uris, true ) ) {
-			return $should;
+			return true;
 		}
 
 		return false;
