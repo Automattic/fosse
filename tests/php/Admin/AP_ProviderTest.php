@@ -1007,6 +1007,11 @@ class AP_ProviderTest extends BaseTestCase {
 		);
 	}
 
+	/**
+	 * A non-colliding handle save path still persists the new value
+	 * end-to-end — the pre-check, pre_update guard, and re-tag logic
+	 * leave the happy path untouched.
+	 */
 	public function test_save_settings_non_colliding_handle_still_persists() {
 		update_option( 'activitypub_blog_identifier', 'old-handle' );
 
