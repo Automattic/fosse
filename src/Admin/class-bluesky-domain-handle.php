@@ -942,15 +942,34 @@ class Bluesky_Domain_Handle {
 		 * `\Atmosphere\Handle::call_update_handle()`, which uses the same 60s
 		 * value — `API::post()` hardcodes the default timeout, so we drop to
 		 * `API::request()` to override it.
+		 *
+		 * FOSSE can run with a standalone Atmosphere instead of the bundled
+		 * copy, so version skew is real. Prefer `API::request()` when the
+		 * loaded class actually has it, fall back to `API::post()`
+		 * otherwise (no timeout override, but no fatal either). If neither
+		 * callable is present the standalone is too old to support this
+		 * action at all; return a clean WP_Error rather than fatal.
 		 */
-		$response = \Atmosphere\API::request(
-			'POST',
-			'/xrpc/com.atproto.identity.updateHandle',
-			array(
-				'body'    => array( 'handle' => $handle ),
-				'timeout' => 60,
-			)
-		);
+		if ( is_callable( array( '\Atmosphere\API', 'request' ) ) ) {
+			$response = \Atmosphere\API::request(
+				'POST',
+				'/xrpc/com.atproto.identity.updateHandle',
+				array(
+					'body'    => array( 'handle' => $handle ),
+					'timeout' => 60,
+				)
+			);
+		} elseif ( is_callable( array( '\Atmosphere\API', 'post' ) ) ) {
+			$response = \Atmosphere\API::post(
+				'/xrpc/com.atproto.identity.updateHandle',
+				array( 'handle' => $handle )
+			);
+		} else {
+			return new \WP_Error(
+				'fosse_atmosphere_api_incompatible',
+				__( 'The installed Atmosphere version does not expose an API the handle change can use. Update Atmosphere and try again.', 'fosse' )
+			);
+		}
 
 		if ( is_wp_error( $response ) ) {
 			return $response;
