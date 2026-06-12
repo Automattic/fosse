@@ -154,9 +154,9 @@ class Canonical_Options_Migrator {
 			$sentinel = '__fosse_unset__';
 
 			/*
-			 * Distinguish "canonical option unset" from "explicitly set" via a
-			 * sentinel default. This read is filter-independent and does not
-			 * rely on running before AP's `Options::init` (init priority 10):
+			 * Distinguish "canonical option unset" from "explicitly set". The
+			 * sentinel default is the first line of defense and works under
+			 * two independent grounds:
 			 *
 			 * 1. AP registers `option_activitypub_object_type` (the value-found
 			 *    path), not `default_option_activitypub_object_type`. WordPress
@@ -164,19 +164,24 @@ class Canonical_Options_Migrator {
 			 *    when the option is absent it returns the `default_option_*`
 			 *    filtered default and never runs `option_*`. So for an unset
 			 *    option the sentinel is returned verbatim regardless of whether
-			 *    AP's filter is registered — moving `Options::init` earlier than
-			 *    init priority 5 would not coerce it.
-			 * 2. Even if AP later switched to a `default_option_*` filter (which
-			 *    DOES run on the absent path), `default_object_type()` only
-			 *    rewrites falsy values (`! $value`). The sentinel is a non-empty
-			 *    string, so it survives that coercion untouched.
+			 *    AP's filter is registered.
+			 * 2. AP's `default_object_type()` only rewrites falsy values
+			 *    (`! $value`). The sentinel is a non-empty string, so even if
+			 *    the callback moved to `default_option_*`, the sentinel
+			 *    survives `! $value` coercion untouched.
 			 *
-			 * The sentinel is therefore robust on two independent grounds; the
-			 * migrator's tests pin this so a future bundled-AP sync that adds
-			 * such a filter can't silently regress the read.
+			 * Belt and braces: a hostile third-party filter (or a future
+			 * AP that started coercing unknown non-empty strings to the
+			 * default) could still swap the sentinel for the AP default.
+			 * If that happens the value-only check below misclassifies an
+			 * unset canonical as "explicitly set" and the migration would
+			 * destroy the legacy `'note'` without copying it. Re-check
+			 * directly against the raw options row so the migration never
+			 * deletes a legacy value on a phantom canonical.
 			 */
-			$existing = \get_option( 'activitypub_object_type', $sentinel );
-			if ( $sentinel === $existing ) {
+			$existing            = \get_option( 'activitypub_object_type', $sentinel );
+			$canonical_row_exists = self::canonical_option_row_exists( 'activitypub_object_type' );
+			if ( $sentinel === $existing || ! $canonical_row_exists ) {
 				\update_option( 'activitypub_object_type', 'note' );
 				// `update_option` returns false for both DB failure and the
 				// "already equal" no-op. Re-read so the success check covers
@@ -327,5 +332,51 @@ class Canonical_Options_Migrator {
 			return $stored;
 		}
 		return self::DEFAULT_LONG_FORM_STRATEGY;
+	}
+
+	/**
+	 * Whether a stored value exists for the given option, bypassing every
+	 * `option_*` and `default_option_*` filter.
+	 *
+	 * `get_option()` runs the value through both filter chains before
+	 * returning. A third-party policy filter (or a future AP version that
+	 * coerces unknown non-empty strings to the default) can make an absent
+	 * option look set, which would otherwise let the migrator misclassify
+	 * the canonical as "explicitly set" and delete the legacy value
+	 * without copying it.
+	 *
+	 * Temporarily detach the two filter chains for this option, read once
+	 * with a sentinel, then restore the filter chains intact. Reading
+	 * with no filters is the only way to distinguish "row absent" from
+	 * "row absent but filter substituted a default value". A direct
+	 * $wpdb query would work too but doesn't survive in-memory test
+	 * harnesses (WorDBless) that mock the options layer above $wpdb.
+	 *
+	 * @param string $option Option name.
+	 * @return bool True when a stored value exists.
+	 */
+	private static function canonical_option_row_exists( string $option ): bool {
+		global $wp_filter;
+
+		$option_filter_key  = 'option_' . $option;
+		$default_filter_key = 'default_option_' . $option;
+
+		$saved_option_filters  = $wp_filter[ $option_filter_key ] ?? null;
+		$saved_default_filters = $wp_filter[ $default_filter_key ] ?? null;
+
+		unset( $wp_filter[ $option_filter_key ], $wp_filter[ $default_filter_key ] );
+
+		try {
+			$sentinel = '__fosse_row_probe__';
+			$value    = \get_option( $option, $sentinel );
+			return $sentinel !== $value;
+		} finally {
+			if ( null !== $saved_option_filters ) {
+				$wp_filter[ $option_filter_key ] = $saved_option_filters;
+			}
+			if ( null !== $saved_default_filters ) {
+				$wp_filter[ $default_filter_key ] = $saved_default_filters;
+			}
+		}
 	}
 }

@@ -314,10 +314,9 @@ class Canonical_Options_MigratorTest extends BaseTestCase {
 		// Register the REAL bundled callback — not a copy. Any upstream
 		// change to `Activitypub\Options::default_object_type()` (e.g.
 		// future versions that start coercing unknown non-empty strings
-		// to the default) flows straight through this test, so the
-		// failure mode codex flagged (sentinel coerced away, conflict
-		// fires, legacy value silently discarded) would surface
-		// immediately rather than a year later when production trips it.
+		// to the default) flows straight through this test, so a
+		// sentinel-coerced-away failure mode surfaces immediately rather
+		// than a year later when production trips it.
 		add_filter( 'option_activitypub_object_type', array( '\Activitypub\Options', 'default_object_type' ) );
 
 		$conflict_fired = false;
@@ -367,11 +366,14 @@ class Canonical_Options_MigratorTest extends BaseTestCase {
 	/**
 	 * Hostile upstream: a future AP (or a third-party policy filter) that
 	 * coerces ANY value — including our `__fosse_unset__` sentinel — to
-	 * the default would silently break unset-detection. Pin the failure
-	 * mode directly so a future change with this shape can't quietly
-	 * corrupt the migration: at minimum one of legacy preservation,
-	 * canonical copy success, or conflict signal must hold; silent
-	 * destruction is what we never accept.
+	 * the default would silently break unset-detection. A bare conflict
+	 * signal is NOT enough to satisfy this regression — the user's
+	 * `fosse_object_type=note` data would still be gone forever even
+	 * though a hook fired. The durable outcome must protect the user's
+	 * data: either the canonical row holds `'note'` (copy succeeded) or
+	 * the legacy row still holds `'note'` (preserve-on-uncertainty). The
+	 * conflict signal alone, with both options drifted off `'note'`, is
+	 * a silent destruction with a hook — that's what we never accept.
 	 */
 	public function test_migrate_object_type_does_not_silently_destroy_legacy_when_sentinel_coerced(): void {
 		update_option( 'fosse_object_type', 'note' );
@@ -385,26 +387,17 @@ class Canonical_Options_MigratorTest extends BaseTestCase {
 		add_filter( 'option_activitypub_object_type', $hostile );
 		add_filter( 'default_option_activitypub_object_type', $hostile );
 
-		$conflict_fired = false;
-		add_action(
-			'fosse_canonical_migration_conflict',
-			static function () use ( &$conflict_fired ): void {
-				$conflict_fired = true;
-			}
-		);
-
 		Canonical_Options_Migrator::maybe_migrate();
 
 		remove_filter( 'option_activitypub_object_type', $hostile );
 		remove_filter( 'default_option_activitypub_object_type', $hostile );
 
-		$legacy_preserved      = 'note' === get_option( 'fosse_object_type' );
-		$canonical_copied      = 'note' === get_option( 'activitypub_object_type' );
-		$conflict_was_reported = $conflict_fired;
+		$canonical_copied = 'note' === get_option( 'activitypub_object_type' );
+		$legacy_preserved = 'note' === get_option( 'fosse_object_type' );
 
 		$this->assertTrue(
-			$legacy_preserved || $canonical_copied || $conflict_was_reported,
-			'When the sentinel is coerced away, the migration must either preserve the legacy option, complete the copy, or fire the conflict action — never silently destroy user state with no signal.'
+			$canonical_copied || $legacy_preserved,
+			"When the sentinel is coerced away, the migration must EITHER copy 'note' to the canonical option OR keep the legacy option intact. Discarding the legacy without copying — even if a conflict hook fires — silently destroys the user's stored choice."
 		);
 	}
 
