@@ -259,17 +259,44 @@ class Bluesky_Domain_Handle {
 
 		$host = strtolower( $host );
 
-		// Enforce the LDH label grammar on the final ASCII host. The
-		// STD3 branch above only runs for non-ASCII input, so without
-		// this an ASCII-only but still-invalid host (`bad_label.example`)
-		// would skip validation entirely and surface later as an opaque
-		// PDS lexicon rejection instead of a clean local refusal. Each
-		// label: alphanumeric ends, hyphens inside, 1-63 octets — the
-		// same set STD3 rules permit.
-		foreach ( explode( '.', $host ) as $label ) {
+		// Defer to the bundled AT Protocol handle validator when available.
+		// Its rule set is stricter than the per-label LDH grammar — it
+		// caps total host length at 253 bytes, rejects digit-leading and
+		// reserved TLDs (`.test`, `.example`, `.invalid`, `.onion`,
+		// `.arpa`, `.alt`, etc.), and is the same gate Atmosphere uses
+		// downstream. Sharing the gate avoids the case where this method
+		// accepts a host that updateHandle then rejects after the admin
+		// has already clicked through.
+		if ( \class_exists( '\Atmosphere\OAuth\Resolver' )
+			&& \method_exists( '\Atmosphere\OAuth\Resolver', 'is_valid_handle' ) ) {
+			return \Atmosphere\OAuth\Resolver::is_valid_handle( $host ) ? $host : '';
+		}
+
+		// Fallback when bundled Atmosphere isn't loaded (e.g. unit tests
+		// or a checkout with the standalone Atmosphere missing the
+		// helper). Validates the LDH label grammar and the same coarse
+		// total-length / TLD shape so the offer flow never crosses a
+		// host the upstream validator would refuse.
+		if ( '' === $host || \strlen( $host ) > 253 ) {
+			return '';
+		}
+		$labels = explode( '.', $host );
+		if ( \count( $labels ) < 2 ) {
+			return '';
+		}
+		foreach ( $labels as $label ) {
 			if ( ! preg_match( '/^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/', $label ) ) {
 				return '';
 			}
+		}
+		$tld = end( $labels );
+		if ( \ctype_digit( $tld[0] ) ) {
+			return '';
+		}
+		// Reserved TLDs per the bundled validator. Kept in sync via the
+		// `Resolver::is_valid_handle` path above when Atmosphere loads.
+		if ( \in_array( $tld, array( 'alt', 'arpa', 'example', 'internal', 'invalid', 'local', 'localhost', 'onion', 'test' ), true ) ) {
+			return '';
 		}
 
 		return $host;

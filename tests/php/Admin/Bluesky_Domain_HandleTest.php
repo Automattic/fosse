@@ -211,9 +211,9 @@ class Bluesky_Domain_HandleTest extends BaseTestCase {
 		}
 
 		// `münchen.example` (uses ü) → UTS-46 punycode form.
-		$this->force_home_url( 'https://münchen.example' );
+		$this->force_home_url( 'https://münchen.org' );
 
-		$this->assertSame( 'xn--mnchen-3ya.example', Bluesky_Domain_Handle::get_target_handle() );
+		$this->assertSame( 'xn--mnchen-3ya.org', Bluesky_Domain_Handle::get_target_handle() );
 	}
 
 	/**
@@ -237,7 +237,7 @@ class Bluesky_Domain_HandleTest extends BaseTestCase {
 		// carries a non-ASCII byte so the punycode branch runs; STD3 rules
 		// then refuse it, and get_target_handle() returns '' rather than
 		// shipping a malformed handle to the PDS.
-		$this->force_home_url( 'https://bad_läbel.example' );
+		$this->force_home_url( 'https://bad_läbel.org' );
 
 		$this->assertSame( '', Bluesky_Domain_Handle::get_target_handle() );
 	}
@@ -269,13 +269,38 @@ class Bluesky_Domain_HandleTest extends BaseTestCase {
 	 */
 	public static function provider_ascii_ldh_hosts(): array {
 		return array(
-			'underscore label refused'   => array( 'https://bad_label.example', '' ),
-			'leading hyphen refused'     => array( 'https://-bad.example', '' ),
-			'trailing hyphen refused'    => array( 'https://bad-.example', '' ),
-			'64-char label refused'      => array( 'https://' . str_repeat( 'a', 64 ) . '.example', '' ),
-			'63-char label accepted'     => array( 'https://' . str_repeat( 'a', 63 ) . '.example', str_repeat( 'a', 63 ) . '.example' ),
+			'underscore label refused'   => array( 'https://bad_label.org', '' ),
+			'leading hyphen refused'     => array( 'https://-bad.org', '' ),
+			'trailing hyphen refused'    => array( 'https://bad-.org', '' ),
+			'64-char label refused'      => array( 'https://' . str_repeat( 'a', 64 ) . '.org', '' ),
+			'63-char label accepted'     => array( 'https://' . str_repeat( 'a', 63 ) . '.org', str_repeat( 'a', 63 ) . '.org' ),
 			'hyphen inside accepted'     => array( 'https://my-site.example.com', 'my-site.example.com' ),
-			'digits-only label accepted' => array( 'https://123.example', '123.example' ),
+			'digits-only label accepted' => array( 'https://123.org', '123.org' ),
+			// Reserved TLDs from the AT Protocol handle spec — the
+			// bundled Atmosphere validator (and our local fallback)
+			// reject these so an opaque PDS rejection can't surface
+			// after the admin has already clicked through.
+			'reserved tld .test refused'    => array( 'https://demo.test', '' ),
+			'reserved tld .example refused' => array( 'https://demo.example', '' ),
+			'reserved tld .invalid refused' => array( 'https://demo.invalid', '' ),
+			'reserved tld .onion refused'   => array( 'https://demo.onion', '' ),
+			'reserved tld .local refused'   => array( 'https://demo.local', '' ),
+			'reserved tld .alt refused'     => array( 'https://demo.alt', '' ),
+			'reserved tld .arpa refused'    => array( 'https://demo.arpa', '' ),
+			// Numeric leading TLD (`example.123`) is rejected — the
+			// AT Protocol spec requires the final label to start with a
+			// non-digit.
+			'numeric-leading tld refused'   => array( 'https://demo.123', '' ),
+			// Single-label hosts (`localhost`) are rejected — the spec
+			// requires at least two labels.
+			'single-label refused'          => array( 'https://localhost', '' ),
+			// Hosts over 253 bytes are rejected — the AT Protocol spec's
+			// total-length cap. Three 63-char labels + dots = 191, plus
+			// a fourth 63-char label and a dot = 255 (> 253).
+			'over-253-byte total refused'   => array(
+				'https://' . str_repeat( 'a', 63 ) . '.' . str_repeat( 'b', 63 ) . '.' . str_repeat( 'c', 63 ) . '.' . str_repeat( 'd', 63 ) . '.org',
+				'',
+			),
 		);
 	}
 
@@ -291,7 +316,7 @@ class Bluesky_Domain_HandleTest extends BaseTestCase {
 		return array(
 			'plain dns'          => array( 'https://example.com', true ),
 			'subdomain'          => array( 'https://blog.example.com', true ),
-			'idn dns'            => array( 'https://xn--mnchen-3ya.example', true ),
+			'idn dns'            => array( 'https://xn--mnchen-3ya.org', true ),
 			'localhost'          => array( 'https://localhost', false ),
 			'localhost.localdom' => array( 'https://localhost.localdomain', false ),
 			'mdns local'         => array( 'https://my-mac.local', false ),
@@ -450,15 +475,15 @@ class Bluesky_Domain_HandleTest extends BaseTestCase {
 	 * changed or the user changed the handle on bsky.app directly).
 	 */
 	public function test_is_drift_true_when_snapshot_exists_for_current_did(): void {
-		$this->force_home_url( 'https://newdomain.example' );
-		$this->seed_connection( 'oldhandle.example', 'did:plc:test123' );
+		$this->force_home_url( 'https://newdomain.org' );
+		$this->seed_connection( 'oldhandle.org', 'did:plc:test123' );
 		$this->seed_snapshot( 'did:plc:test123', 'alice.bsky.social' );
 
 		$this->assertTrue(
 			Bluesky_Domain_Handle::is_drift(
 				array(
 					'connected' => true,
-					'handle'    => 'oldhandle.example',
+					'handle'    => 'oldhandle.org',
 				)
 			)
 		);
@@ -493,15 +518,15 @@ class Bluesky_Domain_HandleTest extends BaseTestCase {
 	 * not previously set.
 	 */
 	public function test_is_drift_false_when_snapshot_bound_to_different_did(): void {
-		$this->force_home_url( 'https://newdomain.example' );
-		$this->seed_connection( 'oldhandle.example', 'did:plc:current' );
+		$this->force_home_url( 'https://newdomain.org' );
+		$this->seed_connection( 'oldhandle.org', 'did:plc:current' );
 		$this->seed_snapshot( 'did:plc:other', 'alice.bsky.social' );
 
 		$this->assertFalse(
 			Bluesky_Domain_Handle::is_drift(
 				array(
 					'connected' => true,
-					'handle'    => 'oldhandle.example',
+					'handle'    => 'oldhandle.org',
 				)
 			)
 		);
@@ -677,9 +702,9 @@ class Bluesky_Domain_HandleTest extends BaseTestCase {
 	 * leads back to the user's original account.
 	 */
 	public function test_set_handle_does_not_overwrite_existing_snapshot_for_same_did(): void {
-		$this->force_home_url( 'https://new.example' );
+		$this->force_home_url( 'https://new.org' );
 		// Connection currently on the first FOSSE-set domain.
-		$this->seed_connection( 'old.example', 'did:plc:test123' );
+		$this->seed_connection( 'old.org', 'did:plc:test123' );
 		// Snapshot from the FIRST change still points at the original handle.
 		$this->seed_snapshot( 'did:plc:test123', 'alice.bsky.social' );
 
