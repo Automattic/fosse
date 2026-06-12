@@ -1930,6 +1930,27 @@ class Photo_PostTest extends BaseTestCase {
 	}
 
 	/**
+	 * A Photon URL whose path carries a misleading `-WIDTHxHEIGHT` size
+	 * suffix AND a valid `fit=…` transform must NOT publish the suffix
+	 * dimensions. Photon delivers the image fitted inside the transform
+	 * box, not the size the source filename advertises. Falling through
+	 * to the URL filename-suffix pass would re-introduce the exact
+	 * Pixelfed rejection class the dimension passes exist to prevent.
+	 */
+	public function test_attachment_filter_does_not_fall_back_to_suffix_when_photon_transform_unresolved(): void {
+		$input = array(
+			'type'      => 'Image',
+			'url'       => 'https://i0.wp.com/example.test/wp-content/uploads/photo-1600x1200.jpg?fit=800,800',
+			'mediaType' => 'image/jpeg',
+		);
+
+		$out = apply_filters( 'activitypub_attachment', $input, 0 );
+
+		$this->assertArrayNotHasKey( 'width', $out );
+		$this->assertArrayNotHasKey( 'height', $out );
+	}
+
+	/**
 	 * Fix 3: a `w` + `h` pair is honored. A lone `w` with no local
 	 * attachment metadata (other axis scaled to aspect, underivable)
 	 * is declined rather than guessed.

@@ -1183,7 +1183,23 @@ class Photo_Post {
 			// — the exact mismatch Pass 0 exists to prevent.
 			$lone = self::lone_resize_axis_from_query( $query );
 			if ( null !== $lone ) {
-				return self::dimensions_from_lone_axis( $lone[0], $lone[1], $id );
+				$derived = self::dimensions_from_lone_axis( $lone[0], $lone[1], $id );
+				if ( null !== $derived ) {
+					return $derived;
+				}
+			}
+
+			// Photon transform was present (verified above by query+host)
+			// but we could not resolve it against source metadata. Falling
+			// through to the metadata / filename-suffix passes below would
+			// read dimensions describing the SOURCE file — e.g. a Photon
+			// URL `…/photo-1600x1200.jpg?fit=800,800` whose attachment ID
+			// is missing would publish 1600×1200 even though Photon
+			// delivers an image fitted inside the 800×800 box. Refuse
+			// instead so receivers see no dimensions ("unknown") rather
+			// than wrong ones.
+			if ( self::query_has_photon_resize_transform( $query ) ) {
+				return null;
 			}
 		}
 
@@ -1363,6 +1379,70 @@ class Photo_Post {
 			return null;
 		}
 		return array( $out_w, $out_h );
+	}
+
+	/**
+	 * Whether a host is a known Photon / Jetpack Site Accelerator endpoint.
+	 *
+	 * The query-arg dimension parsing only has defined semantics for
+	 * Photon-served URLs; applying it to a local attachment or a
+	 * non-Photon CDN URL that happens to carry `?w=…`/`?fit=…`/`?resize=…`
+	 * for some other purpose would publish dimensions that don't match
+	 * the delivered bytes — the exact failure mode this gate prevents.
+	 *
+	 * Recognized hosts:
+	 *
+	 *  - `i0.wp.com` / `i1.wp.com` / `i2.wp.com` / `i3.wp.com` — Photon
+	 *  - `*.files.wordpress.com` — wp.com Site Accelerator
+	 *
+	 * @param string $host Lowercased host (no port).
+	 * @return bool
+	 */
+	/**
+	 * Whether a URL query string carries any Photon resize transform.
+	 *
+	 * A "yes" means the delivered bytes are NOT the source file the
+	 * subsequent metadata / filename-suffix passes would describe. The
+	 * caller uses this signal to refuse instead of falling through, so a
+	 * Photon URL like `…/photo-1600x1200.jpg?fit=800,800` whose source
+	 * aspect can't be resolved doesn't publish 1600×1200 (the suffix in
+	 * the URL) when the actual delivered image is fitted inside 800×800.
+	 *
+	 * Recognized transforms (matches the set `dimensions_from_query()`
+	 * and `lone_resize_axis_from_query()` understand):
+	 *
+	 *  - `resize=W,H` — both positive ints
+	 *  - `fit=W,H`   — both positive ints
+	 *  - `w=N`       — positive int
+	 *  - `h=N`       — positive int
+	 *
+	 * @param string $query URL query component (no leading `?`).
+	 * @return bool
+	 */
+	private static function query_has_photon_resize_transform( string $query ): bool {
+		$args = array();
+		\wp_parse_str( $query, $args );
+
+		foreach ( array( 'resize', 'fit' ) as $key ) {
+			if ( isset( $args[ $key ] ) && \is_string( $args[ $key ] ) ) {
+				$parts = \explode( ',', $args[ $key ] );
+				if ( 2 === \count( $parts ) ) {
+					$w = (int) \trim( $parts[0] );
+					$h = (int) \trim( $parts[1] );
+					if ( $w > 0 && $h > 0 ) {
+						return true;
+					}
+				}
+			}
+		}
+
+		foreach ( array( 'w', 'h' ) as $axis ) {
+			if ( isset( $args[ $axis ] ) && \is_numeric( $args[ $axis ] ) && (int) $args[ $axis ] > 0 ) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	/**
