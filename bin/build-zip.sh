@@ -53,7 +53,8 @@ if [ -z "${FOSSE_VERSION:-}" ] && [ "${FOSSE_BUILD_DEV:-}" = "1" ]; then
 		echo "error: could not extract Version: header from $ROOT/fosse.php" >&2
 		exit 1
 	fi
-	sha7="${GITHUB_SHA:0:7}"
+	sha7="${GITHUB_SHA:-}"
+	sha7="${sha7:0:7}"
 	if [ -z "$sha7" ]; then
 		sha7=$(git -C "$ROOT" rev-parse --short=7 HEAD 2>/dev/null || echo "unknown")
 	fi
@@ -62,13 +63,32 @@ if [ -z "${FOSSE_VERSION:-}" ] && [ "${FOSSE_BUILD_DEV:-}" = "1" ]; then
 fi
 
 if [ -n "${FOSSE_VERSION:-}" ]; then
+	# Reject any value that isn't a plain plugin-version literal before
+	# it touches the staged fosse.php. The value gets stamped into a
+	# PHP single-quoted string, so a quote or backslash in it would
+	# either terminate the literal (turning the rest of the tag into
+	# executable PHP in the release zip) or smuggle in an escape that
+	# the WP Plugins screen renders weirdly. Tags come from
+	# github.event.release.tag_name in CI — git allows tags like
+	# `v1');die();#` — so this is the right gate.
+	if [[ ! "$FOSSE_VERSION" =~ ^[A-Za-z0-9][A-Za-z0-9._+-]*$ ]]; then
+		echo "error: FOSSE_VERSION='${FOSSE_VERSION}' is not a safe plugin-version literal (allowed: [A-Za-z0-9._+-], must start with alphanumeric, single line)" >&2
+		exit 1
+	fi
+
+	# Escape characters special to sed's replacement text so a tag
+	# containing \, &, or the | delimiter can't corrupt (or break) the
+	# substitution. The replacement only ever interpolates the version,
+	# so escaping the RHS is sufficient.
+	version_escaped=$(printf '%s' "$FOSSE_VERSION" | sed -e 's/[\\&|]/\\&/g')
+
 	# sed -i with a backup suffix is portable across GNU and BSD sed.
 	# Rewrite both the plugin header `Version:` line and the
 	# `define( 'FOSSE_VERSION', '...' )` constant so the WP Plugins
 	# screen and runtime constant agree.
 	sed -i.bak -E \
-		-e "s|^([[:space:]]*\*[[:space:]]*Version:[[:space:]]*).+$|\1${FOSSE_VERSION}|" \
-		-e "s|(define\([[:space:]]*'FOSSE_VERSION',[[:space:]]*')[^']*(')|\1${FOSSE_VERSION}\2|" \
+		-e "s|^([[:space:]]*\*[[:space:]]*Version:[[:space:]]*).+$|\1${version_escaped}|" \
+		-e "s|(define\([[:space:]]*'FOSSE_VERSION',[[:space:]]*')[^']*(')|\1${version_escaped}\2|" \
 		"$STAGE_DIR/fosse.php"
 	rm -f "$STAGE_DIR/fosse.php.bak"
 
