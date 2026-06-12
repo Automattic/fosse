@@ -358,24 +358,43 @@ class Canonical_Options_Migrator {
 	private static function canonical_option_row_exists( string $option ): bool {
 		global $wp_filter;
 
-		$option_filter_key  = 'option_' . $option;
-		$default_filter_key = 'default_option_' . $option;
+		// Three filter chains can intercept `get_option()`:
+		//
+		//  - `pre_option_{$option}` — runs BEFORE any cache/DB lookup; a
+		//    return other than `false` short-circuits the rest of the
+		//    function and is returned verbatim. A pinned non-false
+		//    return would otherwise make an absent row look present.
+		//  - `default_option_{$option}` — runs when the row is absent and
+		//    rewrites the default value before return.
+		//  - `option_{$option}` — runs when the row IS present and
+		//    rewrites the stored value before return.
+		//
+		// Detaching all three for the duration of one sentinel read is
+		// the only way `get_option()` faithfully signals row existence
+		// to us. A direct $wpdb query would also work, but doesn't
+		// survive in-memory test harnesses (WorDBless) that mock the
+		// options layer above $wpdb.
+		$keys = array(
+			'pre_option_' . $option,
+			'default_option_' . $option,
+			'option_' . $option,
+		);
 
-		$saved_option_filters  = $wp_filter[ $option_filter_key ] ?? null;
-		$saved_default_filters = $wp_filter[ $default_filter_key ] ?? null;
-
-		unset( $wp_filter[ $option_filter_key ], $wp_filter[ $default_filter_key ] );
+		$saved = array();
+		foreach ( $keys as $key ) {
+			if ( isset( $wp_filter[ $key ] ) ) {
+				$saved[ $key ] = $wp_filter[ $key ];
+				unset( $wp_filter[ $key ] );
+			}
+		}
 
 		try {
 			$sentinel = '__fosse_row_probe__';
 			$value    = \get_option( $option, $sentinel );
 			return $sentinel !== $value;
 		} finally {
-			if ( null !== $saved_option_filters ) {
-				$wp_filter[ $option_filter_key ] = $saved_option_filters;
-			}
-			if ( null !== $saved_default_filters ) {
-				$wp_filter[ $default_filter_key ] = $saved_default_filters;
+			foreach ( $saved as $key => $callbacks ) {
+				$wp_filter[ $key ] = $callbacks;
 			}
 		}
 	}

@@ -375,6 +375,36 @@ class Canonical_Options_MigratorTest extends BaseTestCase {
 	 * conflict signal alone, with both options drifted off `'note'`, is
 	 * a silent destruction with a hook — that's what we never accept.
 	 */
+	/**
+	 * A `pre_option_*` filter short-circuits `get_option()` BEFORE any
+	 * cache/DB lookup, so a pinned non-`false` return makes an absent
+	 * row look present. Without detaching this chain alongside the
+	 * `option_*` and `default_option_*` chains, the row-existence probe
+	 * would still misclassify the canonical as "explicitly set" and the
+	 * migration would delete the legacy `'note'` without copying it.
+	 * Regression guard.
+	 */
+	public function test_migrate_object_type_does_not_silently_destroy_legacy_when_pre_option_overrides(): void {
+		update_option( 'fosse_object_type', 'note' );
+
+		$short_circuit = static function () {
+			return 'wordpress-post-format';
+		};
+		add_filter( 'pre_option_activitypub_object_type', $short_circuit );
+
+		Canonical_Options_Migrator::maybe_migrate();
+
+		remove_filter( 'pre_option_activitypub_object_type', $short_circuit );
+
+		$canonical_copied = 'note' === get_option( 'activitypub_object_type' );
+		$legacy_preserved = 'note' === get_option( 'fosse_object_type' );
+
+		$this->assertTrue(
+			$canonical_copied || $legacy_preserved,
+			'When pre_option_* pins a default for an absent row, the migration must either complete the copy or keep the legacy intact.'
+		);
+	}
+
 	public function test_migrate_object_type_does_not_silently_destroy_legacy_when_sentinel_coerced(): void {
 		update_option( 'fosse_object_type', 'note' );
 
