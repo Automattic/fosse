@@ -71,8 +71,8 @@ if [ -n "${FOSSE_VERSION:-}" ]; then
 	# the WP Plugins screen renders weirdly. Tags come from
 	# github.event.release.tag_name in CI — git allows tags like
 	# `v1');die();#` — so this is the right gate.
-	if ! printf '%s' "$FOSSE_VERSION" | grep -qxE '[A-Za-z0-9][A-Za-z0-9._+-]*'; then
-		echo "error: FOSSE_VERSION='${FOSSE_VERSION}' is not a safe plugin-version literal (allowed: [A-Za-z0-9._+-], must start with alphanumeric)" >&2
+	if [[ ! "$FOSSE_VERSION" =~ ^[A-Za-z0-9][A-Za-z0-9._+-]*$ ]]; then
+		echo "error: FOSSE_VERSION='${FOSSE_VERSION}' is not a safe plugin-version literal (allowed: [A-Za-z0-9._+-], must start with alphanumeric, single line)" >&2
 		exit 1
 	fi
 
