@@ -1147,6 +1147,7 @@ class Photo_Post {
 		$parsed = \wp_parse_url( $url );
 		$path   = (string) ( $parsed['path'] ?? '' );
 		$query  = (string) ( $parsed['query'] ?? '' );
+		$host   = (string) ( $parsed['host'] ?? '' );
 
 		// Pass 0 (Photon / Jetpack Site Accelerator query args). Photon
 		// has no named-size files: it serves the ORIGINAL filename and
@@ -1159,8 +1160,15 @@ class Photo_Post {
 		// the delivered size from the query args first; only fall through
 		// to the metadata / suffix passes when there are no resize args
 		// (a plain original URL with no Photon transform).
-		if ( '' !== $query ) {
-			$dims = self::dimensions_from_query( $query );
+		//
+		// Gate the query parsing on a Photon-shaped host: a non-Photon CDN
+		// or local URL carrying `?w=…` / `?h=…` / `?fit=…` / `?resize=…`
+		// query args for some other purpose has no defined semantic
+		// promise about delivered bytes. Trusting them would mis-publish
+		// dimensions that don't match the actual file — the exact failure
+		// mode Pass 0 exists to prevent.
+		if ( '' !== $query && self::host_is_photon( $host ) ) {
+			$dims = self::dimensions_from_query( $query, $id );
 			if ( null !== $dims ) {
 				return $dims;
 			}
@@ -1248,27 +1256,42 @@ class Photo_Post {
 	 * arg is treated as absent.
 	 *
 	 * @param string $query The URL's query component (no leading `?`).
+	 * @param mixed  $id    Optional attachment ID for resolving `fit` against
+	 *                      the source aspect ratio.
 	 * @return array{0:int, 1:int}|null
 	 */
-	private static function dimensions_from_query( string $query ): ?array {
+	private static function dimensions_from_query( string $query, $id = null ): ?array {
 		$args = array();
 		\wp_parse_str( $query, $args );
 
-		// `resize` / `fit` carry a `W,H` pair directly. `resize` wins
-		// over `fit` when both are somehow present — it pins exact
-		// output dimensions, `fit` only bounds them.
-		foreach ( array( 'resize', 'fit' ) as $key ) {
-			if ( ! isset( $args[ $key ] ) || ! \is_string( $args[ $key ] ) ) {
-				continue;
+		// `resize=W,H` is crop-to-fill at exactly W×H — the delivered bytes
+		// match. Trust it directly.
+		if ( isset( $args['resize'] ) && \is_string( $args['resize'] ) ) {
+			$parts = \explode( ',', $args['resize'] );
+			if ( 2 === \count( $parts ) ) {
+				$width  = (int) \trim( $parts[0] );
+				$height = (int) \trim( $parts[1] );
+				if ( $width > 0 && $height > 0 ) {
+					return array( $width, $height );
+				}
 			}
-			$parts = \explode( ',', $args[ $key ] );
-			if ( 2 !== \count( $parts ) ) {
-				continue;
-			}
-			$width  = (int) \trim( $parts[0] );
-			$height = (int) \trim( $parts[1] );
-			if ( $width > 0 && $height > 0 ) {
-				return array( $width, $height );
+		}
+
+		// `fit=W,H` is "scale to fit inside the W×H box, preserve aspect,
+		// no upscale". For a 4:3 image with `fit=800,800` Photon delivers
+		// 800×600, not 800×800. Emitting the box would publish dimensions
+		// that don't match the delivered bytes — the exact failure class
+		// this method exists to prevent. Resolve it correctly when we have
+		// the source aspect (local attachment metadata); otherwise omit
+		// dimensions rather than lie.
+		if ( isset( $args['fit'] ) && \is_string( $args['fit'] ) ) {
+			$parts = \explode( ',', $args['fit'] );
+			if ( 2 === \count( $parts ) ) {
+				$box_w = (int) \trim( $parts[0] );
+				$box_h = (int) \trim( $parts[1] );
+				if ( $box_w > 0 && $box_h > 0 ) {
+					return self::dimensions_from_fit_box( $box_w, $box_h, $id );
+				}
 			}
 		}
 
@@ -1285,6 +1308,92 @@ class Photo_Post {
 		}
 
 		return null;
+	}
+
+	/**
+	 * Resolve a Photon `fit=W,H` box against the source aspect ratio.
+	 *
+	 * Photon's `fit` scales the source so that it fits inside the W×H box
+	 * with aspect preserved and no upscaling. The delivered bytes equal
+	 * the box only when the source aspect matches the box aspect — for
+	 * any other source, one axis is smaller.
+	 *
+	 * Without the source metadata we cannot tell which axis shrinks, so
+	 * return `null` rather than emit the box as exact dimensions. The
+	 * caller's downstream passes (metadata, suffix) then get a chance,
+	 * and if those also can't resolve, the dimensions are omitted from
+	 * the attachment payload — receivers treat missing dimensions as
+	 * "unknown" rather than lying about pixels.
+	 *
+	 * @param int   $box_w Width  of the fit box.
+	 * @param int   $box_h Height of the fit box.
+	 * @param mixed $id    Attachment ID for source aspect lookup.
+	 * @return array{0:int, 1:int}|null
+	 */
+	private static function dimensions_from_fit_box( int $box_w, int $box_h, $id ): ?array {
+		if ( ! \is_numeric( $id ) || (int) $id <= 0 ) {
+			return null;
+		}
+		$meta = \wp_get_attachment_metadata( (int) $id );
+		if ( ! \is_array( $meta )
+			|| empty( $meta['width'] )
+			|| empty( $meta['height'] ) ) {
+			return null;
+		}
+		$src_w = (int) $meta['width'];
+		$src_h = (int) $meta['height'];
+		if ( $src_w <= 0 || $src_h <= 0 ) {
+			return null;
+		}
+
+		// No-upscale: if the source fits inside the box already, delivered
+		// bytes equal the source.
+		if ( $src_w <= $box_w && $src_h <= $box_h ) {
+			return array( $src_w, $src_h );
+		}
+
+		$ratio_w = $box_w / $src_w;
+		$ratio_h = $box_h / $src_h;
+		$ratio   = \min( $ratio_w, $ratio_h );
+
+		$out_w = (int) \floor( $src_w * $ratio );
+		$out_h = (int) \floor( $src_h * $ratio );
+
+		if ( $out_w <= 0 || $out_h <= 0 ) {
+			return null;
+		}
+		return array( $out_w, $out_h );
+	}
+
+	/**
+	 * Whether a host is a known Photon / Jetpack Site Accelerator endpoint.
+	 *
+	 * The query-arg dimension parsing only has defined semantics for
+	 * Photon-served URLs; applying it to a local attachment or a
+	 * non-Photon CDN URL that happens to carry `?w=…`/`?fit=…`/`?resize=…`
+	 * for some other purpose would publish dimensions that don't match
+	 * the delivered bytes — the exact failure mode this gate prevents.
+	 *
+	 * Recognized hosts:
+	 *
+	 *  - `i0.wp.com` / `i1.wp.com` / `i2.wp.com` / `i3.wp.com` — Photon
+	 *  - `*.files.wordpress.com` — wp.com Site Accelerator
+	 *
+	 * @param string $host Lowercased host (no port).
+	 * @return bool
+	 */
+	private static function host_is_photon( string $host ): bool {
+		$host = \strtolower( $host );
+		if ( '' === $host ) {
+			return false;
+		}
+		if ( \preg_match( '/^i[0-9]+\.wp\.com$/', $host ) ) {
+			return true;
+		}
+		if ( \str_ends_with( $host, '.files.wordpress.com' ) || 'files.wordpress.com' === $host ) {
+			return true;
+		}
+		return false;
 	}
 
 	/**

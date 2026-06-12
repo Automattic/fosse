@@ -1908,9 +1908,15 @@ class Photo_PostTest extends BaseTestCase {
 	}
 
 	/**
-	 * Fix 3: `?fit=W,H` is honored the same way (scale-to-fit box).
+	 * Fix 3: `?fit=W,H` is a BOUND, not exact dimensions — Photon scales
+	 * the source to fit inside the W×H box with aspect preserved. Without
+	 * the source aspect (no local attachment id, no metadata) we can't
+	 * tell which axis shrinks, so we decline rather than emit the box as
+	 * exact dimensions. AP/Pixelfed treat missing dimensions as
+	 * "unknown"; emitting a square box for a 4:3 image would publish
+	 * dimensions that don't match the delivered bytes.
 	 */
-	public function test_attachment_filter_uses_photon_fit_query_dimensions(): void {
+	public function test_attachment_filter_declines_photon_fit_without_source_aspect(): void {
 		$input = array(
 			'type'      => 'Image',
 			'url'       => 'https://i0.wp.com/example.test/wp-content/uploads/2026/05/photon.jpg?fit=800,800',
@@ -1919,8 +1925,8 @@ class Photo_PostTest extends BaseTestCase {
 
 		$out = apply_filters( 'activitypub_attachment', $input, 0 );
 
-		$this->assertSame( 800, $out['width'] );
-		$this->assertSame( 800, $out['height'] );
+		$this->assertArrayNotHasKey( 'width', $out );
+		$this->assertArrayNotHasKey( 'height', $out );
 	}
 
 	/**
