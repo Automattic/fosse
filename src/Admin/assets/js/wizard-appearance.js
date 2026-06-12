@@ -34,10 +34,21 @@
 		} );
 
 		if ( blogHandle ) {
-			blogHandle.classList.toggle(
-				HIDDEN_CLASS,
-				! modeIncludesBlog( mode )
+			const includesBlog = modeIncludesBlog( mode );
+			blogHandle.classList.toggle( HIDDEN_CLASS, ! includesBlog );
+
+			// Disable the input while hidden so it stops submitting. A
+			// `display:none` field still posts its value, which the PHP
+			// handler would otherwise persist — and a collision in a field
+			// the user cannot see would bounce them back with no way to fix
+			// it. Toggling `disabled` (not just the CSS class) keeps the
+			// hidden input out of the form submission entirely.
+			const input = blogHandle.querySelector(
+				'input[name="activitypub_blog_identifier"]'
 			);
+			if ( input ) {
+				input.disabled = ! includesBlog;
+			}
 		}
 	}
 

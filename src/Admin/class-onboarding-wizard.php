@@ -302,39 +302,102 @@ class Onboarding_Wizard {
 
 			// Persist the inline Site Handle when submitted. Only write when
 			// the field arrived non-empty so the no-touch path preserves any
-			// existing stored value (matches AP_Provider::handle_save). AP's
+			// existing stored value (matches AP_Provider::save_settings). AP's
 			// `sanitize_option_activitypub_blog_identifier` filter handles
 			// collision rejection at update_option time.
+			$ap_provider              = Connection_Provider_Registry::get_provider( 'activitypub' );
 			$blog_identifier_rejected = false;
-			if ( array_key_exists( 'activitypub_blog_identifier', $_POST ) ) {
+			// Gate the write on whether the selected mode actually includes the
+			// blog actor. The Site Handle input is hidden client-side in
+			// author-only mode, but a hidden field still submits its value — so
+			// without this server-side gate a stale handle from a mode the user
+			// switched away from would be written (and a collision in that
+			// invisible field would bounce them back to a field they cannot
+			// see). The browser also disables the input when hidden; this gate
+			// is the defense-in-depth for clients with JS off or tampered POSTs.
+			$mode_includes_blog = $ap_provider instanceof AP_Provider && $ap_provider->mode_includes_blog( $mode );
+			if ( $mode_includes_blog && array_key_exists( 'activitypub_blog_identifier', $_POST ) ) {
 				$raw_input = is_string( $_POST['activitypub_blog_identifier'] )
 					? sanitize_text_field( wp_unslash( $_POST['activitypub_blog_identifier'] ) )
 					: '';
 				$raw       = trim( $raw_input );
 				if ( '' !== $raw ) {
-					// Snapshot the queue length, not the codes — AP's sanitizer
-					// reuses a constant code (`activitypub_blog_identifier`) for
-					// every collision rejection, so a code-only check would mask
-					// a fresh rejection if any error with that code already sat
-					// on the queue. Mirrors AP_Provider::handle_save().
-					$ap_error_count_before = count( get_settings_errors( 'activitypub_blog_identifier' ) );
-
-					update_option( 'activitypub_blog_identifier', $raw );
-
-					// Re-tag any fresh AP errors under our own group so the
-					// appearance step's `settings_errors( 'fosse' )` render
-					// surfaces them — without re-tagging the user would land
-					// back on the wizard with no feedback at all.
-					$ap_errors_after = get_settings_errors( 'activitypub_blog_identifier' );
-					$new_ap_errors   = array_slice( $ap_errors_after, $ap_error_count_before );
-					foreach ( $new_ap_errors as $ap_error ) {
+					// Pre-check the collision before writing. AP's sanitizer
+					// silently swaps a colliding handle for the default, which
+					// `update_option` then PERSISTS over the previously saved
+					// handle (breaking existing blog-actor followers). Guard the
+					// write so a rejected handle leaves the stored value intact
+					// while still surfacing the error. Mirrors
+					// AP_Provider::save_settings.
+					if ( $ap_provider->blog_identifier_collides( $raw ) ) {
 						$blog_identifier_rejected = true;
 						add_settings_error(
 							'fosse',
-							$ap_error['code'],
-							$ap_error['message'],
-							$ap_error['type']
+							'activitypub_blog_identifier',
+							__( 'That site handle matches an existing author login or nickname. Your previous handle was kept.', 'fosse' ),
+							'error'
 						);
+					} elseif ( $ap_provider->blog_identifier_canonicalizes_empty( $raw ) ) {
+						// Input that canonicalizes to nothing (e.g. `!!!`)
+						// hits AP's `empty()` branch, which swaps in the
+						// default username WITHOUT raising a settings error —
+						// so neither the collision pre-check nor the error
+						// re-tag below would catch it, and `update_option`
+						// would silently clobber the saved handle. Mirrors
+						// AP_Provider::save_settings.
+						$blog_identifier_rejected = true;
+						add_settings_error(
+							'fosse',
+							'activitypub_blog_identifier',
+							__( 'That site handle contains no usable characters. Your previous handle was kept.', 'fosse' ),
+							'error'
+						);
+					} else {
+						// Snapshot the queue length, not the codes — AP's
+						// sanitizer reuses a constant code
+						// (`activitypub_blog_identifier`) for every collision
+						// rejection, so a code-only check would mask a fresh
+						// rejection if any error with that code already sat on
+						// the queue. Mirrors AP_Provider::save_settings.
+						$ap_error_count_before = count( get_settings_errors( 'activitypub_blog_identifier' ) );
+
+						// Cancel the write at `pre_update_option_*` (after
+						// sanitize runs, before WP commits) if AP's sanitizer
+						// raised any fresh error. Short-circuiting BEFORE
+						// `update_option_activitypub_blog_identifier` fires
+						// keeps AP's scheduler from observing the bad fallback
+						// value and queuing an outbox Update for a rejected
+						// handle. Mirrors AP_Provider::save_settings.
+						$cancel_on_fresh_error = static function ( $new_value, $old_value ) use ( $ap_error_count_before ) {
+							if ( count( get_settings_errors( 'activitypub_blog_identifier' ) ) > $ap_error_count_before ) {
+								return $old_value;
+							}
+							return $new_value;
+						};
+						add_filter( 'pre_update_option_activitypub_blog_identifier', $cancel_on_fresh_error, 999, 2 );
+
+						try {
+							update_option( 'activitypub_blog_identifier', $raw );
+						} finally {
+							remove_filter( 'pre_update_option_activitypub_blog_identifier', $cancel_on_fresh_error, 999 );
+						}
+
+						// Re-tag any fresh AP errors under our own group so the
+						// appearance step's `settings_errors( 'fosse' )` render
+						// surfaces them — without re-tagging the user would land
+						// back on the wizard with no feedback at all. Catches
+						// any collision the pre-check missed.
+						$ap_errors_after = get_settings_errors( 'activitypub_blog_identifier' );
+						$new_ap_errors   = array_slice( $ap_errors_after, $ap_error_count_before );
+						foreach ( $new_ap_errors as $ap_error ) {
+							$blog_identifier_rejected = true;
+							add_settings_error(
+								'fosse',
+								$ap_error['code'],
+								$ap_error['message'],
+								$ap_error['type']
+							);
+						}
 					}
 				}
 			}
@@ -1511,10 +1574,28 @@ class Onboarding_Wizard {
 				continue;
 			}
 
+			// FOSSE's own notices are stored pre-escaped:
+			// Bluesky_Provider::redirect_with_notice() and
+			// Bluesky_Domain_Handle::add_settings_notice() both run the
+			// message through `esc_html()` at the `add_settings_error()`
+			// storage site, so escaping those again here would double-encode
+			// entities (e.g. apostrophes rendering as `&#039;`). But bundled
+			// Atmosphere ALSO writes to this group without escaping —
+			// `Handle::add_settings_notice()` stores raw `WP_Error` text
+			// straight off the PDS response — so only messages carrying a
+			// FOSSE-owned code may skip the `esc_html()`; everything else is
+			// escaped as untrusted plain text.
+			$is_pre_escaped_fosse_notice = in_array(
+				$notice_code,
+				array( Bluesky_Provider::NOTICE_CODE, Bluesky_Domain_Handle::NOTICE_CODE ),
+				true
+			);
+			$notice_message              = isset( $atmosphere_notice['message'] ) ? (string) $atmosphere_notice['message'] : '';
+
 			printf(
 				'<div class="notice notice-%1$s inline"><p>%2$s</p></div>',
 				esc_attr( $notice_type ),
-				esc_html( isset( $atmosphere_notice['message'] ) ? (string) $atmosphere_notice['message'] : '' )
+				$is_pre_escaped_fosse_notice ? wp_kses_post( $notice_message ) : esc_html( $notice_message ) // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- FOSSE-owned notices are pre-escaped via esc_html() at the add_settings_error() storage site (re-escaping would double-encode entities) and pass wp_kses_post() as belt and braces; all other writers' messages go through esc_html() here.
 			);
 		}
 		?>
