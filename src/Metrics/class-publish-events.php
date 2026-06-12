@@ -266,6 +266,17 @@ class Publish_Events {
 			return;
 		}
 
+		// Per-post idempotency: skip the emit when this source post has
+		// already counted as a `fosse_publish_result`. Without the guard,
+		// AP's resurrection path (a previously-deleted post becomes
+		// publicly queryable again, scheduler enqueues another `Create`)
+		// would double-count an already-recorded publish on every
+		// resurrection.
+		$source_post_id = self::source_post_id_for_outbox_item( $outbox_item_id );
+		if ( $source_post_id > 0 && \get_post_meta( $source_post_id, self::AP_PUBLISH_RECORDED_META_KEY, true ) ) {
+			return;
+		}
+
 		if ( null === $in_memory && ! \is_array( $persisted ) ) {
 			// No `activitypub_sent_to_inbox` ever fired (zero-inbox publish).
 			return;
@@ -291,6 +302,13 @@ class Publish_Events {
 
 		if ( 'success' === $status ) {
 			Recorder::bump( 'fosse-publish-success-mastodon' );
+		}
+
+		// Idempotency marker is set after the emit so a re-fire of the
+		// hook (cron retry, queue replay) won't have an early-exit win
+		// when the original emit never recorded.
+		if ( $source_post_id > 0 ) {
+			\update_post_meta( $source_post_id, self::AP_PUBLISH_RECORDED_META_KEY, 1 );
 		}
 	}
 
@@ -338,6 +356,39 @@ class Publish_Events {
 		}
 
 		return \url_to_postid( $object_id ) > 0;
+	}
+
+	/**
+	 * Per-post idempotency marker for `fosse_publish_result` (Mastodon
+	 * network).
+	 *
+	 * The bundled scheduler emits another `Create` outbox item when a
+	 * previously-deleted/federated post becomes publicly queryable again
+	 * (the AP "resurrection" path). Without a per-post guard the same
+	 * source post would tick `fosse-publish-success-mastodon` twice —
+	 * once on the original publish, once on every resurrection.
+	 *
+	 * Marker lives on the SOURCE post (not the outbox item) so it survives
+	 * outbox cleanup, and is cleared on a hard delete of the source post
+	 * (WordPress drops postmeta with the post). A republish after a hard
+	 * delete reuses a fresh post ID and rightly counts as a new publish.
+	 *
+	 * @var string
+	 */
+	private const AP_PUBLISH_RECORDED_META_KEY = '_fosse_ap_publish_recorded';
+
+	/**
+	 * Resolve the source-post ID an AP outbox item's object URL points at.
+	 *
+	 * @param int $outbox_item_id Outbox item post id.
+	 * @return int Post ID, or 0 when the object URL doesn't resolve.
+	 */
+	private static function source_post_id_for_outbox_item( int $outbox_item_id ): int {
+		$object_id = \get_post_meta( $outbox_item_id, '_activitypub_object_id', true );
+		if ( ! \is_string( $object_id ) || '' === $object_id ) {
+			return 0;
+		}
+		return (int) \url_to_postid( $object_id );
 	}
 
 	/**

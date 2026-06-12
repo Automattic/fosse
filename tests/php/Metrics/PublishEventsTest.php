@@ -117,6 +117,46 @@ class PublishEventsTest extends BaseTestCase {
 	 * AP dispatch with at least one successful inbox emits a
 	 * `success` `fosse_publish_result` and bumps the MC counter.
 	 */
+	/**
+	 * AP's scheduler emits another `Create` outbox item when a previously
+	 * deleted/federated post becomes publicly queryable again. Without
+	 * per-source-post idempotency, the same WP post would tick
+	 * `fosse-publish-success-mastodon` on every resurrection — defeating
+	 * the at-most-once metric goal. Regression guard pinning the
+	 * first-publish-only semantic.
+	 */
+	public function test_ap_outbox_does_not_double_count_resurrection_of_same_post(): void {
+		// First Create / publish.
+		$first_outbox = $this->make_outbox_item();
+
+		\do_action( 'activitypub_sent_to_inbox', array( 'response' => array( 'code' => 202 ) ), 'https://example.com/inbox', '{}', 1, $first_outbox );
+		\do_action( 'activitypub_outbox_processing_complete', array( 'https://example.com/inbox' ), '{}', 1, $first_outbox, 1, 0 );
+
+		$this->reset_metrics_channels();
+
+		// Resurrection: a SECOND `Create` outbox item for the SAME source
+		// post (same `_activitypub_object_id` URL). Bundled scheduler
+		// emits this on deleted-then-publishable-again transitions.
+		$source_post_id      = (int) \url_to_postid( \get_post_meta( $first_outbox, '_activitypub_object_id', true ) );
+		$resurrection_outbox = \wp_insert_post(
+			array(
+				'post_title'  => '[Create] resurrection outbox item',
+				'post_status' => 'pending',
+				'post_type'   => 'post',
+			)
+		);
+		\update_post_meta( $resurrection_outbox, '_activitypub_activity_type', 'Create' );
+		\update_post_meta( $resurrection_outbox, '_activitypub_object_id', \add_query_arg( 'p', $source_post_id, \home_url( '/' ) ) );
+
+		\do_action( 'activitypub_sent_to_inbox', array( 'response' => array( 'code' => 202 ) ), 'https://example.com/inbox', '{}', 1, $resurrection_outbox );
+		\do_action( 'activitypub_outbox_processing_complete', array( 'https://example.com/inbox' ), '{}', 1, $resurrection_outbox, 1, 0 );
+
+		// Resurrection must NOT emit another publish-result or bump the
+		// success counter for this post.
+		$this->assertNoEventRecorded( 'fosse_publish_result' );
+		$this->assertNoMcBumped( 'fosse-publish-success-mastodon' );
+	}
+
 	public function test_ap_outbox_success_emits_success_event(): void {
 		$outbox_id = $this->make_outbox_item();
 
