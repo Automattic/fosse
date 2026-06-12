@@ -147,6 +147,44 @@ if ( ! function_exists( 'fosse_detect_standalone' ) ) {
 			}
 		}
 
+		// Same-request activation: WordPress sandbox-includes the target
+		// plugin's main file BEFORE adding it to active_plugins. If a user
+		// is mid-activation of a non-canonical standalone copy (e.g. a
+		// GitHub clone at `wordpress-activitypub/activitypub.php`), the
+		// active_plugins scan above misses it AND the file_exists check
+		// below misses it (wrong folder), so the bundled copy would load
+		// first and the standalone's sandbox include would fatal on
+		// "Cannot redeclare". Scan the activation-request payload itself
+		// for any plugin path ending in the main filename and treat it
+		// the same as `'active'` so the bundled copy is suppressed.
+		//
+		// The nonce that gated WordPress into firing this request has
+		// already been verified by `wp-admin/plugins.php` before our
+		// plugin file loads, so we only sanity-check the values' shapes.
+		// We never trust them past the `str_ends_with` match. `$_REQUEST`
+		// covers both single (`?plugin=…`) and bulk (`action=activate-selected&checked[]=…`)
+		// activation, and `wp-admin/network/plugins.php` (network admin)
+		// uses the same shape.
+		// phpcs:disable WordPress.Security.NonceVerification.Recommended -- nonce verified upstream by wp-admin/plugins.php before this file loads.
+		$activation_targets = array();
+		if ( isset( $_REQUEST['plugin'] ) && is_string( $_REQUEST['plugin'] ) ) {
+			$activation_targets[] = wp_unslash( $_REQUEST['plugin'] );
+		}
+		if ( isset( $_REQUEST['checked'] ) && is_array( $_REQUEST['checked'] ) ) {
+			foreach ( $_REQUEST['checked'] as $checked ) {
+				if ( is_string( $checked ) ) {
+					$activation_targets[] = wp_unslash( $checked );
+				}
+			}
+		}
+		// phpcs:enable WordPress.Security.NonceVerification.Recommended
+
+		foreach ( $activation_targets as $target ) {
+			if ( str_ends_with( $target, $basename ) ) {
+				return 'active';
+			}
+		}
+
 		// Files on disk at the canonical path but not in any active list:
 		// suppress the bundled copy (a later same-request activation would
 		// otherwise redeclare), but flag the resulting federation outage.
@@ -290,15 +328,43 @@ add_action(
 register_deactivation_hook(
 	__FILE__,
 	static function ( $network_wide ) use ( $fosse_loaded_bundled_ap, $fosse_loaded_bundled_atmo ) {
-		if ( $fosse_loaded_bundled_ap && class_exists( '\Activitypub\Activitypub' ) ) {
-			\Activitypub\Activitypub::deactivate( (bool) $network_wide );
-			delete_option( 'fosse_bundled_ap_bootstrapped' );
+		$cleanup = static function () use ( $network_wide, $fosse_loaded_bundled_ap, $fosse_loaded_bundled_atmo ) {
+			if ( $fosse_loaded_bundled_ap && class_exists( '\Activitypub\Activitypub' ) ) {
+				\Activitypub\Activitypub::deactivate( (bool) $network_wide );
+				delete_option( 'fosse_bundled_ap_bootstrapped' );
+			}
+
+			if ( $fosse_loaded_bundled_atmo && function_exists( '\Atmosphere\deactivate' ) ) {
+				\Atmosphere\deactivate();
+				delete_option( 'fosse_bundled_atmosphere_bootstrapped' );
+			}
+		};
+
+		// A network-wide deactivation must clean up every site that
+		// bootstrapped a bundled backend. Without this loop, the per-site
+		// `fosse_bundled_*_bootstrapped` flags persist on every site
+		// except the one initiating the deactivation, and re-activating
+		// FOSSE would skip the activation shim on those sites (stale
+		// flag) — leaving their AP cron/options/rewrites in an
+		// inconsistent state. The AP/Atmosphere deactivate() routines
+		// are idempotent and cheap when the cron queue is already clear,
+		// so the per-site iteration only adds cost where it's
+		// load-bearing. Per-site (non-network) deactivation hits the
+		// current blog only, which is the right scope.
+		if ( $network_wide && is_multisite() && function_exists( 'get_sites' ) ) {
+			$sites = get_sites( array( 'fields' => 'ids' ) );
+			foreach ( $sites as $site_id ) {
+				switch_to_blog( (int) $site_id );
+				try {
+					$cleanup();
+				} finally {
+					restore_current_blog();
+				}
+			}
+			return;
 		}
 
-		if ( $fosse_loaded_bundled_atmo && function_exists( '\Atmosphere\deactivate' ) ) {
-			\Atmosphere\deactivate();
-			delete_option( 'fosse_bundled_atmosphere_bootstrapped' );
-		}
+		$cleanup();
 	}
 );
 

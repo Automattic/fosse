@@ -61,8 +61,21 @@ class Bootstrap {
 				return;
 			}
 
-			$activate();
 			$ran_in_request[ $option_key ] = $version;
+
+			try {
+				$activate();
+			} catch ( \Throwable $e ) {
+				// Roll the lock back so a subsequent request can retry the
+				// activation. Without this, a thrown activation would leave
+				// the flag set forever and the activate routine would never
+				// run again (rewrites unflushed, options unseeded, etc.).
+				// Note: a PHP fatal (memory/time exhaustion) still
+				// terminates the request without firing this catch, so the
+				// flag would persist. That tail case is out of scope here.
+				delete_option( $option_key );
+				throw $e;
+			}
 			return;
 		}
 
@@ -70,12 +83,20 @@ class Bootstrap {
 		 * Stored value present but stale (the bundled version changed since
 		 * the last bootstrap). This is a deploy-time transition, not the
 		 * concurrent first-load race add_option() guards against, so a plain
-		 * value update is sufficient. Record the new version first so a
-		 * later hook firing in this request won't re-run activate even if
-		 * the activate callable throws.
+		 * value update is sufficient. Snapshot the prior version so a
+		 * throwing activate routine can be rolled back to the value it
+		 * already had — without that, a half-applied version bump would
+		 * convince the next request the new activation completed and the
+		 * version-changed activate would never re-run.
 		 */
+		$prior = $stored;
 		update_option( $option_key, $version, false );
 		$ran_in_request[ $option_key ] = $version;
-		$activate();
+		try {
+			$activate();
+		} catch ( \Throwable $e ) {
+			update_option( $option_key, $prior, false );
+			throw $e;
+		}
 	}
 }
