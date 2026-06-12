@@ -12,6 +12,7 @@ use Automattic\Fosse\Admin\Bluesky_Domain_Handle;
 use Automattic\Fosse\Admin\Bluesky_Provider;
 use Automattic\Fosse\Admin\Connection_Provider_Registry;
 use Automattic\Fosse\Provider_Loader;
+use Automattic\Fosse\Tests\Metrics\Asserts_Metrics;
 use PHPUnit\Framework\Attributes\After;
 use PHPUnit\Framework\Attributes\Before;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -23,6 +24,8 @@ use WorDBless\BaseTestCase;
  * Verifies Bluesky_Provider metadata, registration, status, and handlers.
  */
 class Bluesky_ProviderTest extends BaseTestCase {
+
+	use Asserts_Metrics;
 
 	/**
 	 * Provider instance under test.
@@ -1486,6 +1489,192 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		$this->provider->handle_oauth_callback();
 
 		$this->assertEmpty( get_settings_errors( 'atmosphere' ) );
+	}
+
+	/**
+	 * A "Deny" on the Bluesky consent screen redirects back with
+	 * `error=access_denied&state=<state>` and no code (RFC 6749 §4.1.2.1).
+	 * The callback must recover the wizard return context from the state,
+	 * record a declined (non-`auth_failed`) failure with the wizard source,
+	 * surface "declined" copy, and redirect back into the wizard step.
+	 */
+	public function test_handle_oauth_callback_access_denied_records_declined_and_returns_to_wizard() {
+		$this->become_admin();
+		$this->reset_metrics_channels();
+
+		$state = 'state-denied';
+		set_transient(
+			'fosse_bluesky_oauth_return_' . get_current_user_id(),
+			array(
+				'context' => 'wizard',
+				'state'   => $state,
+			),
+			HOUR_IN_SECONDS
+		);
+
+		$captured = null;
+
+		// phpcs:disable WordPress.Security.NonceVerification.Recommended -- test setup.
+		$_GET = array(
+			'page'  => 'fosse',
+			'error' => 'access_denied',
+			'state' => $state,
+		);
+		// phpcs:enable WordPress.Security.NonceVerification.Recommended
+
+		add_filter(
+			'wp_redirect',
+			static function ( $location ) use ( &$captured ) {
+				$captured = (string) $location;
+				throw new RedirectFired( 'redirect' );
+			}
+		);
+
+		try {
+			$this->provider->handle_oauth_callback();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		// Redirected back into the wizard step, not generic Settings.
+		$this->assertNotNull( $captured );
+		$this->assertStringContainsString( 'page=fosse-wizard', $captured );
+		$this->assertStringContainsString( 'step=bluesky', $captured );
+
+		// User-appropriate "declined" copy, distinct from the
+		// incomplete-response message.
+		$errors   = get_settings_errors( 'atmosphere' );
+		$types    = array_column( $errors, 'type' );
+		$messages = array_column( $errors, 'message' );
+		$this->assertContains( 'error', $types );
+		$this->assertNotContains( 'success', $types );
+		$this->assertStringContainsString( 'declined', strtolower( implode( ' ', $messages ) ) );
+		$this->assertStringNotContainsString( 'incomplete response', strtolower( implode( ' ', $messages ) ) );
+
+		// Recorded as a declined outcome with the wizard source — not the
+		// misleading empty-source `auth_failed` of the incomplete-response path.
+		$this->assertEventRecorded(
+			'fosse_connection_failed',
+			array(
+				'network'        => 'bluesky',
+				'source'         => 'wizard',
+				'error_category' => 'other',
+			)
+		);
+
+		// The return-context transient is consumed so it can't leak into a
+		// later callback.
+		$this->assertFalse( get_transient( 'fosse_bluesky_oauth_return_' . get_current_user_id() ) );
+	}
+
+	/**
+	 * An OAuth `error=access_denied&state=<state>` response whose state
+	 * matches the stored Atmosphere oauth_state must terminate the
+	 * Atmosphere OAuth session, deleting all four
+	 * `atmosphere_oauth_{state,verifier,dpop_jwk,resolved}` transients —
+	 * otherwise a later in-flight callback (e.g. accidental re-click of a
+	 * stale tab) could still pass state validation and proceed to token
+	 * exchange after the user was told they declined.
+	 */
+	public function test_handle_oauth_callback_access_denied_clears_atmosphere_session() {
+		$this->become_admin();
+
+		$state = 'state-denied-clears-session';
+
+		set_transient( 'atmosphere_oauth_state', $state, HOUR_IN_SECONDS );
+		set_transient( 'atmosphere_oauth_verifier', 'verifier-bytes', HOUR_IN_SECONDS );
+		set_transient( 'atmosphere_oauth_dpop_jwk', 'dpop-ciphertext', HOUR_IN_SECONDS );
+		set_transient(
+			'atmosphere_oauth_resolved',
+			array( 'pds' => 'https://pds.example' ),
+			HOUR_IN_SECONDS
+		);
+
+		set_transient(
+			'fosse_bluesky_oauth_return_' . get_current_user_id(),
+			array(
+				'context' => '',
+				'state'   => $state,
+			),
+			HOUR_IN_SECONDS
+		);
+
+		// phpcs:disable WordPress.Security.NonceVerification.Recommended -- test setup.
+		$_GET = array(
+			'page'  => 'fosse',
+			'error' => 'access_denied',
+			'state' => $state,
+		);
+		// phpcs:enable WordPress.Security.NonceVerification.Recommended
+
+		add_filter(
+			'wp_redirect',
+			static function () {
+				throw new RedirectFired( 'redirect' );
+			}
+		);
+
+		try {
+			$this->provider->handle_oauth_callback();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$this->assertFalse( get_transient( 'atmosphere_oauth_state' ) );
+		$this->assertFalse( get_transient( 'atmosphere_oauth_verifier' ) );
+		$this->assertFalse( get_transient( 'atmosphere_oauth_dpop_jwk' ) );
+		$this->assertFalse( get_transient( 'atmosphere_oauth_resolved' ) );
+	}
+
+	/**
+	 * An OAuth `error=…&state=<state>` response whose state does NOT match
+	 * the stored Atmosphere oauth_state must leave the in-flight session
+	 * untouched. Otherwise an attacker who knows the callback URL could
+	 * drop a victim's pending handshake by sending any error with a junk
+	 * state, forcing them to restart the connect.
+	 */
+	public function test_handle_oauth_callback_error_with_mismatched_state_preserves_atmosphere_session() {
+		$this->become_admin();
+
+		$real_state = 'real-state-still-pending';
+
+		set_transient( 'atmosphere_oauth_state', $real_state, HOUR_IN_SECONDS );
+		set_transient( 'atmosphere_oauth_verifier', 'verifier-bytes', HOUR_IN_SECONDS );
+		set_transient( 'atmosphere_oauth_dpop_jwk', 'dpop-ciphertext', HOUR_IN_SECONDS );
+		set_transient(
+			'atmosphere_oauth_resolved',
+			array( 'pds' => 'https://pds.example' ),
+			HOUR_IN_SECONDS
+		);
+
+		// phpcs:disable WordPress.Security.NonceVerification.Recommended -- test setup.
+		$_GET = array(
+			'page'  => 'fosse',
+			'error' => 'access_denied',
+			'state' => 'attacker-supplied-junk',
+		);
+		// phpcs:enable WordPress.Security.NonceVerification.Recommended
+
+		add_filter(
+			'wp_redirect',
+			static function () {
+				throw new RedirectFired( 'redirect' );
+			}
+		);
+
+		try {
+			$this->provider->handle_oauth_callback();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$this->assertSame( $real_state, get_transient( 'atmosphere_oauth_state' ) );
+		$this->assertSame( 'verifier-bytes', get_transient( 'atmosphere_oauth_verifier' ) );
+		$this->assertSame( 'dpop-ciphertext', get_transient( 'atmosphere_oauth_dpop_jwk' ) );
+		$this->assertSame(
+			array( 'pds' => 'https://pds.example' ),
+			get_transient( 'atmosphere_oauth_resolved' )
+		);
 	}
 
 	// --- handle validation ---

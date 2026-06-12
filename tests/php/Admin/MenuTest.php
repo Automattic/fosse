@@ -34,6 +34,20 @@ class MenuTest extends BaseTestCase {
 	private array $canary_callbacks = array();
 
 	/**
+	 * Whether $_SERVER held a REQUEST_METHOD key before the current test.
+	 *
+	 * @var bool
+	 */
+	private bool $had_request_method = false;
+
+	/**
+	 * The pre-test value of $_SERVER['REQUEST_METHOD'], if any.
+	 *
+	 * @var string|null
+	 */
+	private ?string $old_request_method = null;
+
+	/**
 	 * Reset state before each test.
 	 *
 	 * @before
@@ -45,6 +59,13 @@ class MenuTest extends BaseTestCase {
 		delete_transient( Onboarding_Wizard::REDIRECT_TRANSIENT );
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- test cleanup.
 		$_GET = array();
+
+		// Snapshot REQUEST_METHOD so the POST-guard tests can mutate it and
+		// tear_down_state() can restore the original (or drop the key).
+		$this->had_request_method = array_key_exists( 'REQUEST_METHOD', $_SERVER );
+		// phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- Snapshotting for teardown restore (string-cast; null when the key is absent).
+		$this->old_request_method = isset( $_SERVER['REQUEST_METHOD'] ) ? (string) $_SERVER['REQUEST_METHOD'] : null;
+
 		wp_set_current_user( 0 );
 
 		// Tests below assume an ActivityPub provider is registered (matching
@@ -64,6 +85,14 @@ class MenuTest extends BaseTestCase {
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- test cleanup.
 		$_GET = array();
 		remove_all_filters( 'wp_redirect' );
+
+		// Restore REQUEST_METHOD: put the original value back if it existed,
+		// otherwise drop the key so a POST-guard test can't leak into siblings.
+		if ( $this->had_request_method ) {
+			$_SERVER['REQUEST_METHOD'] = $this->old_request_method;
+		} else {
+			unset( $_SERVER['REQUEST_METHOD'] );
+		}
 
 		// Drop only the canary callbacks this test registered, leaving any
 		// WordPress core hooks intact so later tests aren't order-dependent.
@@ -164,6 +193,47 @@ class MenuTest extends BaseTestCase {
 		$this->assertNotFalse( get_option( Onboarding_Wizard::REDIRECT_OPTION ) );
 
 		remove_filter( 'wp_doing_cron', '__return_true' );
+	}
+
+	/**
+	 * A form POST skips the redirect and preserves the option.
+	 *
+	 * The admin-post.php endpoint fires admin_init before dispatching its
+	 * admin_post_* actions. Without this guard, a POST that reaches
+	 * admin_init while the redirect option is set would be swallowed by the
+	 * redirect+exit, silently dropping the submitted data. The option is
+	 * preserved so a later GET admin request can still land on the wizard.
+	 */
+	public function test_skips_on_post_request_and_preserves_option(): void {
+		$this->become_admin();
+		update_option( Onboarding_Wizard::REDIRECT_OPTION, 1, false );
+		$_SERVER['REQUEST_METHOD'] = 'POST';
+		$this->arm_redirect_trap();
+
+		Menu::maybe_redirect_to_wizard();
+
+		$this->assertFalse( $this->redirect_fired() );
+		$this->assertNotFalse( get_option( Onboarding_Wizard::REDIRECT_OPTION ) );
+	}
+
+	/**
+	 * A GET request with all other guards passing still redirects — confirms
+	 * the POST guard is scoped to POST and doesn't suppress the normal path.
+	 */
+	public function test_redirects_on_get_request(): void {
+		$this->become_admin();
+		update_option( Onboarding_Wizard::REDIRECT_OPTION, 1, false );
+		$_SERVER['REQUEST_METHOD'] = 'GET';
+		$this->arm_redirect_trap();
+
+		try {
+			Menu::maybe_redirect_to_wizard();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$this->assertTrue( $this->redirect_fired() );
+		$this->assertFalse( get_option( Onboarding_Wizard::REDIRECT_OPTION ) );
 	}
 
 	/**
@@ -468,6 +538,85 @@ class MenuTest extends BaseTestCase {
 		do_action( 'admin_notices' );
 
 		$this->assertContains( 'admin_notices', $fired, 'Late-stage suppression must not affect unrelated screens.' );
+	}
+
+	// --- enqueue_assets scope ---
+
+	/**
+	 * The admin CSS is enqueued on each of FOSSE's own admin hook suffixes.
+	 *
+	 * @param string $hook_suffix Hook suffix under test.
+	 * @dataProvider provide_fosse_hook_suffixes
+	 */
+	#[DataProvider( 'provide_fosse_hook_suffixes' )]
+	public function test_enqueues_admin_css_on_fosse_screens( string $hook_suffix ): void {
+		wp_dequeue_style( 'fosse-admin' );
+		wp_deregister_style( 'fosse-admin' );
+
+		try {
+			Menu::enqueue_assets( $hook_suffix );
+
+			$this->assertTrue(
+				wp_style_is( 'fosse-admin', 'enqueued' ),
+				"Admin CSS should load on the {$hook_suffix} screen."
+			);
+		} finally {
+			wp_dequeue_style( 'fosse-admin' );
+			wp_deregister_style( 'fosse-admin' );
+		}
+	}
+
+	/**
+	 * The admin CSS is NOT enqueued on a third-party screen whose hook
+	 * suffix merely shares FOSSE's prefix. Guards against the pre-fix
+	 * `str_starts_with( $hook_suffix, 'toplevel_page_fosse' )` /
+	 * `str_starts_with( $hook_suffix, 'fosse_page_' )` regression, which
+	 * loaded FOSSE's CSS onto a foreign plugin's screen.
+	 *
+	 * @param string $hook_suffix Hook suffix under test.
+	 * @dataProvider provide_non_fosse_hook_suffixes
+	 */
+	#[DataProvider( 'provide_non_fosse_hook_suffixes' )]
+	public function test_does_not_enqueue_admin_css_on_foreign_screens( string $hook_suffix ): void {
+		wp_dequeue_style( 'fosse-admin' );
+		wp_deregister_style( 'fosse-admin' );
+
+		try {
+			Menu::enqueue_assets( $hook_suffix );
+
+			$this->assertFalse(
+				wp_style_is( 'fosse-admin', 'enqueued' ),
+				"Admin CSS must not load on the foreign {$hook_suffix} screen."
+			);
+		} finally {
+			wp_dequeue_style( 'fosse-admin' );
+			wp_deregister_style( 'fosse-admin' );
+		}
+	}
+
+	/**
+	 * FOSSE's own admin hook suffixes (mirrors the screen IDs registered in
+	 * {@see Menu::add_menu()}).
+	 *
+	 * @return iterable<string, array{0: string}>
+	 */
+	public static function provide_fosse_hook_suffixes(): iterable {
+		yield 'settings (top-level)' => array( 'toplevel_page_fosse' );
+		yield 'status (subpage)'     => array( 'fosse_page_fosse-status' );
+		yield 'wizard (hidden)'      => array( 'admin_page_fosse-wizard' );
+	}
+
+	/**
+	 * Lookalike hook suffixes that share FOSSE's prefix but belong to other
+	 * plugins — these must not trigger the FOSSE asset enqueue.
+	 *
+	 * @return iterable<string, array{0: string}>
+	 */
+	public static function provide_non_fosse_hook_suffixes(): iterable {
+		yield 'top-level prefix lookalike' => array( 'toplevel_page_fosse-companion' );
+		yield 'subpage prefix lookalike'   => array( 'fosse_page_fosse-companion-status' );
+		yield 'unrelated screen'           => array( 'toplevel_page_plugins' );
+		yield 'empty suffix'               => array( '' );
 	}
 
 	// --- is_fosse_admin_screen ---

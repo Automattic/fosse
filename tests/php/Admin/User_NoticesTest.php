@@ -216,6 +216,51 @@ class User_NoticesTest extends BaseTestCase {
 	}
 
 	/**
+	 * The consume() helper must NOT drain the transient during an admin-ajax request.
+	 *
+	 * `admin_init` fires on admin-ajax.php (Heartbeat ticks, other
+	 * plugins' polls). A background ajax request from another open
+	 * wp-admin tab must not eat the pending notices before the user's
+	 * redirect target renders them — otherwise the "Settings saved" /
+	 * error banner is silently lost.
+	 */
+	public function test_consume_is_noop_during_ajax_request(): void {
+		$user_id = $this->as_user();
+
+		add_settings_error( 'atmosphere', 'fosse_test', 'Survives the ajax tick.', 'info' );
+		User_Notices::persist();
+		$this->assertNotFalse( get_transient( 'fosse_settings_errors_' . $user_id ) );
+
+		// Simulate the background ajax request: fresh request-global, and
+		// wp_doing_ajax() returns true via the core filter.
+		global $wp_settings_errors;
+		$wp_settings_errors = array(); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited,WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedVariableFound -- simulating a fresh ajax request.
+
+		$doing_ajax = '__return_true';
+		add_filter( 'wp_doing_ajax', $doing_ajax );
+
+		User_Notices::consume();
+
+		remove_filter( 'wp_doing_ajax', $doing_ajax );
+
+		// The transient must still be intact — the ajax tick must not have
+		// consumed it.
+		$this->assertNotFalse( get_transient( 'fosse_settings_errors_' . $user_id ) );
+
+		// And nothing was merged into the request-global during the tick.
+		$messages = wp_list_pluck( get_settings_errors( 'atmosphere' ), 'message' );
+		$this->assertNotContains( 'Survives the ajax tick.', $messages );
+
+		// A subsequent real page view (no ajax) consumes it as normal.
+		$wp_settings_errors = array(); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited,WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedVariableFound -- simulating the real page load that follows.
+		User_Notices::consume();
+
+		$messages = wp_list_pluck( get_settings_errors( 'atmosphere' ), 'message' );
+		$this->assertContains( 'Survives the ajax tick.', $messages );
+		$this->assertFalse( get_transient( 'fosse_settings_errors_' . $user_id ) );
+	}
+
+	/**
 	 * The register() helper wires consume() onto admin_init priority 1.
 	 *
 	 * Priority 1 ensures the merge runs before any settings_errors()
