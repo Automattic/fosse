@@ -278,10 +278,25 @@ add_action(
  *
  * Same degradation posture as the projectors above — if FOSSE's
  * autoload is missing entirely, both classes silently skip.
+ *
+ * Deferral: newer ActivityPub ships this exact implementation natively
+ * (FOSSE's encoder upstreamed — same hooks, same injected `blurhash`
+ * member, its own `_activitypub_blurhash` meta key). Running both would
+ * double the cron encode work and meta rows for identical output, so
+ * when AP's class is present FOSSE registers only the hand-off bridge,
+ * which lazily copies FOSSE-era hashes into AP's store the first time
+ * each attachment federates ({@see Automattic\Fosse\Blurhash_Handoff}).
+ * Backfills then belong to AP's own `wp activitypub blurhash` command.
  */
 add_action(
 	'init',
 	static function () {
+		if ( class_exists( \Automattic\Fosse\Blurhash_Handoff::class )
+			&& \Automattic\Fosse\Blurhash_Handoff::should_defer() ) {
+			\Automattic\Fosse\Blurhash_Handoff::register();
+			return;
+		}
+
 		if ( ! class_exists( \Automattic\Fosse\Blurhash::class ) ) {
 			return;
 		}
