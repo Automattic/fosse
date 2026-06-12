@@ -1675,6 +1675,153 @@ class Bluesky_ProviderTest extends BaseTestCase {
 	}
 
 	/**
+	 * Build a provider whose authorize-URL lookup is stubbed to a fixed value.
+	 *
+	 * The real `Atmosphere\OAuth\Client::authorize()` result is remote-
+	 * controlled (the auth server's advertised `authorization_endpoint`),
+	 * so the redirect guard must be testable without trusting upstream
+	 * validation. The anonymous subclass overrides the seam to simulate
+	 * a hostile or drifted Atmosphere implementation.
+	 *
+	 * The returned instance exposes a public `stub_called` flag that
+	 * flips true when the seam runs.
+	 *
+	 * @param string|\WP_Error $authorize_url Value the seam returns.
+	 * @return Bluesky_Provider
+	 */
+	private function provider_with_stubbed_authorize( $authorize_url ): Bluesky_Provider {
+		$provider = new class() extends Bluesky_Provider {
+			/**
+			 * Stubbed authorize URL.
+			 *
+			 * @var string|\WP_Error
+			 */
+			public $stub_authorize_url = '';
+
+			/**
+			 * Whether the seam ran.
+			 *
+			 * @var bool
+			 */
+			public bool $stub_called = false;
+
+			/**
+			 * Override the authorize-URL seam.
+			 *
+			 * @param string $handle Validated handle.
+			 * @return string|\WP_Error
+			 */
+			protected function request_authorize_url( string $handle ): string|\WP_Error {
+				unset( $handle );
+				$this->stub_called = true;
+				return $this->stub_authorize_url;
+			}
+		};
+
+		$provider->stub_authorize_url = $authorize_url;
+
+		return $provider;
+	}
+
+	/**
+	 * A non-https authorize URL from the OAuth client must not be
+	 * redirected to. Atmosphere's bundled Resolver validates the
+	 * `authorization_endpoint` scheme upstream, but FOSSE redirects
+	 * whatever `authorize()` returns — a forked or drifted Atmosphere
+	 * could hand back `http://` (or an exotic scheme) and turn the
+	 * connect action into an off-https redirect carrying OAuth params.
+	 */
+	public function test_handle_connect_rejects_non_https_authorize_url() {
+		$this->become_admin();
+
+		$provider = $this->provider_with_stubbed_authorize( 'http://pds.example/oauth/authorize?client_id=x' );
+
+		add_filter(
+			'pre_http_request',
+			static function () {
+				return new \WP_Error( 'fosse_test', 'network must not be hit' );
+			}
+		);
+
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
+		$_POST    = array(
+			'_wpnonce'       => wp_create_nonce( 'fosse_connect_bluesky' ),
+			'bluesky_handle' => 'alice.invalid',
+		);
+		$_REQUEST = $_POST;
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+
+		$captured = null;
+		add_filter(
+			'wp_redirect',
+			static function ( $location ) use ( &$captured ) {
+				$captured = (string) $location;
+				throw new RedirectFired( 'redirect' );
+			}
+		);
+
+		try {
+			$provider->handle_connect();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$this->assertTrue( $provider->stub_called, 'handle_connect must fetch the authorize URL through the overridable seam.' );
+
+		$this->assertNotNull( $captured );
+		$this->assertStringNotContainsString( 'pds.example', $captured, 'Must not redirect to the insecure authorize URL.' );
+
+		$errors   = get_settings_errors( 'atmosphere' );
+		$messages = array_column( $errors, 'message' );
+
+		$this->assertNotEmpty( $messages );
+		$this->assertStringContainsString( 'insecure', strtolower( implode( ' ', $messages ) ) );
+	}
+
+	/**
+	 * An https authorize URL passes through the guard unchanged — the
+	 * guard must not break the normal connect flow.
+	 */
+	public function test_handle_connect_redirects_to_https_authorize_url() {
+		$this->become_admin();
+
+		$auth_url = 'https://pds.example/oauth/authorize?client_id=x&state=y';
+		$provider = $this->provider_with_stubbed_authorize( $auth_url );
+
+		add_filter(
+			'pre_http_request',
+			static function () {
+				return new \WP_Error( 'fosse_test', 'network must not be hit' );
+			}
+		);
+
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- test setup.
+		$_POST    = array(
+			'_wpnonce'       => wp_create_nonce( 'fosse_connect_bluesky' ),
+			'bluesky_handle' => 'alice.invalid',
+		);
+		$_REQUEST = $_POST;
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
+
+		$captured = null;
+		add_filter(
+			'wp_redirect',
+			static function ( $location ) use ( &$captured ) {
+				$captured = (string) $location;
+				throw new RedirectFired( 'redirect' );
+			}
+		);
+
+		try {
+			$provider->handle_connect();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$this->assertSame( $auth_url, $captured, 'A valid https authorize URL must be redirected to unchanged.' );
+	}
+
+	/**
 	 * Setup-origin connect requests clear stale wizard OAuth return context.
 	 */
 	public function test_handle_connect_from_setup_clears_stale_wizard_return_context() {

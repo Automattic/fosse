@@ -1019,7 +1019,7 @@ class Bluesky_Provider implements Connection_Provider {
 			return;
 		}
 
-		$auth_url = \Atmosphere\OAuth\Client::authorize( $handle );
+		$auth_url = $this->request_authorize_url( $handle );
 
 		if ( is_wp_error( $auth_url ) ) {
 			self::record_connection_failed( 'bluesky', $source, self::categorize_wp_error( $auth_url ) );
@@ -1027,10 +1027,40 @@ class Bluesky_Provider implements Connection_Provider {
 			return;
 		}
 
+		// Defense-in-depth: the authorize URL is built from the remote auth
+		// server's advertised `authorization_endpoint`. Bundled Atmosphere
+		// validates the scheme during resolution, but a standalone or forked
+		// Atmosphere may not — never hand the browser a non-https
+		// authorization redirect.
+		if ( 'https' !== strtolower( (string) wp_parse_url( $auth_url, PHP_URL_SCHEME ) ) ) {
+			self::record_connection_failed( 'bluesky', $source, 'auth_failed' );
+			$this->redirect_with_notice(
+				__( 'Bluesky connection failed: the account\'s server returned an insecure sign-in address. Please try again or contact your Bluesky host.', 'fosse' ),
+				'error',
+				$return_context
+			);
+			return;
+		}
+
 		$this->remember_oauth_return_context( $return_context );
 
 		wp_redirect( $auth_url ); // phpcs:ignore WordPress.Security.SafeRedirect.wp_redirect_wp_redirect
 		exit;
+	}
+
+	/**
+	 * Fetch the authorization URL for a validated handle from the OAuth client.
+	 *
+	 * Seam for tests: `Client::authorize()` is a static call whose return
+	 * value is remote-controlled (the auth server's advertised
+	 * `authorization_endpoint`), so subclasses override this to exercise
+	 * the redirect guard in `handle_connect()` without a live OAuth flow.
+	 *
+	 * @param string $handle Validated AT Protocol handle.
+	 * @return string|\WP_Error Authorization URL or error.
+	 */
+	protected function request_authorize_url( string $handle ): string|\WP_Error {
+		return \Atmosphere\OAuth\Client::authorize( $handle );
 	}
 
 	/**
