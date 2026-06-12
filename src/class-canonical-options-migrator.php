@@ -179,7 +179,7 @@ class Canonical_Options_Migrator {
 			 * directly against the raw options row so the migration never
 			 * deletes a legacy value on a phantom canonical.
 			 */
-			$existing            = \get_option( 'activitypub_object_type', $sentinel );
+			$existing             = \get_option( 'activitypub_object_type', $sentinel );
 			$canonical_row_exists = self::canonical_option_row_exists( 'activitypub_object_type' );
 			if ( $sentinel === $existing || ! $canonical_row_exists ) {
 				\update_option( 'activitypub_object_type', 'note' );
@@ -360,14 +360,14 @@ class Canonical_Options_Migrator {
 
 		// Three filter chains can intercept `get_option()`:
 		//
-		//  - `pre_option_{$option}` — runs BEFORE any cache/DB lookup; a
-		//    return other than `false` short-circuits the rest of the
-		//    function and is returned verbatim. A pinned non-false
-		//    return would otherwise make an absent row look present.
-		//  - `default_option_{$option}` — runs when the row is absent and
-		//    rewrites the default value before return.
-		//  - `option_{$option}` — runs when the row IS present and
-		//    rewrites the stored value before return.
+		// - `pre_option_{$option}` — runs BEFORE any cache/DB lookup; a
+		// return other than `false` short-circuits the rest of the
+		// function and is returned verbatim. A pinned non-false
+		// return would otherwise make an absent row look present.
+		// - `default_option_{$option}` — runs when the row is absent and
+		// rewrites the default value before return.
+		// - `option_{$option}` — runs when the row IS present and
+		// rewrites the stored value before return.
 		//
 		// Detaching all three for the duration of one sentinel read is
 		// the only way `get_option()` faithfully signals row existence
@@ -394,7 +394,7 @@ class Canonical_Options_Migrator {
 			return $sentinel !== $value;
 		} finally {
 			foreach ( $saved as $key => $callbacks ) {
-				$wp_filter[ $key ] = $callbacks;
+				$wp_filter[ $key ] = $callbacks; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- restoring the filter chains we detached above for a single bypassing read; see method docblock.
 			}
 		}
 	}
