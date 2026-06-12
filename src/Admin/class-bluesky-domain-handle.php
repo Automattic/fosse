@@ -825,6 +825,38 @@ class Bluesky_Domain_Handle {
 		if ( is_array( $identity ) && ! empty( $identity['did'] ) ) {
 			$identity['handle'] = $handle;
 			update_option( 'atmosphere_identity', $identity, true );
+
+			// Read-after-write convergence check: `update_option()` can
+			// silently fail to persist when a `pre_update_option_*`
+			// filter returns the old value (e.g. site policy that pins
+			// the identity) or when an options cache layer returns stale
+			// data. Without this, the PDS-side change succeeds, the
+			// success notice fires, and the canonical local identity
+			// `\Atmosphere\get_identity()` reads keeps returning the old
+			// handle — public verification headers and the publishing UI
+			// then drift on the local surface even though the remote
+			// account changed. Surface a warning notice so the operator
+			// knows the local mirror did not converge, and log for
+			// debug.
+			$identity_after = get_option( 'atmosphere_identity', array() );
+			$persisted      = is_array( $identity_after ) && isset( $identity_after['handle'] )
+				? (string) $identity_after['handle']
+				: '';
+			if ( $persisted !== $handle ) {
+				if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+					error_log( 'FOSSE: atmosphere_identity did not converge after sync; PDS handle change succeeded but local mirror is stale.' ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+				}
+				add_settings_error(
+					'atmosphere',
+					'fosse_identity_sync_drift',
+					sprintf(
+						/* translators: %s: the handle the PDS now serves. */
+						esc_html__( 'Your Bluesky account was updated to %s, but FOSSE could not refresh its local identity record. The new handle may not appear correctly until you reconnect.', 'fosse' ),
+						esc_html( $handle )
+					),
+					'warning'
+				);
+			}
 		}
 	}
 

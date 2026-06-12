@@ -827,6 +827,60 @@ class Bluesky_Domain_HandleTest extends BaseTestCase {
 	}
 
 	/**
+	 * If a `pre_update_option_atmosphere_identity` filter pins the
+	 * identity (site policy, third-party plugin, or stale options
+	 * cache), `update_option()` silently fails to persist. Without a
+	 * read-after-write convergence check, the PDS-side handle change
+	 * succeeds, the success notice fires, and `Atmosphere\get_identity()`
+	 * keeps returning the old handle — public verification headers and
+	 * the publishing UI drift on the local surface. Regression guard.
+	 */
+	public function test_sync_local_connection_handle_warns_when_identity_write_does_not_converge(): void {
+		// Seed both connection and identity with the OLD handle plus a DID
+		// so the mirror branch fires.
+		update_option(
+			'atmosphere_connection',
+			array(
+				'handle' => 'old.bsky.social',
+				'did'    => 'did:plc:test',
+			)
+		);
+		update_option(
+			'atmosphere_identity',
+			array(
+				'handle' => 'old.bsky.social',
+				'did'    => 'did:plc:test',
+			)
+		);
+
+		// Pin the identity option so updates can't land.
+		$pin = static function ( $value, $old_value ) {
+			unset( $value );
+			return $old_value;
+		};
+		add_filter( 'pre_update_option_atmosphere_identity', $pin, 10, 2 );
+
+		$method = new \ReflectionMethod( Bluesky_Domain_Handle::class, 'sync_local_connection_handle' );
+
+		try {
+			$method->invoke( null, 'new.example.com' );
+		} finally {
+			remove_filter( 'pre_update_option_atmosphere_identity', $pin, 10 );
+		}
+
+		// Identity stays at the old handle.
+		$identity = get_option( 'atmosphere_identity' );
+		$this->assertSame( 'old.bsky.social', $identity['handle'] );
+
+		// And a warning notice surfaces under the atmosphere group.
+		$errors   = get_settings_errors( 'atmosphere' );
+		$codes    = array_column( $errors, 'code' );
+		$messages = array_column( $errors, 'message' );
+		$this->assertContains( 'fosse_identity_sync_drift', $codes );
+		$this->assertStringContainsString( 'new.example.com', implode( ' ', $messages ) );
+	}
+
+	/**
 	 * No-op when the connection handle already matches the site host —
 	 * nothing to call, nothing to snapshot. Posts an info notice so the
 	 * user understands "you're already set" instead of seeing a silent
