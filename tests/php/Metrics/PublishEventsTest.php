@@ -157,6 +157,75 @@ class PublishEventsTest extends BaseTestCase {
 		$this->assertNoMcBumped( 'fosse-publish-success-mastodon' );
 	}
 
+	/**
+	 * Failure → success transition for the same source post: when the
+	 * first Create's inbox sends all fail (recording a `'failure'`
+	 * `fosse_publish_result`), a later same-source Create whose inbox
+	 * sends DO succeed must still record the success event AND bump
+	 * `fosse-publish-success-mastodon`. A bare boolean marker that
+	 * latched on any prior emit would permanently suppress legitimate
+	 * success metrics whenever the first attempt failed. Status-aware
+	 * marker semantics: only `'success'` is the final no-emit terminal
+	 * state; `'failure'` is allowed to transition to `'success'`.
+	 */
+	public function test_ap_outbox_failure_then_later_success_records_the_success(): void {
+		// First Create / all inboxes fail.
+		$first_outbox = $this->make_outbox_item();
+
+		\do_action(
+			'activitypub_sent_to_inbox',
+			new \WP_Error( 'http_request_failed', 'transient' ),
+			'https://example.com/inbox',
+			'{}',
+			1,
+			$first_outbox
+		);
+		\do_action( 'activitypub_outbox_processing_complete', array( 'https://example.com/inbox' ), '{}', 1, $first_outbox, 1, 0 );
+
+		// Failure event was recorded; success was not.
+		$this->assertEventRecorded(
+			'fosse_publish_result',
+			array(
+				'network' => 'mastodon',
+				'status'  => 'failure',
+			)
+		);
+		$this->assertNoMcBumped( 'fosse-publish-success-mastodon' );
+
+		$this->reset_metrics_channels();
+
+		// A later Create for the SAME source post (a retry, or the AP
+		// resurrection path firing after the original attempt failed).
+		$source_post_id = (int) \url_to_postid( \get_post_meta( $first_outbox, '_activitypub_object_id', true ) );
+		$retry_outbox   = \wp_insert_post(
+			array(
+				'post_title'  => '[Create] retry outbox item',
+				'post_status' => 'pending',
+				'post_type'   => 'post',
+			)
+		);
+		\update_post_meta( $retry_outbox, '_activitypub_activity_type', 'Create' );
+		\update_post_meta( $retry_outbox, '_activitypub_object_id', \add_query_arg( 'p', $source_post_id, \home_url( '/' ) ) );
+
+		\do_action( 'activitypub_sent_to_inbox', array( 'response' => array( 'code' => 202 ) ), 'https://example.com/inbox', '{}', 1, $retry_outbox );
+		\do_action( 'activitypub_outbox_processing_complete', array( 'https://example.com/inbox' ), '{}', 1, $retry_outbox, 1, 0 );
+
+		// The retry's success MUST be recorded — the failure marker
+		// allowed the transition.
+		$this->assertEventRecorded(
+			'fosse_publish_result',
+			array(
+				'network' => 'mastodon',
+				'status'  => 'success',
+			)
+		);
+		$this->assertMcBumped( 'fosse-publish-success-mastodon' );
+	}
+
+	/**
+	 * Happy-path AP dispatch with at least one successful inbox emits a
+	 * `success` `fosse_publish_result` and bumps the MC counter.
+	 */
 	public function test_ap_outbox_success_emits_success_event(): void {
 		$outbox_id = $this->make_outbox_item();
 

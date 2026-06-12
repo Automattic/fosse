@@ -266,14 +266,18 @@ class Publish_Events {
 			return;
 		}
 
-		// Per-post idempotency: skip the emit when this source post has
-		// already counted as a `fosse_publish_result`. Without the guard,
-		// AP's resurrection path (a previously-deleted post becomes
-		// publicly queryable again, scheduler enqueues another `Create`)
-		// would double-count an already-recorded publish on every
-		// resurrection.
+		// Per-post idempotency: suppress this emit only when a PRIOR
+		// success has already been recorded for this source post. A bare
+		// boolean marker (set on every emit, including failures) would
+		// permanently block legitimate later successes — if the first
+		// Create has zero successful inbox sends, the marker would be
+		// set, and a later same-source success (resurrection path, retry)
+		// would early-return before recording. Allowing failure → success
+		// transitions matches the funnel intent: "did this post ever
+		// successfully federate?"
 		$source_post_id = self::source_post_id_for_outbox_item( $outbox_item_id );
-		if ( $source_post_id > 0 && \get_post_meta( $source_post_id, self::AP_PUBLISH_RECORDED_META_KEY, true ) ) {
+		if ( $source_post_id > 0
+			&& 'success' === \get_post_meta( $source_post_id, self::AP_PUBLISH_RECORDED_META_KEY, true ) ) {
 			return;
 		}
 
@@ -304,11 +308,13 @@ class Publish_Events {
 			Recorder::bump( 'fosse-publish-success-mastodon' );
 		}
 
-		// Idempotency marker is set after the emit so a re-fire of the
-		// hook (cron retry, queue replay) won't have an early-exit win
-		// when the original emit never recorded.
+		// Persist the LATEST status, not just the fact that we recorded
+		// anything. Failure stays as `'failure'` so a later same-source
+		// retry/resurrection can still record the success transition
+		// (failure → success); success locks the guard so a later
+		// resurrection-driven `Create` is suppressed (success → success).
 		if ( $source_post_id > 0 ) {
-			\update_post_meta( $source_post_id, self::AP_PUBLISH_RECORDED_META_KEY, 1 );
+			\update_post_meta( $source_post_id, self::AP_PUBLISH_RECORDED_META_KEY, $status );
 		}
 	}
 
@@ -360,13 +366,23 @@ class Publish_Events {
 
 	/**
 	 * Per-post idempotency marker for `fosse_publish_result` (Mastodon
-	 * network).
+	 * network). Stores the LAST recorded status — `'success'` or
+	 * `'failure'` — not a bare boolean.
 	 *
 	 * The bundled scheduler emits another `Create` outbox item when a
 	 * previously-deleted/federated post becomes publicly queryable again
 	 * (the AP "resurrection" path). Without a per-post guard the same
 	 * source post would tick `fosse-publish-success-mastodon` twice —
 	 * once on the original publish, once on every resurrection.
+	 *
+	 * Status-aware semantics:
+	 *
+	 *  - `''` (unset) — never recorded. Emit normally and persist status.
+	 *  - `'failure'` — last attempt failed. Allow the next emit so a
+	 *    later success transition (failure → success) still records;
+	 *    persist the new status.
+	 *  - `'success'` — already counted as a successful publish. Skip
+	 *    the emit; resurrection/retry must not double-count.
 	 *
 	 * Marker lives on the SOURCE post (not the outbox item) so it survives
 	 * outbox cleanup, and is cleared on a hard delete of the source post
