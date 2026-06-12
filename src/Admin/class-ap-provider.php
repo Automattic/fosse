@@ -421,16 +421,28 @@ class AP_Provider implements Connection_Provider {
 				// only the entries this `update_option` call appended.
 				$ap_error_count_before = count( get_settings_errors( 'activitypub_blog_identifier' ) );
 
-				// Snapshot the prior option so a sanitizer collision the
-				// pre-check missed (race vs. concurrent user creation,
-				// third-party `sanitize_option_activitypub_blog_identifier`
-				// filter, etc.) doesn't leave the AP fallback persisted
-				// over the previously saved handle. The post-write
-				// inspection below restores the snapshot when fresh AP
-				// errors appear.
-				$prior_blog_identifier = get_option( 'activitypub_blog_identifier', '' );
+				// Cancel the write at `pre_update_option_*` (after sanitize
+				// runs, before WP commits) if AP's sanitizer raised any
+				// fresh error. This short-circuits BEFORE
+				// `update_option_activitypub_blog_identifier` fires, so the
+				// AP scheduler can't observe the bad fallback value and
+				// queue an outbox Update for a rejected handle. A post-write
+				// restore would only put the option text back; AP's side
+				// effects (outbox, follower notifications) would already
+				// be in flight.
+				$cancel_on_fresh_error = static function ( $new_value, $old_value ) use ( $ap_error_count_before ) {
+					if ( count( get_settings_errors( 'activitypub_blog_identifier' ) ) > $ap_error_count_before ) {
+						return $old_value;
+					}
+					return $new_value;
+				};
+				add_filter( 'pre_update_option_activitypub_blog_identifier', $cancel_on_fresh_error, 999, 2 );
 
-				update_option( 'activitypub_blog_identifier', $raw );
+				try {
+					update_option( 'activitypub_blog_identifier', $raw );
+				} finally {
+					remove_filter( 'pre_update_option_activitypub_blog_identifier', $cancel_on_fresh_error, 999 );
+				}
 
 				// AP's sanitizer raises settings errors under its own group
 				// when the input collides with an existing user_login /
@@ -448,17 +460,6 @@ class AP_Provider implements Connection_Provider {
 						$ap_error['message'],
 						$ap_error['type']
 					);
-				}
-
-				// When AP rejected the input, the sanitizer wrote
-				// `Blog::get_default_username()` over the prior value.
-				// Restore the snapshot so the existing blog actor handle
-				// (and any followers attached to it) survives a missed
-				// pre-check. Without this the error notice would claim
-				// "your previous handle was kept" while the option had
-				// actually been clobbered.
-				if ( ! empty( $new_ap_errors ) ) {
-					update_option( 'activitypub_blog_identifier', $prior_blog_identifier );
 				}
 			}
 		}

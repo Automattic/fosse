@@ -361,14 +361,26 @@ class Onboarding_Wizard {
 						// the queue. Mirrors AP_Provider::save_settings.
 						$ap_error_count_before = count( get_settings_errors( 'activitypub_blog_identifier' ) );
 
-						// Snapshot the prior option so a sanitizer collision
-						// the pre-check missed doesn't leave AP's fallback
-						// persisted over the previously saved handle. The
-						// rejection branch below restores the snapshot when
-						// fresh AP errors appear.
-						$prior_blog_identifier = get_option( 'activitypub_blog_identifier', '' );
+						// Cancel the write at `pre_update_option_*` (after
+						// sanitize runs, before WP commits) if AP's sanitizer
+						// raised any fresh error. Short-circuiting BEFORE
+						// `update_option_activitypub_blog_identifier` fires
+						// keeps AP's scheduler from observing the bad fallback
+						// value and queuing an outbox Update for a rejected
+						// handle. Mirrors AP_Provider::save_settings.
+						$cancel_on_fresh_error = static function ( $new_value, $old_value ) use ( $ap_error_count_before ) {
+							if ( count( get_settings_errors( 'activitypub_blog_identifier' ) ) > $ap_error_count_before ) {
+								return $old_value;
+							}
+							return $new_value;
+						};
+						add_filter( 'pre_update_option_activitypub_blog_identifier', $cancel_on_fresh_error, 999, 2 );
 
-						update_option( 'activitypub_blog_identifier', $raw );
+						try {
+							update_option( 'activitypub_blog_identifier', $raw );
+						} finally {
+							remove_filter( 'pre_update_option_activitypub_blog_identifier', $cancel_on_fresh_error, 999 );
+						}
 
 						// Re-tag any fresh AP errors under our own group so the
 						// appearance step's `settings_errors( 'fosse' )` render
@@ -385,14 +397,6 @@ class Onboarding_Wizard {
 								$ap_error['message'],
 								$ap_error['type']
 							);
-						}
-
-						// Restore the prior value if AP's sanitizer rejected
-						// the input. Without this, the wizard's "your previous
-						// handle was kept" message would be a lie — the option
-						// would already carry the AP default.
-						if ( ! empty( $new_ap_errors ) ) {
-							update_option( 'activitypub_blog_identifier', $prior_blog_identifier );
 						}
 					}
 				}

@@ -935,21 +935,23 @@ class AP_ProviderTest extends BaseTestCase {
 	 * If AP's sanitizer rejects the input despite our pre-check (e.g. a
 	 * third-party `sanitize_option_activitypub_blog_identifier` filter
 	 * adds the rejection after our check has passed, or a concurrent
-	 * user creation slips in between), the post-write inspection must
-	 * restore the prior option value. Without the restore, `update_option`
-	 * would persist AP's `Blog::get_default_username()` fallback over the
-	 * existing saved handle while our error notice claims "your previous
-	 * handle was kept" — exactly the silent clobber the PR is meant to
-	 * prevent.
+	 * user creation slips in between), the write must be cancelled at
+	 * `pre_update_option_*` so the AP scheduler never observes the bad
+	 * fallback value via `update_option_activitypub_blog_identifier` and
+	 * queues an outbox Update for a rejected handle.
+	 *
+	 * A naive post-write restore would only flip the option text back —
+	 * AP's outbox side effect would already be in flight. This test
+	 * pins both invariants: the option keeps its prior value AND the
+	 * `update_option_*` action never fires on the rejection path.
 	 */
-	public function test_save_settings_restores_prior_value_when_post_write_check_trips() {
+	public function test_save_settings_cancels_write_when_sanitizer_rejects_after_pre_check() {
 		update_option( 'activitypub_blog_identifier', 'preserved-handle' );
 
 		// Simulate an upstream sanitizer that swaps the value AND raises
 		// the standard collision error AFTER our pre-check has run. Only
-		// fires on the colliding input so the in-function restore call
-		// (which writes back the prior value through the same filter
-		// chain) passes through unchanged.
+		// fires on the colliding input so any later writes (e.g. the
+		// cancel path's pass-through) flow untouched.
 		$inject = static function ( $value ) {
 			if ( 'looks-fine-to-us' !== $value ) {
 				return $value;
@@ -964,6 +966,17 @@ class AP_ProviderTest extends BaseTestCase {
 		};
 		add_filter( 'sanitize_option_activitypub_blog_identifier', $inject, 99 );
 
+		// Catch `update_option_*` to prove the AP scheduler hook would
+		// never have seen the rejected value.
+		$update_action_fired_with = null;
+		$listener                 = static function ( $old, $new ) use ( &$update_action_fired_with ) {
+			$update_action_fired_with = array(
+				'old' => $old,
+				'new' => $new,
+			);
+		};
+		add_action( 'update_option_activitypub_blog_identifier', $listener, 10, 2 );
+
 		try {
 			$ok = $this->provider->save_settings(
 				$this->build_post(
@@ -975,13 +988,18 @@ class AP_ProviderTest extends BaseTestCase {
 			);
 		} finally {
 			remove_filter( 'sanitize_option_activitypub_blog_identifier', $inject, 99 );
+			remove_action( 'update_option_activitypub_blog_identifier', $listener, 10 );
 		}
 
 		$this->assertFalse( $ok );
 		$this->assertSame(
 			'preserved-handle',
 			get_option( 'activitypub_blog_identifier' ),
-			'Prior option must be restored when AP rejects the input after the pre-check passes.'
+			'Option must remain at the prior value when AP rejects after the pre-check passes.'
+		);
+		$this->assertNull(
+			$update_action_fired_with,
+			'update_option_activitypub_blog_identifier must not fire when the sanitizer rejects — otherwise the AP scheduler would queue an outbox Update for the rejected handle.'
 		);
 		$this->assertContains(
 			'activitypub_blog_identifier',
