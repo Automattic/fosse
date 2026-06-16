@@ -1,9 +1,9 @@
 <?php return array(
     'root' => array(
         'name' => 'automattic/atmosphere',
-        'pretty_version' => 'dev-trunk',
-        'version' => 'dev-trunk',
-        'reference' => '19f554eddfa2921ecb4f3fa0907547253eaa26c5',
+        'pretty_version' => '1.2.0',
+        'version' => '1.2.0.0',
+        'reference' => 'dc7dd8d80ebcdccaa43c7bedc25e08c62e31409d',
         'type' => 'wordpress-plugin',
         'install_path' => __DIR__ . '/../../',
         'aliases' => array(),
@@ -11,9 +11,9 @@
     ),
     'versions' => array(
         'automattic/atmosphere' => array(
-            'pretty_version' => 'dev-trunk',
-            'version' => 'dev-trunk',
-            'reference' => '19f554eddfa2921ecb4f3fa0907547253eaa26c5',
+            'pretty_version' => '1.2.0',
+            'version' => '1.2.0.0',
+            'reference' => 'dc7dd8d80ebcdccaa43c7bedc25e08c62e31409d',
             'type' => 'wordpress-plugin',
             'install_path' => __DIR__ . '/../../',
             'aliases' => array(),

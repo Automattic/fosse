@@ -14,6 +14,7 @@ namespace Atmosphere\Transformer;
 \defined( 'ABSPATH' ) || exit;
 
 use Atmosphere\API;
+use function Atmosphere\debug_log;
 use function Atmosphere\sanitize_text;
 use function Atmosphere\truncate_text;
 
@@ -676,10 +677,9 @@ class Post extends Base {
 		list( $file, $is_temp, $upload_mime ) = self::resolve_uploadable_image( $attachment_id, $mime );
 
 		if ( null === $file ) {
-			// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
-			\error_log(
+			debug_log(
 				\sprintf(
-					'[atmosphere] could not resolve an uploadable image for attachment %d (no readable local file and no fetchable size URL under the 1 MB cap); the image blob will be omitted',
+					'could not resolve an uploadable image for attachment %d (no readable local file and no fetchable size URL under the 1 MB cap); the image blob will be omitted',
 					$attachment_id
 				)
 			);
@@ -699,6 +699,7 @@ class Post extends Base {
 		}
 
 		if ( \is_wp_error( $result ) ) {
+			self::log_image_blob_upload_error( $attachment_id, $result );
 			return null;
 		}
 
@@ -1000,6 +1001,28 @@ class Post extends Base {
 	 */
 	public static function upload_thumbnail( int $attachment_id ): ?array {
 		return self::upload_image_blob( $attachment_id );
+	}
+
+	/**
+	 * Log an image blob upload failure before returning null to callers.
+	 *
+	 * Callers intentionally degrade differently (skip image, hotlink the
+	 * origin URL, or omit a cover image), so this is the common point
+	 * where transient PDS/auth/network failures stay visible.
+	 *
+	 * @param int       $attachment_id Attachment ID.
+	 * @param \WP_Error $error         Upload error.
+	 * @return void
+	 */
+	private static function log_image_blob_upload_error( int $attachment_id, \WP_Error $error ): void {
+		debug_log(
+			\sprintf(
+				'image blob upload failed for attachment %d: %s — %s',
+				$attachment_id,
+				$error->get_error_code(),
+				$error->get_error_message()
+			)
+		);
 	}
 
 	/**
@@ -1306,10 +1329,9 @@ class Post extends Base {
 		if ( \in_array( $strategy, array( 'teaser-thread', 'truncate-link' ), true )
 			&& ! $this->has_composable_body()
 		) {
-			// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
-			\error_log(
+			debug_log(
 				\sprintf(
-					'[atmosphere] post %d has no composable body/excerpt; downgrading "%s" to "link-card"',
+					'post %d has no composable body/excerpt; downgrading "%s" to "link-card"',
 					$this->object->ID,
 					$strategy
 				)
