@@ -114,6 +114,33 @@ class Reaction_Sync {
 	}
 
 	/**
+	 * Whether likes and reposts are imported (user setting).
+	 *
+	 * The gate is intentionally per-item: the sync watermarks keep
+	 * advancing while the setting is off, so interactions from the
+	 * off period are skipped for good rather than imported
+	 * retroactively when the setting is re-enabled.
+	 *
+	 * @return bool
+	 */
+	private static function reactions_enabled(): bool {
+		return '1' === \get_option( 'atmosphere_sync_reactions', '1' );
+	}
+
+	/**
+	 * Whether replies are imported as comments (user setting).
+	 *
+	 * Same going-forward semantics as {@see self::reactions_enabled()}:
+	 * replies that arrive while the setting is off are not imported
+	 * retroactively on re-enable.
+	 *
+	 * @return bool
+	 */
+	private static function replies_enabled(): bool {
+		return '1' === \get_option( 'atmosphere_sync_replies', '1' );
+	}
+
+	/**
 	 * Tell WordPress that like and repost comments are avatar-eligible.
 	 *
 	 * @param array $types Registered avatar-eligible comment types.
@@ -169,9 +196,9 @@ class Reaction_Sync {
 		 */
 		$token = Client::access_token();
 		if ( \is_wp_error( $token ) ) {
-			\error_log( // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+			debug_log(
 				\sprintf(
-					'[atmosphere] reaction sync aborted: %s — %s',
+					'reaction sync aborted: %s — %s',
 					$token->get_error_code(),
 					$token->get_error_message()
 				)
@@ -243,9 +270,9 @@ class Reaction_Sync {
 				 * stopped making progress (rate limit, OAuth refresh
 				 * failure, transient 5xx all surface here identically).
 				 */
-				\error_log( // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+				debug_log(
 					\sprintf(
-						'[atmosphere] reaction sync (%s) fetch failed: %s — %s',
+						'reaction sync (%s) fetch failed: %s — %s',
 						$option_key,
 						$response->get_error_code(),
 						$response->get_error_message()
@@ -384,6 +411,10 @@ class Reaction_Sync {
 	 * @return int|false Comment ID or false.
 	 */
 	private static function process_reply( array $notification ): int|false {
+		if ( ! self::replies_enabled() ) {
+			return false;
+		}
+
 		$reply_uri = $notification['uri'] ?? '';
 		$record    = $notification['record'] ?? array();
 		$author    = $notification['author'] ?? array();
@@ -494,6 +525,10 @@ class Reaction_Sync {
 	 * @return int|false Comment ID or false.
 	 */
 	private static function process_subject_reaction( array $notification, string $comment_type ): int|false {
+		if ( ! self::reactions_enabled() ) {
+			return false;
+		}
+
 		$uri    = $notification['uri'] ?? '';
 		$record = $notification['record'] ?? array();
 		$author = $notification['author'] ?? array();
