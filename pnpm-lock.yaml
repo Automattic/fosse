@@ -18,8 +18,8 @@ importers:
         specifier: ^25.4.0
         version: 25.4.0(@babel/core@7.29.7)(@typescript-eslint/eslint-plugin@8.60.1(@typescript-eslint/parser@8.60.1(eslint@9.39.4)(typescript@6.0.3))(eslint@9.39.4)(typescript@6.0.3))(@typescript-eslint/parser@8.60.1(eslint@9.39.4)(typescript@6.0.3))(eslint@9.39.4)(jest@30.4.2(@types/node@25.8.0))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@6.0.3)(wp-prettier@3.0.3)
       '@wordpress/prettier-config':
-        specifier: ^4.48.0
-        version: 4.48.0(wp-prettier@3.0.3)
+        specifier: ^4.48.1
+        version: 4.48.1(wp-prettier@3.0.3)
       '@wp-playground/cli':
         specifier: ^3.1.38
         version: 3.1.38
@@ -1471,8 +1471,8 @@ packages:
     resolution: {integrity: sha512-rU1yGEy0Mb+2oRG5QX/bKIIwKQmYAvATfUQeXIF20/mbR0qutYeVTCIvWEyb4pf71tvnQFiN18RWRXWsvKrDbQ==}
     engines: {node: '>=18.12.0', npm: '>=8.19.2'}
 
-  '@wordpress/prettier-config@4.48.0':
-    resolution: {integrity: sha512-TOxw/8xfJaUU4sKUQxZIoZOe43pU5J1bneAMDHcK8Qqr0vzAXyhVB6AZG1eRBofRa8DUFI7ipIIDWZWxWYypQg==}
+  '@wordpress/prettier-config@4.48.1':
+    resolution: {integrity: sha512-7tZfyBAx/ESV8KpwXY/XKghRlSrDPDuyB6XIuuKPjw6cCtPiLnFHFBxNDdyDmwKY0UAWO7834IypSHlPiwffaw==}
     engines: {node: '>=18.12.0', npm: '>=8.19.2'}
     peerDependencies:
       prettier: '>=3'
@@ -5923,7 +5923,7 @@ snapshots:
       '@eslint-community/eslint-plugin-eslint-comments': 4.7.2(eslint@9.39.4)
       '@eslint/compat': 2.1.0(eslint@9.39.4)
       '@wordpress/babel-preset-default': 8.48.0
-      '@wordpress/prettier-config': 4.48.0(wp-prettier@3.0.3)
+      '@wordpress/prettier-config': 4.48.1(wp-prettier@3.0.3)
       '@wordpress/theme': 0.15.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       cosmiconfig: 7.1.0
       eslint: 9.39.4
@@ -5957,7 +5957,7 @@ snapshots:
 
   '@wordpress/hooks@4.48.0': {}
 
-  '@wordpress/prettier-config@4.48.0(wp-prettier@3.0.3)':
+  '@wordpress/prettier-config@4.48.1(wp-prettier@3.0.3)':
     dependencies:
       prettier: wp-prettier@3.0.3
 
