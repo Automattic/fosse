@@ -289,6 +289,158 @@ class Canonical_Options_MigratorTest extends BaseTestCase {
 	}
 
 	/**
+	 * Hook-order independence: the sentinel read in `migrate_object_type()`
+	 * must correctly detect an unset canonical option even when AP's
+	 * `option_activitypub_object_type` filter (which coerces falsy values to
+	 * the AP default) is already registered. The migration runs at init
+	 * priority 5 and AP's `Options::init` at priority 10, so today the
+	 * filter is not yet attached when the migrator reads — but the read must
+	 * not depend on that ordering. Here we register AP's exact filter shape
+	 * before migrating to prove the sentinel survives: WordPress only applies
+	 * the `option_{$option}` filter when the row exists, so an unset option
+	 * returns the verbatim sentinel and the legacy `note` value still copies
+	 * across. If the read regressed (e.g. the filter coerced the sentinel),
+	 * `migrate_object_type` would treat the canonical option as explicitly
+	 * set and silently discard the legacy value, firing the conflict action
+	 * instead of copying.
+	 */
+	public function test_migrate_object_type_sentinel_survives_ap_option_filter(): void {
+		if ( ! class_exists( '\Activitypub\Options' ) ) {
+			$this->markTestSkipped( 'Bundled ActivityPub not loaded — cannot exercise the real default_object_type callback.' );
+		}
+
+		update_option( 'fosse_object_type', 'note' );
+
+		// Register the REAL bundled callback — not a copy. Any upstream
+		// change to `Activitypub\Options::default_object_type()` (e.g.
+		// future versions that start coercing unknown non-empty strings
+		// to the default) flows straight through this test, so a
+		// sentinel-coerced-away failure mode surfaces immediately rather
+		// than a year later when production trips it.
+		add_filter( 'option_activitypub_object_type', array( '\Activitypub\Options', 'default_object_type' ) );
+
+		$conflict_fired = false;
+		add_action(
+			'fosse_canonical_migration_conflict',
+			static function () use ( &$conflict_fired ): void {
+				$conflict_fired = true;
+			}
+		);
+
+		Canonical_Options_Migrator::maybe_migrate();
+
+		remove_filter( 'option_activitypub_object_type', array( '\Activitypub\Options', 'default_object_type' ) );
+
+		// Sentinel was seen as unset, so the legacy value copied across and
+		// no conflict was reported.
+		$this->assertSame( 'note', get_option( 'activitypub_object_type' ) );
+		$this->assertFalse( get_option( 'fosse_object_type' ) );
+		$this->assertFalse( $conflict_fired, 'Unset canonical option must not be treated as a conflict.' );
+	}
+
+	/**
+	 * Defense-in-depth for a hypothetical future AP that moves the default
+	 * onto the `default_option_*` filter (which, unlike `option_*`, DOES run
+	 * on the absent-row path). The sentinel is a non-empty string, so AP's
+	 * `! $value` coercion leaves it untouched and the unset detection still
+	 * holds. Pins the second of the two independent grounds the sentinel
+	 * read relies on.
+	 */
+	public function test_migrate_object_type_sentinel_survives_ap_default_option_filter(): void {
+		if ( ! class_exists( '\Activitypub\Options' ) ) {
+			$this->markTestSkipped( 'Bundled ActivityPub not loaded.' );
+		}
+
+		update_option( 'fosse_object_type', 'note' );
+
+		add_filter( 'default_option_activitypub_object_type', array( '\Activitypub\Options', 'default_object_type' ) );
+
+		Canonical_Options_Migrator::maybe_migrate();
+
+		remove_filter( 'default_option_activitypub_object_type', array( '\Activitypub\Options', 'default_object_type' ) );
+
+		$this->assertSame( 'note', get_option( 'activitypub_object_type' ) );
+		$this->assertFalse( get_option( 'fosse_object_type' ) );
+	}
+
+	/**
+	 * Hostile upstream: a future AP (or a third-party policy filter) that
+	 * coerces ANY value — including our `__fosse_unset__` sentinel — to
+	 * the default would silently break unset-detection. A bare conflict
+	 * signal is NOT enough to satisfy this regression — the user's
+	 * `fosse_object_type=note` data would still be gone forever even
+	 * though a hook fired. The durable outcome must protect the user's
+	 * data: either the canonical row holds `'note'` (copy succeeded) or
+	 * the legacy row still holds `'note'` (preserve-on-uncertainty). The
+	 * conflict signal alone, with both options drifted off `'note'`, is
+	 * a silent destruction with a hook — that's what we never accept.
+	 */
+	/**
+	 * A `pre_option_*` filter short-circuits `get_option()` BEFORE any
+	 * cache/DB lookup, so a pinned non-`false` return makes an absent
+	 * row look present. Without detaching this chain alongside the
+	 * `option_*` and `default_option_*` chains, the row-existence probe
+	 * would still misclassify the canonical as "explicitly set" and the
+	 * migration would delete the legacy `'note'` without copying it.
+	 * Regression guard.
+	 */
+	public function test_migrate_object_type_does_not_silently_destroy_legacy_when_pre_option_overrides(): void {
+		update_option( 'fosse_object_type', 'note' );
+
+		$short_circuit = static function () {
+			return 'wordpress-post-format';
+		};
+		add_filter( 'pre_option_activitypub_object_type', $short_circuit );
+
+		Canonical_Options_Migrator::maybe_migrate();
+
+		remove_filter( 'pre_option_activitypub_object_type', $short_circuit );
+
+		$canonical_copied = 'note' === get_option( 'activitypub_object_type' );
+		$legacy_preserved = 'note' === get_option( 'fosse_object_type' );
+
+		$this->assertTrue(
+			$canonical_copied || $legacy_preserved,
+			'When pre_option_* pins a default for an absent row, the migration must either complete the copy or keep the legacy intact.'
+		);
+	}
+
+	/**
+	 * Hostile upstream: a future AP (or a third-party policy filter) that
+	 * coerces every value — including our `__fosse_unset__` sentinel — to
+	 * the AP default would silently break unset-detection. The durable
+	 * outcome must protect user state: either the canonical row holds
+	 * `'note'` (copy succeeded) or the legacy row still holds it
+	 * (preserve-on-uncertainty). A bare conflict signal with both options
+	 * drifted is silent destruction; that is what we never accept.
+	 */
+	public function test_migrate_object_type_does_not_silently_destroy_legacy_when_sentinel_coerced(): void {
+		update_option( 'fosse_object_type', 'note' );
+
+		$hostile = static function ( $value ) {
+			if ( '__fosse_unset__' === $value || ! $value ) {
+				return 'wordpress-post-format';
+			}
+			return $value;
+		};
+		add_filter( 'option_activitypub_object_type', $hostile );
+		add_filter( 'default_option_activitypub_object_type', $hostile );
+
+		Canonical_Options_Migrator::maybe_migrate();
+
+		remove_filter( 'option_activitypub_object_type', $hostile );
+		remove_filter( 'default_option_activitypub_object_type', $hostile );
+
+		$canonical_copied = 'note' === get_option( 'activitypub_object_type' );
+		$legacy_preserved = 'note' === get_option( 'fosse_object_type' );
+
+		$this->assertTrue(
+			$canonical_copied || $legacy_preserved,
+			"When the sentinel is coerced away, the migration must EITHER copy 'note' to the canonical option OR keep the legacy option intact. Discarding the legacy without copying — even if a conflict hook fires — silently destroys the user's stored choice."
+		);
+	}
+
+	/**
 	 * `register()` wires the migration onto `init` priority 5 so the
 	 * migration completes before the Object_Type bridge filter runs at
 	 * priority 10 (and before any post publish path queries the
