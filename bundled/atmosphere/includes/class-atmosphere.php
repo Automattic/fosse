@@ -9,6 +9,11 @@ namespace Atmosphere;
 
 \defined( 'ABSPATH' ) || exit;
 
+use Atmosphere\Content_Parser\Html;
+use Atmosphere\Content_Parser\Leaflet;
+use Atmosphere\Content_Parser\Markpub;
+use Atmosphere\Content_Parser\Pckt;
+use Atmosphere\Content_Parser\Registry;
 use Atmosphere\OAuth\Client;
 use Atmosphere\Transformer\Comment;
 use Atmosphere\Transformer\Document;
@@ -16,6 +21,7 @@ use Atmosphere\Transformer\Post;
 use Atmosphere\Transformer\Publication;
 use Atmosphere\Integrations\Load;
 use Atmosphere\WP_Admin\Admin;
+use Atmosphere\WP_Admin\Settings_Fields;
 
 /**
  * Atmosphere main class.
@@ -91,13 +97,22 @@ class Atmosphere {
 	 */
 	public function init(): void {
 		/*
-		 * Admin and Backfill self-register on init. This runs before
-		 * admin_init, rest_api_init, and wp_ajax_* so sub-hooks those
-		 * callbacks add are wired up in time, and it also ensures
-		 * REST/AJAX endpoints are available on non-admin requests.
+		 * Admin self-registers on init. This runs before admin_init,
+		 * rest_api_init, and wp_ajax_* so sub-hooks those callbacks add
+		 * are wired up in time, and it also ensures REST endpoints are
+		 * available on non-admin requests.
 		 */
 		\add_action( 'init', array( Admin::class, 'register' ), 5 );
-		\add_action( 'init', array( Backfill::class, 'register' ), 5 );
+
+		/*
+		 * Settings API option registration (`Options::init()`) and
+		 * Settings page UI assembly (`Settings_Fields::init()`) live in
+		 * their own classes, matching the layout the ActivityPub plugin
+		 * uses. Wired on `init` (priority 5) the same way as `Admin`
+		 * above, so each can self-wire the request-specific hooks it needs.
+		 */
+		\add_action( 'init', array( Options::class, 'init' ), 5 );
+		\add_action( 'init', array( Settings_Fields::class, 'init' ), 5 );
 
 		/*
 		 * Seed the long-form composition strategy from the user's
@@ -118,7 +133,10 @@ class Atmosphere {
 		\add_action( 'template_redirect', array( $this, 'serve_wellknown_atproto_did' ) );
 		\add_action( 'template_redirect', array( $this, 'serve_wellknown_publication' ) );
 
-		// Plugin integrations.
+		// Register the built-in content parsers.
+		self::register_default_content_parsers();
+
+		// Plugin integrations (may register additional parsers).
 		Load::init();
 
 		// JSON preview for AT Protocol records.
@@ -344,6 +362,24 @@ class Atmosphere {
 	}
 
 	/**
+	 * Register the built-in content parsers on the registry.
+	 *
+	 * The WordPress HTML parser is the automatic winner (lowest priority
+	 * number); it applies to any post and carries no blob dependency.
+	 * The block-tree formats register at the same, higher number and
+	 * only apply to block-editor posts, so a site can opt into them via
+	 * the Content format setting.
+	 *
+	 * @return void
+	 */
+	public static function register_default_content_parsers(): void {
+		Registry::register( new Html(), 10 );
+		Registry::register( new Markpub(), 20 );
+		Registry::register( new Leaflet(), 20 );
+		Registry::register( new Pckt(), 20 );
+	}
+
+	/**
 	 * Regex patterns of the well-known rewrite rules this plugin owns.
 	 *
 	 * Maps each pattern to its `index.php` query target. Kept as a single
@@ -471,6 +507,14 @@ class Atmosphere {
 		}
 
 		/*
+		 * Bidirectional verification re-fetches this endpoint on every
+		 * profile load, so a fronting page/CDN cache must never retain a
+		 * pre-connect 404 or a post-disconnect 200 with a stale DID. Send
+		 * no-cache headers on every response branch below.
+		 */
+		\nocache_headers();
+
+		/*
 		 * Identity gate (not connection gate): an expired OAuth session
 		 * must not break domain handle verification. Bluesky's resolver
 		 * re-fetches this endpoint to confirm the bidirectional link
@@ -499,6 +543,14 @@ class Atmosphere {
 		if ( \get_query_var( 'atmosphere_wellknown' ) !== 'publication' ) {
 			return;
 		}
+
+		/*
+		 * Bidirectional verification re-fetches this endpoint on every
+		 * profile load, so a fronting page/CDN cache must never retain a
+		 * pre-connect 404 or a post-disconnect 200 with a stale AT-URI.
+		 * Send no-cache headers on every response branch below.
+		 */
+		\nocache_headers();
 
 		/*
 		 * Identity gate (not connection gate): the publication AT-URI is
@@ -577,7 +629,14 @@ class Atmosphere {
 			return;
 		}
 
-		if ( '0' === \get_option( 'atmosphere_auto_publish', '1' ) ) {
+		/*
+		 * Publish only when auto-publish is explicitly on. An unchecked
+		 * checkbox submits no value, so a saved "off" state is stored as
+		 * an empty string rather than '0' — comparing against '1' (with a
+		 * '1' default for never-saved installs) treats every non-'1' value
+		 * as off, the same way the ActivityPub plugin gates its toggles.
+		 */
+		if ( '1' !== \get_option( 'atmosphere_auto_publish', '1' ) ) {
 			return;
 		}
 
@@ -1208,10 +1267,9 @@ class Atmosphere {
 		}
 
 		if ( ! \get_transient( 'atmosphere_invalid_long_form_composition_logged' ) ) {
-			// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
-			\error_log(
+			debug_log(
 				\sprintf(
-					'[atmosphere] invalid `atmosphere_long_form_composition` option value %s; falling through to default',
+					'invalid `atmosphere_long_form_composition` option value %s; falling through to default',
 					\wp_json_encode( $option )
 				)
 			);
@@ -1326,9 +1384,9 @@ class Atmosphere {
 					 * replies + outbound comment replies + document) on the
 					 * PDS with no operator-visible breadcrumb.
 					 */
-					\error_log( // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+					debug_log(
 						\sprintf(
-							'[atmosphere] delete_records failed (bsky=%d, doc=%s, comments=%d): %s — %s',
+							'delete_records failed (bsky=%d, doc=%s, comments=%d): %s — %s',
 							\is_array( $bsky_tids ) ? \count( $bsky_tids ) : (int) ! empty( $bsky_tids ),
 							$doc_tid ? 'yes' : 'no',
 							\count( $comment_tids ),
@@ -1442,9 +1500,9 @@ class Atmosphere {
 					// Worst-case path: the WP comment row is already gone,
 					// so operators need the TID to clean up the orphan
 					// record manually.
-					\error_log( // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+					debug_log(
 						\sprintf(
-							'[atmosphere] delete_comment_record tid=%s failed: %s — %s',
+							'delete_comment_record tid=%s failed: %s — %s',
 							$tid,
 							$result->get_error_code(),
 							$result->get_error_message()
@@ -1613,19 +1671,17 @@ class Atmosphere {
 		 * PDS error messages flow through `WP_Error::get_error_message()`
 		 * via `API::apply_writes` and can include attacker-controlled
 		 * bytes (CRLF, ANSI escapes, fake `[atmosphere]` prefixes that
-		 * imitate other log lines). `error_log` does not escape them,
-		 * so a misbehaving PDS could otherwise smuggle multiline noise
+		 * imitate other log lines). `debug_log()` collapses CRLF before
+		 * writing, so a misbehaving PDS cannot smuggle multiline noise
 		 * into log-shipping pipelines that parse line prefixes.
 		 */
-		$message = \str_replace( array( "\r", "\n" ), ' ', $result->get_error_message() );
-
-		\error_log( // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+		debug_log(
 			\sprintf(
-				'[atmosphere] %s %d failed: %s — %s',
+				'%s %d failed: %s — %s',
 				$op,
 				$object_id,
 				$result->get_error_code(),
-				$message
+				$result->get_error_message()
 			)
 		);
 	}

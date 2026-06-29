@@ -72,6 +72,64 @@ function sanitize_text( string $text ): string {
 }
 
 /**
+ * Hard-clamp a string to an AT Protocol `maxGraphemes` limit.
+ *
+ * Uses `grapheme_substr` when the `intl` extension is loaded — the
+ * spec-exact form, matching the way Lexicon counts characters. Falls
+ * back to `mb_substr` (code points) otherwise: every grapheme is at
+ * least one code point, so a code-point clamp at `$max_graphemes` is
+ * always within the grapheme limit, just sometimes more conservative
+ * than needed for emoji-heavy or combining-character text.
+ *
+ * A non-positive `$max_graphemes` returns an empty string. Both
+ * `grapheme_substr()` and `mb_substr()` would otherwise interpret a
+ * negative length as "drop the last N characters" — not a clamp, and
+ * the opposite of what every caller wants.
+ *
+ * No marker is appended — used for canonical fields like the
+ * `site.standard.publication` `name` / `description`, where adding
+ * `…` would mislead consumers about the original length and burn
+ * grapheme budget. Callers that want an ellipsis on excerpts should
+ * use {@see truncate_text()} instead.
+ *
+ * @param string $text          Text to clamp.
+ * @param int    $max_graphemes Maximum graphemes.
+ * @return string
+ */
+function truncate_graphemes( string $text, int $max_graphemes ): string {
+	if ( $max_graphemes <= 0 ) {
+		return '';
+	}
+
+	if ( \function_exists( 'grapheme_strlen' ) ) {
+		$length = \grapheme_strlen( $text );
+
+		/*
+		 * `grapheme_strlen()` returns null for invalid UTF-8. Falling
+		 * through to the `mb_*` branch instead of returning unchanged
+		 * keeps the clamp load-bearing — a malformed-and-oversized
+		 * blogname must still leave with a bounded length even if the
+		 * grapheme count is indeterminate.
+		 */
+		if ( null !== $length ) {
+			if ( $length <= $max_graphemes ) {
+				return $text;
+			}
+			$clamped = \grapheme_substr( $text, 0, $max_graphemes );
+			if ( \is_string( $clamped ) ) {
+				return $clamped;
+			}
+		}
+	}
+
+	if ( \mb_strlen( $text ) <= $max_graphemes ) {
+		return $text;
+	}
+
+	return \mb_substr( $text, 0, $max_graphemes );
+}
+
+/**
  * Truncate text to a character limit, breaking at word boundaries.
  *
  * @param string $text   Text to truncate.
@@ -329,4 +387,55 @@ function is_post_publishable( \WP_Post $post ): bool {
 	return 'publish' === $post->post_status
 		&& '' === (string) $post->post_password
 		&& is_supported_post_type( $post->post_type );
+}
+
+/**
+ * Write a debug message to the PHP error log, gated behind WP_DEBUG.
+ *
+ * `error_log()` honours the server's `log_errors` / `error_log` directives
+ * independently of `WP_DEBUG`, so unconditional calls land in production logs
+ * on any site that has PHP error logging enabled but has not opted into
+ * debugging. Routing every plugin log line through this helper keeps that
+ * noise out of production unless debugging is intentionally turned on.
+ *
+ * Centralising the call also means the `[atmosphere]` prefix and the
+ * newline stripping (PDS-supplied error strings can carry attacker-controlled
+ * CRLF / fake prefixes that would otherwise forge log lines) live in one
+ * place rather than being repeated at every call site.
+ *
+ * @since 1.2.0
+ *
+ * @param string $message Message to log, without the `[atmosphere]` prefix.
+ * @return void
+ */
+function debug_log( string $message ): void {
+	/**
+	 * Filters whether an ATmosphere debug message is written to the error log.
+	 *
+	 * Defaults to the `WP_DEBUG` state. Return true to surface ATmosphere log
+	 * lines independently of `WP_DEBUG` (useful for operators who want the
+	 * genuine anomaly breadcrumbs — failed cron PDS writes, thread-rollback
+	 * orphans — without enabling debugging site-wide), or false to silence
+	 * them entirely.
+	 *
+	 * @since 1.2.0
+	 *
+	 * @param bool   $enabled Whether to write the message. Defaults to `WP_DEBUG`.
+	 * @param string $message The message about to be logged (without the `[atmosphere]` prefix).
+	 */
+	$enabled = (bool) \apply_filters(
+		'atmosphere_debug_log',
+		\defined( 'WP_DEBUG' ) && \WP_DEBUG,
+		$message
+	);
+
+	if ( ! $enabled ) {
+		return;
+	}
+
+	// Collapse CRLF so a single logged message can't forge extra log lines.
+	$message = \str_replace( array( "\r", "\n" ), ' ', $message );
+
+	// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+	\error_log( '[atmosphere] ' . $message );
 }

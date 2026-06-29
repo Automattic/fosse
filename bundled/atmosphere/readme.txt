@@ -4,7 +4,7 @@ Tags: at-protocol, bluesky, fediverse, atproto, crossposting
 Requires at least: 6.2
 Tested up to: 7.0
 Requires PHP: 8.2
-Stable tag: 1.1.1
+Stable tag: 1.2.0
 License: GPL-2.0-or-later
 License URI: https://spdx.org/licenses/GPL-2.0-or-later.html
 
@@ -23,7 +23,7 @@ When you publish a post, ATmosphere automatically shares it on Bluesky and store
 * **Use your own domain as your Bluesky handle.** With one click, your handle becomes something like `@yourblog.com` instead of `@you.bsky.social`. ATmosphere does the technical bit; Bluesky verifies it.
 * **Bluesky reactions become WordPress comments.** Replies appear in your comments. Likes and reposts show up alongside them with their own counts so the engagement is visible to your readers.
 * **WordPress comments become Bluesky replies.** When a logged-in reader leaves an approved comment on a cross-posted article, it's sent to Bluesky as a reply under the original post.
-* **Catch up on older posts.** A built-in Backfill tool can publish posts you wrote before installing the plugin.
+* **Catch up on older posts.** A `wp atmosphere backfill` command can publish posts you wrote before installing the plugin.
 * **Per-post control.** You can opt individual posts out of cross-posting straight from the editor sidebar.
 * **No middleman.** ATmosphere talks directly to your Bluesky account using modern, secure sign-in. Nothing is routed through a third-party service, and your tokens never leave your WordPress site.
 * **Translation-ready.** Help translate ATmosphere into your language.
@@ -37,7 +37,7 @@ When you publish a post, ATmosphere automatically shares it on Bluesky and store
 5. Open Bluesky — your post is there. People can reply, like, repost, and follow as they normally would.
 6. Replies, likes, and reposts will start appearing as comments on your WordPress post. Comments you approve on WordPress will appear as replies on Bluesky.
 
-**Note:** Cross-posting only kicks in for posts you publish *after* connecting. To bring older posts across, use the **Backfill** tool on the settings page.
+**Note:** Cross-posting only kicks in for posts you publish *after* connecting. To bring older posts across, run `wp atmosphere backfill` from WP-CLI.
 
 == Installation ==
 
@@ -79,7 +79,7 @@ Yes. ATmosphere checks Bluesky periodically and turns replies, likes, and repost
 
 = What about posts I already published before installing? =
 
-By default, only new posts are shared. You can publish older ones on demand with the **Backfill** tool on the settings page.
+By default, only new posts are shared. You can publish older ones on demand by running `wp atmosphere backfill` from WP-CLI.
 
 = Can I undo a cross-post? =
 
@@ -90,6 +90,34 @@ Yes. If you delete or unpublish a WordPress post, the matching Bluesky post and 
 Not at this time. ATmosphere is designed for a single WordPress site. On a Network-activated install only the current site's data is read and written, and uninstall only cleans the current site — credentials and records on other sites in the network are left intact.
 
 == Changelog ==
+
+### 1.2.0 - 2026-06-15
+#### Security
+- Hardened error logging so details from cryptographic failures are never written to the log.
+- Hardened the Bluesky connect flow so a redirect interruption cannot loosen redirect safety checks for the rest of the request.
+- Hardened the Bluesky server address checks to also catch unsafe addresses hidden behind URL encoding.
+
+#### Added
+- Add a Content format setting so you can choose how your posts are saved for standard.site readers — rendered HTML, Markdown, Leaflet, or pckt.
+- Add rich content support for standard.site documents using the Markpub format.
+- A new `wp atmosphere backfill` WP-CLI command publishes your older posts to Bluesky in bulk from the command line.
+- New settings let you stop importing Bluesky likes and reposts, or replies.
+
+#### Changed
+- Keep diagnostic messages out of your site's error log unless WordPress debugging (WP_DEBUG) is turned on.
+
+#### Removed
+- The "Start Backfill" button has moved from the settings page to WP-CLI. Run "wp atmosphere backfill" to sync existing posts.
+
+#### Fixed
+- Accept Bluesky handles entered with a leading "@" — pasting "@alice.bsky.social" now connects just like "alice.bsky.social".
+- Apply your auto-publish, post-type, and long-form preferences even when a post is published outside the WordPress admin (REST API, WP-CLI, or scheduled posts).
+- Fix domain handle verification failing on some sites when using your site's domain as your Bluesky handle.
+- Restore the cover image and Bluesky link preview thumbnail for posts whose featured image is served from a CDN, such as on WordPress.com sites.
+- Send your site's theme colours to standard.site in the format the network expects so they show up on your publication page.
+- Show a clear error instead of crashing when connecting on a server whose OpenSSL build cannot create the secure key Bluesky requires.
+- Stop caches from holding on to a stale domain handle or publication link, so reconnecting or switching accounts takes effect right away.
+- Trim very long site titles and taglines when syncing your publication so the record is always accepted by the network.
 
 ### 1.1.1 - 2026-06-01
 #### Added
@@ -171,6 +199,7 @@ Not at this time. ATmosphere is designed for a single WordPress site. On a Netwo
 - Remove a comment reply from Bluesky if the comment was deleted or unapproved while it was being published, instead of leaving an orphan reply behind.
 - Short posts under the long-form teaser-thread strategy no longer ship a redundant "continue reading" reply when the entire body already fits in a single Bluesky post. The link-back is preserved as a card on the same post.
 
+[1.2.0]: https://github.com/Automattic/wordpress-atmosphere/compare/1.1.1...1.2.0
 [1.1.1]: https://github.com/Automattic/wordpress-atmosphere/compare/1.1.0...1.1.1
 [1.1.0]: https://github.com/Automattic/wordpress-atmosphere/compare/1.0.0...1.1.0
 [1.0.0]: https://github.com/Automattic/wordpress-atmosphere/releases
