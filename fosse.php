@@ -260,33 +260,25 @@ add_action(
 );
 
 /*
- * Blurhash placeholder encoder + AP attachment injector, plus the
- * `wp fosse blurhash …` WP-CLI backfill surface.
+ * Blurhash hand-off bridge.
  *
- * Runtime path: computes a Blurhash string at upload time
- * (cron-scheduled off `wp_generate_attachment_metadata` so the upload
- * UI isn't blocked) and adds the result to outbound ActivityPub
- * `attachment[].blurhash` via the `activitypub_attachment` filter,
- * so Pixelfed and Mastodon paint the colored-blur preview while the
- * full image loads. Sites without GD just skip silently — federation
- * is unaffected. See `DOTCOM-17159` and `class-blurhash.php`.
+ * ActivityPub upstreamed FOSSE's blurhash encoder (same hooks, same
+ * injected `blurhash` member) under its own `_activitypub_blurhash`
+ * meta key, and the bundled copy now ships it, so FOSSE no longer
+ * computes blurhashes itself — AP encodes on upload and injects via
+ * `activitypub_attachment`, and `wp activitypub blurhash` backfills
+ * older libraries. See `DOTCOM-17159`.
  *
- * The CLI surface (`Blurhash_CLI`) is gated on `WP_CLI` *before* the
- * `class_exists` autoload probe so the CLI file is never read on web
- * requests — keeps the registration overhead on a normal page load
- * to a single passed-through `class_exists` check.
- *
+ * What remains is a one-way migration bridge: images encoded while
+ * FOSSE ran its own pipeline hold their hash under the legacy
+ * `_fosse_blurhash` key, which AP's injector can't see. The bridge
+ * lazily copies that value into AP's store the first time each such
+ * attachment federates ({@see Automattic\Fosse\Blurhash_Handoff}), so
+ * the placeholder survives the cutover without a bulk meta migration.
+ * It registers only when AP's native class is present; without it
+ * there is nothing to hand off and FOSSE adds no blurhash of its own.
  * Same degradation posture as the projectors above — if FOSSE's
- * autoload is missing entirely, both classes silently skip.
- *
- * Deferral: newer ActivityPub ships this exact implementation natively
- * (FOSSE's encoder upstreamed — same hooks, same injected `blurhash`
- * member, its own `_activitypub_blurhash` meta key). Running both would
- * double the cron encode work and meta rows for identical output, so
- * when AP's class is present FOSSE registers only the hand-off bridge,
- * which lazily copies FOSSE-era hashes into AP's store the first time
- * each attachment federates ({@see Automattic\Fosse\Blurhash_Handoff}).
- * Backfills then belong to AP's own `wp activitypub blurhash` command.
+ * autoload is missing entirely, it silently skips.
  */
 add_action(
 	'init',
@@ -294,16 +286,6 @@ add_action(
 		if ( class_exists( \Automattic\Fosse\Blurhash_Handoff::class )
 			&& \Automattic\Fosse\Blurhash_Handoff::should_defer() ) {
 			\Automattic\Fosse\Blurhash_Handoff::register();
-			return;
-		}
-
-		if ( ! class_exists( \Automattic\Fosse\Blurhash::class ) ) {
-			return;
-		}
-		\Automattic\Fosse\Blurhash::register();
-
-		if ( defined( 'WP_CLI' ) && WP_CLI && class_exists( \Automattic\Fosse\Blurhash_CLI::class ) ) {
-			\Automattic\Fosse\Blurhash_CLI::register();
 		}
 	}
 );
