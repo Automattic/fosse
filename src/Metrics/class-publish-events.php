@@ -23,8 +23,12 @@ namespace Automattic\Fosse\Metrics;
  *   final one.
  * - `activitypub_outbox_processing_complete` — merges any final-batch
  *   in-memory state with the persisted aggregate, emits one
- *   `fosse_publish_result` event with `network: 'activitypub'`, and
- *   clears both. AP fires this only on the final batch.
+ *   `fosse_publish_result` event with `network: 'mastodon'`, and
+ *   clears both. AP fires this only on the final batch — and only when
+ *   the outbox item is a post `Create`. Updates, Deletes, comment
+ *   activities, actor-profile Updates, and the dual-actor `Announce`
+ *   are filtered out so each post counts at most once on the fediverse
+ *   path (no double-count in `ACTIVITYPUB_ACTOR_AND_BLOG_MODE`).
  * - `atmosphere_publish_post_result` — emits one `fosse_post_published`
  *   plus one `fosse_publish_result` event with `network: 'bluesky'`. The
  *   upstream hook lands in wordpress-atmosphere PR 56; this subscriber
@@ -252,6 +256,31 @@ class Publish_Events {
 		$persisted = \get_post_meta( $outbox_item_id, self::AP_DISPATCH_STATE_META_KEY, true );
 		\delete_post_meta( $outbox_item_id, self::AP_DISPATCH_STATE_META_KEY );
 
+		// `activitypub_sent_to_inbox` accumulates for EVERY outbox dispatch
+		// (post Creates, Updates, Deletes, comment activities, actor-profile
+		// Updates, and the dual-actor `Announce`), so the in-memory and
+		// persisted aggregate state is always cleared above — even for the
+		// activities we do not emit on — to avoid leaking `_fosse_metrics_*`
+		// post meta. The emit itself is gated below to a post `Create` only.
+		if ( ! self::is_post_create_outbox_item( $outbox_item_id ) ) {
+			return;
+		}
+
+		// Per-post idempotency: suppress this emit only when a PRIOR
+		// success has already been recorded for this source post. A bare
+		// boolean marker (set on every emit, including failures) would
+		// permanently block legitimate later successes — if the first
+		// Create has zero successful inbox sends, the marker would be
+		// set, and a later same-source success (resurrection path, retry)
+		// would early-return before recording. Allowing failure → success
+		// transitions matches the funnel intent: "did this post ever
+		// successfully federate?"
+		$source_post_id = self::source_post_id_for_outbox_item( $outbox_item_id );
+		if ( $source_post_id > 0
+			&& 'success' === \get_post_meta( $source_post_id, self::AP_PUBLISH_RECORDED_META_KEY, true ) ) {
+			return;
+		}
+
 		if ( null === $in_memory && ! \is_array( $persisted ) ) {
 			// No `activitypub_sent_to_inbox` ever fired (zero-inbox publish).
 			return;
@@ -265,7 +294,7 @@ class Publish_Events {
 		$status = $state['successes'] > 0 ? 'success' : 'failure';
 
 		$properties = array(
-			'network' => 'activitypub',
+			'network' => 'mastodon',
 			'status'  => $status,
 		);
 
@@ -276,12 +305,179 @@ class Publish_Events {
 		Recorder::record( 'fosse_publish_result', $properties );
 
 		if ( 'success' === $status ) {
-			Recorder::bump( 'fosse-publish-success-activitypub' );
+			Recorder::bump( 'fosse-publish-success-mastodon' );
+		}
+
+		// Persist the LATEST status, not just the fact that we recorded
+		// anything. Failure stays as `'failure'` so a later same-source
+		// retry/resurrection can still record the success transition
+		// (failure → success); success locks the guard so a later
+		// resurrection-driven `Create` is suppressed (success → success).
+		if ( $source_post_id > 0 ) {
+			\update_post_meta( $source_post_id, self::AP_PUBLISH_RECORDED_META_KEY, $status );
 		}
 	}
 
 	/**
+	 * Whether an AP outbox item represents a first-class post `Create`.
+	 *
+	 * The `activitypub_outbox_processing_complete` hook fires for every
+	 * outbox dispatch with no activity-type filter. Only a post `Create`
+	 * should bump the publish funnel: Updates and Deletes are edits, not
+	 * publishes; comment activities are reactions, not posts;
+	 * actor-profile Updates are not content; and in
+	 * `ACTIVITYPUB_ACTOR_AND_BLOG_MODE` the bundled scheduler enqueues a
+	 * second `Announce` outbox item per post (see
+	 * `bundled/activitypub/includes/class-scheduler.php`
+	 * `schedule_announce_activity()`) which would double-count.
+	 *
+	 * Discriminator (both signals read from the outbox item itself, set by
+	 * `bundled/activitypub/includes/collection/class-outbox.php` `add()`):
+	 *
+	 * 1. `_activitypub_activity_type` meta is the literal
+	 *    `$activity->get_type()` — `'Create'` only passes; `'Update'`,
+	 *    `'Delete'`, `'Announce'`, `'Like'`, etc. are rejected.
+	 * 2. `_activitypub_object_id` meta is the activity object's canonical
+	 *    URL. For a post Create this resolves back to a real post via
+	 *    `url_to_postid()`; a comment Create's object URL does not, which
+	 *    separates post Creates from comment Creates (both are `Create`s
+	 *    of a `Note`, so the activity type alone cannot tell them apart).
+	 *
+	 * Reading the persisted meta is reliable here: `add()` always writes
+	 * both keys, and the outbox item still exists at dispatch time (it is
+	 * only `wp_publish_post()`-ed, never deleted, by the dispatcher).
+	 *
+	 * @param int $outbox_item_id Outbox item post id.
+	 * @return bool
+	 */
+	private static function is_post_create_outbox_item( int $outbox_item_id ): bool {
+		$activity_type = \get_post_meta( $outbox_item_id, '_activitypub_activity_type', true );
+		if ( 'Create' !== $activity_type ) {
+			return false;
+		}
+
+		$object_id = \get_post_meta( $outbox_item_id, '_activitypub_object_id', true );
+		if ( ! \is_string( $object_id ) || '' === $object_id ) {
+			return false;
+		}
+
+		return \url_to_postid( $object_id ) > 0;
+	}
+
+	/**
+	 * Per-post idempotency marker for `fosse_publish_result` (Mastodon
+	 * network). Stores the LAST recorded status — `'success'` or
+	 * `'failure'` — not a bare boolean.
+	 *
+	 * The bundled scheduler emits another `Create` outbox item when a
+	 * previously-deleted/federated post becomes publicly queryable again
+	 * (the AP "resurrection" path). Without a per-post guard the same
+	 * source post would tick `fosse-publish-success-mastodon` twice —
+	 * once on the original publish, once on every resurrection.
+	 *
+	 * Status-aware semantics:
+	 *
+	 *  - `''` (unset) — never recorded. Emit normally and persist status.
+	 *  - `'failure'` — last attempt failed. Allow the next emit so a
+	 *    later success transition (failure → success) still records;
+	 *    persist the new status.
+	 *  - `'success'` — already counted as a successful publish. Skip
+	 *    the emit; resurrection/retry must not double-count.
+	 *
+	 * Marker lives on the SOURCE post (not the outbox item) so it survives
+	 * outbox cleanup, and is cleared on a hard delete of the source post
+	 * (WordPress drops postmeta with the post). A republish after a hard
+	 * delete reuses a fresh post ID and rightly counts as a new publish.
+	 *
+	 * @var string
+	 */
+	private const AP_PUBLISH_RECORDED_META_KEY = '_fosse_ap_publish_recorded';
+
+	/**
+	 * Resolve the source-post ID an AP outbox item's object URL points at.
+	 *
+	 * @param int $outbox_item_id Outbox item post id.
+	 * @return int Post ID, or 0 when the object URL doesn't resolve.
+	 */
+	private static function source_post_id_for_outbox_item( int $outbox_item_id ): int {
+		$object_id = \get_post_meta( $outbox_item_id, '_activitypub_object_id', true );
+		if ( ! \is_string( $object_id ) || '' === $object_id ) {
+			return 0;
+		}
+		return (int) \url_to_postid( $object_id );
+	}
+
+	/**
+	 * WP_Error code Atmosphere uses for the not-publishable early return.
+	 *
+	 * `Publisher::publish_post()` fires `atmosphere_publish_post_result`
+	 * with this code before any AT Protocol write happens (see
+	 * `bundled/atmosphere/includes/class-publisher.php`). No publish
+	 * occurred, so neither publish event should fire.
+	 */
+	private const ATMOSPHERE_NOT_PUBLISHABLE_CODE = 'atmosphere_post_not_publishable';
+
+	/**
+	 * The one Atmosphere context that is always a genuine first publish.
+	 *
+	 * Atmosphere's normal publish flow schedules an `atmosphere_publish_post`
+	 * single event on publish (`bundled/atmosphere/includes/class-atmosphere.php`)
+	 * whose cron callback runs `Publisher::publish_post()`. Every other
+	 * context that reaches the result hook is a re-sync or re-publish of
+	 * already-counted content:
+	 *
+	 * - The Backfill of pre-existing posts. Older Atmosphere runs it via
+	 *   the `wp_ajax_atmosphere_backfill_batch` action; upstream trunk
+	 *   replaced that with a WP-CLI command (`includes/cli/`) that calls
+	 *   `Publisher::publish_post()` directly with no marker action at
+	 *   all — which is why this gate is an allowlist on the publish cron
+	 *   rather than a deny-list of known backfill contexts.
+	 * - `atmosphere_update_post`, which only falls through to
+	 *   `publish_post()` for the retry of an attempt whose result hook
+	 *   already fired, or for `rewrite_thread()`'s delete-and-republish
+	 *   of live records. Pristine posts take the
+	 *   `atmosphere_update_skipped_unsynced_post` early return.
+	 * - `atmosphere_delete_post`, which only reaches `publish_post()` on
+	 *   its became-publishable-again reconcile branch.
+	 *
+	 * The funnel-entry `fosse_post_published` is therefore emitted only
+	 * inside this action; `fosse_publish_result` still fires from every
+	 * context (a real AT Protocol write occurred).
+	 */
+	private const ATMOSPHERE_PUBLISH_ACTION = 'atmosphere_publish_post';
+
+	/**
 	 * Handle the Atmosphere publish-result action.
+	 *
+	 * `atmosphere_publish_post_result` fires from several
+	 * `Publisher::publish_post()` entry points
+	 * (`bundled/atmosphere/includes/class-publisher.php`): the genuine
+	 * first-publish cron path, the update-falls-through-to-publish retry,
+	 * the `rewrite_thread()` delete-and-republish on shape-changing edits,
+	 * the not-publishable early return, and the Backfill of pre-existing
+	 * posts (AJAX in older Atmosphere, WP-CLI on upstream trunk). The raw
+	 * hook does not discriminate between them.
+	 *
+	 * This subscriber discriminates two ways:
+	 *
+	 * - **Not publishable.** When `$result` is the
+	 *   `atmosphere_post_not_publishable` WP_Error, no publish happened —
+	 *   skip both events entirely.
+	 * - **First-publish allowlist.** The funnel-entry `fosse_post_published`
+	 *   is emitted only while the `atmosphere_publish_post` cron callback
+	 *   runs — the one context that is always a genuine first publish (see
+	 *   `ATMOSPHERE_PUBLISH_ACTION` for why backfills and update/delete
+	 *   re-publishes, including upstream's action-less WP-CLI backfill,
+	 *   are excluded by construction). `fosse_publish_result` still fires
+	 *   from every context — it measures the render-quality outcome of an
+	 *   actual AT Protocol write, which those contexts genuinely perform.
+	 *
+	 * Known gap: a previously-synced post that re-enters publication via
+	 * the `atmosphere_publish_post` cron (unpublish → republish before
+	 * the cleanup delete ran) is indistinguishable from a first publish
+	 * at this hook and is counted again. That population is small and
+	 * bounded, and the alternative — probing Atmosphere's private post
+	 * meta — couples this subscriber to bundled internals.
 	 *
 	 * Emits `fosse_post_published` once (network-agnostic entry-step
 	 * signal) plus `fosse_publish_result` once with `network: 'bluesky'`.
@@ -295,13 +491,24 @@ class Publish_Events {
 			return;
 		}
 
-		Recorder::record(
-			'fosse_post_published',
-			array(
-				'post_format' => self::resolve_post_format( $post ),
-				'has_image'   => self::resolve_has_image( $post ),
-			)
-		);
+		// Not-publishable early return: no AT Protocol write happened, so
+		// nothing to record on either event.
+		if ( $result instanceof \WP_Error && self::ATMOSPHERE_NOT_PUBLISHABLE_CODE === $result->get_error_code() ) {
+			return;
+		}
+
+		// Only the publish cron is a genuine first publish — backfills
+		// (AJAX or the action-less WP-CLI command) and update/delete-cron
+		// re-publishes stay out of the funnel's entry step.
+		if ( self::is_first_publish_context() ) {
+			Recorder::record(
+				'fosse_post_published',
+				array(
+					'post_format' => self::resolve_post_format( $post ),
+					'has_image'   => self::resolve_has_image( $post ),
+				)
+			);
+		}
 
 		$status = \is_wp_error( $result ) ? 'failure' : 'success';
 
@@ -320,6 +527,21 @@ class Publish_Events {
 		if ( 'success' === $status ) {
 			Recorder::bump( 'fosse-publish-success-bluesky' );
 		}
+	}
+
+	/**
+	 * Whether the current Atmosphere result hook represents a first publish.
+	 *
+	 * True only while the `atmosphere_publish_post` cron callback runs.
+	 * An allowlist, not a deny-list: upstream's WP-CLI backfill calls
+	 * `Publisher::publish_post()` with no surrounding action at all, so
+	 * enumerating re-publish contexts can never be complete (see
+	 * `ATMOSPHERE_PUBLISH_ACTION`).
+	 *
+	 * @return bool
+	 */
+	private static function is_first_publish_context(): bool {
+		return \doing_action( self::ATMOSPHERE_PUBLISH_ACTION );
 	}
 
 	/**
@@ -362,12 +584,45 @@ class Publish_Events {
 	 * @return string One of the documented strategy enum values.
 	 */
 	private static function resolve_strategy( \WP_Post $post ): string {
-		if ( (bool) \apply_filters( 'atmosphere_is_short_form_post', false, $post ) ) {
+		// `wp_validate_boolean()` (not a `(bool)` cast) mirrors Atmosphere's
+		// own `is_short_form_post()` wrapper, so a filter returning the
+		// string `'false'` classifies the same way upstream publishes.
+		if ( \wp_validate_boolean( \apply_filters( 'atmosphere_is_short_form_post', self::is_short_form_shape( $post ), $post ) ) ) {
 			return 'short-form-note';
 		}
 
 		$composition = (string) \apply_filters( 'atmosphere_long_form_composition', 'link-card', $post );
 		return 'teaser-thread' === $composition ? 'long-form-teaser-thread' : 'link-card-fallback';
+	}
+
+	/**
+	 * Replicate Atmosphere's shape-based short-form predicate as the
+	 * `atmosphere_is_short_form_post` filter seed.
+	 *
+	 * The bundled Atmosphere transformer seeds the same filter with this
+	 * exact predicate (see
+	 * `bundled/atmosphere/includes/transformer/class-post.php`
+	 * `is_short_form()`), so seeding with a hardcoded `false` here made
+	 * the recorded `strategy` disagree with what Atmosphere actually
+	 * published: titled posts carrying a post format, and titleless posts,
+	 * are published short-form upstream but were being recorded as
+	 * long-form. Mirroring the predicate keeps the metric honest when no
+	 * other code has overridden the filter.
+	 *
+	 * Short-form when:
+	 * - the post type does not support titles, OR
+	 * - the post has an empty title, OR
+	 * - the post has any non-empty post format.
+	 *
+	 * @param \WP_Post $post Post.
+	 * @return bool
+	 */
+	private static function is_short_form_shape( \WP_Post $post ): bool {
+		if ( ! \post_type_supports( $post->post_type, 'title' ) || empty( $post->post_title ) ) {
+			return true;
+		}
+
+		return (bool) \get_post_format( $post );
 	}
 
 	/**
