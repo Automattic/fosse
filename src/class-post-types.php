@@ -54,23 +54,59 @@ class Post_Types {
 	}
 
 	/**
-	 * Replace Atmosphere's post-type list with AP's stored value.
+	 * Project AP's stored post-type list onto Atmosphere's filter.
 	 *
-	 * The upstream default is intentionally discarded: FOSSE's contract is
-	 * that AP's option is the single source of truth, so any site-level
-	 * post-type change belongs in AP's settings, not in AT's filter.
+	 * AP's option is the source of truth for the *option-derived* list, so
+	 * FOSSE replaces the value Atmosphere built from its own option rather
+	 * than appending to it — a site-level selection belongs in AP's settings.
 	 *
-	 * @param array<string> $types Upstream default from Atmosphere (unused).
-	 * @return array<string> AP's stored list, or the default when the option
-	 *                      is unset or corrupted (non-array) — guards against
-	 *                      a misbehaving `option_activitypub_support_post_types`
-	 *                      filter returning a scalar.
+	 * Native opt-ins via `\add_post_type_support( $type, 'atmosphere' )` are a
+	 * documented public API of Atmosphere's upstream `get_supported()`, which
+	 * merges `\get_post_types_by_support( 'atmosphere' )` before this filter
+	 * runs. Those are merged back in here so a theme or plugin opting a post
+	 * type in natively still federates — discarding them would silently break
+	 * that contract.
+	 *
+	 * The native-support merge is intersected with `$types`, so any native
+	 * opt-in another integration explicitly removed at a lower filter priority
+	 * stays removed. AP's option, by contrast, is FOSSE's authoritative source
+	 * for the option-derived list, so it is not subject to that intersection.
+	 *
+	 * @param array<string> $types Upstream list from Atmosphere after any
+	 *                             earlier `atmosphere_syncable_post_types`
+	 *                             filters have run.
+	 * @return array<string> AP's stored list merged with the native `atmosphere`
+	 *                      supports that survived earlier filters, deduped and
+	 *                      re-indexed. Falls back to the default when AP's
+	 *                      option is unset or corrupted (non-array) — guards
+	 *                      against a misbehaving
+	 *                      `option_activitypub_support_post_types` filter
+	 *                      returning a scalar.
 	 */
 	public static function filter_atmosphere( array $types ): array {
-		unset( $types );
+		$stored    = \get_option( self::AP_OPTION, self::DEFAULT_TYPES );
+		$ap_stored = \is_array( $stored ) ? $stored : self::DEFAULT_TYPES;
 
-		$stored = \get_option( self::AP_OPTION, self::DEFAULT_TYPES );
+		// Filter to strings before dedup so a misbehaving
+		// `option_activitypub_support_post_types` filter that returns an
+		// array containing non-string entries (e.g. nested arrays from a
+		// rogue option_filter) doesn't trip `array_unique`'s implicit
+		// `__toString` cast with an `Array to string conversion` warning.
+		$ap_strings = \array_filter( $ap_stored, '\is_string' );
 
-		return \is_array( $stored ) ? $stored : self::DEFAULT_TYPES;
+		// Only re-add native supports that survived the earlier filter
+		// chain — preserves the semantic of `atmosphere_syncable_post_types`
+		// as a place plugins can also REMOVE native opt-ins (e.g. for a
+		// tenant-specific or temporary policy).
+		$surviving_natives = \array_intersect(
+			\get_post_types_by_support( 'atmosphere' ),
+			$types
+		);
+
+		return \array_values(
+			\array_unique(
+				\array_merge( $ap_strings, $surviving_natives )
+			)
+		);
 	}
 }
