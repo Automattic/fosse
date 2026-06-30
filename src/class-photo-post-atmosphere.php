@@ -31,13 +31,18 @@ use WP_Post;
  *      already "post body becomes the text, no external card" — the
  *      shape closest to a native Bluesky photo post.
  *   2. `atmosphere_post_embed` — Atmosphere's focused embed seam.
- *      Receives the default embed for the strategy (`null` for
- *      short-form) and returns the `app.bsky.embed.images` envelope
- *      built from up to {@see self::MAX_IMAGES} uploaded blob refs.
- *      All upload / overflow / featured-image-bail logic lives here so
- *      a failed projection cleanly results in "no embed attached" and
- *      Atmosphere ships its default short-form text without further
- *      intervention from this projector.
+ *      Receives the default embed for the strategy and returns the
+ *      `app.bsky.embed.images` envelope built from up to
+ *      {@see self::MAX_IMAGES} uploaded blob refs. The incoming embed
+ *      is NOT reliably `null` on the short-form path: Atmosphere runs
+ *      its own `build_images_embed()` before this filter fires
+ *      (`bundled/atmosphere/includes/transformer/class-post.php`
+ *      `transform()`), so for a body-images post the default embed is
+ *      an already-built gallery. On any projection failure this filter
+ *      therefore returns `null` to suppress the embed outright rather
+ *      than passing the inherited default through — a failed projection
+ *      cleanly results in "no embed attached" and Atmosphere ships its
+ *      default short-form text without further intervention.
  *   3. `atmosphere_transform_bsky_post` — rewrite the record's `text`
  *      to the caption-only plain text and re-extract facets so byte
  *      offsets line up. Gated on "the images embed actually attached"
@@ -48,18 +53,21 @@ use WP_Post;
  * Failure-mode posture:
  *
  *   - If the *featured image* upload fails, the embed filter returns
- *     the input `$embed` unchanged (null for short-form). Featured
- *     Image is the post's hero shot; silently shipping a gallery
- *     missing its hero shot is the worst failure mode for a photo
- *     feature.
+ *     `null` to suppress the embed so Atmosphere ships short-form text
+ *     with no media. Featured Image is the post's hero shot; silently
+ *     shipping a gallery missing its hero shot is the worst failure
+ *     mode for a photo feature — and because Atmosphere may have
+ *     already built a body-images embed before this filter fired,
+ *     passing the inherited `$embed` through would do exactly that.
  *   - If a non-featured image upload fails, that one attachment is
  *     dropped from the embed and an `error_log` line is written so
  *     operators can correlate with PDS errors.
- *   - If *every* upload fails, the embed filter returns the input
- *     unchanged so Atmosphere ships short-form text with no embed.
- *     When the post body is also empty (the canonical Featured-Image-
- *     only photo post), the filter additionally logs the empty-record
- *     outcome so a publish failure isn't silent.
+ *   - If *every* upload fails, the embed filter returns `null` so
+ *     Atmosphere ships short-form text with no embed (rather than the
+ *     stale body-images gallery Atmosphere may have prebuilt). When the
+ *     post body is also empty (the canonical Featured-Image-only photo
+ *     post), the filter additionally logs the empty-record outcome so a
+ *     publish failure isn't silent.
  *   - Filter / upload exceptions are caught per-attachment so one
  *     misbehaving listener can't crater the entire federation event.
  *   - Synchronous blob uploads are bounded by
@@ -172,19 +180,21 @@ class Photo_Post_Atmosphere {
 	 *   - at least one image attachment uploads cleanly.
 	 *
 	 * Failure handling — see class docblock for the full rationale:
-	 *   - Featured-image upload failure → return `$embed` unchanged
-	 *     so Atmosphere ships short-form text with no embed. A gallery
-	 *     missing its hero shot is worse than no gallery.
+	 *   - Featured-image upload failure → return `null` to suppress the
+	 *     embed so Atmosphere ships short-form text with no media. A
+	 *     gallery missing its hero shot is worse than no gallery, and the
+	 *     incoming `$embed` may be a body-images gallery Atmosphere
+	 *     prebuilt, so it can't be passed through.
 	 *   - Non-featured upload failure → drop that attachment, log,
 	 *     keep going.
-	 *   - Every upload failed → return `$embed` unchanged; if the post
-	 *     body is also empty, log it so the silent "user federated
-	 *     literally nothing" outcome surfaces.
+	 *   - Every upload failed → return `null`; if the post body is also
+	 *     empty, log it so the silent "user federated literally nothing"
+	 *     outcome surfaces.
 	 *
-	 * @param mixed $embed    Default embed for the strategy (null for short-form).
+	 * @param mixed $embed    Default embed for the strategy. On the short-form path Atmosphere may already have built a body-images embed before this filter fires, so this is NOT reliably null.
 	 * @param mixed $post     The post being transformed.
 	 * @param mixed $strategy Composition strategy ('short-form', 'link-card', 'teaser-thread').
-	 * @return array|null Replacement embed, or the input unchanged.
+	 * @return array|null The `app.bsky.embed.images` envelope, the unchanged input for non-applicable strategies/posts, or null to suppress the embed on a projection failure.
 	 */
 	public static function filter_post_embed( $embed, $post, $strategy ) {
 		if ( 'short-form' !== $strategy ) {
@@ -239,9 +249,18 @@ class Photo_Post_Atmosphere {
 			if ( null === $blob ) {
 				if ( $has_featured && 0 === $position ) {
 					// Featured image is the hero shot — refuse to ship
-					// a gallery missing it. Return `$embed` unchanged so
-					// Atmosphere falls back to short-form text and the
-					// operator gets a log line to act on.
+					// a gallery missing it. Suppress the embed entirely
+					// (return `null`) so Atmosphere falls back to
+					// short-form text with no media. We must NOT return
+					// the incoming `$embed` here: on the short-form path
+					// Atmosphere already ran `build_images_embed()` before
+					// this filter fired (see
+					// `bundled/atmosphere/includes/transformer/class-post.php`
+					// `transform()`), so `$embed` may be a fully-built
+					// body-images embed — returning it would ship a
+					// gallery missing its hero shot, the exact failure
+					// this branch exists to prevent. The operator gets a
+					// log line to act on.
 					// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- Reliability signal for operators.
 					\error_log(
 						\sprintf(
@@ -249,7 +268,7 @@ class Photo_Post_Atmosphere {
 							$post->ID
 						)
 					);
-					return $embed;
+					return null;
 				}
 
 				// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- Reliability signal for operators.
@@ -278,14 +297,19 @@ class Photo_Post_Atmosphere {
 		}
 
 		if ( empty( $attached ) ) {
-			// Every upload failed. Return `$embed` unchanged so
-			// Atmosphere ships the caption with no embed (better than a
-			// malformed embed); if the rendered caption is also empty,
-			// log so the silent "user federated literally nothing"
-			// outcome surfaces. We check the caption (not raw
-			// `post_content`) because a pure Rule-2 photo post is just
-			// `<!-- wp:image -->` blocks — non-empty `post_content` but
-			// empty federated text once image markup is stripped.
+			// Every upload failed. Suppress the embed (return `null`) so
+			// Atmosphere ships the caption with no embed — better than a
+			// malformed or stale one. As with the featured-image branch
+			// above, returning the incoming `$embed` would be wrong: on
+			// the short-form path Atmosphere already built a body-images
+			// embed before this filter fired, so `$embed` may be a
+			// gallery assembled from the very attachments our uploads
+			// just failed on. If the rendered caption is also empty, log
+			// so the silent "user federated literally nothing" outcome
+			// surfaces. We check the caption (not raw `post_content`)
+			// because a pure Rule-2 photo post is just `<!-- wp:image -->`
+			// blocks — non-empty `post_content` but empty federated text
+			// once image markup is stripped.
 			if ( '' === \trim( Photo_Post::caption_text( $post ) ) ) {
 				// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- Reliability signal for operators.
 				\error_log(
@@ -295,7 +319,7 @@ class Photo_Post_Atmosphere {
 					)
 				);
 			}
-			return $embed;
+			return null;
 		}
 
 		if ( ! empty( $overflow ) ) {
@@ -320,9 +344,10 @@ class Photo_Post_Atmosphere {
 	 *     (`strategy === 'short-form'`, not a thread reply), and
 	 *   - the record carries our `app.bsky.embed.images` envelope.
 	 *
-	 * The embed-type gate is load-bearing: if every upload failed,
-	 * {@see self::filter_post_embed()} returned the input embed
-	 * (null) and Atmosphere will ship plain short-form text. Rewriting
+	 * The embed-type gate is load-bearing: if the projection failed
+	 * (featured-image or all-uploads failure),
+	 * {@see self::filter_post_embed()} returned `null` to suppress the
+	 * embed and Atmosphere will ship plain short-form text. Rewriting
 	 * to a caption-only string in that case would strip useful body
 	 * content from a record that has no image to caption.
 	 *
@@ -538,13 +563,36 @@ class Photo_Post_Atmosphere {
 	 * an empty string when missing; AT Protocol's `embed.images`
 	 * lexicon requires the `alt` key but accepts an empty string.
 	 *
+	 * Mirrors bundled Atmosphere's `Post::image_alt_text()`: the stored
+	 * value is run through `\Atmosphere\sanitize_text()` (decode HTML
+	 * entities, strip tags, collapse Unicode whitespace) and truncated
+	 * to 1000 characters before it ships, so the embed's `alt` matches
+	 * what Atmosphere would emit on its own image path. Falls back to a
+	 * guarded decode-and-truncate when Atmosphere isn't loaded — same
+	 * posture as {@see Photo_Post::caption_text()}.
+	 *
 	 * @param int $attachment_id WordPress attachment ID.
 	 * @return string
 	 */
 	private static function get_alt_text( int $attachment_id ): string {
 		$alt = \get_post_meta( $attachment_id, '_wp_attachment_image_alt', true );
+		if ( ! \is_string( $alt ) ) {
+			return '';
+		}
 
-		return \is_string( $alt ) ? $alt : '';
+		if ( \function_exists( '\Atmosphere\sanitize_text' ) && \function_exists( '\Atmosphere\truncate_text' ) ) {
+			return \Atmosphere\truncate_text( \Atmosphere\sanitize_text( $alt ), 1000 );
+		}
+
+		// Fallback mirrors sanitize_text()'s ORDER: decode, then strip,
+		// then collapse. Stripping first would leave an entity-encoded
+		// tag (`&lt;script&gt;`) untouched for the decode to materialize
+		// into live markup in the embed's alt text.
+		$clean     = \wp_strip_all_tags( \html_entity_decode( $alt, ENT_QUOTES, 'UTF-8' ) );
+		$collapsed = \preg_replace( '/\s+/u', ' ', $clean );
+		$clean     = \trim( \is_string( $collapsed ) ? $collapsed : $clean );
+
+		return \mb_substr( $clean, 0, 1000 );
 	}
 
 	/**
@@ -646,16 +694,29 @@ class Photo_Post_Atmosphere {
 	/**
 	 * Truncate caption text to Bluesky's per-record budget.
 	 *
-	 * Uses `mb_substr` because AT Protocol counts graphemes / Unicode
-	 * code points, not bytes. No fancy sentence / word break — the
-	 * source is already a short caption in practice, and Atmosphere's
-	 * upstream short-form path uses the same plain `mb_substr`-style
-	 * truncate.
+	 * AT Protocol counts graphemes, not bytes or code points, so when
+	 * the intl extension is available we cut on grapheme-cluster
+	 * boundaries with `grapheme_substr()` — a bare `mb_substr()` cuts on
+	 * code points and can split a multi-code-point cluster (an emoji
+	 * with a skin-tone modifier, a flag built from two regional-indicator
+	 * code points, a combining-accent sequence), leaving a mojibake half
+	 * a glyph at the tail. Falls back to `mb_substr()` when intl isn't
+	 * loaded. No fancy sentence / word break — the source is already a
+	 * short caption in practice.
 	 *
 	 * @param string $text Caption text.
 	 * @return string Truncated to {@see self::TEXT_BUDGET} graphemes.
 	 */
 	private static function truncate_text( string $text ): string {
+		if ( \function_exists( 'grapheme_strlen' ) && \function_exists( 'grapheme_substr' ) ) {
+			$length = \grapheme_strlen( $text );
+			if ( null === $length || false === $length || $length <= self::TEXT_BUDGET ) {
+				return $text;
+			}
+			$cut = \grapheme_substr( $text, 0, self::TEXT_BUDGET );
+			return \is_string( $cut ) ? $cut : $text;
+		}
+
 		if ( \mb_strlen( $text ) <= self::TEXT_BUDGET ) {
 			return $text;
 		}
