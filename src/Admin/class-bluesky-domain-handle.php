@@ -235,8 +235,13 @@ class Bluesky_Domain_Handle {
 		// Punycode-encode any non-ASCII labels. AT Protocol handles must
 		// be ASCII-only; sending raw UTF-8 (`münchen.example`) would either
 		// be rejected by the PDS or — worse — silently accepted as a
-		// non-canonical value the resolver later can't match. UTS-46
-		// transitional processing is the WhatWG-aligned default.
+		// non-canonical value the resolver later can't match. Use
+		// NON-transitional UTS-46 plus STD3 ASCII rules: that is the
+		// processing WHATWG's URL Standard mandates (transitional processing,
+		// the old `IDNA_DEFAULT`, maps a handful of characters — notably
+		// `ß` and `ς` — differently and is deprecated). STD3 rules reject
+		// labels containing characters outside LDH, matching the AT Protocol
+		// handle lexicon.
 		$has_non_ascii = (bool) preg_match( '/[\x80-\xff]/', $host );
 		if ( $has_non_ascii ) {
 			if ( ! function_exists( 'idn_to_ascii' ) ) {
@@ -245,14 +250,56 @@ class Bluesky_Domain_Handle {
 				// guaranteed-broken payload.
 				return '';
 			}
-			$ascii = idn_to_ascii( $host, IDNA_DEFAULT, INTL_IDNA_VARIANT_UTS46 );
+			$ascii = idn_to_ascii( $host, IDNA_NONTRANSITIONAL_TO_ASCII | IDNA_USE_STD3_RULES, INTL_IDNA_VARIANT_UTS46 );
 			if ( false === $ascii || '' === $ascii ) {
 				return '';
 			}
 			$host = $ascii;
 		}
 
-		return strtolower( $host );
+		$host = strtolower( $host );
+
+		// Defer to the bundled AT Protocol handle validator when available.
+		// Its rule set is stricter than the per-label LDH grammar — it
+		// caps total host length at 253 bytes, rejects digit-leading and
+		// reserved TLDs (`.test`, `.example`, `.invalid`, `.onion`,
+		// `.arpa`, `.alt`, etc.), and is the same gate Atmosphere uses
+		// downstream. Sharing the gate avoids the case where this method
+		// accepts a host that updateHandle then rejects after the admin
+		// has already clicked through.
+		if ( \class_exists( '\Atmosphere\OAuth\Resolver' )
+			&& \method_exists( '\Atmosphere\OAuth\Resolver', 'is_valid_handle' ) ) {
+			return \Atmosphere\OAuth\Resolver::is_valid_handle( $host ) ? $host : '';
+		}
+
+		// Fallback when bundled Atmosphere isn't loaded (e.g. unit tests
+		// or a checkout with the standalone Atmosphere missing the
+		// helper). Validates the LDH label grammar and the same coarse
+		// total-length / TLD shape so the offer flow never crosses a
+		// host the upstream validator would refuse.
+		if ( '' === $host || \strlen( $host ) > 253 ) {
+			return '';
+		}
+		$labels = explode( '.', $host );
+		if ( \count( $labels ) < 2 ) {
+			return '';
+		}
+		foreach ( $labels as $label ) {
+			if ( ! preg_match( '/^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/', $label ) ) {
+				return '';
+			}
+		}
+		$tld = end( $labels );
+		if ( \ctype_digit( $tld[0] ) ) {
+			return '';
+		}
+		// Reserved TLDs per the bundled validator. Kept in sync via the
+		// `Resolver::is_valid_handle` path above when Atmosphere loads.
+		if ( \in_array( $tld, array( 'alt', 'arpa', 'example', 'internal', 'invalid', 'local', 'localhost', 'onion', 'test' ), true ) ) {
+			return '';
+		}
+
+		return $host;
 	}
 
 	/**
@@ -458,6 +505,14 @@ class Bluesky_Domain_Handle {
 			return null;
 		}
 
+		// Self-heal the well-known rewrite before the XRPC call. Bluesky's PDS
+		// fetches `/.well-known/atproto-did` within milliseconds of
+		// `updateHandle`, so the persisted rewrite rule must already be in
+		// place by then. FOSSE loads Atmosphere programmatically, so the
+		// activation-time flush may never have run on this site — mirror
+		// upstream `\Atmosphere\Handle::set_handle()` and flush now.
+		self::maybe_flush_wellknown_rewrites();
+
 		$result = self::call_update_handle( $target );
 
 		if ( is_wp_error( $result ) ) {
@@ -481,7 +536,19 @@ class Bluesky_Domain_Handle {
 		// behind that disconnect would later try to "revert" — at best a
 		// wasted PDS call, at worst undoing a manual handle change the
 		// user made through Bluesky directly.
-		if ( '' !== $current_handle && '' !== $current_did ) {
+		//
+		// Keep the OLDEST snapshot for the current DID: a second handle
+		// change (e.g. the user moves domains again before disconnecting)
+		// must not overwrite the original always-revertible handle with an
+		// intermediate FOSSE-set domain value. Once we've recorded
+		// `alice.bsky.social`, a later move from `old.example` to
+		// `new.example` would otherwise strand the only handle that points
+		// back at the user's real, pre-FOSSE identity. Only write when no
+		// snapshot exists yet for this DID. `read_snapshot_for_current_did()`
+		// returns '' both when there's no snapshot and when an existing one
+		// belongs to a different account — in the latter case we want to
+		// replace it, since it can never be reverted to under this DID anyway.
+		if ( '' !== $current_handle && '' !== $current_did && '' === self::read_snapshot_for_current_did() ) {
 			update_option(
 				self::OPTION_PREVIOUS_HANDLE,
 				array(
@@ -553,6 +620,13 @@ class Bluesky_Domain_Handle {
 		if ( '' === $previous ) {
 			return null;
 		}
+
+		// Self-heal the well-known rewrite before the revert XRPC call too —
+		// the PDS re-verifies against `/.well-known/atproto-did` on the way
+		// back to the original handle, and FOSSE's programmatic Atmosphere
+		// load means the activation-time flush may never have run. Mirrors the
+		// flush upstream performs before its own `updateHandle` call.
+		self::maybe_flush_wellknown_rewrites();
 
 		$result = self::call_update_handle( $previous );
 
@@ -720,6 +794,16 @@ class Bluesky_Domain_Handle {
 	 * longer points at the user's repo. Updates atomically via
 	 * `update_option` so a single render won't see a partial write.
 	 *
+	 * Also mirrors the handle into `atmosphere_identity` when an identity
+	 * record already exists. That option is the canonical store
+	 * `\Atmosphere\get_identity()` / `has_identity()` read, and the public
+	 * verification headers + publishing UI consult it directly; leaving it
+	 * stale would let the new handle drift on the public surface even though
+	 * the PDS accepted it. Mirrors upstream
+	 * `\Atmosphere\Handle::sync_connection_handle()`. Deliberately does NOT
+	 * create an identity when none exists — this is a sync, not a write of
+	 * new identity state.
+	 *
 	 * @param string $handle Handle now in effect on the PDS.
 	 * @return void
 	 */
@@ -734,6 +818,70 @@ class Bluesky_Domain_Handle {
 		if ( false === $updated && defined( 'WP_DEBUG' ) && WP_DEBUG ) {
 			error_log( 'FOSSE: failed to sync local handle cache after updateHandle' ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
 		}
+
+		// Mirror into the canonical identity store too, but only when an
+		// identity already exists — never fabricate one here.
+		$identity = get_option( 'atmosphere_identity', array() );
+		if ( is_array( $identity ) && ! empty( $identity['did'] ) ) {
+			$identity['handle'] = $handle;
+			update_option( 'atmosphere_identity', $identity, true );
+
+			// Read-after-write convergence check: `update_option()` can
+			// silently fail to persist when a `pre_update_option_*`
+			// filter returns the old value (e.g. site policy that pins
+			// the identity) or when an options cache layer returns stale
+			// data. Without this, the PDS-side change succeeds, the
+			// success notice fires, and the canonical local identity
+			// `\Atmosphere\get_identity()` reads keeps returning the old
+			// handle — public verification headers and the publishing UI
+			// then drift on the local surface even though the remote
+			// account changed. Surface a warning notice so the operator
+			// knows the local mirror did not converge, and log for
+			// debug.
+			$identity_after = get_option( 'atmosphere_identity', array() );
+			$persisted      = is_array( $identity_after ) && isset( $identity_after['handle'] )
+				? (string) $identity_after['handle']
+				: '';
+			if ( $persisted !== $handle ) {
+				if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+					error_log( 'FOSSE: atmosphere_identity did not converge after sync; PDS handle change succeeded but local mirror is stale.' ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+				}
+				add_settings_error(
+					'atmosphere',
+					'fosse_identity_sync_drift',
+					sprintf(
+						/* translators: %s: the handle the PDS now serves. */
+						esc_html__( 'Your Bluesky account was updated to %s, but FOSSE could not refresh its local identity record. The new handle may not appear correctly until you reconnect.', 'fosse' ),
+						esc_html( $handle )
+					),
+					'warning'
+				);
+			}
+		}
+	}
+
+	/**
+	 * Self-heal the AT Protocol well-known rewrite before an `updateHandle` call.
+	 *
+	 * Delegates to `\Atmosphere\Atmosphere::maybe_flush_wellknown_rewrites()`
+	 * (a soft rewrite-rules flush) so the persisted rule serving
+	 * `/.well-known/atproto-did` is guaranteed present before the PDS fetches
+	 * it. FOSSE loads Atmosphere programmatically rather than as an active
+	 * plugin, so Atmosphere's activation-time flush may never have run on this
+	 * site; without this the first `updateHandle` after a fresh install can
+	 * fail verification because the rewrite rule isn't yet persisted.
+	 *
+	 * Guards on the method's existence so a partial / future Atmosphere bundle
+	 * degrades to the prior behaviour (no flush) rather than fatally erroring.
+	 *
+	 * @return void
+	 */
+	private static function maybe_flush_wellknown_rewrites(): void {
+		if ( ! is_callable( array( '\Atmosphere\Atmosphere', 'maybe_flush_wellknown_rewrites' ) ) ) {
+			return;
+		}
+
+		\Atmosphere\Atmosphere::maybe_flush_wellknown_rewrites();
 	}
 
 	/**
@@ -781,10 +929,47 @@ class Bluesky_Domain_Handle {
 			);
 		}
 
-		$response = \Atmosphere\API::post(
-			'/xrpc/com.atproto.identity.updateHandle',
-			array( 'handle' => $handle )
-		);
+		/*
+		 * Called synchronously from the admin-post handler, so the submitting
+		 * administrator waits on this HTTP round-trip. The PDS asks this
+		 * host's `/.well-known/atproto-did` for the DID associated with the
+		 * domain; that lookup usually finishes in seconds but can stretch to
+		 * 15-45s for slow DNS / slow-origin combinations. The 60s timeout
+		 * (versus `\Atmosphere\API::post()`'s inherited 30s default) gives a
+		 * slow-but-eventual success room to land instead of failing mid-
+		 * handshake. The wait is paid by an administrator who explicitly
+		 * clicked the confirm button. Mirrors upstream
+		 * `\Atmosphere\Handle::call_update_handle()`, which uses the same 60s
+		 * value — `API::post()` hardcodes the default timeout, so we drop to
+		 * `API::request()` to override it.
+		 *
+		 * FOSSE can run with a standalone Atmosphere instead of the bundled
+		 * copy, so version skew is real. Prefer `API::request()` when the
+		 * loaded class actually has it, fall back to `API::post()`
+		 * otherwise (no timeout override, but no fatal either). If neither
+		 * callable is present the standalone is too old to support this
+		 * action at all; return a clean WP_Error rather than fatal.
+		 */
+		if ( is_callable( array( '\Atmosphere\API', 'request' ) ) ) {
+			$response = \Atmosphere\API::request(
+				'POST',
+				'/xrpc/com.atproto.identity.updateHandle',
+				array(
+					'body'    => array( 'handle' => $handle ),
+					'timeout' => 60,
+				)
+			);
+		} elseif ( is_callable( array( '\Atmosphere\API', 'post' ) ) ) {
+			$response = \Atmosphere\API::post(
+				'/xrpc/com.atproto.identity.updateHandle',
+				array( 'handle' => $handle )
+			);
+		} else {
+			return new \WP_Error(
+				'fosse_atmosphere_api_incompatible',
+				__( 'The installed Atmosphere version does not expose an API the handle change can use. Update Atmosphere and try again.', 'fosse' )
+			);
+		}
 
 		if ( is_wp_error( $response ) ) {
 			return $response;
