@@ -37,17 +37,66 @@ class Bootstrap {
 			return;
 		}
 
-		if ( get_option( $option_key ) === $version ) {
+		$stored = get_option( $option_key, false );
+
+		if ( $stored === $version ) {
 			$ran_in_request[ $option_key ] = $version;
 			return;
 		}
 
-		$activate();
-		update_option( $option_key, $version, false );
+		if ( false === $stored ) {
+			/*
+			 * First load: claim the flag atomically *before* running the
+			 * activate routine. add_option() issues an INSERT that the DB
+			 * rejects (duplicate key) if a concurrent first-load request
+			 * already inserted the row, so exactly one request wins and runs
+			 * the expensive activation (flush_rewrite_rules + comment-count
+			 * migration). Losers bail and let the winner finish. Autoload is
+			 * 'no' so the flag stays off the bulk-loaded options cache.
+			 */
+			if ( ! add_option( $option_key, $version, '', false ) ) {
+				// Another request claimed the flag first; mark this request
+				// done so later hook firings here don't keep probing.
+				$ran_in_request[ $option_key ] = $version;
+				return;
+			}
 
-		// Mark done even if update_option failed, so a transient DB-write
-		// failure doesn't re-trigger the activate callable on every later
-		// hook firing within this same request.
+			$ran_in_request[ $option_key ] = $version;
+
+			try {
+				$activate();
+			} catch ( \Throwable $e ) {
+				// Roll the lock back so a subsequent request can retry the
+				// activation. Without this, a thrown activation would leave
+				// the flag set forever and the activate routine would never
+				// run again (rewrites unflushed, options unseeded, etc.).
+				// Note: a PHP fatal (memory/time exhaustion) still
+				// terminates the request without firing this catch, so the
+				// flag would persist. That tail case is out of scope here.
+				delete_option( $option_key );
+				throw $e;
+			}
+			return;
+		}
+
+		/*
+		 * Stored value present but stale (the bundled version changed since
+		 * the last bootstrap). This is a deploy-time transition, not the
+		 * concurrent first-load race add_option() guards against, so a plain
+		 * value update is sufficient. Snapshot the prior version so a
+		 * throwing activate routine can be rolled back to the value it
+		 * already had — without that, a half-applied version bump would
+		 * convince the next request the new activation completed and the
+		 * version-changed activate would never re-run.
+		 */
+		$prior = $stored;
+		update_option( $option_key, $version, false );
 		$ran_in_request[ $option_key ] = $version;
+		try {
+			$activate();
+		} catch ( \Throwable $e ) {
+			update_option( $option_key, $prior, false );
+			throw $e;
+		}
 	}
 }

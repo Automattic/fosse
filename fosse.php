@@ -81,10 +81,11 @@ if ( file_exists( __DIR__ . '/vendor/autoload_packages.php' ) ) {
  * FOSSE ships release-build copies of wordpress-activitypub and
  * wordpress-atmosphere so users get Mastodon + Bluesky federation out
  * of the box. We skip the bundled copy when the standalone plugin is
- * either already loaded (its constants are defined) OR present on
- * disk at the canonical plugin path — so if the user activates the
- * standalone later in the same request, WP's plugin_sandbox_scrape
- * doesn't redeclare classes we already loaded.
+ * already loaded (its constants are defined), active under any folder
+ * name (scanned from `active_plugins` / `active_sitewide_plugins`), or
+ * present on disk at the canonical plugin path — so if the standalone
+ * loads later in the same request, WP's plugin_sandbox_scrape doesn't
+ * redeclare classes we already loaded. See `fosse_detect_standalone()`.
  *
  * This is a short-term bootstrap; FOSSE's own UI will replace the
  * bundled plugins' admin surface in a later iteration.
@@ -92,23 +93,215 @@ if ( file_exists( __DIR__ . '/vendor/autoload_packages.php' ) ) {
 $fosse_loaded_bundled_ap   = false;
 $fosse_loaded_bundled_atmo = false;
 
-$fosse_standalone_ap_present = defined( 'ACTIVITYPUB_PLUGIN_VERSION' )
-	|| ( defined( 'WP_PLUGIN_DIR' ) && file_exists( WP_PLUGIN_DIR . '/activitypub/activitypub.php' ) );
+if ( ! function_exists( 'fosse_request_is_plugin_activation' ) ) {
+	/**
+	 * Whether the current request is a WordPress plugin-activation submission.
+	 *
+	 * Restricted to admin requests targeting `wp-admin/plugins.php` (or its
+	 * network counterpart) with an `activate`/`activate-selected` action.
+	 * Used only to decide whether `fosse_detect_standalone()` should
+	 * consult the `$_REQUEST` activation payload — the nonce itself is
+	 * verified later by `wp-admin/plugins.php`. A frontend `?plugin=…`
+	 * query string is not enough to trip this guard, so an anonymous
+	 * request can't spoof bundled-backend suppression on public routes.
+	 *
+	 * @return bool
+	 */
+	function fosse_request_is_plugin_activation(): bool {
+		if ( ! is_admin() ) {
+			return false;
+		}
 
-if ( ! $fosse_standalone_ap_present && file_exists( __DIR__ . '/bundled/activitypub/activitypub.php' ) ) {
+		$script = isset( $_SERVER['SCRIPT_NAME'] ) && is_string( $_SERVER['SCRIPT_NAME'] )
+			? sanitize_text_field( wp_unslash( $_SERVER['SCRIPT_NAME'] ) )
+			: '';
+		if ( '' === $script ) {
+			return false;
+		}
+		if ( ! str_ends_with( $script, '/wp-admin/plugins.php' )
+			&& ! str_ends_with( $script, '/wp-admin/network/plugins.php' ) ) {
+			return false;
+		}
+
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- only inspected to gate the activation-target scan; nonce verified by wp-admin/plugins.php itself.
+		$action = isset( $_REQUEST['action'] ) && is_string( $_REQUEST['action'] )
+			? sanitize_text_field( wp_unslash( $_REQUEST['action'] ) )
+			: '';
+
+		return in_array( $action, array( 'activate', 'activate-selected' ), true );
+	}
+}
+
+if ( ! function_exists( 'fosse_detect_standalone' ) ) {
+	/**
+	 * Detect whether a standalone copy of a bundled backend is present, and how.
+	 *
+	 * Returns one of four states so callers can both suppress the bundled
+	 * copy *and* tell the difference between a healthy standalone and one
+	 * whose files are on disk but never load:
+	 *
+	 *  - `'loaded'`   — the standalone already defined its version constant
+	 *                   (it is loading or has loaded this request).
+	 *  - `'active'`   — an `active_plugins` (or network) entry resolves to the
+	 *                   standalone main file; it will load this request.
+	 *  - `'inactive'` — the standalone files exist on disk at the canonical
+	 *                   plugin path but no active-plugins entry points at
+	 *                   them, so the standalone will NOT load.
+	 *  - `''`         — no standalone detected; the bundled copy should load.
+	 *
+	 * Both the canonical-path check and the `active_plugins` scan run because
+	 * a standalone installed under a non-canonical folder name (e.g. a GitHub
+	 * clone at `wordpress-activitypub/`) is invisible to the canonical-path
+	 * check yet still loads — and, sorting after `fosse/` in `active_plugins`,
+	 * loads second and fatals on "Cannot redeclare". Scanning the active list
+	 * for any entry whose path ends in the main filename catches that case.
+	 *
+	 * @param string $version_constant Version constant the standalone defines on
+	 *                                 load (e.g. `ACTIVITYPUB_PLUGIN_VERSION`).
+	 * @param string $main_file        Standalone main file relative to the plugins
+	 *                                 dir at its canonical name
+	 *                                 (e.g. `activitypub/activitypub.php`).
+	 * @return string One of `'loaded'`, `'active'`, `'inactive'`, or `''`.
+	 */
+	function fosse_detect_standalone( string $version_constant, string $main_file ): string {
+		if ( defined( $version_constant ) ) {
+			return 'loaded';
+		}
+
+		// Any active-plugins entry whose path ends in the main filename
+		// (e.g. `wordpress-activitypub/activitypub.php`) is a standalone
+		// that will load this request, regardless of its folder name.
+		$basename = '/' . basename( $main_file );
+
+		$active = (array) get_option( 'active_plugins', array() );
+
+		if ( is_multisite() ) {
+			// Network-active plugins are stored as path => activation-timestamp.
+			$active = array_merge( $active, array_keys( (array) get_site_option( 'active_sitewide_plugins', array() ) ) );
+		}
+
+		foreach ( $active as $plugin ) {
+			if ( is_string( $plugin ) && str_ends_with( $plugin, $basename ) ) {
+				return 'active';
+			}
+		}
+
+		// Same-request activation: WordPress sandbox-includes the target
+		// plugin's main file BEFORE adding it to active_plugins. If a user
+		// is mid-activation of a non-canonical standalone copy (e.g. a
+		// GitHub clone at `wordpress-activitypub/activitypub.php`), the
+		// active_plugins scan above misses it AND the file_exists check
+		// below misses it (wrong folder), so the bundled copy would load
+		// first and the standalone's sandbox include would fatal on
+		// "Cannot redeclare". Scan the activation-request payload itself
+		// for any plugin path ending in the main filename and treat it
+		// the same as `'active'`.
+		//
+		// Tight gating: only consult the request payload when we're on
+		// `wp-admin/plugins.php` (or its network counterpart) AND the
+		// `action` is one of the activation actions. The nonce itself
+		// isn't verified yet at plugin-load time, but the action+page
+		// pairing already restricts spoofed-request impact to "render
+		// the plugins screen without bundled AP/Atmosphere for that one
+		// request" — `wp-admin/plugins.php` doesn't need them. A
+		// frontend `?plugin=…` query string cannot trip this path, which
+		// is the spoof scenario worth preventing (per-request federation
+		// suppression on public routes).
+		if ( fosse_request_is_plugin_activation() ) {
+			// phpcs:disable WordPress.Security.NonceVerification.Recommended -- pre-load context, see fosse_request_is_plugin_activation() guard above.
+			$activation_targets = array();
+			if ( isset( $_REQUEST['plugin'] ) && is_string( $_REQUEST['plugin'] ) ) {
+				$activation_targets[] = wp_unslash( $_REQUEST['plugin'] );
+			}
+			if ( isset( $_REQUEST['checked'] ) && is_array( $_REQUEST['checked'] ) ) {
+				foreach ( $_REQUEST['checked'] as $checked ) {
+					if ( is_string( $checked ) ) {
+						$activation_targets[] = wp_unslash( $checked );
+					}
+				}
+			}
+			// phpcs:enable WordPress.Security.NonceVerification.Recommended
+
+			foreach ( $activation_targets as $target ) {
+				if ( str_ends_with( $target, $basename ) ) {
+					return 'active';
+				}
+			}
+		}
+
+		// Files on disk at the canonical path but not in any active list:
+		// suppress the bundled copy (a later same-request activation would
+		// otherwise redeclare), but flag the resulting federation outage.
+		if ( defined( 'WP_PLUGIN_DIR' ) && file_exists( WP_PLUGIN_DIR . '/' . $main_file ) ) {
+			return 'inactive';
+		}
+
+		return '';
+	}
+}
+
+$fosse_standalone_ap_state   = fosse_detect_standalone( 'ACTIVITYPUB_PLUGIN_VERSION', 'activitypub/activitypub.php' );
+$fosse_standalone_atmo_state = fosse_detect_standalone( 'ATMOSPHERE_VERSION', 'atmosphere/atmosphere.php' );
+
+if ( '' === $fosse_standalone_ap_state && file_exists( __DIR__ . '/bundled/activitypub/activitypub.php' ) ) {
 	require_once __DIR__ . '/bundled/activitypub/activitypub.php';
 	$fosse_loaded_bundled_ap = true;
 }
 
-$fosse_standalone_atmo_present = defined( 'ATMOSPHERE_VERSION' )
-	|| ( defined( 'WP_PLUGIN_DIR' ) && file_exists( WP_PLUGIN_DIR . '/atmosphere/atmosphere.php' ) );
-
-if ( ! $fosse_standalone_atmo_present && file_exists( __DIR__ . '/bundled/atmosphere/atmosphere.php' ) ) {
+if ( '' === $fosse_standalone_atmo_state && file_exists( __DIR__ . '/bundled/atmosphere/atmosphere.php' ) ) {
 	require_once __DIR__ . '/bundled/atmosphere/atmosphere.php';
 	$fosse_loaded_bundled_atmo = true;
 }
 
-unset( $fosse_standalone_ap_present, $fosse_standalone_atmo_present );
+/*
+ * Inactive-standalone federation-outage notice.
+ *
+ * When suppression is due to on-disk files that are NOT actually active
+ * (`'inactive'`), the standalone never loads, the bundled copy was
+ * suppressed to avoid a redeclaration fatal, and all federation goes
+ * dark with no signal. Surface a `manage_options`-only notice so the
+ * operator can either activate or remove the dormant standalone. An
+ * `'active'` or `'loaded'` standalone is the healthy coexistence path
+ * and stays silent. Mirrors the vendor-autoload-missing notice above.
+ */
+$fosse_inactive_standalones = array();
+if ( 'inactive' === $fosse_standalone_ap_state ) {
+	$fosse_inactive_standalones[] = 'ActivityPub';
+}
+if ( 'inactive' === $fosse_standalone_atmo_state ) {
+	$fosse_inactive_standalones[] = 'Atmosphere';
+}
+
+if ( ! empty( $fosse_inactive_standalones ) ) {
+	add_action(
+		'admin_notices',
+		static function () use ( $fosse_inactive_standalones ) {
+			if ( ! current_user_can( 'manage_options' ) ) {
+				return;
+			}
+			$names = implode( ', ', $fosse_inactive_standalones );
+			?>
+			<div class="notice notice-warning">
+				<p>
+					<strong><?php esc_html_e( 'FOSSE federation is disabled by a deactivated plugin.', 'fosse' ); ?></strong>
+					<?php
+					printf(
+						/* translators: %s: comma-separated list of plugin names, e.g. "ActivityPub, Atmosphere". */
+						esc_html__(
+							'FOSSE detected %s installed but deactivated. To avoid a fatal conflict, FOSSE is not loading its bundled copy, so federation is currently off. Either activate the standalone plugin, or delete its files to let FOSSE provide federation.',
+							'fosse'
+						),
+						esc_html( $names )
+					);
+					?>
+				</p>
+			</div>
+			<?php
+		}
+	);
+}
+
+unset( $fosse_standalone_ap_state, $fosse_standalone_atmo_state, $fosse_inactive_standalones );
 
 /*
  * First-load bootstrap for the bundled backends.
@@ -151,6 +344,104 @@ add_action(
 		}
 	},
 	20
+);
+
+/*
+ * Deactivation lifecycle for the bundled backends.
+ *
+ * The first-load bootstrap above replays the bundled plugins' activate()
+ * routines, but because bundled plugins never go through the plugins
+ * screen their register_deactivation_hook callbacks never fire either.
+ * Without this, deactivating FOSSE leaves AP's recurring cron events and
+ * Atmosphere's one-shot `atmosphere_revoke_refresh_token` event (with its
+ * encrypted refresh-token ciphertext) orphaned in `wp_options['cron']`,
+ * queued for callbacks the now-inactive plugin no longer registers.
+ *
+ * Ownership of bundled backend cleanup is decided from PERSISTED state
+ * (`fosse_bundled_*_bootstrapped` options) rather than from whether the
+ * bundled file loaded this request. A prior bootstrap creates state we
+ * still own even if a later same-site state ("inactive standalone files
+ * appeared on disk") stopped us from loading the bundled copy this
+ * request. We also clear the `fosse_bundled_*_bootstrapped` flags so
+ * re-activating FOSSE re-runs the activation shim (re-seeding options
+ * and flushing rewrites) rather than assuming the prior bootstrap still
+ * holds. Callable names verified against the bundled mains:
+ * `\Activitypub\Activitypub::deactivate()` and `\Atmosphere\deactivate()`.
+ *
+ * On a network-wide deactivation we iterate every site (with
+ * `number => 0` so large networks aren't truncated) and call each
+ * backend's per-site deactivate routine inside `switch_to_blog()`. This
+ * avoids AP's own network loop on top of ours.
+ */
+register_deactivation_hook(
+	__FILE__,
+	static function ( $network_wide ) use ( $fosse_loaded_bundled_ap, $fosse_loaded_bundled_atmo ) {
+		// Two distinct signals drive cleanup, and conflating them either
+		// disables a standalone we don't own or leaks our cron state:
+		//
+		//  - `$fosse_loaded_bundled_*` is whether the bundled class loaded
+		//    THIS request. Only when we loaded it is the live
+		//    `\Activitypub\Activitypub` (or `\Atmosphere\…`) symbol ours
+		//    to call `deactivate()` on. If a standalone is currently
+		//    loaded, calling its `deactivate()` would unschedule its
+		//    cron — even though the user is keeping it active.
+		//
+		//  - `fosse_bundled_*_bootstrapped` persistence tells us whether
+		//    a PRIOR request bootstrapped a bundled copy. If yes and we
+		//    didn't load bundled this request (e.g. a standalone now
+		//    owns the namespace, or files are inactive on disk), the
+		//    orphaned cron rows still exist but the loaded symbol isn't
+		//    safe to invoke — we just clear our flag and accept that
+		//    a few stale cron entries may linger until the standalone
+		//    is also deactivated (or its activation hook reseats them).
+		$cleanup = static function () use ( $fosse_loaded_bundled_ap, $fosse_loaded_bundled_atmo ) {
+			$ap_flag_was_set = get_option( 'fosse_bundled_ap_bootstrapped', false ) !== false;
+			if ( $ap_flag_was_set ) {
+				if ( $fosse_loaded_bundled_ap && class_exists( '\Activitypub\Activitypub' ) ) {
+					// Per-site mode here: the outer loop (when present)
+					// already iterates sites, so we never double-loop.
+					\Activitypub\Activitypub::deactivate( false );
+				}
+				delete_option( 'fosse_bundled_ap_bootstrapped' );
+			}
+
+			$atmo_flag_was_set = get_option( 'fosse_bundled_atmosphere_bootstrapped', false ) !== false;
+			if ( $atmo_flag_was_set ) {
+				if ( $fosse_loaded_bundled_atmo && function_exists( '\Atmosphere\deactivate' ) ) {
+					\Atmosphere\deactivate();
+				}
+				delete_option( 'fosse_bundled_atmosphere_bootstrapped' );
+			}
+		};
+
+		// Per-site (non-network) deactivation hits the current blog only.
+		if ( ! $network_wide || ! is_multisite() || ! function_exists( 'get_sites' ) ) {
+			$cleanup();
+			return;
+		}
+
+		// Network-wide deactivation must visit every site that
+		// bootstrapped a bundled backend. `get_sites()` defaults to
+		// `number => 100`, which would silently truncate cleanup on
+		// large networks; pass `number => 0` to disable the limit.
+		// The AP/Atmosphere deactivate() routines are idempotent and
+		// cheap when the cron queue is already clear, so per-site
+		// iteration only adds cost where it's load-bearing.
+		$sites = get_sites(
+			array(
+				'fields' => 'ids',
+				'number' => 0,
+			)
+		);
+		foreach ( $sites as $site_id ) {
+			switch_to_blog( (int) $site_id );
+			try {
+				$cleanup();
+			} finally {
+				restore_current_blog();
+			}
+		}
+	}
 );
 
 /*
@@ -466,10 +757,24 @@ add_action( 'plugins_loaded', 'fosse_boot_providers', 20 );
  * qualifying admin request. Survives indefinitely if no admin request
  * ever runs (transients TTLed out and could leave the wizard never
  * reached on slow-to-visit installs).
+ *
+ * Deliberately skips the signal on a network-wide activation: the
+ * redirect is a per-site, single-admin onboarding nudge, and WordPress
+ * always returns the network admin to the network plugins screen after a
+ * network activate — there is no single site to send them to, and setting
+ * the option on the network admin's current site would fire the wizard on
+ * an arbitrary site the admin may never visit. Per-site activations (the
+ * common path) keep the redirect. Honoring $network_wide here also avoids
+ * a misleading redirect for the multisite operator who network-activates
+ * and then configures each site individually.
  */
 register_activation_hook(
 	__FILE__,
-	static function () {
+	static function ( $network_wide ) {
+		if ( $network_wide ) {
+			return;
+		}
+
 		if ( ! class_exists( \Automattic\Fosse\Admin\Onboarding_Wizard::class ) ) {
 			error_log( 'FOSSE: Onboarding_Wizard class unavailable on activation; skipping redirect signal.' ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- intentional plugin diagnostics; only fires when autoload is broken.
 			return;
