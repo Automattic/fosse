@@ -47,32 +47,46 @@ class Self_Thread_Comment_Filter {
 	 * chunks; otherwise pass through whatever value the upstream filter
 	 * chain has produced.
 	 *
-	 * @param bool  $should       Default true (or whatever a prior callback returned).
+	 * @param mixed $should       Default true (or whatever a prior callback returned).
+	 *                            Loosely typed so a non-bool from an earlier
+	 *                            callback (e.g. a buggy plugin returning null)
+	 *                            doesn't fatal the request. Scalar-falsy values
+	 *                            (`false`, `0`, `'0'`, `''`) are honored as a
+	 *                            suppression decision, matching WP filter
+	 *                            convention. Only `null` is treated as
+	 *                            "unknown" and falls through to the own-thread
+	 *                            evaluation — coercing it to false would
+	 *                            silently drop legitimate external replies the
+	 *                            moment any earlier callback misbehaves.
 	 * @param array $notification Notification or synthesized own-record (must include
 	 *                            `uri` and `author.did`).
 	 * @param int   $post_id      Resolved WP post the reply targets.
 	 * @return bool
 	 */
-	public static function suppress_own_thread_chunks( bool $should, array $notification, int $post_id ): bool {
-		if ( ! $should ) {
+	public static function suppress_own_thread_chunks( $should, array $notification, int $post_id ): bool {
+		// Honor scalar-falsy as suppression (matches WP filter convention),
+		// but treat `null` as "unknown" so a buggy upstream callback can't
+		// silently drop external replies. A noisy fatal is recoverable; a
+		// silent drop is not.
+		if ( null !== $should && ! $should ) {
 			return false;
 		}
 
 		$own_did = \Atmosphere\get_did();
 		if ( '' === $own_did ) {
-			return $should;
+			return true;
 		}
 
 		$author_did = $notification['author']['did'] ?? '';
 		$reply_uri  = $notification['uri'] ?? '';
 
 		if ( $author_did !== $own_did || '' === $reply_uri ) {
-			return $should;
+			return true;
 		}
 
 		$thread_uris = \get_post_meta( $post_id, BskyPost::META_URI_INDEX, false );
 		if ( ! \is_array( $thread_uris ) || ! \in_array( $reply_uri, $thread_uris, true ) ) {
-			return $should;
+			return true;
 		}
 
 		return false;

@@ -12,9 +12,9 @@ namespace Automattic\Fosse;
  * rendered post body already fits inside a single Bluesky record.
  *
  * Atmosphere's built-in `is_short_form()` discriminator keys off post
- * shape (no title support, empty title, or any non-empty `post_format`),
- * not length. A titleless standard post with no format therefore always
- * takes the long-form path, which by default builds an
+ * shape (no title support, empty title via `empty()`, or any non-empty
+ * `post_format`), not length. A title-bearing standard post with no
+ * format therefore takes the long-form path, which by default builds an
  * `app.bsky.embed.external` link card — even when the body already fits
  * comfortably inside 300 chars. The result on microblog-length posts is
  * a redundant link-card preview attached to a post whose URL is already
@@ -27,6 +27,19 @@ namespace Automattic\Fosse;
  * body becomes the Bluesky text (no title prefix, no permalink, no
  * card). Sibling to `Object_Type`, which uses the same filter to
  * project ActivityPub's "note" object type.
+ *
+ * Reachable scope: upstream's `is_short_form()` already returns true for
+ * a truly titleless post (its `empty( $post->post_title )` check), so
+ * `$is_short` arrives `true` for those and this bridge passes through
+ * without entering the force-to-short-form branch. The case upstream
+ * misses — and the only one where upstream's own computed value lets
+ * that branch (and its `fosse_bsky_link_card_when_post_fits` filter)
+ * fire — is a post whose title is whitespace-only: `empty()` sees a
+ * non-empty string and treats it as titled (long-form), while the
+ * `trim()`-based guard below correctly recognizes it as titleless and
+ * lets the length check decide. (An earlier subscriber on the filter
+ * returning falsy re-opens the branch for any titleless post — see the
+ * null-survival test.)
  *
  * Title-bearing posts are intentionally excluded: a non-empty title is
  * Atmosphere's own long-form signal (`build_text()` composes title +
@@ -118,11 +131,17 @@ class Bsky_Short_Form_Fit {
 	 * Memoized per request via `$decision_cache` — see that property's
 	 * docblock for why it matters.
 	 *
-	 * @param bool  $is_short Upstream-computed short-form default.
+	 * @param mixed $is_short Upstream-computed short-form default. Loosely
+	 *                        typed and cast to bool below: another callback
+	 *                        on this filter could return a non-bool (e.g.
+	 *                        null), and a scalar hint would fatal even in
+	 *                        coercive mode.
 	 * @param mixed $post     The post being transformed.
 	 * @return bool True when we force short-form, otherwise pass-through.
 	 */
-	public static function filter_atmosphere( bool $is_short, $post ): bool {
+	public static function filter_atmosphere( $is_short, $post ): bool {
+		$is_short = (bool) $is_short;
+
 		if ( $is_short ) {
 			return $is_short;
 		}

@@ -118,6 +118,23 @@ class Bsky_Short_Form_FitTest extends BaseTestCase {
 	}
 
 	/**
+	 * A prior subscriber returning a non-bool (e.g. null) must not fatal.
+	 * The callback's first parameter is loosely typed and cast to bool
+	 * internally, matching WP filter convention — a scalar type hint would
+	 * raise a TypeError even in coercive mode when fed null. A null
+	 * upstream value coerces to false (not already-short), so a fitting
+	 * body still gets forced to short-form.
+	 */
+	public function test_survives_null_upstream_value(): void {
+		add_filter( 'atmosphere_is_short_form_post', fn() => null, 5 );
+
+		$this->assertTrue(
+			apply_filters( 'atmosphere_is_short_form_post', false, $this->make_post( 'Hello, Bluesky.' ) ),
+			'A null upstream value must coerce to false and not fatal.'
+		);
+	}
+
+	/**
 	 * Defensive guard: if the upstream filter contract ever drifts and
 	 * passes a non-`WP_Post`, the bridge must not crash on
 	 * `$post->post_content`. It should return the input unchanged.
