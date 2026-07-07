@@ -42,6 +42,9 @@ snippets/
 src/
 docs/
 
+# --- Upstream design/source assets (logos, plugin banners) ---
+branding/
+
 # --- Config files not needed at runtime ---
 phpcs.xml
 phpcs.xml.dist
@@ -49,6 +52,7 @@ jest.config.js
 jest.config.cjs
 jest.setup.js
 eslint.config.mjs
+eslint.config.cjs
 .eslintignore
 .eslintrc.js
 .eslintrc.json
