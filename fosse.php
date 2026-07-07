@@ -75,16 +75,54 @@ if ( file_exists( __DIR__ . '/vendor/autoload_packages.php' ) ) {
  * rollout would no-op. See DOTCOM-16981.
  */
 
+if ( ! function_exists( 'fosse_plugin_is_active' ) ) {
+	/**
+	 * Whether a plugin is active, safe to call during plugin bootstrap.
+	 *
+	 * `is_plugin_active()` lives in `wp-admin/includes/plugin.php`, which is not
+	 * loaded on front-end requests, so we read the active-plugins options
+	 * directly. Covers both per-site and network activation.
+	 *
+	 * Guarded with `function_exists()` like `fosse_boot_providers()` below,
+	 * since embedders (e.g. wp.com's `fosse-loader.php`) can include this file
+	 * more than once per request.
+	 *
+	 * @param string $plugin Plugin basename, e.g. `atmosphere/atmosphere.php`.
+	 * @return bool
+	 */
+	function fosse_plugin_is_active( $plugin ) {
+		if ( in_array( $plugin, (array) get_option( 'active_plugins', array() ), true ) ) {
+			return true;
+		}
+
+		if ( is_multisite() ) {
+			$network_active = (array) get_site_option( 'active_sitewide_plugins', array() );
+
+			return isset( $network_active[ $plugin ] );
+		}
+
+		return false;
+	}
+}
+
 /*
  * Bundled federation backends.
  *
  * FOSSE ships release-build copies of wordpress-activitypub and
  * wordpress-atmosphere so users get Mastodon + Bluesky federation out
  * of the box. We skip the bundled copy when the standalone plugin is
- * either already loaded (its constants are defined) OR present on
- * disk at the canonical plugin path — so if the user activates the
- * standalone later in the same request, WP's plugin_sandbox_scrape
- * doesn't redeclare classes we already loaded.
+ * either already loaded (its constants are defined) OR active. An
+ * installed-but-inactive standalone no longer suppresses the bundle —
+ * gating on activation rather than mere on-disk presence means a
+ * deactivated standalone doesn't silently disable federation.
+ *
+ * Trade-off: if a standalone is inactive (so the bundle loads) and the
+ * user then activates it in the same request, WP's plugin_sandbox_scrape
+ * re-includes the standalone entry file and redeclares classes the
+ * bundle already loaded — a fatal on that one activation request. That
+ * window is narrow and self-correcting (the next request loads only the
+ * standalone), and is a better default than losing federation whenever
+ * an inactive copy happens to sit on disk.
  *
  * This is a short-term bootstrap; FOSSE's own UI will replace the
  * bundled plugins' admin surface in a later iteration.
@@ -93,7 +131,7 @@ $fosse_loaded_bundled_ap   = false;
 $fosse_loaded_bundled_atmo = false;
 
 $fosse_standalone_ap_present = defined( 'ACTIVITYPUB_PLUGIN_VERSION' )
-	|| ( defined( 'WP_PLUGIN_DIR' ) && file_exists( WP_PLUGIN_DIR . '/activitypub/activitypub.php' ) );
+	|| fosse_plugin_is_active( 'activitypub/activitypub.php' );
 
 if ( ! $fosse_standalone_ap_present && file_exists( __DIR__ . '/bundled/activitypub/activitypub.php' ) ) {
 	require_once __DIR__ . '/bundled/activitypub/activitypub.php';
@@ -101,7 +139,7 @@ if ( ! $fosse_standalone_ap_present && file_exists( __DIR__ . '/bundled/activity
 }
 
 $fosse_standalone_atmo_present = defined( 'ATMOSPHERE_VERSION' )
-	|| ( defined( 'WP_PLUGIN_DIR' ) && file_exists( WP_PLUGIN_DIR . '/atmosphere/atmosphere.php' ) );
+	|| fosse_plugin_is_active( 'atmosphere/atmosphere.php' );
 
 if ( ! $fosse_standalone_atmo_present && file_exists( __DIR__ . '/bundled/atmosphere/atmosphere.php' ) ) {
 	require_once __DIR__ . '/bundled/atmosphere/atmosphere.php';
