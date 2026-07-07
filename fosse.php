@@ -75,28 +75,34 @@ if ( file_exists( __DIR__ . '/vendor/autoload_packages.php' ) ) {
  * rollout would no-op. See DOTCOM-16981.
  */
 
-/**
- * Whether a plugin is active, safe to call during plugin bootstrap.
- *
- * `is_plugin_active()` lives in `wp-admin/includes/plugin.php`, which is not
- * loaded on front-end requests, so we read the active-plugins options
- * directly. Covers both per-site and network activation.
- *
- * @param string $plugin Plugin basename, e.g. `atmosphere/atmosphere.php`.
- * @return bool
- */
-function fosse_plugin_is_active( $plugin ) {
-	if ( in_array( $plugin, (array) get_option( 'active_plugins', array() ), true ) ) {
-		return true;
+if ( ! function_exists( 'fosse_plugin_is_active' ) ) {
+	/**
+	 * Whether a plugin is active, safe to call during plugin bootstrap.
+	 *
+	 * `is_plugin_active()` lives in `wp-admin/includes/plugin.php`, which is not
+	 * loaded on front-end requests, so we read the active-plugins options
+	 * directly. Covers both per-site and network activation.
+	 *
+	 * Guarded with `function_exists()` like `fosse_boot_providers()` below,
+	 * since embedders (e.g. wp.com's `fosse-loader.php`) can include this file
+	 * more than once per request.
+	 *
+	 * @param string $plugin Plugin basename, e.g. `atmosphere/atmosphere.php`.
+	 * @return bool
+	 */
+	function fosse_plugin_is_active( $plugin ) {
+		if ( in_array( $plugin, (array) get_option( 'active_plugins', array() ), true ) ) {
+			return true;
+		}
+
+		if ( is_multisite() ) {
+			$network_active = (array) get_site_option( 'active_sitewide_plugins', array() );
+
+			return isset( $network_active[ $plugin ] );
+		}
+
+		return false;
 	}
-
-	if ( is_multisite() ) {
-		$network_active = (array) get_site_option( 'active_sitewide_plugins', array() );
-
-		return isset( $network_active[ $plugin ] );
-	}
-
-	return false;
 }
 
 /*
