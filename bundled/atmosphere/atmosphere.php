@@ -10,7 +10,7 @@
  * License URI: https://spdx.org/licenses/GPL-2.0-or-later.html
  * Text Domain: atmosphere
  * Requires PHP: 8.2
- * Requires at least: 6.5
+ * Requires at least: 6.2
  *
  * @package Atmosphere
  */
@@ -23,27 +23,6 @@ namespace Atmosphere;
 \define( 'ATMOSPHERE_PLUGIN_DIR', \plugin_dir_path( __FILE__ ) );
 \define( 'ATMOSPHERE_PLUGIN_URL', \plugin_dir_url( __FILE__ ) );
 \define( 'ATMOSPHERE_PLUGIN_FILE', __FILE__ );
-
-/**
- * Post meta key: per-post opt-out from sharing to Bluesky.
- *
- * Stored as a registered, REST-exposed boolean so the block-editor panel
- * can bind a toggle to it. '1' (true) means the author switched sharing
- * off for this post; absent/empty means the default — sharing is on.
- */
-\define( 'ATMOSPHERE_META_DISABLED', 'atmosphere_disabled' );
-
-/**
- * Post meta key: per-post custom text for the Bluesky post.
- *
- * Stored as a registered, REST-exposed string so the block-editor panel
- * can bind a textarea to it. When set, this exact text is posted to
- * Bluesky (with a link card back to the post) instead of the text the
- * normal short-form / long-form composition would generate — the
- * Bluesky equivalent of the post excerpt. Empty means the default
- * composition runs unchanged.
- */
-\define( 'ATMOSPHERE_META_CUSTOM_TEXT', 'atmosphere_custom_text' );
 
 /*
  * Custom autoloader for Atmosphere classes — maps the Atmosphere

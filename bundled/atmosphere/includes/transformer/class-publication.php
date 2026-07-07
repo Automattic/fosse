@@ -46,35 +46,6 @@ class Publication extends Base {
 	public const OPTION_CID = 'atmosphere_publication_cid';
 
 	/**
-	 * Whether the current transform is a read-only preview projection.
-	 *
-	 * Set for the duration of {@see self::get_preview_records()}. In
-	 * projection mode the site icon comes from the cached blob ref only
-	 * ({@see Post::cached_image_blob()}) — an uncached icon is omitted
-	 * rather than uploaded, so a front-page preview GET never writes to
-	 * the PDS or to attachment meta. Mirrors `Post::$projecting`.
-	 *
-	 * @var bool
-	 */
-	private bool $projecting = false;
-
-	/**
-	 * {@inheritDoc}
-	 *
-	 * Projects in read-only mode ({@see self::$projecting}) so no blobs
-	 * are uploaded and no meta is written by a preview request.
-	 */
-	public function get_preview_records(): array {
-		$this->projecting = true;
-
-		try {
-			return array( $this->transform() );
-		} finally {
-			$this->projecting = false;
-		}
-	}
-
-	/**
 	 * Transform site settings into a publication record.
 	 *
 	 * @return array site.standard.publication record.
@@ -94,7 +65,7 @@ class Publication extends Base {
 		 */
 		$record = array(
 			'$type'       => 'site.standard.publication',
-			'url'         => \untrailingslashit( \home_url( '/' ) ),
+			'url'         => \home_url( '/' ),
 			'name'        => truncate_graphemes( sanitize_text( \get_bloginfo( 'name' ) ), 500 ),
 			'description' => truncate_graphemes( sanitize_text( \get_bloginfo( 'description' ) ), 3000 ),
 		);
@@ -102,13 +73,9 @@ class Publication extends Base {
 		// Site icon. The site.standard.publication lexicon expects a square
 		// `icon` blob (at least 256x256). The Site Icon control crops to a
 		// square and recommends 512px, which clears that guideline.
-		// Projections reuse the cached blob ref (or omit the icon) instead
-		// of uploading — see self::$projecting.
 		$icon_id = \get_option( 'site_icon' );
 		if ( $icon_id ) {
-			$blob = $this->projecting
-				? Post::cached_image_blob( (int) $icon_id )
-				: Post::upload_thumbnail( (int) $icon_id );
+			$blob = Post::upload_thumbnail( (int) $icon_id );
 			if ( $blob ) {
 				$record['icon'] = $blob;
 			}
@@ -121,55 +88,6 @@ class Publication extends Base {
 		$basic_theme = $this->extract_basic_theme();
 		if ( $basic_theme ) {
 			$record['basicTheme'] = $basic_theme;
-		}
-
-		/**
-		 * Filters the site.standard.publication self-labels object.
-		 *
-		 * Return a com.atproto.label.defs#selfLabels object to add
-		 * content-warning labels. Return null or an empty array to omit it.
-		 *
-		 * @since unreleased
-		 *
-		 * @param array|null $labels Self-labels object, or null to omit.
-		 */
-		$labels = self::validate_self_labels(
-			\apply_filters( 'atmosphere_publication_labels', null ),
-			__METHOD__
-		);
-		if ( null !== $labels ) {
-			$record['labels'] = $labels;
-		}
-
-		/**
-		 * Filters whether the publication appears in standard.site discovery.
-		 *
-		 * Defaults to the site's `blog_public` option, so a public site
-		 * opts into discovery and a site set to discourage search engines
-		 * stays out — mirroring the visibility preference the user has
-		 * already expressed under Settings → Reading. Return true or false
-		 * to override and emit `preferences.showInDiscover`, or null to omit
-		 * the preference entirely and let downstream appviews apply their
-		 * own default.
-		 *
-		 * @since unreleased
-		 *
-		 * @param bool|null $show_in_discover Whether to show in discovery, or null to omit.
-		 */
-		$show_in_discover = \apply_filters(
-			'atmosphere_publication_show_in_discover',
-			(bool) \get_option( 'blog_public', 1 )
-		);
-		if ( \is_bool( $show_in_discover ) ) {
-			$record['preferences'] = array(
-				'showInDiscover' => $show_in_discover,
-			);
-		} elseif ( null !== $show_in_discover ) {
-			\_doing_it_wrong(
-				__METHOD__,
-				\esc_html__( 'atmosphere_publication_show_in_discover must return true, false, or null; omitting the preferences field.', 'atmosphere' ),
-				'unreleased'
-			);
 		}
 
 		/**
@@ -279,8 +197,7 @@ class Publication extends Base {
 	 *
 	 * Pure transformation — accepts the WP-resolved inputs as arguments
 	 * so the unit tests can drive it without standing up a real
-	 * theme.json merge. The record carries the `site.standard.theme.basic`
-	 * `$type` discriminator so it passes lexicon validation.
+	 * theme.json merge.
 	 *
 	 * @param array                $styles  Output of `wp_get_global_styles()`.
 	 * @param array<string,string> $palette Slug => hex map from the theme palette.
@@ -311,7 +228,6 @@ class Publication extends Base {
 		}
 
 		return array(
-			'$type'            => 'site.standard.theme.basic',
 			'background'       => self::color_object( $background ),
 			'foreground'       => self::color_object( $foreground ),
 			'accent'           => self::color_object( $accent ),
