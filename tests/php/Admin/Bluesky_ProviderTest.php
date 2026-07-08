@@ -1082,25 +1082,26 @@ class Bluesky_ProviderTest extends BaseTestCase {
 
 	/**
 	 * Tripwire: Atmosphere's bundled well-known handler must stay hooked at
-	 * `template_redirect` priority > 1.
+	 * `template_redirect` after FOSSE's suppression and nocache hooks.
 	 *
-	 * FOSSE's suppression hook runs at priority 1 and clears
-	 * `atmosphere_wellknown` before Atmosphere's handler reads it. If a
-	 * future bundled resync moves the handler to priority 0 or 1 (or
-	 * removes it entirely), the opt-out contract silently breaks and the
-	 * existing direct-call suppression tests stay green. Catch the drift
-	 * at the registration layer instead.
+	 * FOSSE's suppression hook clears `atmosphere_wellknown` and its nocache
+	 * shim queues `nocache_headers()` — both must run before Atmosphere's
+	 * `serve_wellknown_atproto_did()` reads the query var and sends the body
+	 * (Atmosphere `exit()`s, so anything queued after never reaches the
+	 * response). Atmosphere 2.0.0 moved its handler from the default priority
+	 * 10 to priority 0, so FOSSE hooks its own callbacks at negative
+	 * priorities (-2 and -1) to stay ahead of it. If a future bundled resync
+	 * moves the handler ahead of FOSSE's hooks (or removes it entirely), the
+	 * opt-out contract silently breaks and the existing direct-call
+	 * suppression tests stay green. Catch the drift at the registration layer
+	 * by asserting the relative ordering rather than a hard-coded number.
 	 */
 	public function test_atmosphere_serves_wellknown_after_fosse_suppression_priority() {
-		// Atmosphere registers its `template_redirect` hook from its
-		// `plugins_loaded` callback. WorDBless may fire `plugins_loaded`
-		// before `fosse.php` registers Atmosphere's callback, so check
-		// whether Atmosphere's hook is already present and only re-fire
-		// `plugins_loaded` if not. Guarding against the hook directly (not
-		// via `did_action()`) avoids both the "Atmosphere never booted" and
-		// "re-firing stacks duplicate callbacks across tests" failure modes.
 		global $wp_filter;
-		$find_atmosphere_priority = static function () use ( &$wp_filter ): ?int {
+
+		// Return the `template_redirect` priority of the first callback whose
+		// [object-class, method] matches, or null if unhooked.
+		$find_priority = static function ( string $class, string $method ) use ( &$wp_filter ): ?int {
 			if ( ! isset( $wp_filter['template_redirect'] ) ) {
 				return null;
 			}
@@ -1112,8 +1113,8 @@ class Bluesky_ProviderTest extends BaseTestCase {
 						&& isset( $cb[0] )
 						&& isset( $cb[1] )
 						&& is_object( $cb[0] )
-						&& 'Atmosphere\\Atmosphere' === get_class( $cb[0] )
-						&& 'serve_wellknown_atproto_did' === $cb[1]
+						&& $class === get_class( $cb[0] )
+						&& $method === $cb[1]
 					) {
 						return (int) $priority;
 					}
@@ -1122,10 +1123,17 @@ class Bluesky_ProviderTest extends BaseTestCase {
 			return null;
 		};
 
-		$atmosphere_priority = $find_atmosphere_priority();
+		// Atmosphere registers its `template_redirect` hook from its
+		// `plugins_loaded` callback. WorDBless may fire `plugins_loaded`
+		// before `fosse.php` registers Atmosphere's callback, so check
+		// whether Atmosphere's hook is already present and only re-fire
+		// `plugins_loaded` if not. Guarding against the hook directly (not
+		// via `did_action()`) avoids both the "Atmosphere never booted" and
+		// "re-firing stacks duplicate callbacks across tests" failure modes.
+		$atmosphere_priority = $find_priority( 'Atmosphere\\Atmosphere', 'serve_wellknown_atproto_did' );
 		if ( null === $atmosphere_priority ) {
 			do_action( 'plugins_loaded' );
-			$atmosphere_priority = $find_atmosphere_priority();
+			$atmosphere_priority = $find_priority( 'Atmosphere\\Atmosphere', 'serve_wellknown_atproto_did' );
 		}
 
 		$this->assertNotNull(
@@ -1134,15 +1142,21 @@ class Bluesky_ProviderTest extends BaseTestCase {
 				. 'FOSSE delegates the well-known route to Atmosphere; if the handler moved or was renamed in a bundled resync, '
 				. '/.well-known/atproto-did will silently 404.'
 		);
-		// > 2 (not just > 1) because FOSSE now also hooks
-		// `send_atproto_did_nocache_headers` at priority 2 — if Atmosphere
-		// moves to priority 2, the shim's `nocache_headers()` would queue
-		// after Atmosphere's `exit` and never reach the response.
+
+		$provider_class    = get_class( $this->provider );
+		$suppress_priority = $find_priority( $provider_class, 'maybe_suppress_atmosphere_well_known' );
+		$nocache_priority  = $find_priority( $provider_class, 'send_atproto_did_nocache_headers' );
+
+		$this->assertNotNull( $suppress_priority, 'FOSSE\'s maybe_suppress_atmosphere_well_known is not hooked on template_redirect.' );
+		$this->assertNotNull( $nocache_priority, 'FOSSE\'s send_atproto_did_nocache_headers is not hooked on template_redirect.' );
+
+		$latest_fosse_priority = max( $suppress_priority, $nocache_priority );
 		$this->assertGreaterThan(
-			2,
+			$latest_fosse_priority,
 			$atmosphere_priority,
 			'Atmosphere\\Atmosphere::serve_wellknown_atproto_did is hooked at template_redirect priority ' . $atmosphere_priority
-				. ' but FOSSE\'s suppression hook runs at priority 1 and the nocache shim runs at priority 2. The opt-out filter or nocache headers will not work.'
+				. " but FOSSE's suppression ($suppress_priority) / nocache shim ($nocache_priority) hooks run no earlier. "
+				. 'The opt-out filter or nocache headers will not work — Atmosphere serves and exits first.'
 		);
 	}
 
@@ -2407,8 +2421,8 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		$this->assertNotFalse( has_action( 'admin_post_fosse_enable_bluesky_auto_publish', array( $this->provider, 'handle_enable_auto_publish' ) ) );
 		$this->assertNotFalse( has_action( 'admin_init', array( $this->provider, 'handle_oauth_callback' ) ) );
 		$this->assertNotFalse( has_action( 'admin_notices', array( $this->provider, 'maybe_render_auto_publish_disabled_notice' ) ) );
-		$this->assertSame( 1, has_action( 'template_redirect', array( $this->provider, 'maybe_suppress_atmosphere_well_known' ) ) );
-		$this->assertSame( 2, has_action( 'template_redirect', array( $this->provider, 'send_atproto_did_nocache_headers' ) ) );
+		$this->assertSame( -2, has_action( 'template_redirect', array( $this->provider, 'maybe_suppress_atmosphere_well_known' ) ) );
+		$this->assertSame( -1, has_action( 'template_redirect', array( $this->provider, 'send_atproto_did_nocache_headers' ) ) );
 		$this->assertNotFalse( has_filter( 'atmosphere_oauth_redirect_uri', array( $this->provider, 'filter_oauth_redirect_uri' ) ) );
 	}
 

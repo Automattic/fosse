@@ -869,8 +869,8 @@ class Bluesky_Provider implements Connection_Provider {
 		add_action( 'admin_post_fosse_enable_bluesky_auto_publish', array( $this, 'handle_enable_auto_publish' ) );
 		add_action( 'admin_init', array( $this, 'handle_oauth_callback' ) );
 		add_action( 'admin_notices', array( $this, 'maybe_render_auto_publish_disabled_notice' ) );
-		add_action( 'template_redirect', array( $this, 'maybe_suppress_atmosphere_well_known' ), 1 );
-		add_action( 'template_redirect', array( $this, 'send_atproto_did_nocache_headers' ), 2 );
+		add_action( 'template_redirect', array( $this, 'maybe_suppress_atmosphere_well_known' ), -2 );
+		add_action( 'template_redirect', array( $this, 'send_atproto_did_nocache_headers' ), -1 );
 
 		// Override Atmosphere's OAuth redirect URI so the auth server callback
 		// and the client-metadata REST endpoint both advertise FOSSE's page.
@@ -907,8 +907,8 @@ class Bluesky_Provider implements Connection_Provider {
 	 * the headers, fronting page/CDN caches can keep a pre-connect 404 after
 	 * OAuth completes, or keep a stale 200 DID after disconnect — either
 	 * defeats Bluesky's bidirectional handle resolution. This shim runs at
-	 * `template_redirect` priority 2 (after the opt-out suppression at
-	 * priority 1, before Atmosphere's serve at priority 10) so the headers
+	 * `template_redirect` priority -1 (after the opt-out suppression at
+	 * priority -2, before Atmosphere's serve at priority 0) so the headers
 	 * are queued before any body is sent. The opt-out path already calls
 	 * `nocache_headers()` directly, so this hook short-circuits when the
 	 * filter is false.
@@ -934,14 +934,14 @@ class Bluesky_Provider implements Connection_Provider {
 	 * Suppress bundled Atmosphere's /.well-known/atproto-did handler when FOSSE opts out.
 	 *
 	 * Atmosphere owns the route end-to-end now: its `serve_wellknown_atproto_did()`
-	 * runs on `template_redirect` priority 10 and gates the response on
+	 * runs on `template_redirect` priority 0 and gates the response on
 	 * `\Atmosphere\has_identity()`, which is the contract FOSSE was previously
 	 * mirroring. The `fosse_serve_atproto_did_well_known` filter remains as a
-	 * site-level opt-out: when it returns false, this hook (priority 1) clears
+	 * site-level opt-out: when it returns false, this hook (priority -2) clears
 	 * Atmosphere's query var so its handler returns early and marks the request
 	 * 404 so WordPress doesn't render the front page for the well-known URL.
 	 *
-	 * Third-party handlers attached at `template_redirect` priority > 1 can still
+	 * Third-party handlers attached at `template_redirect` priority > -2 can still
 	 * take over by calling `status_header( 200 )`, `$wp_query->set_404( false )`,
 	 * and `exit()`.
 	 *
@@ -965,10 +965,10 @@ class Bluesky_Provider implements Connection_Provider {
 			return;
 		}
 
-		// Clear Atmosphere's query var so its handler at priority 10 returns,
+		// Clear Atmosphere's query var so its handler at priority 0 returns,
 		// then mark the request 404 so the rewrite rule doesn't render the
 		// front page for the well-known URL. Third-party handlers attached at
-		// template_redirect priority > 1 can still take over by calling
+		// template_redirect priority > -2 can still take over by calling
 		// status_header( 200 ), $wp_query->set_404( false ), and exit().
 		set_query_var( 'atmosphere_wellknown', '' );
 
