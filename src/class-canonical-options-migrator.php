@@ -152,8 +152,36 @@ class Canonical_Options_Migrator {
 
 		if ( 'note' === $stored ) {
 			$sentinel = '__fosse_unset__';
-			$existing = \get_option( 'activitypub_object_type', $sentinel );
-			if ( $sentinel === $existing ) {
+
+			/*
+			 * Distinguish "canonical option unset" from "explicitly set". The
+			 * sentinel default is the first line of defense and works under
+			 * two independent grounds:
+			 *
+			 * 1. AP registers `option_activitypub_object_type` (the value-found
+			 *    path), not `default_option_activitypub_object_type`. WordPress
+			 *    applies the `option_{$option}` filter ONLY when the row exists;
+			 *    when the option is absent it returns the `default_option_*`
+			 *    filtered default and never runs `option_*`. So for an unset
+			 *    option the sentinel is returned verbatim regardless of whether
+			 *    AP's filter is registered.
+			 * 2. AP's `default_object_type()` only rewrites falsy values
+			 *    (`! $value`). The sentinel is a non-empty string, so even if
+			 *    the callback moved to `default_option_*`, the sentinel
+			 *    survives `! $value` coercion untouched.
+			 *
+			 * Belt and braces: a hostile third-party filter (or a future
+			 * AP that started coercing unknown non-empty strings to the
+			 * default) could still swap the sentinel for the AP default.
+			 * If that happens the value-only check below misclassifies an
+			 * unset canonical as "explicitly set" and the migration would
+			 * destroy the legacy `'note'` without copying it. Re-check
+			 * directly against the raw options row so the migration never
+			 * deletes a legacy value on a phantom canonical.
+			 */
+			$existing             = \get_option( 'activitypub_object_type', $sentinel );
+			$canonical_row_exists = self::canonical_option_row_exists( 'activitypub_object_type' );
+			if ( $sentinel === $existing || ! $canonical_row_exists ) {
 				\update_option( 'activitypub_object_type', 'note' );
 				// `update_option` returns false for both DB failure and the
 				// "already equal" no-op. Re-read so the success check covers
@@ -304,5 +332,70 @@ class Canonical_Options_Migrator {
 			return $stored;
 		}
 		return self::DEFAULT_LONG_FORM_STRATEGY;
+	}
+
+	/**
+	 * Whether a stored value exists for the given option, bypassing every
+	 * `option_*` and `default_option_*` filter.
+	 *
+	 * `get_option()` runs the value through both filter chains before
+	 * returning. A third-party policy filter (or a future AP version that
+	 * coerces unknown non-empty strings to the default) can make an absent
+	 * option look set, which would otherwise let the migrator misclassify
+	 * the canonical as "explicitly set" and delete the legacy value
+	 * without copying it.
+	 *
+	 * Temporarily detach the two filter chains for this option, read once
+	 * with a sentinel, then restore the filter chains intact. Reading
+	 * with no filters is the only way to distinguish "row absent" from
+	 * "row absent but filter substituted a default value". A direct
+	 * $wpdb query would work too but doesn't survive in-memory test
+	 * harnesses (WorDBless) that mock the options layer above $wpdb.
+	 *
+	 * @param string $option Option name.
+	 * @return bool True when a stored value exists.
+	 */
+	private static function canonical_option_row_exists( string $option ): bool {
+		global $wp_filter;
+
+		// Three filter chains can intercept `get_option()`:
+		//
+		// - `pre_option_{$option}` — runs BEFORE any cache/DB lookup; a
+		// return other than `false` short-circuits the rest of the
+		// function and is returned verbatim. A pinned non-false
+		// return would otherwise make an absent row look present.
+		// - `default_option_{$option}` — runs when the row is absent and
+		// rewrites the default value before return.
+		// - `option_{$option}` — runs when the row IS present and
+		// rewrites the stored value before return.
+		//
+		// Detaching all three for the duration of one sentinel read is
+		// the only way `get_option()` faithfully signals row existence
+		// to us. A direct $wpdb query would also work, but doesn't
+		// survive in-memory test harnesses (WorDBless) that mock the
+		// options layer above $wpdb.
+		$keys = array(
+			'pre_option_' . $option,
+			'default_option_' . $option,
+			'option_' . $option,
+		);
+
+		$saved = array();
+		foreach ( $keys as $key ) {
+			if ( isset( $wp_filter[ $key ] ) ) {
+				$saved[ $key ] = $wp_filter[ $key ];
+				unset( $wp_filter[ $key ] );
+			}
+		}
+
+		try {
+			$sentinel = '__fosse_row_probe__';
+			$value    = \get_option( $option, $sentinel );
+			return $sentinel !== $value;
+		} finally {
+			foreach ( $saved as $key => $callbacks ) {
+				$wp_filter[ $key ] = $callbacks; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- restoring the filter chains we detached above for a single bypassing read; see method docblock.
+			}
+		}
 	}
 }

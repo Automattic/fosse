@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 
 test( 'FOSSE is active on the Plugins screen', async ( { page } ) => {
 	await page.goto( '/wp-admin/plugins.php' );
