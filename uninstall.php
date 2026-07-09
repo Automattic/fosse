@@ -54,6 +54,7 @@ $fosse_owned_options = array(
 	'fosse_metrics_last_observed_at',
 	'fosse_metrics_first_observed_at',
 	'fosse_metrics_funnel',
+	'fosse_bluesky_previous_handle',
 );
 
 foreach ( $fosse_owned_options as $fosse_option ) {
@@ -63,40 +64,48 @@ foreach ( $fosse_owned_options as $fosse_option ) {
 $fosse_owned_transients = array(
 	'fosse_activation_redirect',
 	'fosse_deactivation_handoff_pending',
+	'fosse_search_indexing_flip_debounce',
 );
 
 foreach ( $fosse_owned_transients as $fosse_transient ) {
 	delete_transient( $fosse_transient );
 }
 
-$fosse_transient_prefix = 'fosse_bluesky_oauth_return_';
+// Keep in lockstep with Lifecycle::FOSSE_TRANSIENT_PREFIXES.
+$fosse_transient_prefixes = array(
+	'fosse_bluesky_oauth_return_',
+	'fosse_bluesky_profile_',
+	'fosse_settings_errors_',
+);
 
 $fosse_alloptions = wp_load_alloptions();
 if ( ! is_array( $fosse_alloptions ) ) {
 	$fosse_alloptions = array();
 }
 
-foreach ( array_keys( $fosse_alloptions ) as $fosse_option_name ) {
-	$fosse_option_name = (string) $fosse_option_name;
-	if ( str_starts_with( $fosse_option_name, '_transient_' . $fosse_transient_prefix ) ) {
-		delete_transient( substr( $fosse_option_name, strlen( '_transient_' ) ) );
-	} elseif ( str_starts_with( $fosse_option_name, '_transient_timeout_' . $fosse_transient_prefix ) ) {
-		delete_transient( substr( $fosse_option_name, strlen( '_transient_timeout_' ) ) );
-	}
-}
-
 global $wpdb;
 
-$fosse_escaped_prefix = $wpdb->esc_like( $fosse_transient_prefix );
+foreach ( $fosse_transient_prefixes as $fosse_transient_prefix ) {
+	foreach ( array_keys( $fosse_alloptions ) as $fosse_option_name ) {
+		$fosse_option_name = (string) $fosse_option_name;
+		if ( str_starts_with( $fosse_option_name, '_transient_' . $fosse_transient_prefix ) ) {
+			delete_transient( substr( $fosse_option_name, strlen( '_transient_' ) ) );
+		} elseif ( str_starts_with( $fosse_option_name, '_transient_timeout_' . $fosse_transient_prefix ) ) {
+			delete_transient( substr( $fosse_option_name, strlen( '_transient_timeout_' ) ) );
+		}
+	}
 
-// phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- one-shot uninstall cleanup; no caching layer applies.
-$wpdb->query(
-	$wpdb->prepare(
-		"DELETE FROM {$wpdb->options} WHERE option_name LIKE %s OR option_name LIKE %s",
-		'_transient_' . $fosse_escaped_prefix . '%',
-		'_transient_timeout_' . $fosse_escaped_prefix . '%'
-	)
-);
-// phpcs:enable WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
+	$fosse_escaped_prefix = $wpdb->esc_like( $fosse_transient_prefix );
+
+	// phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- one-shot uninstall cleanup; no caching layer applies.
+	$wpdb->query(
+		$wpdb->prepare(
+			"DELETE FROM {$wpdb->options} WHERE option_name LIKE %s OR option_name LIKE %s",
+			'_transient_' . $fosse_escaped_prefix . '%',
+			'_transient_timeout_' . $fosse_escaped_prefix . '%'
+		)
+	);
+	// phpcs:enable WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
+}
 
 delete_metadata( 'user', 0, '_fosse_wizard_started_emitted', '', true );

@@ -100,21 +100,23 @@ class Uninstall_DriftTest extends BaseTestCase {
 	}
 
 	/**
-	 * The wildcard transient prefix must match
-	 * `Lifecycle::FOSSE_TRANSIENT_PREFIX`.
+	 * The wildcard transient prefixes must match
+	 * `Lifecycle::FOSSE_TRANSIENT_PREFIXES` exactly (order matters).
 	 */
-	public function test_uninstall_transient_prefix_matches_lifecycle_constant(): void {
+	public function test_uninstall_transient_prefixes_match_lifecycle_constant(): void {
 		$contents = $this->uninstall_php_contents();
 		$this->assertSame(
 			1,
-			preg_match( "/\\\$fosse_transient_prefix\\s*=\\s*'([^']+)'\\s*;/", $contents, $match ),
-			'Could not locate $fosse_transient_prefix literal in uninstall.php.'
+			preg_match( '/\\$fosse_transient_prefixes\\s*=\\s*array\\(([^)]*)\\)\\s*;/', $contents, $match ),
+			'Could not locate $fosse_transient_prefixes array literal in uninstall.php.'
 		);
 
+		preg_match_all( "/'([^']+)'/", $match[1], $prefix_matches );
+
 		$this->assertSame(
-			Lifecycle::FOSSE_TRANSIENT_PREFIX,
-			$match[1],
-			'uninstall.php $fosse_transient_prefix has drifted from Lifecycle::FOSSE_TRANSIENT_PREFIX. Update both in lockstep.'
+			Lifecycle::FOSSE_TRANSIENT_PREFIXES,
+			$prefix_matches[1],
+			'uninstall.php $fosse_transient_prefixes has drifted from Lifecycle::FOSSE_TRANSIENT_PREFIXES. Update both in lockstep.'
 		);
 	}
 

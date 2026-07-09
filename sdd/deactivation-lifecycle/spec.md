@@ -87,7 +87,7 @@ This yields to standalone installs before activation and prevents WordPress's `p
 
 The implementation must preserve FOSSE's current bare-clone degradation behavior. Today, missing Composer autoload does not stop the bundled backend load checks from running.
 
-**FOSSE does not warn about inactive standalone plugins.** The previous draft proposed an admin notice when standalone backend files exist on disk but are not active. That premise is wrong: inactive plugins do nothing, so warning the user about them solves no real problem. The filesystem-skip behavior above silently does the right thing (avoid redeclare fatals); the user notices nothing because nothing is broken.
+**FOSSE does not warn about inactive standalone plugins.** The previous draft proposed an admin notice when standalone backend files exist on disk but are not active. That premise is wrong: inactive plugins do nothing, so warning the user about them solves no real problem. (Load-model note: [#228](https://github.com/Automattic/fosse/pull/228) later replaced the on-disk "filesystem-skip" gate with an activation gate — an inactive standalone no longer suppresses the bundle, so federation simply keeps working via the bundled copy and there is still nothing to warn about.)
 
 ### 5. Standalone-Active Is Not A Conflict
 
@@ -126,7 +126,7 @@ This matches how wp.com handles other sticker-gated mu-plugins (e.g., `enable-ac
 | --- | --- |
 | FOSSE active, no standalone AP/Atmosphere files | FOSSE loads bundled backends, bootstraps upstream activation side effects once per version, hides native menus, shows FOSSE UI. |
 | FOSSE active, standalone AP/Atmosphere active | FOSSE skips bundled copy, uses standalone backend APIs/options, hides native menus while active, keeps direct URL access. |
-| FOSSE active, standalone AP/Atmosphere files present but inactive | FOSSE skips bundled copy to avoid future redeclare fatal; provider may be unavailable. No notice — inactive plugins are not affecting behavior. |
+| FOSSE active, standalone AP/Atmosphere files present but inactive | Per [#228](https://github.com/Automattic/fosse/pull/228) FOSSE loads the bundled copy (gate is standalone *activation*, not disk presence), so federation keeps working; no notice. (Narrow trade-off: activating the standalone in the same request can redeclare-fatal once, then self-corrects.) |
 | FOSSE deactivated, standalone AP/Atmosphere active | FOSSE menus and suppressions disappear; native backend menus reappear; upstream options keep last configured values. The Plugins-screen row under FOSSE warned about this *before* deactivation (see Decision 5). |
 | FOSSE deactivated, no standalone AP/Atmosphere active | Bundled backends stop loading; FOSSE and native backend menus are absent; stored options remain. No pre-deactivation row. |
 | FOSSE deleted/uninstalled (self-hosted) | `uninstall.php` runs `Lifecycle::uninstall()`. FOSSE-owned state is deleted; AP/Atmosphere options and credentials remain. |
@@ -151,7 +151,11 @@ This matches how wp.com handles other sticker-gated mu-plugins (e.g., `enable-ac
 | `fosse_metrics_last_observed_at` | FOSSE metrics daily observation guard | Delete |
 | `fosse_metrics_first_observed_at` | FOSSE metrics first-observed timestamp | Delete |
 | `fosse_metrics_funnel` | FOSSE metrics first-post milestones | Delete |
+| `fosse_bluesky_previous_handle` | FOSSE Bluesky domain-handle revert snapshot (`{did, handle}`) | Delete |
+| `fosse_search_indexing_flip_debounce` transient | FOSSE search-indexing watcher debounce | Delete |
 | `fosse_bluesky_oauth_return_*` transients | FOSSE wizard return context | Delete |
+| `fosse_bluesky_profile_*` transients | FOSSE per-DID Bluesky profile/follower cache | Delete |
+| `fosse_settings_errors_*` transients | FOSSE per-user persisted settings-error notices | Delete |
 | `_fosse_wizard_started_emitted` user meta | FOSSE wizard per-user analytics dedup | Delete |
 | `_fosse_metrics_ap_dispatch_state` post meta | FOSSE metrics per-post AP dispatch tracking | Preserve in v1 (see uninstall list above) |
 | `activitypub_*` | ActivityPub | Preserve |

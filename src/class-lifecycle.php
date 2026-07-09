@@ -49,6 +49,7 @@ class Lifecycle {
 		'fosse_metrics_last_observed_at',
 		'fosse_metrics_first_observed_at',
 		'fosse_metrics_funnel',
+		'fosse_bluesky_previous_handle',
 	);
 
 	/**
@@ -65,16 +66,28 @@ class Lifecycle {
 	public const FOSSE_OWNED_TRANSIENTS = array(
 		'fosse_activation_redirect',
 		'fosse_deactivation_handoff_pending',
+		'fosse_search_indexing_flip_debounce',
 	);
 
 	/**
-	 * Prefix matching every per-user OAuth return-context transient written
-	 * by `Admin\Bluesky_Provider::OAUTH_RETURN_TRANSIENT_PREFIX`. Used as a
-	 * `LIKE` prefix against the options table.
+	 * Prefixes matching every family of per-entity FOSSE transient stored
+	 * under a `<prefix><id>` name. Each is walked as a `LIKE` prefix against
+	 * the options table (WordPress' transient API has no wildcard delete):
 	 *
-	 * @var string
+	 * - `fosse_bluesky_oauth_return_` — per-user OAuth return context
+	 *   (`Admin\Bluesky_Provider::OAUTH_RETURN_TRANSIENT_PREFIX`).
+	 * - `fosse_bluesky_profile_` — per-DID follower/profile cache
+	 *   (`Admin\Bluesky_Provider`).
+	 * - `fosse_settings_errors_` — per-user persisted settings-error notices
+	 *   (`Admin\User_Notices`).
+	 *
+	 * @var string[]
 	 */
-	public const FOSSE_TRANSIENT_PREFIX = 'fosse_bluesky_oauth_return_';
+	public const FOSSE_TRANSIENT_PREFIXES = array(
+		'fosse_bluesky_oauth_return_',
+		'fosse_bluesky_profile_',
+		'fosse_settings_errors_',
+	);
 
 	/**
 	 * FOSSE-owned user meta keys.
@@ -103,7 +116,9 @@ class Lifecycle {
 			delete_transient( $transient );
 		}
 
-		self::delete_prefixed_transients( self::FOSSE_TRANSIENT_PREFIX );
+		foreach ( self::FOSSE_TRANSIENT_PREFIXES as $prefix ) {
+			self::delete_prefixed_transients( $prefix );
+		}
 
 		self::delete_user_meta_keys( self::FOSSE_OWNED_USER_META );
 	}

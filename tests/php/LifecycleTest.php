@@ -52,7 +52,7 @@ class LifecycleTest extends BaseTestCase {
 		foreach ( Lifecycle::FOSSE_OWNED_TRANSIENTS as $transient ) {
 			delete_transient( $transient );
 		}
-		delete_transient( Lifecycle::FOSSE_TRANSIENT_PREFIX . '123' );
+		delete_transient( Lifecycle::FOSSE_TRANSIENT_PREFIXES[0] . '123' );
 	}
 
 	/**
@@ -69,7 +69,7 @@ class LifecycleTest extends BaseTestCase {
 		foreach ( Lifecycle::FOSSE_OWNED_TRANSIENTS as $transient ) {
 			set_transient( $transient, 'seeded-' . $transient, HOUR_IN_SECONDS );
 		}
-		set_transient( Lifecycle::FOSSE_TRANSIENT_PREFIX . '123', 'return-context', HOUR_IN_SECONDS );
+		set_transient( Lifecycle::FOSSE_TRANSIENT_PREFIXES[0] . '123', 'return-context', HOUR_IN_SECONDS );
 
 		$user_id = wp_insert_user(
 			array(
@@ -94,7 +94,7 @@ class LifecycleTest extends BaseTestCase {
 		foreach ( Lifecycle::FOSSE_OWNED_TRANSIENTS as $transient ) {
 			$this->assertFalse( get_transient( $transient ), "FOSSE transient {$transient} should be deleted on uninstall." );
 		}
-		$this->assertFalse( get_transient( Lifecycle::FOSSE_TRANSIENT_PREFIX . '123' ) );
+		$this->assertFalse( get_transient( Lifecycle::FOSSE_TRANSIENT_PREFIXES[0] . '123' ) );
 		foreach ( Lifecycle::FOSSE_OWNED_USER_META as $meta_key ) {
 			$this->assertSame( '', get_user_meta( $user_id, $meta_key, true ), "FOSSE user meta {$meta_key} should be deleted on uninstall." );
 		}
@@ -118,6 +118,23 @@ class LifecycleTest extends BaseTestCase {
 
 		$this->assertFalse( get_transient( 'fosse_bluesky_oauth_return_alice' ) );
 		$this->assertFalse( get_transient( 'fosse_bluesky_oauth_return_bob' ) );
+	}
+
+	/**
+	 * Every FOSSE transient prefix family is scrubbed, not just the OAuth
+	 * return-context one: the per-DID Bluesky profile cache
+	 * (`fosse_bluesky_profile_`) and per-user persisted settings-error
+	 * notices (`fosse_settings_errors_`) are FOSSE-owned and must not
+	 * survive uninstall.
+	 */
+	public function test_uninstall_clears_all_wildcard_transient_prefixes(): void {
+		set_transient( 'fosse_bluesky_profile_did:plc:alice', 'profile', HOUR_IN_SECONDS );
+		set_transient( 'fosse_settings_errors_42', 'notice', HOUR_IN_SECONDS );
+
+		Lifecycle::uninstall();
+
+		$this->assertFalse( get_transient( 'fosse_bluesky_profile_did:plc:alice' ) );
+		$this->assertFalse( get_transient( 'fosse_settings_errors_42' ) );
 	}
 
 	/**
