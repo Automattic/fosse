@@ -1379,8 +1379,13 @@ class Photo_Post {
 		$ratio_h = $box_h / $src_h;
 		$ratio   = \min( $ratio_w, $ratio_h );
 
-		$out_w = (int) \floor( $src_w * $ratio );
-		$out_h = (int) \floor( $src_h * $ratio );
+		// Round (not floor) so a fractional non-constraining axis matches
+		// both Photon's own rounding and the lone-axis resolver — flooring
+		// here would emit an off-by-one dimension (e.g. 800x533 vs 800x534)
+		// that disagrees with the delivered bytes and can trip receiver
+		// dimension validation.
+		$out_w = (int) \round( $src_w * $ratio );
+		$out_h = (int) \round( $src_h * $ratio );
 
 		if ( $out_w <= 0 || $out_h <= 0 ) {
 			return null;

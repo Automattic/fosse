@@ -2035,6 +2035,44 @@ class Photo_PostTest extends BaseTestCase {
 	}
 
 	/**
+	 * Fix 3: the fit-box resolver rounds the non-constraining axis (matching
+	 * Photon's own rounding and the lone-axis path) rather than flooring, so
+	 * the emitted dimensions don't disagree by a pixel with the delivered
+	 * bytes. A 1000×667 source at `?w=800&h=800` delivers 800×534 (533.6
+	 * rounded up), not 800×533.
+	 */
+	public function test_attachment_filter_photon_fit_rounds_non_constraining_axis(): void {
+		$attachment_id = wp_insert_post(
+			array(
+				'post_type'      => 'attachment',
+				'post_status'    => 'inherit',
+				'post_mime_type' => 'image/jpeg',
+				'post_title'     => 'photon-fit-round',
+			)
+		);
+		wp_update_attachment_metadata(
+			$attachment_id,
+			array(
+				'file'   => '2026/05/round.jpg',
+				'width'  => 1000,
+				'height' => 667,
+			)
+		);
+
+		$out = apply_filters(
+			'activitypub_attachment',
+			array(
+				'type'      => 'Image',
+				'url'       => 'https://i0.wp.com/example.test/wp-content/uploads/2026/05/round.jpg?w=800&h=800',
+				'mediaType' => 'image/jpeg',
+			),
+			$attachment_id
+		);
+		$this->assertSame( 800, $out['width'] );
+		$this->assertSame( 534, $out['height'] );
+	}
+
+	/**
 	 * Fix 3: a lone `w=` on a local attachment is still a resize
 	 * transform — Photon scales the other axis to preserve aspect. The
 	 * delivered height is derived from the original's aspect ratio;
