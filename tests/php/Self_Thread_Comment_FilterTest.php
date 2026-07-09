@@ -203,9 +203,9 @@ class Self_Thread_Comment_FilterTest extends BaseTestCase {
 	 */
 	public static function scalar_falsy_provider(): array {
 		return array(
-			'zero int'    => array( 0 ),
-			'zero string' => array( '0' ),
-			'empty string' => array( '' ),
+			'zero int'      => array( 0 ),
+			'zero string'   => array( '0' ),
+			'empty string'  => array( '' ),
 			'literal false' => array( false ),
 		);
 	}
