@@ -807,6 +807,228 @@ class AP_ProviderTest extends BaseTestCase {
 	}
 
 	/**
+	 * A handle that collides with an existing user login leaves the
+	 * previously saved handle intact. Without the pre-check, AP's sanitizer
+	 * would swap the colliding input for `Blog::get_default_username()` and
+	 * `update_option` would persist that default — clobbering the saved
+	 * handle (and breaking the blog actor's existing followers).
+	 *
+	 * Unlike AP's own LIKE-based collision query (which WorDBless can't
+	 * satisfy), FOSSE's pre-check uses exact `get_user_by()` lookups, so a
+	 * real seeded user reliably triggers the guarded path under test.
+	 */
+	public function test_save_settings_collision_preserves_existing_blog_identifier() {
+		update_option( 'activitypub_blog_identifier', 'preserved-handle' );
+
+		wp_insert_user(
+			array(
+				'user_login' => 'colliding-user',
+				'user_email' => 'colliding-user@example.test',
+				'user_pass'  => 'test-pass',
+			)
+		);
+
+		$ok = $this->provider->save_settings(
+			$this->build_post(
+				array(
+					'activitypub_actor_mode'      => 'blog',
+					'activitypub_blog_identifier' => 'colliding-user',
+				)
+			)
+		);
+
+		// The stored option is unchanged.
+		$this->assertSame( 'preserved-handle', get_option( 'activitypub_blog_identifier' ) );
+		// And the caller learns the save was not fully successful.
+		$this->assertFalse( $ok );
+		// And a user-facing error explains why.
+		$this->assertContains(
+			'activitypub_blog_identifier',
+			array_column( get_settings_errors( 'fosse' ), 'code' )
+		);
+	}
+
+	/**
+	 * The collision pre-check canonicalizes the raw input the same way AP's
+	 * sanitizer does (per-label `sanitize_title`), so a handle that only
+	 * collides after canonicalization (`Colliding User` → `colliding-user`)
+	 * is still caught and the prior value preserved.
+	 */
+	public function test_save_settings_collision_canonicalizes_before_checking() {
+		update_option( 'activitypub_blog_identifier', 'preserved-handle' );
+
+		wp_insert_user(
+			array(
+				'user_login' => 'colliding-user',
+				'user_email' => 'colliding-user@example.test',
+				'user_pass'  => 'test-pass',
+			)
+		);
+
+		$this->provider->save_settings(
+			$this->build_post(
+				array(
+					'activitypub_actor_mode'      => 'blog',
+					'activitypub_blog_identifier' => 'Colliding User',
+				)
+			)
+		);
+
+		$this->assertSame( 'preserved-handle', get_option( 'activitypub_blog_identifier' ) );
+	}
+
+	/**
+	 * Input that canonicalizes to nothing (e.g. `!!!` → `''`) must also
+	 * preserve the saved handle. AP's sanitizer hits its `empty()` branch
+	 * for such input and returns the default username WITHOUT raising a
+	 * settings error — so neither the collision pre-check nor the error
+	 * re-tag fallback would catch it, and `update_option` would silently
+	 * clobber the saved handle with the default behind a success notice.
+	 */
+	public function test_save_settings_empty_canonical_input_preserves_existing_blog_identifier() {
+		update_option( 'activitypub_blog_identifier', 'preserved-handle' );
+
+		$ok = $this->provider->save_settings(
+			$this->build_post(
+				array(
+					'activitypub_actor_mode'      => 'blog',
+					'activitypub_blog_identifier' => '!!!',
+				)
+			)
+		);
+
+		$this->assertSame( 'preserved-handle', get_option( 'activitypub_blog_identifier' ) );
+		$this->assertFalse( $ok );
+		$this->assertContains(
+			'activitypub_blog_identifier',
+			array_column( get_settings_errors( 'fosse' ), 'code' )
+		);
+	}
+
+	/**
+	 * PHP's `empty( '0' )` is true, so AP's sanitizer treats a literal `0`
+	 * handle as "no value" and swaps in the default username — silently, no
+	 * settings error. The pre-check must mirror that `empty()` semantics
+	 * (not just `'' ===`) or `0` slips through to the clobber path.
+	 */
+	public function test_save_settings_literal_zero_input_preserves_existing_blog_identifier() {
+		update_option( 'activitypub_blog_identifier', 'preserved-handle' );
+
+		$ok = $this->provider->save_settings(
+			$this->build_post(
+				array(
+					'activitypub_actor_mode'      => 'blog',
+					'activitypub_blog_identifier' => '0',
+				)
+			)
+		);
+
+		$this->assertSame( 'preserved-handle', get_option( 'activitypub_blog_identifier' ) );
+		$this->assertFalse( $ok );
+	}
+
+	/**
+	 * A non-colliding handle still writes through normally — the pre-check
+	 * only blocks the collision path, it doesn't break the happy path.
+	 */
+	/**
+	 * If AP's sanitizer rejects the input despite our pre-check (e.g. a
+	 * third-party `sanitize_option_activitypub_blog_identifier` filter
+	 * adds the rejection after our check has passed, or a concurrent
+	 * user creation slips in between), the write must be cancelled at
+	 * `pre_update_option_*` so the AP scheduler never observes the bad
+	 * fallback value via `update_option_activitypub_blog_identifier` and
+	 * queues an outbox Update for a rejected handle.
+	 *
+	 * A naive post-write restore would only flip the option text back —
+	 * AP's outbox side effect would already be in flight. This test
+	 * pins both invariants: the option keeps its prior value AND the
+	 * `update_option_*` action never fires on the rejection path.
+	 */
+	public function test_save_settings_cancels_write_when_sanitizer_rejects_after_pre_check() {
+		update_option( 'activitypub_blog_identifier', 'preserved-handle' );
+
+		// Simulate an upstream sanitizer that swaps the value AND raises
+		// the standard collision error AFTER our pre-check has run. Only
+		// fires on the colliding input so any later writes (e.g. the
+		// cancel path's pass-through) flow untouched.
+		$inject = static function ( $value ) {
+			if ( 'looks-fine-to-us' !== $value ) {
+				return $value;
+			}
+			add_settings_error(
+				'activitypub_blog_identifier',
+				'activitypub_blog_identifier',
+				'A user with that login already exists.',
+				'error'
+			);
+			return 'ap-fallback-default';
+		};
+		add_filter( 'sanitize_option_activitypub_blog_identifier', $inject, 99 );
+
+		// Catch `update_option_*` to prove the AP scheduler hook would
+		// never have seen the rejected value.
+		$update_action_fired_with = null;
+		$listener                 = static function ( $old, $new ) use ( &$update_action_fired_with ) {
+			$update_action_fired_with = array(
+				'old' => $old,
+				'new' => $new,
+			);
+		};
+		add_action( 'update_option_activitypub_blog_identifier', $listener, 10, 2 );
+
+		try {
+			$ok = $this->provider->save_settings(
+				$this->build_post(
+					array(
+						'activitypub_actor_mode'      => 'blog',
+						'activitypub_blog_identifier' => 'looks-fine-to-us',
+					)
+				)
+			);
+		} finally {
+			remove_filter( 'sanitize_option_activitypub_blog_identifier', $inject, 99 );
+			remove_action( 'update_option_activitypub_blog_identifier', $listener, 10 );
+		}
+
+		$this->assertFalse( $ok );
+		$this->assertSame(
+			'preserved-handle',
+			get_option( 'activitypub_blog_identifier' ),
+			'Option must remain at the prior value when AP rejects after the pre-check passes.'
+		);
+		$this->assertNull(
+			$update_action_fired_with,
+			'update_option_activitypub_blog_identifier must not fire when the sanitizer rejects — otherwise the AP scheduler would queue an outbox Update for the rejected handle.'
+		);
+		$this->assertContains(
+			'activitypub_blog_identifier',
+			array_column( get_settings_errors( 'fosse' ), 'code' )
+		);
+	}
+
+	/**
+	 * A non-colliding handle save path still persists the new value
+	 * end-to-end — the pre-check, pre_update guard, and re-tag logic
+	 * leave the happy path untouched.
+	 */
+	public function test_save_settings_non_colliding_handle_still_persists() {
+		update_option( 'activitypub_blog_identifier', 'old-handle' );
+
+		$ok = $this->provider->save_settings(
+			$this->build_post(
+				array(
+					'activitypub_actor_mode'      => 'blog',
+					'activitypub_blog_identifier' => 'brand-new-handle',
+				)
+			)
+		);
+
+		$this->assertTrue( $ok );
+		$this->assertSame( 'brand-new-handle', get_option( 'activitypub_blog_identifier' ) );
+	}
+
+	/**
 	 * The Site handle field renders in `blog` mode with the current saved
 	 * value pre-filled so site owners can edit it from FOSSE's surface.
 	 */

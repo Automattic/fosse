@@ -37,6 +37,8 @@ $atmosphere_options = array(
 	'atmosphere_previous_handle',
 	'atmosphere_long_form_composition',
 	'atmosphere_support_post_types',
+	'atmosphere_sync_reactions',
+	'atmosphere_sync_replies',
 	'atmosphere_last_seen_notification',
 	'atmosphere_tid_last_ts',
 	'atmosphere_visibility_cleanup_migrated',
@@ -80,7 +82,10 @@ $atmosphere_meta_keys = array(
 	'_atmosphere_doc_cid',
 	'_atmosphere_doc_ref_pending',
 	'_atmosphere_visibility_cleanup',
+	'_atmosphere_publish_retries',
+	'_atmosphere_last_publish_error',
 	'_atmosphere_blob_ref',
+	'atmosphere_custom_text',
 );
 
 foreach ( $atmosphere_meta_keys as $atmosphere_key ) {

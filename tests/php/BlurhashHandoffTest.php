@@ -7,7 +7,6 @@
 
 namespace Automattic\Fosse\Tests;
 
-use Automattic\Fosse\Blurhash;
 use Automattic\Fosse\Blurhash_Handoff;
 use PHPUnit\Framework\Attributes\Before;
 use WorDBless\BaseTestCase;
@@ -83,7 +82,7 @@ class BlurhashHandoffTest extends BaseTestCase {
 	 */
 	public function test_copies_fosse_hash_to_ap_store_and_injects(): void {
 		$id = $this->make_attachment();
-		update_post_meta( $id, Blurhash::META_KEY, self::HASH );
+		update_post_meta( $id, Blurhash_Handoff::LEGACY_META_KEY, self::HASH );
 
 		$result = $this->apply(
 			array(
@@ -104,7 +103,7 @@ class BlurhashHandoffTest extends BaseTestCase {
 	 */
 	public function test_respects_blurhash_already_provided(): void {
 		$id = $this->make_attachment();
-		update_post_meta( $id, Blurhash::META_KEY, self::HASH );
+		update_post_meta( $id, Blurhash_Handoff::LEGACY_META_KEY, self::HASH );
 
 		$result = $this->apply(
 			array(
@@ -132,12 +131,12 @@ class BlurhashHandoffTest extends BaseTestCase {
 	}
 
 	/**
-	 * Malformed stored values read as absent through FOSSE's validating
-	 * get(), so poison never crosses into AP's store.
+	 * Malformed stored values read as absent through the bridge's
+	 * validating read, so poison never crosses into AP's store.
 	 */
 	public function test_malformed_fosse_hash_is_not_handed_off(): void {
 		$id = $this->make_attachment();
-		update_post_meta( $id, Blurhash::META_KEY, "LEHV6nWB\x00<script>" );
+		update_post_meta( $id, Blurhash_Handoff::LEGACY_META_KEY, "LEHV6nWB\x00<script>" );
 
 		$result = $this->apply( array( 'type' => 'Image' ), $id );
 
@@ -150,7 +149,7 @@ class BlurhashHandoffTest extends BaseTestCase {
 	 */
 	public function test_ignores_non_image_and_non_array_payloads(): void {
 		$id = $this->make_attachment();
-		update_post_meta( $id, Blurhash::META_KEY, self::HASH );
+		update_post_meta( $id, Blurhash_Handoff::LEGACY_META_KEY, self::HASH );
 
 		$document = array( 'type' => 'Document' );
 		$this->assertSame( $document, $this->apply( $document, $id ) );
@@ -164,10 +163,10 @@ class BlurhashHandoffTest extends BaseTestCase {
 	 */
 	public function test_fosse_meta_survives_handoff(): void {
 		$id = $this->make_attachment();
-		update_post_meta( $id, Blurhash::META_KEY, self::HASH );
+		update_post_meta( $id, Blurhash_Handoff::LEGACY_META_KEY, self::HASH );
 
 		$this->apply( array( 'type' => 'Image' ), $id );
 
-		$this->assertSame( self::HASH, get_post_meta( $id, Blurhash::META_KEY, true ) );
+		$this->assertSame( self::HASH, get_post_meta( $id, Blurhash_Handoff::LEGACY_META_KEY, true ) );
 	}
 }
