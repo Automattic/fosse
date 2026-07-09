@@ -17,7 +17,9 @@ describe( 'Wizard appearance step', () => {
 				<div class="fosse-address-preview is-hidden" data-fosse-mode="actor">Author preview</div>
 				<div class="fosse-address-preview" data-fosse-mode="blog">Site preview</div>
 				<div class="fosse-address-preview" data-fosse-mode="actor_blog">Both preview</div>
-				<div class="fosse-wizard__blog-handle" data-fosse-when="includes-blog">Site handle</div>
+				<div class="fosse-wizard__blog-handle" data-fosse-when="includes-blog">
+						<input type="text" name="activitypub_blog_identifier" value="my-handle" />
+					</div>
 			</div>
 		`;
 	}
@@ -56,6 +58,12 @@ describe( 'Wizard appearance step', () => {
 
 	function blogHandle() {
 		return document.querySelector( '[data-fosse-when="includes-blog"]' );
+	}
+
+	function blogHandleInput() {
+		return document.querySelector(
+			'input[name="activitypub_blog_identifier"]'
+		);
 	}
 
 	function chooseMode( mode ) {
@@ -127,6 +135,42 @@ describe( 'Wizard appearance step', () => {
 
 		expectVisiblePreview( 'actor' );
 		expect( blogHandle().classList.contains( HIDDEN_CLASS ) ).toBe( true );
+	} );
+
+	test( 'disables the hidden handle input in author-only mode on init', () => {
+		renderAppearanceStep();
+
+		// Stale server markup leaves the input enabled; the script should
+		// disable it on init so a hidden field stops submitting its value.
+		expect( blogHandleInput().disabled ).toBe( false );
+
+		loadScript();
+
+		expect( blogHandleInput().disabled ).toBe( true );
+	} );
+
+	test( 'enables the handle input when switching to a blog-inclusive mode', () => {
+		renderAppearanceStep();
+		loadScript();
+
+		expect( blogHandleInput().disabled ).toBe( true );
+
+		chooseMode( 'blog' );
+		expect( blogHandleInput().disabled ).toBe( false );
+
+		chooseMode( 'actor_blog' );
+		expect( blogHandleInput().disabled ).toBe( false );
+	} );
+
+	test( 're-disables the handle input when switching back to author-only mode', () => {
+		renderAppearanceStep();
+		loadScript();
+
+		chooseMode( 'blog' );
+		expect( blogHandleInput().disabled ).toBe( false );
+
+		chooseMode( 'actor' );
+		expect( blogHandleInput().disabled ).toBe( true );
 	} );
 
 	test( 'does not throw when the appearance radios are absent', () => {

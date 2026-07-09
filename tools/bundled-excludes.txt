@@ -34,12 +34,16 @@ phpunit.xml.dist
 .wp-env.json
 .agents/
 .claude/
+.conductor/
 agent-os/
 local/
 bin/
 snippets/
 src/
 docs/
+
+# --- Upstream design/source assets (logos, plugin banners) ---
+branding/
 
 # --- Config files not needed at runtime ---
 phpcs.xml
@@ -48,6 +52,7 @@ jest.config.js
 jest.config.cjs
 jest.setup.js
 eslint.config.mjs
+eslint.config.cjs
 .eslintignore
 .eslintrc.js
 .eslintrc.json

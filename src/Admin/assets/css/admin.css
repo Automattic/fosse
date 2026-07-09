@@ -1490,19 +1490,27 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-	.fosse-destination-card,
-	.fosse-destination-card__check,
-	.fosse-mode-card,
-	.fosse-mode-card__check,
-	.fosse-choice-card,
-	.fosse-post-type-item,
-	.fosse-wizard__lizard {
+	/*
+	 * Scoped under `.fosse-wizard` so these overrides out-specify the base
+	 * card rules that appear later in this file (e.g. `.fosse-mode-card`'s
+	 * transition and `:hover` transform). Without the extra class the
+	 * source-order cascade let the animated rules win, so reduced motion
+	 * never actually stilled the cards — which also let Playwright's click
+	 * actionability race the hover transform. See #225.
+	 */
+	.fosse-wizard .fosse-destination-card,
+	.fosse-wizard .fosse-destination-card__check,
+	.fosse-wizard .fosse-mode-card,
+	.fosse-wizard .fosse-mode-card__check,
+	.fosse-wizard .fosse-choice-card,
+	.fosse-wizard .fosse-post-type-item,
+	.fosse-wizard .fosse-wizard__lizard {
 		transition: none;
 	}
 
-	.fosse-destination-card:hover,
-	.fosse-mode-card:hover,
-	.fosse-choice-card:hover {
+	.fosse-wizard .fosse-destination-card:hover,
+	.fosse-wizard .fosse-mode-card:hover,
+	.fosse-wizard .fosse-choice-card:hover {
 		transform: none;
 	}
 }

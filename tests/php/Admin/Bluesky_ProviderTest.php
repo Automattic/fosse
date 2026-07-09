@@ -12,6 +12,7 @@ use Automattic\Fosse\Admin\Bluesky_Domain_Handle;
 use Automattic\Fosse\Admin\Bluesky_Provider;
 use Automattic\Fosse\Admin\Connection_Provider_Registry;
 use Automattic\Fosse\Provider_Loader;
+use Automattic\Fosse\Tests\Metrics\Asserts_Metrics;
 use PHPUnit\Framework\Attributes\After;
 use PHPUnit\Framework\Attributes\Before;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -23,6 +24,8 @@ use WorDBless\BaseTestCase;
  * Verifies Bluesky_Provider metadata, registration, status, and handlers.
  */
 class Bluesky_ProviderTest extends BaseTestCase {
+
+	use Asserts_Metrics;
 
 	/**
 	 * Provider instance under test.
@@ -1079,25 +1082,26 @@ class Bluesky_ProviderTest extends BaseTestCase {
 
 	/**
 	 * Tripwire: Atmosphere's bundled well-known handler must stay hooked at
-	 * `template_redirect` priority > 1.
+	 * `template_redirect` after FOSSE's suppression and nocache hooks.
 	 *
-	 * FOSSE's suppression hook runs at priority 1 and clears
-	 * `atmosphere_wellknown` before Atmosphere's handler reads it. If a
-	 * future bundled resync moves the handler to priority 0 or 1 (or
-	 * removes it entirely), the opt-out contract silently breaks and the
-	 * existing direct-call suppression tests stay green. Catch the drift
-	 * at the registration layer instead.
+	 * FOSSE's suppression hook clears `atmosphere_wellknown` and its nocache
+	 * shim queues `nocache_headers()` — both must run before Atmosphere's
+	 * `serve_wellknown_atproto_did()` reads the query var and sends the body
+	 * (Atmosphere `exit()`s, so anything queued after never reaches the
+	 * response). Atmosphere 2.0.0 moved its handler from the default priority
+	 * 10 to priority 0, so FOSSE hooks its own callbacks at negative
+	 * priorities (-2 and -1) to stay ahead of it. If a future bundled resync
+	 * moves the handler ahead of FOSSE's hooks (or removes it entirely), the
+	 * opt-out contract silently breaks and the existing direct-call
+	 * suppression tests stay green. Catch the drift at the registration layer
+	 * by asserting the relative ordering rather than a hard-coded number.
 	 */
 	public function test_atmosphere_serves_wellknown_after_fosse_suppression_priority() {
-		// Atmosphere registers its `template_redirect` hook from its
-		// `plugins_loaded` callback. WorDBless may fire `plugins_loaded`
-		// before `fosse.php` registers Atmosphere's callback, so check
-		// whether Atmosphere's hook is already present and only re-fire
-		// `plugins_loaded` if not. Guarding against the hook directly (not
-		// via `did_action()`) avoids both the "Atmosphere never booted" and
-		// "re-firing stacks duplicate callbacks across tests" failure modes.
 		global $wp_filter;
-		$find_atmosphere_priority = static function () use ( &$wp_filter ): ?int {
+
+		// Return the `template_redirect` priority of the first callback whose
+		// [object-class, method] matches, or null if unhooked.
+		$find_priority = static function ( string $class, string $method ) use ( &$wp_filter ): ?int {
 			if ( ! isset( $wp_filter['template_redirect'] ) ) {
 				return null;
 			}
@@ -1109,8 +1113,8 @@ class Bluesky_ProviderTest extends BaseTestCase {
 						&& isset( $cb[0] )
 						&& isset( $cb[1] )
 						&& is_object( $cb[0] )
-						&& 'Atmosphere\\Atmosphere' === get_class( $cb[0] )
-						&& 'serve_wellknown_atproto_did' === $cb[1]
+						&& $class === get_class( $cb[0] )
+						&& $method === $cb[1]
 					) {
 						return (int) $priority;
 					}
@@ -1119,10 +1123,17 @@ class Bluesky_ProviderTest extends BaseTestCase {
 			return null;
 		};
 
-		$atmosphere_priority = $find_atmosphere_priority();
+		// Atmosphere registers its `template_redirect` hook from its
+		// `plugins_loaded` callback. WorDBless may fire `plugins_loaded`
+		// before `fosse.php` registers Atmosphere's callback, so check
+		// whether Atmosphere's hook is already present and only re-fire
+		// `plugins_loaded` if not. Guarding against the hook directly (not
+		// via `did_action()`) avoids both the "Atmosphere never booted" and
+		// "re-firing stacks duplicate callbacks across tests" failure modes.
+		$atmosphere_priority = $find_priority( 'Atmosphere\\Atmosphere', 'serve_wellknown_atproto_did' );
 		if ( null === $atmosphere_priority ) {
 			do_action( 'plugins_loaded' );
-			$atmosphere_priority = $find_atmosphere_priority();
+			$atmosphere_priority = $find_priority( 'Atmosphere\\Atmosphere', 'serve_wellknown_atproto_did' );
 		}
 
 		$this->assertNotNull(
@@ -1131,15 +1142,21 @@ class Bluesky_ProviderTest extends BaseTestCase {
 				. 'FOSSE delegates the well-known route to Atmosphere; if the handler moved or was renamed in a bundled resync, '
 				. '/.well-known/atproto-did will silently 404.'
 		);
-		// > 2 (not just > 1) because FOSSE now also hooks
-		// `send_atproto_did_nocache_headers` at priority 2 — if Atmosphere
-		// moves to priority 2, the shim's `nocache_headers()` would queue
-		// after Atmosphere's `exit` and never reach the response.
+
+		$provider_class    = get_class( $this->provider );
+		$suppress_priority = $find_priority( $provider_class, 'maybe_suppress_atmosphere_well_known' );
+		$nocache_priority  = $find_priority( $provider_class, 'send_atproto_did_nocache_headers' );
+
+		$this->assertNotNull( $suppress_priority, 'FOSSE\'s maybe_suppress_atmosphere_well_known is not hooked on template_redirect.' );
+		$this->assertNotNull( $nocache_priority, 'FOSSE\'s send_atproto_did_nocache_headers is not hooked on template_redirect.' );
+
+		$latest_fosse_priority = max( $suppress_priority, $nocache_priority );
 		$this->assertGreaterThan(
-			2,
+			$latest_fosse_priority,
 			$atmosphere_priority,
 			'Atmosphere\\Atmosphere::serve_wellknown_atproto_did is hooked at template_redirect priority ' . $atmosphere_priority
-				. ' but FOSSE\'s suppression hook runs at priority 1 and the nocache shim runs at priority 2. The opt-out filter or nocache headers will not work.'
+				. " but FOSSE's suppression ($suppress_priority) / nocache shim ($nocache_priority) hooks run no earlier. "
+				. 'The opt-out filter or nocache headers will not work — Atmosphere serves and exits first.'
 		);
 	}
 
@@ -1486,6 +1503,192 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		$this->provider->handle_oauth_callback();
 
 		$this->assertEmpty( get_settings_errors( 'atmosphere' ) );
+	}
+
+	/**
+	 * A "Deny" on the Bluesky consent screen redirects back with
+	 * `error=access_denied&state=<state>` and no code (RFC 6749 §4.1.2.1).
+	 * The callback must recover the wizard return context from the state,
+	 * record a declined (non-`auth_failed`) failure with the wizard source,
+	 * surface "declined" copy, and redirect back into the wizard step.
+	 */
+	public function test_handle_oauth_callback_access_denied_records_declined_and_returns_to_wizard() {
+		$this->become_admin();
+		$this->reset_metrics_channels();
+
+		$state = 'state-denied';
+		set_transient(
+			'fosse_bluesky_oauth_return_' . get_current_user_id(),
+			array(
+				'context' => 'wizard',
+				'state'   => $state,
+			),
+			HOUR_IN_SECONDS
+		);
+
+		$captured = null;
+
+		// phpcs:disable WordPress.Security.NonceVerification.Recommended -- test setup.
+		$_GET = array(
+			'page'  => 'fosse',
+			'error' => 'access_denied',
+			'state' => $state,
+		);
+		// phpcs:enable WordPress.Security.NonceVerification.Recommended
+
+		add_filter(
+			'wp_redirect',
+			static function ( $location ) use ( &$captured ) {
+				$captured = (string) $location;
+				throw new RedirectFired( 'redirect' );
+			}
+		);
+
+		try {
+			$this->provider->handle_oauth_callback();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		// Redirected back into the wizard step, not generic Settings.
+		$this->assertNotNull( $captured );
+		$this->assertStringContainsString( 'page=fosse-wizard', $captured );
+		$this->assertStringContainsString( 'step=bluesky', $captured );
+
+		// User-appropriate "declined" copy, distinct from the
+		// incomplete-response message.
+		$errors   = get_settings_errors( 'atmosphere' );
+		$types    = array_column( $errors, 'type' );
+		$messages = array_column( $errors, 'message' );
+		$this->assertContains( 'error', $types );
+		$this->assertNotContains( 'success', $types );
+		$this->assertStringContainsString( 'declined', strtolower( implode( ' ', $messages ) ) );
+		$this->assertStringNotContainsString( 'incomplete response', strtolower( implode( ' ', $messages ) ) );
+
+		// Recorded as a declined outcome with the wizard source — not the
+		// misleading empty-source `auth_failed` of the incomplete-response path.
+		$this->assertEventRecorded(
+			'fosse_connection_failed',
+			array(
+				'network'        => 'bluesky',
+				'source'         => 'wizard',
+				'error_category' => 'other',
+			)
+		);
+
+		// The return-context transient is consumed so it can't leak into a
+		// later callback.
+		$this->assertFalse( get_transient( 'fosse_bluesky_oauth_return_' . get_current_user_id() ) );
+	}
+
+	/**
+	 * An OAuth `error=access_denied&state=<state>` response whose state
+	 * matches the stored Atmosphere oauth_state must terminate the
+	 * Atmosphere OAuth session, deleting all four
+	 * `atmosphere_oauth_{state,verifier,dpop_jwk,resolved}` transients —
+	 * otherwise a later in-flight callback (e.g. accidental re-click of a
+	 * stale tab) could still pass state validation and proceed to token
+	 * exchange after the user was told they declined.
+	 */
+	public function test_handle_oauth_callback_access_denied_clears_atmosphere_session() {
+		$this->become_admin();
+
+		$state = 'state-denied-clears-session';
+
+		set_transient( 'atmosphere_oauth_state', $state, HOUR_IN_SECONDS );
+		set_transient( 'atmosphere_oauth_verifier', 'verifier-bytes', HOUR_IN_SECONDS );
+		set_transient( 'atmosphere_oauth_dpop_jwk', 'dpop-ciphertext', HOUR_IN_SECONDS );
+		set_transient(
+			'atmosphere_oauth_resolved',
+			array( 'pds' => 'https://pds.example' ),
+			HOUR_IN_SECONDS
+		);
+
+		set_transient(
+			'fosse_bluesky_oauth_return_' . get_current_user_id(),
+			array(
+				'context' => '',
+				'state'   => $state,
+			),
+			HOUR_IN_SECONDS
+		);
+
+		// phpcs:disable WordPress.Security.NonceVerification.Recommended -- test setup.
+		$_GET = array(
+			'page'  => 'fosse',
+			'error' => 'access_denied',
+			'state' => $state,
+		);
+		// phpcs:enable WordPress.Security.NonceVerification.Recommended
+
+		add_filter(
+			'wp_redirect',
+			static function () {
+				throw new RedirectFired( 'redirect' );
+			}
+		);
+
+		try {
+			$this->provider->handle_oauth_callback();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$this->assertFalse( get_transient( 'atmosphere_oauth_state' ) );
+		$this->assertFalse( get_transient( 'atmosphere_oauth_verifier' ) );
+		$this->assertFalse( get_transient( 'atmosphere_oauth_dpop_jwk' ) );
+		$this->assertFalse( get_transient( 'atmosphere_oauth_resolved' ) );
+	}
+
+	/**
+	 * An OAuth `error=…&state=<state>` response whose state does NOT match
+	 * the stored Atmosphere oauth_state must leave the in-flight session
+	 * untouched. Otherwise an attacker who knows the callback URL could
+	 * drop a victim's pending handshake by sending any error with a junk
+	 * state, forcing them to restart the connect.
+	 */
+	public function test_handle_oauth_callback_error_with_mismatched_state_preserves_atmosphere_session() {
+		$this->become_admin();
+
+		$real_state = 'real-state-still-pending';
+
+		set_transient( 'atmosphere_oauth_state', $real_state, HOUR_IN_SECONDS );
+		set_transient( 'atmosphere_oauth_verifier', 'verifier-bytes', HOUR_IN_SECONDS );
+		set_transient( 'atmosphere_oauth_dpop_jwk', 'dpop-ciphertext', HOUR_IN_SECONDS );
+		set_transient(
+			'atmosphere_oauth_resolved',
+			array( 'pds' => 'https://pds.example' ),
+			HOUR_IN_SECONDS
+		);
+
+		// phpcs:disable WordPress.Security.NonceVerification.Recommended -- test setup.
+		$_GET = array(
+			'page'  => 'fosse',
+			'error' => 'access_denied',
+			'state' => 'attacker-supplied-junk',
+		);
+		// phpcs:enable WordPress.Security.NonceVerification.Recommended
+
+		add_filter(
+			'wp_redirect',
+			static function () {
+				throw new RedirectFired( 'redirect' );
+			}
+		);
+
+		try {
+			$this->provider->handle_oauth_callback();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$this->assertSame( $real_state, get_transient( 'atmosphere_oauth_state' ) );
+		$this->assertSame( 'verifier-bytes', get_transient( 'atmosphere_oauth_verifier' ) );
+		$this->assertSame( 'dpop-ciphertext', get_transient( 'atmosphere_oauth_dpop_jwk' ) );
+		$this->assertSame(
+			array( 'pds' => 'https://pds.example' ),
+			get_transient( 'atmosphere_oauth_resolved' )
+		);
 	}
 
 	// --- handle validation ---
@@ -2218,8 +2421,8 @@ class Bluesky_ProviderTest extends BaseTestCase {
 		$this->assertNotFalse( has_action( 'admin_post_fosse_enable_bluesky_auto_publish', array( $this->provider, 'handle_enable_auto_publish' ) ) );
 		$this->assertNotFalse( has_action( 'admin_init', array( $this->provider, 'handle_oauth_callback' ) ) );
 		$this->assertNotFalse( has_action( 'admin_notices', array( $this->provider, 'maybe_render_auto_publish_disabled_notice' ) ) );
-		$this->assertSame( 1, has_action( 'template_redirect', array( $this->provider, 'maybe_suppress_atmosphere_well_known' ) ) );
-		$this->assertSame( 2, has_action( 'template_redirect', array( $this->provider, 'send_atproto_did_nocache_headers' ) ) );
+		$this->assertSame( -2, has_action( 'template_redirect', array( $this->provider, 'maybe_suppress_atmosphere_well_known' ) ) );
+		$this->assertSame( -1, has_action( 'template_redirect', array( $this->provider, 'send_atproto_did_nocache_headers' ) ) );
 		$this->assertNotFalse( has_filter( 'atmosphere_oauth_redirect_uri', array( $this->provider, 'filter_oauth_redirect_uri' ) ) );
 	}
 

@@ -38,6 +38,17 @@ class Bluesky_Provider implements Connection_Provider {
 	public const RETURN_CONTEXT_WIZARD = 'wizard';
 
 	/**
+	 * Settings-error code for notices queued by {@see self::redirect_with_notice()}.
+	 *
+	 * Public so renderers of the shared `'atmosphere'` settings-error group
+	 * (e.g. the onboarding wizard's Bluesky step) can recognize FOSSE-owned
+	 * notices, whose messages are stored pre-escaped via `esc_html()`, and
+	 * skip re-escaping them — while still escaping messages from other
+	 * writers to the same group (bundled Atmosphere stores raw text).
+	 */
+	public const NOTICE_CODE = 'fosse_bluesky_notice';
+
+	/**
 	 * Per-user transient prefix for pending OAuth return context.
 	 */
 	private const OAUTH_RETURN_TRANSIENT_PREFIX = 'fosse_bluesky_oauth_return_';
@@ -858,8 +869,8 @@ class Bluesky_Provider implements Connection_Provider {
 		add_action( 'admin_post_fosse_enable_bluesky_auto_publish', array( $this, 'handle_enable_auto_publish' ) );
 		add_action( 'admin_init', array( $this, 'handle_oauth_callback' ) );
 		add_action( 'admin_notices', array( $this, 'maybe_render_auto_publish_disabled_notice' ) );
-		add_action( 'template_redirect', array( $this, 'maybe_suppress_atmosphere_well_known' ), 1 );
-		add_action( 'template_redirect', array( $this, 'send_atproto_did_nocache_headers' ), 2 );
+		add_action( 'template_redirect', array( $this, 'maybe_suppress_atmosphere_well_known' ), -2 );
+		add_action( 'template_redirect', array( $this, 'send_atproto_did_nocache_headers' ), -1 );
 
 		// Override Atmosphere's OAuth redirect URI so the auth server callback
 		// and the client-metadata REST endpoint both advertise FOSSE's page.
@@ -896,8 +907,8 @@ class Bluesky_Provider implements Connection_Provider {
 	 * the headers, fronting page/CDN caches can keep a pre-connect 404 after
 	 * OAuth completes, or keep a stale 200 DID after disconnect — either
 	 * defeats Bluesky's bidirectional handle resolution. This shim runs at
-	 * `template_redirect` priority 2 (after the opt-out suppression at
-	 * priority 1, before Atmosphere's serve at priority 10) so the headers
+	 * `template_redirect` priority -1 (after the opt-out suppression at
+	 * priority -2, before Atmosphere's serve at priority 0) so the headers
 	 * are queued before any body is sent. The opt-out path already calls
 	 * `nocache_headers()` directly, so this hook short-circuits when the
 	 * filter is false.
@@ -923,14 +934,14 @@ class Bluesky_Provider implements Connection_Provider {
 	 * Suppress bundled Atmosphere's /.well-known/atproto-did handler when FOSSE opts out.
 	 *
 	 * Atmosphere owns the route end-to-end now: its `serve_wellknown_atproto_did()`
-	 * runs on `template_redirect` priority 10 and gates the response on
+	 * runs on `template_redirect` priority 0 and gates the response on
 	 * `\Atmosphere\has_identity()`, which is the contract FOSSE was previously
 	 * mirroring. The `fosse_serve_atproto_did_well_known` filter remains as a
-	 * site-level opt-out: when it returns false, this hook (priority 1) clears
+	 * site-level opt-out: when it returns false, this hook (priority -2) clears
 	 * Atmosphere's query var so its handler returns early and marks the request
 	 * 404 so WordPress doesn't render the front page for the well-known URL.
 	 *
-	 * Third-party handlers attached at `template_redirect` priority > 1 can still
+	 * Third-party handlers attached at `template_redirect` priority > -2 can still
 	 * take over by calling `status_header( 200 )`, `$wp_query->set_404( false )`,
 	 * and `exit()`.
 	 *
@@ -954,10 +965,10 @@ class Bluesky_Provider implements Connection_Provider {
 			return;
 		}
 
-		// Clear Atmosphere's query var so its handler at priority 10 returns,
+		// Clear Atmosphere's query var so its handler at priority 0 returns,
 		// then mark the request 404 so the rewrite rule doesn't render the
 		// front page for the well-known URL. Third-party handlers attached at
-		// template_redirect priority > 1 can still take over by calling
+		// template_redirect priority > -2 can still take over by calling
 		// status_header( 200 ), $wp_query->set_404( false ), and exit().
 		set_query_var( 'atmosphere_wellknown', '' );
 
@@ -1635,15 +1646,51 @@ class Bluesky_Provider implements Connection_Provider {
 
 		$code  = sanitize_text_field( wp_unslash( $_GET['code'] ?? '' ) );
 		$state = sanitize_text_field( wp_unslash( $_GET['state'] ?? '' ) );
+		$error = sanitize_text_field( wp_unslash( $_GET['error'] ?? '' ) );
 		// phpcs:enable WordPress.Security.NonceVerification.Recommended
 
-		// No code and no state → ordinary page hit, not an OAuth callback.
-		if ( '' === $code && '' === $state ) {
+		// No code, no state, and no error → ordinary page hit, not an OAuth callback.
+		if ( '' === $code && '' === $state && '' === $error ) {
 			return;
 		}
 
 		if ( ! current_user_can( 'manage_options' ) ) {
 			wp_die( esc_html__( 'You do not have permission to complete the Bluesky connection.', 'fosse' ) );
+		}
+
+		// The authorization server redirected back with an error instead of a
+		// code (RFC 6749 §4.1.2.1) — e.g. the user clicked "Deny" on the
+		// consent screen, which sends `error=access_denied`. Recover the return
+		// context from the inbound state so a wizard-origin user lands back on
+		// the wizard step, then surface user-appropriate copy. This is a
+		// declined/aborted outcome, not a token-exchange auth failure, so it is
+		// recorded distinctly from the incomplete-response and `auth_failed`
+		// paths below.
+		if ( '' !== $error ) {
+			$return_context = $this->consume_oauth_return_context( $state );
+			$source         = self::context_to_source( $return_context );
+
+			// Terminate Atmosphere's pending OAuth session when the inbound
+			// state matches what `Client::authorize()` stashed. Without this,
+			// the verifier, DPoP key, resolved-account metadata, and the
+			// state itself linger for the full HOUR_IN_SECONDS transient TTL
+			// even though the user just declined. Gated on a hash_equals
+			// state match so an attacker can't drop a victim's in-flight
+			// session by hitting the callback with `?error=…`.
+			self::clear_atmosphere_oauth_session_if_state_matches( $state );
+
+			// No dedicated "declined" value exists in the connection-failure
+			// `error_category` enum (`auth_failed|rate_limited|network_timeout|
+			// invalid_handle|other`); `other` is the closest valid bucket that
+			// avoids mislabeling a user-initiated decline as an auth failure.
+			self::record_connection_failed( 'bluesky', $source, 'other' );
+
+			$message = 'access_denied' === $error
+				? __( 'You declined the Bluesky connection.', 'fosse' )
+				: __( 'Bluesky could not complete the connection. Please try connecting again.', 'fosse' );
+
+			$this->redirect_with_notice( $message, 'error', $return_context );
+			return;
 		}
 
 		// Exactly one of code/state present means the auth server redirected
@@ -1782,6 +1829,46 @@ class Bluesky_Provider implements Connection_Provider {
 	}
 
 	/**
+	 * Clear Atmosphere's pending OAuth-session transients when the inbound
+	 * callback `state` matches the stored Atmosphere `oauth_state`.
+	 *
+	 * The bundled `Atmosphere\OAuth\Client::handle_callback()` is the only
+	 * code path that normally deletes `atmosphere_oauth_state`,
+	 * `atmosphere_oauth_verifier`, `atmosphere_oauth_dpop_jwk`, and
+	 * `atmosphere_oauth_resolved`. When the authorization server returns an
+	 * error response, FOSSE finishes the user-facing flow before the bundled
+	 * client runs, so those transients linger for their full HOUR_IN_SECONDS
+	 * TTL. Mirror the upstream deletes so a declined attempt does not leave
+	 * a usable OAuth handshake in storage.
+	 *
+	 * Gated on a `hash_equals` match with the stored state so an attacker
+	 * cannot drop a victim's in-flight handshake by hitting the callback
+	 * URL with `?error=…&state=junk`.
+	 *
+	 * @param string $callback_state Inbound `state` query arg from the OAuth callback.
+	 * @return void
+	 */
+	private static function clear_atmosphere_oauth_session_if_state_matches( string $callback_state ): void {
+		if ( '' === $callback_state ) {
+			return;
+		}
+
+		$stored_state = \get_transient( 'atmosphere_oauth_state' );
+		if ( ! \is_string( $stored_state ) || '' === $stored_state ) {
+			return;
+		}
+
+		if ( ! \hash_equals( $stored_state, $callback_state ) ) {
+			return;
+		}
+
+		\delete_transient( 'atmosphere_oauth_state' );
+		\delete_transient( 'atmosphere_oauth_verifier' );
+		\delete_transient( 'atmosphere_oauth_dpop_jwk' );
+		\delete_transient( 'atmosphere_oauth_resolved' );
+	}
+
+	/**
 	 * Emit a `fosse_connection_failed` event for the given network/source/category.
 	 *
 	 * @param string $network        `'bluesky'|'mastodon'`.
@@ -1851,7 +1938,7 @@ class Bluesky_Provider implements Connection_Provider {
 	 * @return void
 	 */
 	private function redirect_with_notice( string $message, string $type, string $return_context = '' ): void {
-		add_settings_error( 'atmosphere', 'fosse_bluesky_notice', esc_html( $message ), $type );
+		add_settings_error( 'atmosphere', self::NOTICE_CODE, esc_html( $message ), $type );
 		User_Notices::persist();
 
 		wp_safe_redirect( $this->get_redirect_url( $return_context ) );

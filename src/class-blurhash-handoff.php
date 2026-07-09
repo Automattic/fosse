@@ -36,6 +36,28 @@ namespace Automattic\Fosse;
 class Blurhash_Handoff {
 
 	/**
+	 * Postmeta key holding FOSSE-era blurhashes, from before ActivityPub
+	 * shipped its own native encoder. Read-only now: FOSSE's encoder was
+	 * removed once AP absorbed it, so nothing writes this key anymore —
+	 * the bridge only migrates values written by older FOSSE versions.
+	 *
+	 * @var string
+	 */
+	public const LEGACY_META_KEY = '_fosse_blurhash';
+
+	/**
+	 * Upper bound on a legacy hash length, in characters. A 4×4 component
+	 * grid produces a 30-character hash; the 9×9 grid the spec supports
+	 * tops out at 99. We cap a little above that as a defense against
+	 * postmeta poisoning — anyone with `edit_post_meta` on an attachment
+	 * could otherwise stash arbitrary bytes we would then federate into
+	 * AP's store and the outbound envelope.
+	 *
+	 * @var int
+	 */
+	private const MAX_HASH_LENGTH = 128;
+
+	/**
 	 * Whether FOSSE should defer to ActivityPub's native blurhash encoder.
 	 *
 	 * True when the loaded ActivityPub (bundled or standalone) ships its
@@ -86,9 +108,9 @@ class Blurhash_Handoff {
 			return $attachment;
 		}
 
-		// FOSSE's get() validates the stored value against the base83
-		// shape, so a poisoned row reads as absent here too.
-		$hash = Blurhash::get( (int) $attachment_id );
+		// The read validates the stored value against the base83 shape,
+		// so a poisoned row reads as absent here too.
+		$hash = self::read_legacy_hash( (int) $attachment_id );
 		if ( null === $hash ) {
 			return $attachment;
 		}
@@ -97,5 +119,49 @@ class Blurhash_Handoff {
 		$attachment['blurhash'] = $hash;
 
 		return $attachment;
+	}
+
+	/**
+	 * Read the legacy FOSSE-era blurhash stored on an attachment, or null
+	 * when no usable value is present. Empty/whitespace/non-string values
+	 * are treated as absent, as are values that fail
+	 * {@see self::is_well_formed_hash()} — so postmeta poisoning never
+	 * crosses into AP's store or the federation envelope.
+	 *
+	 * Inlined from FOSSE's removed `Blurhash` encoder so the bridge is
+	 * self-contained: the encoder is gone, but the rows it wrote live on
+	 * until a future bulk cleanup.
+	 *
+	 * @param int $attachment_id Attachment post ID.
+	 * @return string|null
+	 */
+	private static function read_legacy_hash( int $attachment_id ): ?string {
+		$value = \get_post_meta( $attachment_id, self::LEGACY_META_KEY, true );
+		if ( ! \is_string( $value ) ) {
+			return null;
+		}
+		$value = \trim( $value );
+		if ( '' === $value ) {
+			return null;
+		}
+		return self::is_well_formed_hash( $value ) ? $value : null;
+	}
+
+	/**
+	 * Validate a stored hash against the blurhash spec's character set
+	 * and our length bound. Treats any out-of-bounds value as absent
+	 * rather than coercing it — no blurhash is better than a wrong one.
+	 * The base83 alphabet is defined by the spec at
+	 * {@link https://github.com/woltapp/blurhash/blob/master/Algorithm.md#base-83}.
+	 *
+	 * @param string $hash Candidate hash string.
+	 * @return bool
+	 */
+	private static function is_well_formed_hash( string $hash ): bool {
+		$length = \strlen( $hash );
+		if ( $length < 6 || $length > self::MAX_HASH_LENGTH ) {
+			return false;
+		}
+		return 1 === \preg_match( '/\A[0-9A-Za-z#$%*+,\-.:;=?@\[\]\^_{|}~]+\z/', $hash );
 	}
 }

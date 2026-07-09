@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 
 test( 'WP admin boots with bundled backends active and FOSSE menu replaces ActivityPub', async ( {
 	page,
@@ -67,4 +67,36 @@ test( 'AP reader UI nodes are suppressed when activitypub_reader_ui=1', async ( 
 	await expect(
 		page.locator( '#wp-admin-bar-activitypub-social-web' )
 	).toHaveCount( 0 );
+} );
+
+test( 'Plugins screen renders without fatals and shows the FOSSE row', async ( {
+	page,
+} ) => {
+	const response = await page.goto( '/wp-admin/plugins.php' );
+	expect( response?.status() ).toBeLessThan( 400 );
+
+	await expect(
+		page.locator( 'text=/Fatal error|Parse error|Uncaught .*Error/i' )
+	).toHaveCount( 0 );
+
+	// FOSSE itself shows as an active plugin row.
+	await expect(
+		page.locator(
+			'tr[data-slug="fosse"], tr[data-plugin="fosse/fosse.php"]'
+		)
+	).toHaveCount( 1 );
+} );
+
+test( 'No standalone-handoff row appears when no standalone backend is active', async ( {
+	page,
+} ) => {
+	// The Playground blueprint ships only FOSSE — bundled AP/Atmo load
+	// internally, but neither standalone plugin is in WP's active_plugins.
+	// In that state the handoff row must stay silent. A "standalone active"
+	// case would require provisioning a separate AP/Atmo plugin install in
+	// the blueprint and is intentionally out of scope here.
+	const response = await page.goto( '/wp-admin/plugins.php' );
+	expect( response?.status() ).toBeLessThan( 400 );
+
+	await expect( page.locator( 'tr.fosse-handoff-row' ) ).toHaveCount( 0 );
 } );
