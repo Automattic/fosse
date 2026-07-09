@@ -85,11 +85,25 @@ test.describe( 'short-form facet capture', () => {
 			) }`
 		).toBe( 200 );
 
-		// Connect Bluesky and reset the capture so only this test's
-		// publish populates it. The helper asserts the DELETE succeeded
-		// so a silent failure can't let prior runs' stale calls leak
-		// into the later "captured.calls" assertions.
-		await setBlueskyState( page, { connected: true } );
+		// Connect Bluesky as `alice.test` and reset the capture so only
+		// this test's publish populates it. The helper asserts the DELETE
+		// succeeded so a silent failure can't let prior runs' stale calls
+		// leak into the later "captured.calls" assertions.
+		//
+		// The connection handle is pinned to the mention below (`@alice.test`)
+		// on purpose. Since Atmosphere 2.0.0 a `@handle.tld` only mints an
+		// `app.bsky.richtext.facet#mention` when the handle resolves to a DID
+		// (DNS `_atproto` TXT + `.well-known/atproto-did`), which is neither
+		// possible nor desirable in the hermetic Playground env. Atmosphere's
+		// resolver short-circuits a mention that matches the connected
+		// account's own handle to its stored DID before any network lookup,
+		// so mentioning `alice.test` exercises the facet-minting path with
+		// zero DNS/HTTPS and a deterministic `did:` subject.
+		await setBlueskyState( page, {
+			connected: true,
+			handle: 'alice.test',
+			did: 'did:plc:fossee2ealicetest',
+		} );
 		await resetApplyWritesCapture( page );
 
 		const body = 'hello #world @alice.test https://example.com';
