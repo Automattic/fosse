@@ -25,45 +25,28 @@ namespace Automattic\Fosse;
  *     last upstream tag, which can lag the actual code. We trust the bundle.
  *   - "Source: standalone" — the loaded copy was required from
  *     `WP_PLUGIN_DIR/<slug>/`. The constant reflects the released version
- *     and is enforced against `MIN_*_VERSION`.
+ *     and is enforced against the bundled-version floor (see the
+ *     minimum-version policy below).
  *   - "Source: none" — the backend's version constant is undefined, which
  *     means neither copy is loaded.
  *
  * Minimum-version policy:
  *
- *   `MIN_ACTIVITYPUB_VERSION` and `MIN_ATMOSPHERE_VERSION` are the floors a
- *   *standalone* backend must meet to expose the surface FOSSE consumes.
- *   They are pinned to the versions FOSSE currently bundles and tests
- *   against (the reference implementation): a standalone older than the
- *   bundle is not guaranteed to carry the hooks/filters FOSSE relies on, so
- *   the probe conservatively reports it `too_old`. Revisit these down to the
- *   true feature-introduction release if a lower standalone floor is later
- *   verified. (A `bundled` source is always trusted regardless of its
- *   reported constant — see the detection model above.)
+ *   The floor a *standalone* backend must meet is the version FOSSE currently
+ *   bundles and tests against (the reference implementation): a standalone
+ *   older than the bundle is not guaranteed to carry the hooks/filters FOSSE
+ *   relies on, so the probe conservatively reports it `too_old`. `too_old`
+ *   therefore means "older than what FOSSE ships", not "known-incompatible".
+ *
+ *   The floor is read from the bundled plugin's own `Version:` header at
+ *   runtime — see {@see self::min_activitypub_version()} — NOT stored as a
+ *   duplicate constant. `tools/sync-bundled.sh` overwrites those headers on
+ *   every resync, so the floor tracks the bundle automatically with no code
+ *   change and no drift. (A `bundled` source is trusted regardless of its
+ *   version anyway — see the detection model above — so the floor only ever
+ *   gates a `standalone` source.)
  */
 class Backend_Readiness {
-
-	/**
-	 * Minimum ActivityPub version FOSSE supports as a standalone install.
-	 *
-	 * Pinned to the currently-bundled release (9.0.2), which ships the
-	 * `toot:blurhash` JSON-LD `@context` term FOSSE now depends on since it
-	 * dropped its own blurhash encoder in favor of the one bundled AP
-	 * provides. A standalone older than the bundle may lack that context, so
-	 * the probe treats it as `too_old`.
-	 */
-	public const MIN_ACTIVITYPUB_VERSION = '9.0.2';
-
-	/**
-	 * Minimum Atmosphere version FOSSE supports as a standalone install.
-	 *
-	 * Pinned to the currently-bundled release (2.0.0), a major version that
-	 * introduced the block editor, `@handle.tld` mention support, the REST
-	 * layer, and the transformer surface FOSSE's projectors consume. Earlier
-	 * standalone Atmosphere lacks that surface, so the probe treats it as
-	 * `too_old`.
-	 */
-	public const MIN_ATMOSPHERE_VERSION = '2.0.0';
 
 	public const STATUS_OK           = 'ok';
 	public const STATUS_MISSING      = 'missing';
@@ -74,6 +57,76 @@ class Backend_Readiness {
 	public const SOURCE_STANDALONE = 'standalone';
 	public const SOURCE_NONE       = 'none';
 	public const SOURCE_UNKNOWN    = 'unknown';
+
+	/**
+	 * Bundled plugin main files (relative to this class) whose `Version:`
+	 * header is the single source of truth for each backend's standalone
+	 * floor. Refreshed on disk by `tools/sync-bundled.sh` on every resync.
+	 *
+	 * @var array<string, string>
+	 */
+	private const BUNDLED_MAIN_FILES = array(
+		'activitypub' => '/../bundled/activitypub/activitypub.php',
+		'atmosphere'  => '/../bundled/atmosphere/atmosphere.php',
+	);
+
+	/**
+	 * Request-scoped memo of each backend's bundled `Version:` header.
+	 *
+	 * @var array<string, string>
+	 */
+	private static $bundled_versions = array();
+
+	/**
+	 * Minimum ActivityPub version FOSSE supports as a standalone install:
+	 * the version FOSSE currently bundles, read from the bundled plugin's
+	 * `Version:` header so it never drifts from what actually ships.
+	 *
+	 * @return string
+	 */
+	public static function min_activitypub_version(): string {
+		return self::bundled_version( 'activitypub' );
+	}
+
+	/**
+	 * Minimum Atmosphere version FOSSE supports as a standalone install: the
+	 * currently-bundled version, read from its `Version:` header.
+	 *
+	 * @return string
+	 */
+	public static function min_atmosphere_version(): string {
+		return self::bundled_version( 'atmosphere' );
+	}
+
+	/**
+	 * Read (and memoize) the `Version:` header of a bundled backend's main
+	 * file. Returns '' when the file is unreadable — an impossible-in-practice
+	 * broken-deploy case where the whole probe is moot; an empty floor lets
+	 * every standalone pass rather than fabricating a version.
+	 *
+	 * @param string $slug Backend slug (`activitypub` or `atmosphere`).
+	 * @return string
+	 */
+	private static function bundled_version( string $slug ): string {
+		if ( isset( self::$bundled_versions[ $slug ] ) ) {
+			return self::$bundled_versions[ $slug ];
+		}
+
+		$relative = self::BUNDLED_MAIN_FILES[ $slug ] ?? '';
+		$version  = '';
+
+		if ( '' !== $relative && function_exists( 'get_file_data' ) ) {
+			$file = __DIR__ . $relative;
+			if ( is_readable( $file ) ) {
+				$data    = get_file_data( $file, array( 'Version' => 'Version' ) );
+				$version = isset( $data['Version'] ) ? (string) $data['Version'] : '';
+			}
+		}
+
+		self::$bundled_versions[ $slug ] = $version;
+
+		return $version;
+	}
 
 	/**
 	 * Readiness of the ActivityPub backend.
@@ -91,7 +144,7 @@ class Backend_Readiness {
 			'activitypub',
 			defined( 'ACTIVITYPUB_PLUGIN_VERSION' ) ? ACTIVITYPUB_PLUGIN_VERSION : null,
 			defined( 'ACTIVITYPUB_PLUGIN_DIR' ) ? ACTIVITYPUB_PLUGIN_DIR : null,
-			self::MIN_ACTIVITYPUB_VERSION
+			self::min_activitypub_version()
 		);
 	}
 
@@ -111,7 +164,7 @@ class Backend_Readiness {
 			'atmosphere',
 			defined( 'ATMOSPHERE_VERSION' ) ? ATMOSPHERE_VERSION : null,
 			defined( 'ATMOSPHERE_PLUGIN_DIR' ) ? ATMOSPHERE_PLUGIN_DIR : null,
-			self::MIN_ATMOSPHERE_VERSION
+			self::min_atmosphere_version()
 		);
 	}
 

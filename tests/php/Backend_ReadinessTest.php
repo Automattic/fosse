@@ -179,6 +179,30 @@ class Backend_ReadinessTest extends BaseTestCase {
 			)
 		);
 		$this->assertSame( 'activitypub', $report['slug'] );
-		$this->assertSame( Backend_Readiness::MIN_ACTIVITYPUB_VERSION, $report['required_version'] );
+		$this->assertSame( Backend_Readiness::min_activitypub_version(), $report['required_version'] );
+	}
+
+	/**
+	 * The standalone floor is derived from the bundled plugin's own
+	 * `Version:` header, so it can never drift from what `tools/sync-bundled.sh`
+	 * actually ships. Read the headers independently and assert the accessors
+	 * match — this is the regression guard that keeps the floor honest across
+	 * bundle resyncs.
+	 */
+	public function test_floors_match_the_bundled_version_headers(): void {
+		$ap_header   = get_file_data(
+			__DIR__ . '/../../bundled/activitypub/activitypub.php',
+			array( 'Version' => 'Version' )
+		);
+		$atmo_header = get_file_data(
+			__DIR__ . '/../../bundled/atmosphere/atmosphere.php',
+			array( 'Version' => 'Version' )
+		);
+
+		$this->assertNotSame( '', (string) $ap_header['Version'], 'Bundled AP header must carry a Version.' );
+		$this->assertNotSame( '', (string) $atmo_header['Version'], 'Bundled Atmosphere header must carry a Version.' );
+
+		$this->assertSame( (string) $ap_header['Version'], Backend_Readiness::min_activitypub_version() );
+		$this->assertSame( (string) $atmo_header['Version'], Backend_Readiness::min_atmosphere_version() );
 	}
 }
