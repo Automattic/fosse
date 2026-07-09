@@ -87,18 +87,40 @@ if ( ! function_exists( 'fosse_plugin_is_active' ) ) {
 	 * since embedders (e.g. wp.com's `fosse-loader.php`) can include this file
 	 * more than once per request.
 	 *
+	 * Matches an active standalone under a NON-CANONICAL folder name too (a
+	 * GitHub checkout activated as `wordpress-activitypub/activitypub.php`,
+	 * say): that is the same plugin and would redeclare the bundled classes
+	 * if FOSSE also loaded them. Detection is activation-only — the
+	 * active-plugins options, never on-disk files — so a merely-installed
+	 * (inactive) copy does not suppress the bundle.
+	 *
 	 * @param string $plugin Plugin basename, e.g. `atmosphere/atmosphere.php`.
 	 * @return bool
 	 */
 	function fosse_plugin_is_active( $plugin ) {
-		if ( in_array( $plugin, (array) get_option( 'active_plugins', array() ), true ) ) {
+		$active = (array) get_option( 'active_plugins', array() );
+		if ( is_multisite() ) {
+			$active = array_merge(
+				$active,
+				array_keys( (array) get_site_option( 'active_sitewide_plugins', array() ) )
+			);
+		}
+
+		if ( in_array( $plugin, $active, true ) ) {
 			return true;
 		}
 
-		if ( is_multisite() ) {
-			$network_active = (array) get_site_option( 'active_sitewide_plugins', array() );
-
-			return isset( $network_active[ $plugin ] );
+		/*
+		 * Non-canonical folder: match any active entry whose main file is the
+		 * same basename (e.g. `.../activitypub.php`). The main file is named
+		 * after the plugin, so a collision with an unrelated plugin is
+		 * implausible.
+		 */
+		$main_file = '/' . basename( $plugin );
+		foreach ( $active as $entry ) {
+			if ( is_string( $entry ) && str_ends_with( $entry, $main_file ) ) {
+				return true;
+			}
 		}
 
 		return false;
@@ -189,6 +211,75 @@ add_action(
 		}
 	},
 	20
+);
+
+/*
+ * Deactivation lifecycle for the bundled backends.
+ *
+ * The first-load bootstrap above replays the bundled plugins' activate()
+ * routines, but because bundled plugins never go through the plugins screen
+ * their register_deactivation_hook callbacks never fire either. Without this,
+ * deactivating FOSSE leaves AP's recurring cron events and Atmosphere's
+ * one-shot `atmosphere_revoke_refresh_token` event (with its encrypted
+ * refresh-token ciphertext) orphaned in `wp_options['cron']`, queued for
+ * callbacks the now-inactive plugin no longer registers.
+ *
+ * Ownership of bundled cleanup is decided from PERSISTED state (the
+ * `fosse_bundled_*_bootstrapped` options) rather than from whether the bundled
+ * file loaded this request: a prior bootstrap created cron rows we still own.
+ * We only call a backend's `deactivate()` when FOSSE actually loaded the
+ * bundled copy THIS request — otherwise the live `\Activitypub\Activitypub`
+ * (or `\Atmosphere\…`) symbol belongs to an active standalone the user is
+ * keeping, and unscheduling its cron would be wrong. We always clear our
+ * `fosse_bundled_*_bootstrapped` flag so re-activating FOSSE re-runs the
+ * activation shim. Callable names verified against the bundled mains:
+ * `\Activitypub\Activitypub::deactivate()` and `\Atmosphere\deactivate()`.
+ *
+ * On a network-wide deactivation we iterate every site (`number => 0` so large
+ * networks aren't truncated) and run the per-site cleanup inside
+ * `switch_to_blog()`, avoiding AP's own network loop on top of ours.
+ */
+register_deactivation_hook(
+	__FILE__,
+	static function ( $network_wide ) use ( $fosse_loaded_bundled_ap, $fosse_loaded_bundled_atmo ) {
+		$cleanup = static function () use ( $fosse_loaded_bundled_ap, $fosse_loaded_bundled_atmo ) {
+			if ( false !== get_option( 'fosse_bundled_ap_bootstrapped', false ) ) {
+				if ( $fosse_loaded_bundled_ap && class_exists( '\Activitypub\Activitypub' ) ) {
+					// Per-site: the network loop below already iterates sites.
+					\Activitypub\Activitypub::deactivate( false );
+				}
+				delete_option( 'fosse_bundled_ap_bootstrapped' );
+			}
+
+			if ( false !== get_option( 'fosse_bundled_atmosphere_bootstrapped', false ) ) {
+				if ( $fosse_loaded_bundled_atmo && function_exists( '\Atmosphere\deactivate' ) ) {
+					\Atmosphere\deactivate();
+				}
+				delete_option( 'fosse_bundled_atmosphere_bootstrapped' );
+			}
+		};
+
+		// Per-site (non-network) deactivation hits the current blog only.
+		if ( ! $network_wide || ! is_multisite() || ! function_exists( 'get_sites' ) ) {
+			$cleanup();
+			return;
+		}
+
+		$sites = get_sites(
+			array(
+				'fields' => 'ids',
+				'number' => 0,
+			)
+		);
+		foreach ( $sites as $site_id ) {
+			switch_to_blog( (int) $site_id );
+			try {
+				$cleanup();
+			} finally {
+				restore_current_blog();
+			}
+		}
+	}
 );
 
 /*
@@ -504,10 +595,20 @@ add_action( 'plugins_loaded', 'fosse_boot_providers', 20 );
  * qualifying admin request. Survives indefinitely if no admin request
  * ever runs (transients TTLed out and could leave the wizard never
  * reached on slow-to-visit installs).
+ *
+ * Skipped on a network-wide activation: the redirect is a per-site,
+ * single-admin onboarding nudge, and WordPress returns the network admin to
+ * the network plugins screen after a network activate — there is no single
+ * site to send them to, and setting the option on the current site would
+ * fire the wizard on an arbitrary blog.
  */
 register_activation_hook(
 	__FILE__,
-	static function () {
+	static function ( $network_wide ) {
+		if ( $network_wide ) {
+			return;
+		}
+
 		if ( ! class_exists( \Automattic\Fosse\Admin\Onboarding_Wizard::class ) ) {
 			error_log( 'FOSSE: Onboarding_Wizard class unavailable on activation; skipping redirect signal.' ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- intentional plugin diagnostics; only fires when autoload is broken.
 			return;
