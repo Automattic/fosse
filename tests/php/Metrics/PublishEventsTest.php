@@ -867,10 +867,14 @@ class PublishEventsTest extends BaseTestCase {
 	}
 
 	/**
-	 * Fix 3: a backfill run (the `wp_ajax_atmosphere_backfill_batch`
-	 * action) re-syncs pre-existing posts. The funnel-entry
-	 * `fosse_post_published` is suppressed, but `fosse_publish_result`
-	 * still fires because a real AT Protocol write happened.
+	 * Fix 3: a result-hook fire from any non-`atmosphere_publish_post`
+	 * context re-syncs already-counted content, so the funnel-entry
+	 * `fosse_post_published` is suppressed while `fosse_publish_result`
+	 * still fires (a real AT Protocol write happened). This case uses the
+	 * historical `wp_ajax_atmosphere_backfill_batch` action as a
+	 * representative non-cron context; bundled Atmosphere 2.0.0 ships
+	 * backfill as WP-CLI only (the actionless variant is covered by
+	 * {@see self::test_atmosphere_actionless_backfill_suppresses_post_published_only()}).
 	 */
 	public function test_atmosphere_backfill_suppresses_post_published_only(): void {
 		\add_filter( 'atmosphere_is_short_form_post', '__return_true' );
@@ -1025,6 +1029,70 @@ class PublishEventsTest extends BaseTestCase {
 			array(
 				'network' => 'bluesky',
 				'status'  => 'success',
+			)
+		);
+	}
+
+	/**
+	 * The funnel entry `fosse_post_published` records at most once per post
+	 * even when the first publish fails transiently and retries: the
+	 * `atmosphere_publish_post` cron wraps retries too, so without the
+	 * per-post idempotency marker a fail-then-succeed cycle would record the
+	 * entry twice, inflating the top of the funnel.
+	 */
+	public function test_atmosphere_funnel_entry_recorded_once_across_retries(): void {
+		\add_filter( 'atmosphere_is_short_form_post', '__return_true' );
+
+		$post = \get_post(
+			\wp_insert_post(
+				array(
+					'post_title'   => 'Retry post',
+					'post_content' => 'Content',
+					'post_status'  => 'publish',
+				)
+			)
+		);
+
+		// Attempt 1: transient (non-"not publishable") failure from the cron.
+		$this->fire_publish_result_from_publish_cron( $post, new \WP_Error( 'atmosphere_pds_unavailable', 'PDS 429' ) );
+		// Attempt 2: the retry succeeds under the same cron action.
+		$this->fire_publish_result_from_publish_cron( $post, array( 'commit' => array( 'cid' => 'baf' ) ) );
+
+		$this->assertCount(
+			1,
+			$this->tracks_channel()->events_for( 'fosse_post_published' ),
+			'Funnel entry must record at most once per post across failure/retry cycles.'
+		);
+	}
+
+	/**
+	 * A post with saved custom text is always published as a single external
+	 * link card upstream (Atmosphere's `is_short_form_post()` returns false
+	 * before the filter and forces `build_long_form_records()`), regardless
+	 * of title/post format. A titleless post — which the shape seed would
+	 * otherwise classify `short-form-note` — must therefore record
+	 * `link-card-fallback` when custom text is set.
+	 */
+	public function test_custom_text_post_records_link_card_strategy(): void {
+		$post = \get_post(
+			\wp_insert_post(
+				array(
+					'post_title'   => '',
+					'post_content' => 'Body',
+					'post_status'  => 'publish',
+				)
+			)
+		);
+		\update_post_meta( $post->ID, ATMOSPHERE_META_CUSTOM_TEXT, 'A custom Bluesky blurb' );
+
+		$this->fire_publish_result_from_publish_cron( $post, array( 'commit' => array( 'cid' => 'baf' ) ) );
+
+		$this->assertEventRecorded(
+			'fosse_publish_result',
+			array(
+				'network'  => 'bluesky',
+				'status'   => 'success',
+				'strategy' => 'link-card-fallback',
 			)
 		);
 	}

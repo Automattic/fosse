@@ -394,6 +394,32 @@ class Publish_Events {
 	private const AP_PUBLISH_RECORDED_META_KEY = '_fosse_ap_publish_recorded';
 
 	/**
+	 * Per-post idempotency marker for the network-agnostic funnel-entry
+	 * `fosse_post_published`. A bare boolean ('1' once set) — unlike the
+	 * status-aware Mastodon marker above — because the entry step is "a
+	 * first publish happened for this post," recorded at most once per post
+	 * regardless of the attempt's success/failure.
+	 *
+	 * Needed because the `atmosphere_publish_post` cron context that gates
+	 * the entry ALSO wraps transient-failure retries (see
+	 * `bundled/atmosphere/includes/class-atmosphere.php`
+	 * `maybe_schedule_publish_retry()`, which reschedules the same hook) and
+	 * the `has_post_records()` → `update_post()` → `publish_post()`
+	 * retry-as-fresh-publish branch. `atmosphere_publish_post_result` fires
+	 * on the failing attempt too, so without this guard a single logical
+	 * publish that fails transiently then succeeds would record the entry
+	 * up to (retry-budget + 1) times, inflating the top of the funnel and
+	 * breaking the "once per post" contract.
+	 *
+	 * Lives on the post; a hard delete drops it (a republish under a fresh
+	 * post ID rightly counts as a new entry). Per-post meta is preserved on
+	 * uninstall in v1 (see `sdd/deactivation-lifecycle/spec.md`).
+	 *
+	 * @var string
+	 */
+	private const POST_PUBLISHED_RECORDED_META_KEY = '_fosse_post_published_recorded';
+
+	/**
 	 * Resolve the source-post ID an AP outbox item's object URL points at.
 	 *
 	 * @param int $outbox_item_id Outbox item post id.
@@ -426,10 +452,11 @@ class Publish_Events {
 	 * context that reaches the result hook is a re-sync or re-publish of
 	 * already-counted content:
 	 *
-	 * - The Backfill of pre-existing posts. Older Atmosphere runs it via
-	 *   the `wp_ajax_atmosphere_backfill_batch` action; upstream trunk
-	 *   replaced that with a WP-CLI command (`includes/cli/`) that calls
-	 *   `Publisher::publish_post()` directly with no marker action at
+	 * - The Backfill of pre-existing posts. Older Atmosphere ran it via the
+	 *   `wp_ajax_atmosphere_backfill_batch` action; bundled Atmosphere 2.0.0
+	 *   ships backfill as a WP-CLI command only
+	 *   (`bundled/atmosphere/includes/cli/class-backfill-command.php`) that
+	 *   calls `Publisher::publish_post()` directly with no marker action at
 	 *   all — which is why this gate is an allowlist on the publish cron
 	 *   rather than a deny-list of known backfill contexts.
 	 * - `atmosphere_update_post`, which only falls through to
@@ -463,24 +490,31 @@ class Publish_Events {
 	 * - **Not publishable.** When `$result` is the
 	 *   `atmosphere_post_not_publishable` WP_Error, no publish happened —
 	 *   skip both events entirely.
-	 * - **First-publish allowlist.** The funnel-entry `fosse_post_published`
-	 *   is emitted only while the `atmosphere_publish_post` cron callback
-	 *   runs — the one context that is always a genuine first publish (see
-	 *   `ATMOSPHERE_PUBLISH_ACTION` for why backfills and update/delete
-	 *   re-publishes, including upstream's action-less WP-CLI backfill,
-	 *   are excluded by construction). `fosse_publish_result` still fires
-	 *   from every context — it measures the render-quality outcome of an
-	 *   actual AT Protocol write, which those contexts genuinely perform.
+	 * - **First-publish gate + per-post marker.** The funnel-entry
+	 *   `fosse_post_published` is emitted only while the
+	 *   `atmosphere_publish_post` cron callback runs (see
+	 *   `ATMOSPHERE_PUBLISH_ACTION` — backfills and update/delete re-publishes
+	 *   run under other actions). That cron context is a *heuristic*, not a
+	 *   hard partition: the same action also wraps transient-failure retries
+	 *   and the `has_post_records()` retry-as-fresh-publish branch. So the
+	 *   real "once per post" guarantee is enforced by a per-post idempotency
+	 *   marker (`POST_PUBLISHED_RECORDED_META_KEY`) — the entry records at
+	 *   most once per post ID across every retry / re-publish cycle.
+	 *   `fosse_publish_result` still fires from every context — it measures
+	 *   the render-quality outcome of an actual AT Protocol write, which
+	 *   those contexts genuinely perform (so a transient failure then retry
+	 *   success legitimately records both a `failure` and a `success`
+	 *   result, while the entry step is recorded only once).
 	 *
-	 * Known gap: a previously-synced post that re-enters publication via
-	 * the `atmosphere_publish_post` cron (unpublish → republish before
-	 * the cleanup delete ran) is indistinguishable from a first publish
-	 * at this hook and is counted again. That population is small and
-	 * bounded, and the alternative — probing Atmosphere's private post
-	 * meta — couples this subscriber to bundled internals.
+	 * Residual: the `fosse-publish-success-bluesky` MC bump and
+	 * `fosse_publish_result` have no per-post dedup, so an unpublish →
+	 * republish under the same post ID can bump success twice. That is
+	 * consistent with the per-attempt "result" semantics; only the entry
+	 * step is contractually once-per-post, and the marker enforces it.
 	 *
-	 * Emits `fosse_post_published` once (network-agnostic entry-step
-	 * signal) plus `fosse_publish_result` once with `network: 'bluesky'`.
+	 * Emits `fosse_post_published` at most once per post (network-agnostic
+	 * entry-step signal) plus `fosse_publish_result` with `network: 'bluesky'`
+	 * per genuine write.
 	 *
 	 * @param \WP_Post        $post   Post that was published.
 	 * @param array|\WP_Error $result `applyWrites` response on success, `WP_Error` on failure.
@@ -499,8 +533,13 @@ class Publish_Events {
 
 		// Only the publish cron is a genuine first publish — backfills
 		// (AJAX or the action-less WP-CLI command) and update/delete-cron
-		// re-publishes stay out of the funnel's entry step.
-		if ( self::is_first_publish_context() ) {
+		// re-publishes stay out of the funnel's entry step. The cron context
+		// is a heuristic, not a hard partition (the has_post_records() retry
+		// and transient-failure reschedule both run under the same action),
+		// so a per-post marker enforces the actual "once per post" contract:
+		// record the entry at most once, even across failure→retry cycles.
+		if ( self::is_first_publish_context()
+			&& '' === (string) \get_post_meta( $post->ID, self::POST_PUBLISHED_RECORDED_META_KEY, true ) ) {
 			Recorder::record(
 				'fosse_post_published',
 				array(
@@ -508,6 +547,7 @@ class Publish_Events {
 					'has_image'   => self::resolve_has_image( $post ),
 				)
 			);
+			\update_post_meta( $post->ID, self::POST_PUBLISHED_RECORDED_META_KEY, '1' );
 		}
 
 		$status = \is_wp_error( $result ) ? 'failure' : 'success';
@@ -584,6 +624,19 @@ class Publish_Events {
 	 * @return string One of the documented strategy enum values.
 	 */
 	private static function resolve_strategy( \WP_Post $post ): string {
+		// Custom text always publishes as a single external link card,
+		// superseding BOTH the short/long heuristic (and its filter) and the
+		// composition filter — see Atmosphere's `Post::is_short_form_post()`
+		// (returns false before the filter when custom text is set) and
+		// `build_long_form_records()`. Mirror it via the saved custom-text
+		// meta, the default source Atmosphere reads when no programmatic
+		// override is set. (Redaction, which upstream short-circuits to
+		// short-form before this check, is a rarer edge FOSSE does not detect
+		// here — see is_short_form_shape() for the approximation contract.)
+		if ( self::has_custom_text( $post ) ) {
+			return 'link-card-fallback';
+		}
+
 		// `wp_validate_boolean()` (not a `(bool)` cast) mirrors Atmosphere's
 		// own `is_short_form_post()` wrapper, so a filter returning the
 		// string `'false'` classifies the same way upstream publishes.
@@ -596,23 +649,36 @@ class Publish_Events {
 	}
 
 	/**
-	 * Replicate Atmosphere's shape-based short-form predicate as the
+	 * Approximate Atmosphere's short-form predicate as the
 	 * `atmosphere_is_short_form_post` filter seed.
 	 *
-	 * The bundled Atmosphere transformer seeds the same filter with this
-	 * exact predicate (see
-	 * `bundled/atmosphere/includes/transformer/class-post.php`
-	 * `is_short_form()`), so seeding with a hardcoded `false` here made
-	 * the recorded `strategy` disagree with what Atmosphere actually
-	 * published: titled posts carrying a post format, and titleless posts,
-	 * are published short-form upstream but were being recorded as
-	 * long-form. Mirroring the predicate keeps the metric honest when no
-	 * other code has overridden the filter.
+	 * Seeding the filter with a hardcoded `false` made the recorded
+	 * `strategy` disagree with what Atmosphere actually published: titled
+	 * posts carrying a post format, and titleless posts, publish short-form
+	 * upstream but were being recorded as long-form. Seeding with the
+	 * *shape* half of Atmosphere's predicate closes the common case.
 	 *
-	 * Short-form when:
+	 * Shape-short when:
 	 * - the post type does not support titles, OR
 	 * - the post has an empty title, OR
 	 * - the post has any non-empty post format.
+	 *
+	 * Known limitation — this is a shape-only approximation, NOT a full
+	 * mirror of Atmosphere 2.0.0's `is_short_form()`
+	 * (`bundled/atmosphere/includes/transformer/class-post.php`). Upstream
+	 * adds a length gate: a shape-short post whose rendered plain body
+	 * overflows `BLUESKY_MAX_GRAPHEMES` (300) with no in-body images is
+	 * published long-form (teaser). We deliberately do not replicate that
+	 * branch — it needs the transformer's private `render_post_content_plain()`
+	 * and `collect_image_attachment_ids()`, and duplicating that content
+	 * pipeline here would be a large, drift-prone copy of upstream internals.
+	 * The residual skew is narrow (titleless / post-format posts with a
+	 * >300-grapheme body and no in-body images record as `short-form-note`
+	 * instead of `long-form-teaser-thread`). The real fix is an upstream
+	 * public `is_short_form_post()` FOSSE can call; track that rather than
+	 * mirroring a private predicate. When any code overrides the
+	 * `atmosphere_is_short_form_post` filter, the recorded value follows the
+	 * filter and this seed is moot.
 	 *
 	 * @param \WP_Post $post Post.
 	 * @return bool
@@ -623,6 +689,28 @@ class Publish_Events {
 		}
 
 		return (bool) \get_post_format( $post );
+	}
+
+	/**
+	 * Whether the post carries saved Atmosphere custom text.
+	 *
+	 * Mirrors the saved-meta half of Atmosphere's `Post::has_custom_text()`
+	 * (the default source when no programmatic override is set). A non-empty
+	 * value forces Atmosphere onto the long-form single-link-card path,
+	 * superseding the short/long heuristic and its filter. FOSSE does not
+	 * detect the rarer redaction short-circuit or a programmatic
+	 * `set_custom_text_override()`; see {@see self::is_short_form_shape()}
+	 * for the approximation contract.
+	 *
+	 * @param \WP_Post $post Post.
+	 * @return bool
+	 */
+	private static function has_custom_text( \WP_Post $post ): bool {
+		if ( ! \defined( 'ATMOSPHERE_META_CUSTOM_TEXT' ) ) {
+			return false;
+		}
+
+		return '' !== (string) \get_post_meta( $post->ID, ATMOSPHERE_META_CUSTOM_TEXT, true );
 	}
 
 	/**
