@@ -710,11 +710,20 @@ class Photo_Post_Atmosphere {
 	private static function truncate_text( string $text ): string {
 		if ( \function_exists( 'grapheme_strlen' ) && \function_exists( 'grapheme_substr' ) ) {
 			$length = \grapheme_strlen( $text );
-			if ( null === $length || false === $length || $length <= self::TEXT_BUDGET ) {
-				return $text;
+			// Only trust the grapheme path when the length resolves. On
+			// null/false (invalid UTF-8) fall through to the mb clamp below
+			// rather than returning $text unchanged — otherwise an oversized
+			// malformed caption ships over Bluesky's grapheme cap and the PDS
+			// rejects the record. Mirrors upstream truncate_graphemes().
+			if ( false !== $length && null !== $length ) {
+				if ( $length <= self::TEXT_BUDGET ) {
+					return $text;
+				}
+				$cut = \grapheme_substr( $text, 0, self::TEXT_BUDGET );
+				if ( \is_string( $cut ) ) {
+					return $cut;
+				}
 			}
-			$cut = \grapheme_substr( $text, 0, self::TEXT_BUDGET );
-			return \is_string( $cut ) ? $cut : $text;
 		}
 
 		if ( \mb_strlen( $text ) <= self::TEXT_BUDGET ) {

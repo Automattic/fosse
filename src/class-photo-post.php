@@ -1311,15 +1311,22 @@ class Photo_Post {
 			}
 		}
 
-		// `w` + `h` as a pair. A lone `w` or `h` leaves the other axis
-		// scaled-to-aspect and therefore unknown, so require both.
+		// `w` + `h` as a pair. Photon applies a bare `w`+`h` (no `crop`) as
+		// an aspect-preserving bounding box — it scales the source to fit
+		// inside both axes, exactly like `fit=W,H`, rather than cropping to
+		// an exact W×H. Emitting the pair verbatim would re-introduce the
+		// Pixelfed dimension mismatch this pass exists to prevent (a 3:2
+		// image at `?w=800&h=800` is delivered ~800×533 but would ship as
+		// 800×800). Resolve against source aspect via the fit-box path, which
+		// also declines when source metadata is unavailable rather than
+		// lying. (A lone `w` or `h` is handled by dimensions_from_lone_axis.)
 		$has_w = isset( $args['w'] ) && \is_numeric( $args['w'] );
 		$has_h = isset( $args['h'] ) && \is_numeric( $args['h'] );
 		if ( $has_w && $has_h ) {
-			$width  = (int) $args['w'];
-			$height = (int) $args['h'];
-			if ( $width > 0 && $height > 0 ) {
-				return array( $width, $height );
+			$box_w = (int) $args['w'];
+			$box_h = (int) $args['h'];
+			if ( $box_w > 0 && $box_h > 0 ) {
+				return self::dimensions_from_fit_box( $box_w, $box_h, $id );
 			}
 		}
 

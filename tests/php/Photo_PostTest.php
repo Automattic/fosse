@@ -1951,11 +1951,13 @@ class Photo_PostTest extends BaseTestCase {
 	}
 
 	/**
-	 * Fix 3: a `w` + `h` pair is honored. A lone `w` with no local
-	 * attachment metadata (other axis scaled to aspect, underivable)
-	 * is declined rather than guessed.
+	 * Fix 3: a bare `w` + `h` pair (no `crop`) is a fit-to-box transform,
+	 * not an exact crop — Photon scales the source to fit inside both axes
+	 * preserving aspect. Without local source metadata the delivered size is
+	 * underivable, so the pair is declined rather than published as an exact
+	 * (and wrong) W×H. A lone `w` with no metadata is likewise declined.
 	 */
-	public function test_attachment_filter_uses_photon_w_h_pair_and_declines_lone_w(): void {
+	public function test_attachment_filter_declines_photon_w_h_pair_without_source(): void {
 		$paired = apply_filters(
 			'activitypub_attachment',
 			array(
@@ -1965,8 +1967,8 @@ class Photo_PostTest extends BaseTestCase {
 			),
 			0
 		);
-		$this->assertSame( 640, $paired['width'] );
-		$this->assertSame( 480, $paired['height'] );
+		$this->assertArrayNotHasKey( 'width', $paired );
+		$this->assertArrayNotHasKey( 'height', $paired );
 
 		// Lone `w` with no local id and no suffix → no dimensions.
 		$lone = apply_filters(
@@ -1980,6 +1982,56 @@ class Photo_PostTest extends BaseTestCase {
 		);
 		$this->assertArrayNotHasKey( 'width', $lone );
 		$this->assertArrayNotHasKey( 'height', $lone );
+	}
+
+	/**
+	 * Fix 3: a bare `w` + `h` pair on a local attachment fits to the source
+	 * aspect ratio. A 3:2 source at `?w=800&h=800` is delivered ~800×533
+	 * (min-ratio scale), NOT 800×800 — publishing the box verbatim would
+	 * re-introduce the Pixelfed dimension mismatch. A pair matching the
+	 * source aspect resolves to the box exactly.
+	 */
+	public function test_attachment_filter_photon_w_h_pair_fits_to_source_aspect(): void {
+		$attachment_id = wp_insert_post(
+			array(
+				'post_type'      => 'attachment',
+				'post_status'    => 'inherit',
+				'post_mime_type' => 'image/jpeg',
+				'post_title'     => 'photon-wh-fit',
+			)
+		);
+		wp_update_attachment_metadata(
+			$attachment_id,
+			array(
+				'file'   => '2026/05/wh.jpg',
+				'width'  => 3000,
+				'height' => 2000,
+			)
+		);
+
+		$mismatched = apply_filters(
+			'activitypub_attachment',
+			array(
+				'type'      => 'Image',
+				'url'       => 'https://i0.wp.com/example.test/wp-content/uploads/2026/05/wh.jpg?w=800&h=800',
+				'mediaType' => 'image/jpeg',
+			),
+			$attachment_id
+		);
+		$this->assertSame( 800, $mismatched['width'], 'Width fits the box on the constraining axis.' );
+		$this->assertSame( 533, $mismatched['height'], 'Height scales to source aspect, not the box.' );
+
+		$matching = apply_filters(
+			'activitypub_attachment',
+			array(
+				'type'      => 'Image',
+				'url'       => 'https://i0.wp.com/example.test/wp-content/uploads/2026/05/wh.jpg?w=600&h=400',
+				'mediaType' => 'image/jpeg',
+			),
+			$attachment_id
+		);
+		$this->assertSame( 600, $matching['width'] );
+		$this->assertSame( 400, $matching['height'] );
 	}
 
 	/**
