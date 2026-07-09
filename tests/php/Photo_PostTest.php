@@ -1864,4 +1864,392 @@ class Photo_PostTest extends BaseTestCase {
 		$this->assertArrayNotHasKey( 'width', $out );
 		$this->assertArrayNotHasKey( 'height', $out );
 	}
+
+	// ---------------------------------------------------------------
+	// Fix 3: Photon / Jetpack Site Accelerator query-arg dimensions.
+	// ---------------------------------------------------------------
+
+	/**
+	 * Fix 3: Photon serves the ORIGINAL filename and encodes the target
+	 * size as a `?resize=W,H` query arg — there are no named-size files.
+	 * The URL path therefore ends with `meta['file']`, so the old code
+	 * matched metadata Pass B and emitted the full-size original
+	 * dimensions (4000×3000) instead of the delivered derivative. The
+	 * query-arg pass must win and return the resize dimensions.
+	 */
+	public function test_attachment_filter_uses_photon_resize_query_dimensions(): void {
+		$attachment_id = wp_insert_post(
+			array(
+				'post_type'      => 'attachment',
+				'post_status'    => 'inherit',
+				'post_mime_type' => 'image/jpeg',
+				'post_title'     => 'photon-orig',
+			)
+		);
+		wp_update_attachment_metadata(
+			$attachment_id,
+			array(
+				'file'   => '2026/05/photon.jpg',
+				'width'  => 4000,
+				'height' => 3000,
+			)
+		);
+
+		$input = array(
+			'type'      => 'Image',
+			'url'       => 'https://i0.wp.com/example.test/wp-content/uploads/2026/05/photon.jpg?resize=1024,683',
+			'mediaType' => 'image/jpeg',
+		);
+
+		$out = apply_filters( 'activitypub_attachment', $input, $attachment_id );
+
+		$this->assertSame( 1024, $out['width'], 'Photon resize args must win over full-size metadata.' );
+		$this->assertSame( 683, $out['height'] );
+	}
+
+	/**
+	 * Fix 3: `?fit=W,H` is a BOUND, not exact dimensions — Photon scales
+	 * the source to fit inside the W×H box with aspect preserved. Without
+	 * the source aspect (no local attachment id, no metadata) we can't
+	 * tell which axis shrinks, so we decline rather than emit the box as
+	 * exact dimensions. AP/Pixelfed treat missing dimensions as
+	 * "unknown"; emitting a square box for a 4:3 image would publish
+	 * dimensions that don't match the delivered bytes.
+	 */
+	public function test_attachment_filter_declines_photon_fit_without_source_aspect(): void {
+		$input = array(
+			'type'      => 'Image',
+			'url'       => 'https://i0.wp.com/example.test/wp-content/uploads/2026/05/photon.jpg?fit=800,800',
+			'mediaType' => 'image/jpeg',
+		);
+
+		$out = apply_filters( 'activitypub_attachment', $input, 0 );
+
+		$this->assertArrayNotHasKey( 'width', $out );
+		$this->assertArrayNotHasKey( 'height', $out );
+	}
+
+	/**
+	 * A Photon URL whose path carries a misleading `-WIDTHxHEIGHT` size
+	 * suffix AND a valid `fit=…` transform must NOT publish the suffix
+	 * dimensions. Photon delivers the image fitted inside the transform
+	 * box, not the size the source filename advertises. Falling through
+	 * to the URL filename-suffix pass would re-introduce the exact
+	 * Pixelfed rejection class the dimension passes exist to prevent.
+	 */
+	public function test_attachment_filter_does_not_fall_back_to_suffix_when_photon_transform_unresolved(): void {
+		$input = array(
+			'type'      => 'Image',
+			'url'       => 'https://i0.wp.com/example.test/wp-content/uploads/photo-1600x1200.jpg?fit=800,800',
+			'mediaType' => 'image/jpeg',
+		);
+
+		$out = apply_filters( 'activitypub_attachment', $input, 0 );
+
+		$this->assertArrayNotHasKey( 'width', $out );
+		$this->assertArrayNotHasKey( 'height', $out );
+	}
+
+	/**
+	 * Fix 3: a bare `w` + `h` pair (no `crop`) is a fit-to-box transform,
+	 * not an exact crop — Photon scales the source to fit inside both axes
+	 * preserving aspect. Without local source metadata the delivered size is
+	 * underivable, so the pair is declined rather than published as an exact
+	 * (and wrong) W×H. A lone `w` with no metadata is likewise declined.
+	 */
+	public function test_attachment_filter_declines_photon_w_h_pair_without_source(): void {
+		$paired = apply_filters(
+			'activitypub_attachment',
+			array(
+				'type'      => 'Image',
+				'url'       => 'https://i0.wp.com/example.test/photon.jpg?w=640&h=480',
+				'mediaType' => 'image/jpeg',
+			),
+			0
+		);
+		$this->assertArrayNotHasKey( 'width', $paired );
+		$this->assertArrayNotHasKey( 'height', $paired );
+
+		// Lone `w` with no local id and no suffix → no dimensions.
+		$lone = apply_filters(
+			'activitypub_attachment',
+			array(
+				'type'      => 'Image',
+				'url'       => 'https://i0.wp.com/example.test/photon.jpg?w=640',
+				'mediaType' => 'image/jpeg',
+			),
+			0
+		);
+		$this->assertArrayNotHasKey( 'width', $lone );
+		$this->assertArrayNotHasKey( 'height', $lone );
+	}
+
+	/**
+	 * Fix 3: a bare `w` + `h` pair on a local attachment fits to the source
+	 * aspect ratio. A 3:2 source at `?w=800&h=800` is delivered ~800×533
+	 * (min-ratio scale), NOT 800×800 — publishing the box verbatim would
+	 * re-introduce the Pixelfed dimension mismatch. A pair matching the
+	 * source aspect resolves to the box exactly.
+	 */
+	public function test_attachment_filter_photon_w_h_pair_fits_to_source_aspect(): void {
+		$attachment_id = wp_insert_post(
+			array(
+				'post_type'      => 'attachment',
+				'post_status'    => 'inherit',
+				'post_mime_type' => 'image/jpeg',
+				'post_title'     => 'photon-wh-fit',
+			)
+		);
+		wp_update_attachment_metadata(
+			$attachment_id,
+			array(
+				'file'   => '2026/05/wh.jpg',
+				'width'  => 3000,
+				'height' => 2000,
+			)
+		);
+
+		$mismatched = apply_filters(
+			'activitypub_attachment',
+			array(
+				'type'      => 'Image',
+				'url'       => 'https://i0.wp.com/example.test/wp-content/uploads/2026/05/wh.jpg?w=800&h=800',
+				'mediaType' => 'image/jpeg',
+			),
+			$attachment_id
+		);
+		$this->assertSame( 800, $mismatched['width'], 'Width fits the box on the constraining axis.' );
+		$this->assertSame( 533, $mismatched['height'], 'Height scales to source aspect, not the box.' );
+
+		$matching = apply_filters(
+			'activitypub_attachment',
+			array(
+				'type'      => 'Image',
+				'url'       => 'https://i0.wp.com/example.test/wp-content/uploads/2026/05/wh.jpg?w=600&h=400',
+				'mediaType' => 'image/jpeg',
+			),
+			$attachment_id
+		);
+		$this->assertSame( 600, $matching['width'] );
+		$this->assertSame( 400, $matching['height'] );
+	}
+
+	/**
+	 * Fix 3: the fit-box resolver rounds the non-constraining axis (matching
+	 * Photon's own rounding and the lone-axis path) rather than flooring, so
+	 * the emitted dimensions don't disagree by a pixel with the delivered
+	 * bytes. A 1000×667 source at `?w=800&h=800` delivers 800×534 (533.6
+	 * rounded up), not 800×533.
+	 */
+	public function test_attachment_filter_photon_fit_rounds_non_constraining_axis(): void {
+		$attachment_id = wp_insert_post(
+			array(
+				'post_type'      => 'attachment',
+				'post_status'    => 'inherit',
+				'post_mime_type' => 'image/jpeg',
+				'post_title'     => 'photon-fit-round',
+			)
+		);
+		wp_update_attachment_metadata(
+			$attachment_id,
+			array(
+				'file'   => '2026/05/round.jpg',
+				'width'  => 1000,
+				'height' => 667,
+			)
+		);
+
+		$out = apply_filters(
+			'activitypub_attachment',
+			array(
+				'type'      => 'Image',
+				'url'       => 'https://i0.wp.com/example.test/wp-content/uploads/2026/05/round.jpg?w=800&h=800',
+				'mediaType' => 'image/jpeg',
+			),
+			$attachment_id
+		);
+		$this->assertSame( 800, $out['width'] );
+		$this->assertSame( 534, $out['height'] );
+	}
+
+	/**
+	 * Fix 3: a lone `w=` on a local attachment is still a resize
+	 * transform — Photon scales the other axis to preserve aspect. The
+	 * delivered height is derived from the original's aspect ratio;
+	 * falling through to the metadata passes (which match the original
+	 * filename in the Photon path) would emit the full-size original's
+	 * dimensions for a resized delivery — the exact mismatch Pass 0
+	 * exists to prevent.
+	 */
+	public function test_attachment_filter_derives_height_for_lone_w_from_aspect(): void {
+		$attachment_id = wp_insert_post(
+			array(
+				'post_type'      => 'attachment',
+				'post_status'    => 'inherit',
+				'post_mime_type' => 'image/jpeg',
+				'post_title'     => 'photon-lone-w',
+			)
+		);
+		wp_update_attachment_metadata(
+			$attachment_id,
+			array(
+				'file'   => '2026/05/lone.jpg',
+				'width'  => 4000,
+				'height' => 3000,
+			)
+		);
+
+		$input = array(
+			'type'      => 'Image',
+			'url'       => 'https://i0.wp.com/example.test/wp-content/uploads/2026/05/lone.jpg?w=1024',
+			'mediaType' => 'image/jpeg',
+		);
+
+		$out = apply_filters( 'activitypub_attachment', $input, $attachment_id );
+
+		$this->assertSame( 1024, $out['width'], 'Lone w must not fall through to full-size metadata.' );
+		$this->assertSame( 768, $out['height'], 'Height must be derived from the original aspect ratio.' );
+	}
+
+	/**
+	 * Fix 3: Photon never upscales — a lone `w=` at or above the
+	 * original width serves the original unchanged, so the original's
+	 * dimensions are the delivered ones.
+	 */
+	public function test_attachment_filter_lone_w_above_original_uses_original_dims(): void {
+		$attachment_id = wp_insert_post(
+			array(
+				'post_type'      => 'attachment',
+				'post_status'    => 'inherit',
+				'post_mime_type' => 'image/jpeg',
+				'post_title'     => 'photon-no-upscale',
+			)
+		);
+		wp_update_attachment_metadata(
+			$attachment_id,
+			array(
+				'file'   => '2026/05/noup.jpg',
+				'width'  => 1600,
+				'height' => 1200,
+			)
+		);
+
+		$input = array(
+			'type'      => 'Image',
+			'url'       => 'https://i0.wp.com/example.test/wp-content/uploads/2026/05/noup.jpg?w=9999',
+			'mediaType' => 'image/jpeg',
+		);
+
+		$out = apply_filters( 'activitypub_attachment', $input, $attachment_id );
+
+		$this->assertSame( 1600, $out['width'] );
+		$this->assertSame( 1200, $out['height'] );
+	}
+
+	/**
+	 * Fix 3: when there are NO resize query args, resolution falls
+	 * through to the metadata / suffix passes as before — query parsing
+	 * is additive, not a replacement. A plain original URL still resolves
+	 * via full-size metadata.
+	 */
+	public function test_attachment_filter_falls_through_to_metadata_without_resize_args(): void {
+		$attachment_id = wp_insert_post(
+			array(
+				'post_type'      => 'attachment',
+				'post_status'    => 'inherit',
+				'post_mime_type' => 'image/jpeg',
+				'post_title'     => 'plain-orig',
+			)
+		);
+		wp_update_attachment_metadata(
+			$attachment_id,
+			array(
+				'file'   => '2026/05/plain.jpg',
+				'width'  => 1200,
+				'height' => 900,
+			)
+		);
+
+		$input = array(
+			'type'      => 'Image',
+			// A non-resize cache-bust query arg must not block fallback.
+			'url'       => 'https://example.test/wp-content/uploads/2026/05/plain.jpg?ver=42',
+			'mediaType' => 'image/jpeg',
+		);
+
+		$out = apply_filters( 'activitypub_attachment', $input, $attachment_id );
+
+		$this->assertSame( 1200, $out['width'] );
+		$this->assertSame( 900, $out['height'] );
+	}
+
+	// ---------------------------------------------------------------
+	// Fix 5: non-numeric per-post cap meta falls back to the option.
+	// ---------------------------------------------------------------
+
+	/**
+	 * Fix 5: a non-numeric `activitypub_max_image_attachments` postmeta
+	 * (e.g. a stray serialized array from a buggy importer) must fall
+	 * back to the site option, mirroring bundled AP's `! is_numeric()`
+	 * check — not be treated as the cap. With the meta non-numeric and
+	 * the site cap at 0, photo treatment is rejected (attachments
+	 * disabled), proving the option was consulted.
+	 */
+	public function test_non_numeric_cap_meta_falls_back_to_option(): void {
+		$post = $this->make_post( '', '', '', 1 );
+		update_post_meta( $post->ID, 'activitypub_max_image_attachments', array( 'bogus' ) );
+
+		// Site-level cap of 0 disables attachments. If the bogus meta
+		// were used as the cap (the old `false === $meta || '' === $meta`
+		// guard let it through), `(int) array( 'bogus' )` would be 1 and
+		// the post would still detect. The `is_numeric` fallback must
+		// route to the option instead, rejecting detection. The cap is
+		// pinned via the OPTION — not the
+		// `activitypub_max_image_attachments` filter, which runs after
+		// both branches and would mask which source was consulted.
+		update_option( 'activitypub_max_image_attachments', 0 );
+		Photo_Post::reset_cache_for_testing();
+
+		$this->assertFalse( Photo_Post::is_photo_post( $post ) );
+	}
+
+	/**
+	 * Fix 5: a numeric `'0'` per-post meta is authoritative (per-post
+	 * "attachments disabled") and must NOT fall back to the option —
+	 * `is_numeric('0')` is true. The post is rejected for photo
+	 * treatment even when the site option would allow attachments.
+	 */
+	public function test_numeric_zero_cap_meta_is_authoritative(): void {
+		$post = $this->make_post( '', '', '', 1 );
+		update_post_meta( $post->ID, 'activitypub_max_image_attachments', '0' );
+
+		// Site cap defaults high; only the per-post '0' should win.
+		Photo_Post::reset_cache_for_testing();
+
+		$this->assertFalse( Photo_Post::is_photo_post( $post ) );
+	}
+
+	// ---------------------------------------------------------------
+	// Fix 8: decision cache is keyed per blog (multisite-safe).
+	// ---------------------------------------------------------------
+
+	/**
+	 * Fix 8: the decision memo is keyed by `"{blog_id}:{post_id}"`, so a
+	 * single-site round-trip still memoizes correctly (a repeated call
+	 * returns the cached value). This guards the key-construction change
+	 * without requiring a real multisite switch_to_blog() harness, which
+	 * WorDBless doesn't provide; the blog-id prefix is what prevents an
+	 * id collision between two blogs from returning a stale decision.
+	 */
+	public function test_decision_cache_memoizes_per_blog_key(): void {
+		// Empty body + live Featured Image = photo post (Rule 3).
+		$post = $this->make_post( '', '', '', 1 );
+
+		// First call populates the cache; second call must agree.
+		$first  = Photo_Post::is_photo_post( $post );
+		$second = Photo_Post::is_photo_post( $post );
+
+		$this->assertTrue( $first );
+		$this->assertSame( $first, $second );
+	}
 }
