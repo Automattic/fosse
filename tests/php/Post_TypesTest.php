@@ -8,6 +8,7 @@
 namespace Automattic\Fosse\Tests;
 
 use Automattic\Fosse\Post_Types;
+use PHPUnit\Framework\Attributes\After;
 use PHPUnit\Framework\Attributes\Before;
 use WorDBless\BaseTestCase;
 
@@ -29,6 +30,19 @@ class Post_TypesTest extends BaseTestCase {
 		delete_option( 'activitypub_support_post_types' );
 
 		Post_Types::register();
+	}
+
+	/**
+	 * Tear down any post type a test registered with `atmosphere` support so
+	 * `\get_post_types_by_support( 'atmosphere' )` can't leak across tests.
+	 *
+	 * @after
+	 */
+	#[After]
+	public function unregister_native_type(): void {
+		if ( post_type_exists( 'fosse_native_at_cpt' ) ) {
+			unregister_post_type( 'fosse_native_at_cpt' );
+		}
 	}
 
 	/**
@@ -54,6 +68,124 @@ class Post_TypesTest extends BaseTestCase {
 			array( 'post', 'page', 'book' ),
 			apply_filters( 'atmosphere_syncable_post_types', array( 'post' ) )
 		);
+	}
+
+	/**
+	 * A post type opted in natively via
+	 * `\add_post_type_support( $type, 'atmosphere' )` — Atmosphere's
+	 * documented public API, merged by upstream `get_supported()` before
+	 * this filter runs — survives the projection and is merged in alongside
+	 * AP's stored selection. Regression guard: the projector previously
+	 * discarded the upstream list wholesale, silently breaking that contract.
+	 *
+	 * The `$types` payload simulates Atmosphere's real upstream behavior:
+	 * `get_supported()` merges `get_post_types_by_support( 'atmosphere' )`
+	 * into the list before this filter runs, so the native CPT arrives as
+	 * an input we then preserve.
+	 */
+	public function test_native_atmosphere_support_survives_projection() {
+		update_option( 'activitypub_support_post_types', array( 'post', 'page' ) );
+
+		register_post_type(
+			'fosse_native_at_cpt',
+			array(
+				'public'   => true,
+				'label'    => 'Native ATmosphere type',
+				'supports' => array( 'atmosphere' ),
+			)
+		);
+
+		$result = apply_filters(
+			'atmosphere_syncable_post_types',
+			array( 'post', 'fosse_native_at_cpt' )
+		);
+
+		/*
+		 * Exact match (not assertContains): pins AP's stored list first, then
+		 * the surviving native, deduped and re-indexed. A looser assertion
+		 * would miss duplicates, leaked entries, or a reordered output.
+		 */
+		$this->assertSame( array( 'post', 'page', 'fosse_native_at_cpt' ), $result );
+	}
+
+	/**
+	 * Native opt-ins are additive even when the AP selection is empty:
+	 * unchecking everything in AP yields no AP-derived types, but a post
+	 * type with native `atmosphere` support still federates. Confirms the
+	 * merge doesn't resurrect AP defaults while honoring the native API.
+	 */
+	public function test_native_support_is_additive_with_empty_ap_selection() {
+		update_option( 'activitypub_support_post_types', array() );
+
+		register_post_type(
+			'fosse_native_at_cpt',
+			array(
+				'public'   => true,
+				'label'    => 'Native ATmosphere type',
+				'supports' => array( 'atmosphere' ),
+			)
+		);
+
+		$this->assertSame(
+			array( 'fosse_native_at_cpt' ),
+			apply_filters(
+				'atmosphere_syncable_post_types',
+				array( 'fosse_native_at_cpt' )
+			)
+		);
+	}
+
+	/**
+	 * A native opt-in that overlaps AP's stored selection is deduped — the
+	 * merge yields a unique, re-indexed list rather than a duplicated entry.
+	 */
+	public function test_overlapping_native_support_is_deduped() {
+		update_option( 'activitypub_support_post_types', array( 'post', 'fosse_native_at_cpt' ) );
+
+		register_post_type(
+			'fosse_native_at_cpt',
+			array(
+				'public'   => true,
+				'label'    => 'Native ATmosphere type',
+				'supports' => array( 'atmosphere' ),
+			)
+		);
+
+		$this->assertSame(
+			array( 'post', 'fosse_native_at_cpt' ),
+			apply_filters(
+				'atmosphere_syncable_post_types',
+				array( 'post', 'fosse_native_at_cpt' )
+			)
+		);
+	}
+
+	/**
+	 * A native `atmosphere` opt-in that an earlier filter explicitly
+	 * removed from `$types` stays removed: FOSSE preserves the documented
+	 * filter contract that plugins can REMOVE supports the same way they
+	 * can ADD them. Regression guard for the resurrection bug where the
+	 * projector would re-add native opt-ins unconditionally.
+	 */
+	public function test_earlier_filter_removal_of_native_support_is_preserved() {
+		update_option( 'activitypub_support_post_types', array( 'post' ) );
+
+		register_post_type(
+			'fosse_native_at_cpt',
+			array(
+				'public'   => true,
+				'label'    => 'Native ATmosphere type',
+				'supports' => array( 'atmosphere' ),
+			)
+		);
+
+		// Simulate an earlier filter that removed the native CPT.
+		$result = apply_filters(
+			'atmosphere_syncable_post_types',
+			array( 'post' )
+		);
+
+		$this->assertSame( array( 'post' ), $result );
 	}
 
 	/**
@@ -115,6 +247,127 @@ class Post_TypesTest extends BaseTestCase {
 		} finally {
 			remove_filter( 'option_activitypub_support_post_types', $corrupt, 99 );
 		}
+	}
+
+	/**
+	 * A non-scalar AP option (array containing nested arrays / non-strings
+	 * from a rogue `option_activitypub_support_post_types` filter) has its
+	 * non-string members dropped before `array_unique`, so no
+	 * `Array to string conversion` warning fires. PHPUnit runs with
+	 * `failOnWarning`, so a raised warning would fail this test — the exact
+	 * guard the `array_filter( ..., 'is_string' )` on the option was added for.
+	 */
+	public function test_non_string_entries_in_ap_option_are_dropped() {
+		update_option( 'activitypub_support_post_types', array( 'post' ) );
+
+		$corrupt = static function () {
+			return array( 'post', array( 'nested' ), 42 );
+		};
+
+		add_filter( 'option_activitypub_support_post_types', $corrupt, 99 );
+
+		try {
+			$this->assertSame(
+				array( 'post' ),
+				apply_filters( 'atmosphere_syncable_post_types', array( 'post' ) )
+			);
+		} finally {
+			remove_filter( 'option_activitypub_support_post_types', $corrupt, 99 );
+		}
+	}
+
+	/**
+	 * A non-string entry in the incoming `$types` (a lower-priority
+	 * `atmosphere_syncable_post_types` filter left a nested array behind)
+	 * does not trip `array_intersect()`'s string cast: the projector filters
+	 * `$types` to strings before intersecting with native supports, so the
+	 * native merge still works and no `Array to string conversion` warning
+	 * fires (PHPUnit `failOnWarning` would otherwise fail this).
+	 */
+	public function test_non_string_entries_in_types_are_ignored() {
+		update_option( 'activitypub_support_post_types', array( 'post' ) );
+
+		register_post_type(
+			'fosse_native_at_cpt',
+			array(
+				'public'   => true,
+				'label'    => 'Native ATmosphere type',
+				'supports' => array( 'atmosphere' ),
+			)
+		);
+
+		$this->assertSame(
+			array( 'post', 'fosse_native_at_cpt' ),
+			apply_filters(
+				'atmosphere_syncable_post_types',
+				array( 'post', array( 'bad' ), 'fosse_native_at_cpt' )
+			)
+		);
+	}
+
+	/**
+	 * The scalar-corruption fallback still MERGES surviving native supports:
+	 * when AP's option is corrupted to a scalar (fallback to DEFAULT_TYPES),
+	 * a natively-opted-in CPT that survived earlier filters is still added.
+	 * Guards against a fallback path that returns only the default and
+	 * silently drops native federation.
+	 */
+	public function test_corruption_fallback_still_merges_native_support() {
+		update_option( 'activitypub_support_post_types', array( 'page' ) );
+
+		register_post_type(
+			'fosse_native_at_cpt',
+			array(
+				'public'   => true,
+				'label'    => 'Native ATmosphere type',
+				'supports' => array( 'atmosphere' ),
+			)
+		);
+
+		$corrupt = static function () {
+			return 'not-an-array';
+		};
+
+		add_filter( 'option_activitypub_support_post_types', $corrupt, 99 );
+
+		try {
+			$this->assertSame(
+				array( 'post', 'fosse_native_at_cpt' ),
+				apply_filters(
+					'atmosphere_syncable_post_types',
+					array( 'post', 'fosse_native_at_cpt' )
+				)
+			);
+		} finally {
+			remove_filter( 'option_activitypub_support_post_types', $corrupt, 99 );
+		}
+	}
+
+	/**
+	 * Partial overlap between AP's stored list and the native supports pins
+	 * the merge ORDER: AP's option first, then appended natives, deduped and
+	 * re-indexed. Guards against a future reorder of the merge that would
+	 * reshuffle the output.
+	 */
+	public function test_partial_overlap_merge_order_is_stable() {
+		update_option( 'activitypub_support_post_types', array( 'page' ) );
+
+		register_post_type(
+			'fosse_native_at_cpt',
+			array(
+				'public'   => true,
+				'label'    => 'Native ATmosphere type',
+				'supports' => array( 'atmosphere' ),
+			)
+		);
+
+		$this->assertSame(
+			array( 'page', 'fosse_native_at_cpt' ),
+			apply_filters(
+				'atmosphere_syncable_post_types',
+				array( 'page', 'fosse_native_at_cpt' )
+			)
+		);
 	}
 
 	/**
