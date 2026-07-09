@@ -557,6 +557,25 @@ class Bluesky_Domain_Handle {
 				),
 				false
 			);
+
+			// Read-after-write: this snapshot is the sole anchor for
+			// auto-revert on disconnect. If it fails to persist (DB error or
+			// a pinning `pre_update_option_*` filter), the PDS handle change
+			// still proceeds below, so the operator would see success while
+			// FOSSE silently lost its ability to revert. Warn instead.
+			if ( self::read_snapshot_for_current_did() !== $current_handle ) {
+				add_settings_error(
+					'atmosphere',
+					'fosse_revert_snapshot_failed',
+					sprintf(
+						/* translators: %s: the handle FOSSE tried to record for revert. */
+						esc_html__( 'FOSSE could not save a revert record for your previous Bluesky handle (%s). If you disconnect later, you may need to restore it manually.', 'fosse' ),
+						esc_html( $current_handle )
+					),
+					'warning'
+				);
+				User_Notices::persist();
+			}
 		}
 
 		// Sync the locally-cached connection handle so subsequent renders
@@ -814,14 +833,46 @@ class Bluesky_Domain_Handle {
 		}
 
 		$connection['handle'] = $handle;
-		$updated              = update_option( 'atmosphere_connection', $connection );
-		if ( false === $updated && defined( 'WP_DEBUG' ) && WP_DEBUG ) {
-			error_log( 'FOSSE: failed to sync local handle cache after updateHandle' ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+		update_option( 'atmosphere_connection', $connection );
+
+		// Read-after-write convergence check. `update_option()` returns false
+		// both on genuine failure AND when the value is unchanged, and a
+		// `pre_update_option_*` filter or stale cache can silently drop the
+		// write — so compare the persisted value rather than trusting the
+		// return. The connection cache is the more consequential of the two
+		// mirrors (the destructive-disconnect UI gate and Atmosphere's
+		// mention-facet builder read it), so surface a warning notice — not
+		// just a debug log — when it doesn't converge, matching the identity
+		// mirror below.
+		$connection_after = get_option( 'atmosphere_connection', array() );
+		$conn_persisted   = is_array( $connection_after ) && isset( $connection_after['handle'] )
+			? (string) $connection_after['handle']
+			: '';
+		if ( $conn_persisted !== $handle ) {
+			if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+				error_log( 'FOSSE: atmosphere_connection handle cache did not converge after updateHandle; PDS change succeeded but local cache is stale.' ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+			}
+			add_settings_error(
+				'atmosphere',
+				'fosse_connection_sync_drift',
+				sprintf(
+					/* translators: %s: the handle the PDS now serves. */
+					esc_html__( 'Your Bluesky account was updated to %s, but FOSSE could not refresh its local connection cache. Reconnect if the new handle does not appear.', 'fosse' ),
+					esc_html( $handle )
+				),
+				'warning'
+			);
+			User_Notices::persist();
 		}
 
 		// Mirror into the canonical identity store too, but only when an
-		// identity already exists — never fabricate one here.
-		$identity = get_option( 'atmosphere_identity', array() );
+		// identity already exists — never fabricate one here. Read via
+		// `\Atmosphere\get_identity()` (not the raw option) so a legacy
+		// connection that still embeds the DID is lazily migrated first,
+		// matching upstream `Handle::sync_connection_handle()`.
+		$identity = function_exists( '\Atmosphere\get_identity' )
+			? \Atmosphere\get_identity()
+			: get_option( 'atmosphere_identity', array() );
 		if ( is_array( $identity ) && ! empty( $identity['did'] ) ) {
 			$identity['handle'] = $handle;
 			update_option( 'atmosphere_identity', $identity, true );
@@ -856,6 +907,12 @@ class Bluesky_Domain_Handle {
 					),
 					'warning'
 				);
+				// Persist directly: this notice is added via the raw
+				// `add_settings_error()` (distinct code), so it only survives
+				// the admin-post redirect if it is snapshotted now. Callers
+				// happen to persist afterward today, but that coupling is
+				// fragile — persist here so the warning is self-contained.
+				User_Notices::persist();
 			}
 		}
 	}
