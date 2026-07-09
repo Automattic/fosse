@@ -224,43 +224,71 @@ add_action(
  * refresh-token ciphertext) orphaned in `wp_options['cron']`, queued for
  * callbacks the now-inactive plugin no longer registers.
  *
- * Ownership of bundled cleanup is decided from PERSISTED state (the
- * `fosse_bundled_*_bootstrapped` options) rather than from whether the bundled
- * file loaded this request: a prior bootstrap created cron rows we still own.
- * We only call a backend's `deactivate()` when FOSSE actually loaded the
- * bundled copy THIS request — otherwise the live `\Activitypub\Activitypub`
- * (or `\Atmosphere\…`) symbol belongs to an active standalone the user is
- * keeping, and unscheduling its cron would be wrong. We always clear our
- * `fosse_bundled_*_bootstrapped` flag so re-activating FOSSE re-runs the
- * activation shim. Callable names verified against the bundled mains:
- * `\Activitypub\Activitypub::deactivate()` and `\Atmosphere\deactivate()`.
+ * Ownership is decided PER SITE at cleanup time, not from the request that
+ * loaded fosse.php: we clear a site's `fosse_bundled_*_bootstrapped` flag when
+ * set, and call the backend's `deactivate()` only when NO standalone of that
+ * backend is active on THAT site (`fosse_plugin_is_active()` re-evaluated in
+ * the switched blog) — otherwise the live `\Activitypub\Activitypub` (or
+ * `\Atmosphere\…`) symbol belongs to an active standalone the user is keeping,
+ * and unscheduling its cron would be wrong. Deciding per site (rather than from
+ * one request-global load flag) keeps a heterogeneous multisite — a standalone
+ * active on some sites, the bundle on others — correct. Callable names verified
+ * against the bundled mains: `\Activitypub\Activitypub::deactivate()` and
+ * `\Atmosphere\deactivate()`.
  *
- * On a network-wide deactivation we iterate every site (`number => 0` so large
- * networks aren't truncated) and run the per-site cleanup inside
- * `switch_to_blog()`, avoiding AP's own network loop on top of ours.
+ * Each backend is isolated in its own try/catch, and each site in the network
+ * loop is isolated too, so one throwing backend or site can't abort the rest of
+ * the cleanup (the hook won't fire again once FOSSE is inactive). On a large
+ * network we clean only the current site — mirroring AP's own
+ * `wp_is_large_network()` guard — rather than iterate every site synchronously
+ * (heavy `flush_rewrite_rules()` + comment-count migration per site would
+ * exhaust the request).
  */
 register_deactivation_hook(
 	__FILE__,
-	static function ( $network_wide ) use ( $fosse_loaded_bundled_ap, $fosse_loaded_bundled_atmo ) {
-		$cleanup = static function () use ( $fosse_loaded_bundled_ap, $fosse_loaded_bundled_atmo ) {
-			if ( false !== get_option( 'fosse_bundled_ap_bootstrapped', false ) ) {
-				if ( $fosse_loaded_bundled_ap && class_exists( '\Activitypub\Activitypub' ) ) {
-					// Per-site: the network loop below already iterates sites.
-					\Activitypub\Activitypub::deactivate( false );
-				}
-				delete_option( 'fosse_bundled_ap_bootstrapped' );
+	static function ( $network_wide ) {
+		$deactivate_backend = static function ( $flag, $is_standalone_active, callable $deactivate ) {
+			if ( false === get_option( $flag, false ) ) {
+				return;
 			}
-
-			if ( false !== get_option( 'fosse_bundled_atmosphere_bootstrapped', false ) ) {
-				if ( $fosse_loaded_bundled_atmo && function_exists( '\Atmosphere\deactivate' ) ) {
-					\Atmosphere\deactivate();
+			try {
+				if ( ! $is_standalone_active() && $deactivate[0]() ) {
+					$deactivate[1]();
 				}
-				delete_option( 'fosse_bundled_atmosphere_bootstrapped' );
+			} catch ( \Throwable $e ) {
+				error_log( 'FOSSE: bundled backend deactivate() failed (' . $flag . '): ' . $e->getMessage() ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- intentional plugin diagnostics on a one-shot deactivation path.
+			} finally {
+				delete_option( $flag );
 			}
 		};
 
-		// Per-site (non-network) deactivation hits the current blog only.
-		if ( ! $network_wide || ! is_multisite() || ! function_exists( 'get_sites' ) ) {
+		$cleanup = static function () use ( $deactivate_backend ) {
+			$deactivate_backend(
+				'fosse_bundled_ap_bootstrapped',
+				static fn() => fosse_plugin_is_active( 'activitypub/activitypub.php' ),
+				array(
+					static fn() => class_exists( '\Activitypub\Activitypub' ),
+					// Per-site: any network loop already iterates sites.
+					static fn() => \Activitypub\Activitypub::deactivate( false ),
+				)
+			);
+
+			$deactivate_backend(
+				'fosse_bundled_atmosphere_bootstrapped',
+				static fn() => fosse_plugin_is_active( 'atmosphere/atmosphere.php' ),
+				array(
+					static fn() => function_exists( '\Atmosphere\deactivate' ),
+					static fn() => \Atmosphere\deactivate(),
+				)
+			);
+		};
+
+		// Per-site (non-network) deactivation, or a large network where a
+		// full synchronous sweep would exhaust the request: current blog only.
+		if ( ! $network_wide
+			|| ! is_multisite()
+			|| ! function_exists( 'get_sites' )
+			|| ( function_exists( 'wp_is_large_network' ) && wp_is_large_network() ) ) {
 			$cleanup();
 			return;
 		}
@@ -271,10 +299,12 @@ register_deactivation_hook(
 				'number' => 0,
 			)
 		);
-		foreach ( $sites as $site_id ) {
+		foreach ( (array) $sites as $site_id ) {
 			switch_to_blog( (int) $site_id );
 			try {
 				$cleanup();
+			} catch ( \Throwable $e ) {
+				error_log( 'FOSSE: bundled cleanup failed for site ' . (int) $site_id . ': ' . $e->getMessage() ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- intentional plugin diagnostics; continue cleaning remaining sites.
 			} finally {
 				restore_current_blog();
 			}
