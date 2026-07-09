@@ -88,9 +88,21 @@ class User_Notices {
 	 * `get_settings_errors()` calls see the merged set without each
 	 * caller having to remember to consume the transient.
 	 *
+	 * `admin_init` also fires on `admin-ajax.php` (Heartbeat ticks and
+	 * other plugins' admin-ajax polls) and on WP-Cron requests. Draining
+	 * the transient there would consume the pending notices before the
+	 * user's redirect target ever renders them — a background ajax tick
+	 * from another open wp-admin tab would silently swallow the
+	 * "Settings saved" banner. Skip those contexts so the notices survive
+	 * until a real page view consumes them.
+	 *
 	 * @return void
 	 */
 	public static function consume(): void {
+		if ( wp_doing_ajax() || wp_doing_cron() ) {
+			return;
+		}
+
 		$user_id = get_current_user_id();
 		if ( 0 === $user_id ) {
 			return;
