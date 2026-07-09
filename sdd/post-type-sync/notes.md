@@ -38,6 +38,8 @@ class Post_Types {
 
 Registered from `fosse.php` via the same `init`-time `class_exists` guard used for `Object_Type`.
 
+**Update (PR #193 — native-support merge).** The snippet above discarded the incoming `$types` wholesale. That silently broke Atmosphere's documented native opt-in API: upstream `get_supported()` merges `get_post_types_by_support( 'atmosphere' )` into the list *before* the filter runs, so returning only AP's stored option dropped any post type opted in via `add_post_type_support( $type, 'atmosphere' )`. `filter_atmosphere()` now keeps AP's option as the source of truth for the option-derived list and merges back the native supports that survived earlier filters (deduped, re-indexed). Consequence: a natively-supported type federates even when unticked in AP's UI — only a lower-priority `atmosphere_syncable_post_types` filter can strip it, matching upstream Atmosphere.
+
 **Divergence from `Object_Type` is deliberate.** Object-type semantics ("force short-form everywhere" vs "defer to each network") are FOSSE-specific — so `Object_Type` owns its option. Post-type selection is not FOSSE-specific; it's "which post types federate," which is exactly what AP already stores. Same-shape data, reuse the store. Noted in the class docblock so future maintainers don't reflexively "fix" the asymmetry.
 
 **Onboarding SDD amendment.** Replace `fosse_ap_*` + `pre_option_*` projection with direct writes to AP option keys. Applies to both post-types *and* actor_mode (user confirmed extending the pivot — same reasoning).
