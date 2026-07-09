@@ -10,6 +10,7 @@ namespace Automattic\Fosse\Tests;
 use Atmosphere\Transformer\Post as BskyPost;
 use Automattic\Fosse\Self_Thread_Comment_Filter;
 use PHPUnit\Framework\Attributes\Before;
+use PHPUnit\Framework\Attributes\DataProvider;
 use WorDBless\BaseTestCase;
 
 /**
@@ -86,6 +87,21 @@ class Self_Thread_Comment_FilterTest extends BaseTestCase {
 	}
 
 	/**
+	 * An own-DID notification with a missing reply URI passes through: the
+	 * `'' === $reply_uri` disjunct of the pass-through guard can't match the
+	 * META_URI_INDEX, so it must never be treated as a self-thread chunk to
+	 * suppress. Pins the disjunct so a future refactor of that OR can't
+	 * silently drop it.
+	 */
+	public function test_allows_own_reply_with_empty_uri(): void {
+		$notification = $this->build_notification( self::OWN_DID, '' );
+
+		$this->assertTrue(
+			apply_filters( 'atmosphere_should_sync_reply', true, $notification, self::POST_ID, 0 )
+		);
+	}
+
+	/**
 	 * If Atmosphere has no DID connected (empty `atmosphere_connection`),
 	 * we don't have a basis to identify "own" replies — pass through
 	 * rather than risk false positives.
@@ -128,6 +144,84 @@ class Self_Thread_Comment_FilterTest extends BaseTestCase {
 
 		$this->assertTrue(
 			apply_filters( 'atmosphere_should_sync_reply', true, $notification, self::POST_ID, 0 )
+		);
+	}
+
+	/**
+	 * A prior subscriber returning a non-bool (e.g. null) must not fatal.
+	 * The callback's `$should` parameter is loosely typed: a scalar type
+	 * hint would raise a TypeError even in coercive mode when fed null.
+	 * Only an explicit `false` is honored as upstream suppression, so a
+	 * null arriving alongside an own-thread chunk still suppresses
+	 * because the own-thread evaluation fires.
+	 */
+	public function test_survives_null_upstream_should_for_own_thread_chunk(): void {
+		add_filter( 'atmosphere_should_sync_reply', fn() => null, 5 );
+
+		$notification = $this->build_notification( self::OWN_DID, self::REPLY_URI );
+
+		$this->assertFalse(
+			apply_filters( 'atmosphere_should_sync_reply', true, $notification, self::POST_ID, 0 ),
+			'A null upstream still leads to suppression when the reply is an own-thread chunk.'
+		);
+	}
+
+	/**
+	 * A prior subscriber returning null for an EXTERNAL reply (different
+	 * author DID, or own DID but URI not in our META_URI_INDEX) must NOT
+	 * be coerced to a suppression decision. Coercing null to false would
+	 * silently drop legitimate external replies whenever an earlier filter
+	 * callback misbehaves — a noisy fatal is recoverable, a silent drop
+	 * is not. Regression guard for the "null → false fast-return" fix.
+	 */
+	public function test_null_upstream_does_not_suppress_external_reply(): void {
+		add_filter( 'atmosphere_should_sync_reply', fn() => null, 5 );
+
+		// Different author DID (external reply, not our own thread chunk).
+		$notification = $this->build_notification( 'did:plc:someoneelse', 'at://did:plc:someoneelse/app.bsky.feed.post/abc' );
+
+		$this->assertTrue(
+			apply_filters( 'atmosphere_should_sync_reply', true, $notification, self::POST_ID, 0 ),
+			'A null upstream for an external reply must default to sync (true), not silently drop.'
+		);
+	}
+
+	/**
+	 * Scalar-falsy values from a prior callback (`0`, `'0'`, `''`) match
+	 * WP filter convention for "suppress" and must continue to do so,
+	 * even though `null` is exempted as "unknown". A site policy callback
+	 * that derives suppression from a numeric or string flag relies on
+	 * this — over-correcting to "only explicit boolean false suppresses"
+	 * would silently start syncing replies the site tried to block.
+	 *
+	 * @dataProvider scalar_falsy_provider
+	 *
+	 * @param mixed $falsy A scalar-falsy value an upstream callback might return.
+	 */
+	#[DataProvider( 'scalar_falsy_provider' )]
+	public function test_scalar_falsy_upstream_is_honored_as_suppression( $falsy ): void {
+		add_filter( 'atmosphere_should_sync_reply', static fn() => $falsy, 5 );
+
+		// External reply (different author) — would otherwise sync.
+		$notification = $this->build_notification( 'did:plc:someoneelse', 'at://did:plc:someoneelse/app.bsky.feed.post/abc' );
+
+		$this->assertFalse(
+			apply_filters( 'atmosphere_should_sync_reply', true, $notification, self::POST_ID, 0 ),
+			'Scalar-falsy upstream values must be treated as suppression, matching WP filter convention.'
+		);
+	}
+
+	/**
+	 * Scalar-falsy values an upstream callback might return.
+	 *
+	 * @return array<string, array{mixed}>
+	 */
+	public static function scalar_falsy_provider(): array {
+		return array(
+			'zero int'      => array( 0 ),
+			'zero string'   => array( '0' ),
+			'empty string'  => array( '' ),
+			'literal false' => array( false ),
 		);
 	}
 
