@@ -7,8 +7,11 @@
 
 namespace Automattic\Fosse\Tests\Admin;
 
+use Automattic\Fosse\Admin\AP_Provider;
+use Automattic\Fosse\Admin\Connection_Provider_Registry;
 use Automattic\Fosse\Admin\Onboarding_Wizard;
 use Automattic\Fosse\Tests\Metrics\Asserts_Metrics;
+use PHPUnit\Framework\Attributes\After;
 use PHPUnit\Framework\Attributes\Before;
 use WorDBless\BaseTestCase;
 
@@ -32,6 +35,9 @@ class Wizard_MetricsTest extends BaseTestCase {
 		\delete_option( 'activitypub_actor_mode' );
 		\delete_option( 'activitypub_support_post_types' );
 
+		Connection_Provider_Registry::reset();
+		AP_Provider::register_provider();
+
 		$user_id = \wp_insert_user(
 			array(
 				'user_login' => 'fosse_wiz_metrics_' . \uniqid( '', true ),
@@ -45,6 +51,16 @@ class Wizard_MetricsTest extends BaseTestCase {
 		$_GET = array();
 
 		$this->reset_metrics_channels();
+	}
+
+	/**
+	 * Clear provider state after each test.
+	 *
+	 * @after
+	 */
+	#[After]
+	public function tear_down_state(): void {
+		Connection_Provider_Registry::reset();
 	}
 
 	/**

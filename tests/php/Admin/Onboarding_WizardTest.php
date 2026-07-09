@@ -704,12 +704,13 @@ class Onboarding_WizardTest extends BaseTestCase {
 		$output = $this->render_wizard_step( '' );
 
 		$this->assertStringContainsString( 'Where should your WordPress posts appear?', $output );
-		$this->assertStringContainsString( 'Fediverse sharing is enabled by default, so people can follow your site from Fediverse apps like Mastodon. You can also connect Bluesky now or set it up later.', $output );
+		$this->assertStringContainsString( 'Fediverse publishing creates a profile at your site&#039;s domain.', $output );
+		$this->assertStringContainsString( 'Bluesky connects an existing account.', $output );
 		$this->assertStringContainsString( 'Fediverse + Bluesky', $output );
 		$this->assertStringContainsString( 'Fediverse only', $output );
 		$this->assertStringContainsString( 'Simple setup', $output );
-		$this->assertSame( 3, substr_count( $output, 'Fediverse apps like Mastodon' ) );
-		$this->assertStringContainsString( 'Let people follow your site from Fediverse apps like Mastodon. You can connect Bluesky later.', $output );
+		$this->assertStringContainsString( 'Create a fediverse profile at your site&#039;s domain and connect an existing Bluesky account.', $output );
+		$this->assertStringContainsString( 'Create a fediverse profile at your site&#039;s domain. You can connect Bluesky later.', $output );
 		$this->assertStringNotContainsString( 'Mastodon and similar apps', $output );
 		$this->assertStringContainsString( 'name="fosse_onboarding_destination"', $output );
 		$this->assertStringContainsString( 'data-fosse-lizard-toggle', $output );
@@ -1078,6 +1079,107 @@ class Onboarding_WizardTest extends BaseTestCase {
 	}
 
 	/**
+	 * A handle that collides with an existing user login leaves the
+	 * previously saved handle intact rather than letting AP's sanitizer swap
+	 * in the default and persist it. The wizard pre-checks the collision via
+	 * exact `get_user_by()` lookups (which WorDBless satisfies), so a real
+	 * seeded user reliably exercises the guarded path.
+	 */
+	public function test_handle_save_appearance_collision_preserves_existing_handle(): void {
+		update_option( 'activitypub_blog_identifier', 'preserved-handle' );
+
+		wp_insert_user(
+			array(
+				'user_login' => 'colliding-user',
+				'user_email' => 'colliding-user@example.test',
+				'user_pass'  => 'test-pass',
+			)
+		);
+
+		$this->simulate_save_request(
+			'appearance',
+			array(
+				'activitypub_actor_mode'      => 'blog',
+				'activitypub_blog_identifier' => 'colliding-user',
+			)
+		);
+
+		try {
+			Onboarding_Wizard::handle_save();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$this->assertSame( 'preserved-handle', get_option( 'activitypub_blog_identifier' ) );
+		$this->assertContains(
+			'activitypub_blog_identifier',
+			array_column( get_settings_errors( 'fosse' ), 'code' )
+		);
+	}
+
+	/**
+	 * Input that canonicalizes to nothing (e.g. `!!!` → `''`) must also
+	 * preserve the saved handle. AP's sanitizer hits its `empty()` branch
+	 * for such input and returns the default username WITHOUT raising a
+	 * settings error — so neither the collision pre-check nor the error
+	 * re-tag fallback would catch it, and `update_option` would silently
+	 * clobber the saved handle behind the wizard's normal advance.
+	 */
+	public function test_handle_save_appearance_empty_canonical_input_preserves_existing_handle(): void {
+		update_option( 'activitypub_blog_identifier', 'preserved-handle' );
+
+		$this->simulate_save_request(
+			'appearance',
+			array(
+				'activitypub_actor_mode'      => 'blog',
+				'activitypub_blog_identifier' => '!!!',
+			)
+		);
+
+		try {
+			Onboarding_Wizard::handle_save();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		$this->assertSame( 'preserved-handle', get_option( 'activitypub_blog_identifier' ) );
+		$this->assertContains(
+			'activitypub_blog_identifier',
+			array_column( get_settings_errors( 'fosse' ), 'code' )
+		);
+	}
+
+	/**
+	 * The Site Handle input is hidden client-side in author-only mode, but a
+	 * hidden field still posts its value. The server gates the write on
+	 * whether the selected mode includes the blog actor, so a stale handle
+	 * submitted alongside `actor` mode is ignored (and a collision in that
+	 * invisible field can't bounce the user back to a field they can't see).
+	 */
+	public function test_handle_save_appearance_ignores_handle_when_mode_excludes_blog(): void {
+		update_option( 'activitypub_blog_identifier', 'kept' );
+
+		$this->simulate_save_request(
+			'appearance',
+			array(
+				'activitypub_actor_mode'      => 'actor',
+				'activitypub_blog_identifier' => 'should-be-ignored',
+			)
+		);
+
+		try {
+			Onboarding_Wizard::handle_save();
+		} catch ( RedirectFired $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch -- redirect is expected.
+			unset( $e );
+		}
+
+		// Author-only mode: the blog handle write is gated off, so the prior
+		// value stands and the submitted (potentially colliding) value never
+		// reaches update_option.
+		$this->assertSame( 'kept', get_option( 'activitypub_blog_identifier' ) );
+	}
+
+	/**
 	 * The appearance step renders `settings_errors( 'fosse' )` so a fresh
 	 * collision message persisted via the `settings_errors` transient on
 	 * redirect surfaces above the form on page load.
@@ -1263,6 +1365,15 @@ class Onboarding_WizardTest extends BaseTestCase {
 				 */
 				public function get_status(): array {
 					return array( 'connected' => false );
+				}
+
+				/**
+				 * Whether the provider is connected.
+				 *
+				 * @return bool
+				 */
+				public function is_connected(): bool {
+					return false;
 				}
 
 				/**
@@ -1477,6 +1588,57 @@ class Onboarding_WizardTest extends BaseTestCase {
 	}
 
 	/**
+	 * FOSSE's own notices are stored pre-escaped (`esc_html()` at the
+	 * `add_settings_error()` storage site in
+	 * `Bluesky_Provider::redirect_with_notice()` and
+	 * `Bluesky_Domain_Handle::add_settings_notice()`), so the render loop
+	 * must not escape them again — that double-encodes entities and shows
+	 * the user literal `&#039;` text.
+	 */
+	public function test_render_bluesky_step_does_not_double_escape_fosse_notice(): void {
+		$this->seed_bluesky_connection( 'alice.bsky.social', 'did:plc:alice123' );
+
+		add_settings_error(
+			'atmosphere',
+			'fosse_bluesky_notice',
+			esc_html( "Bluesky doesn't accept that handle." ),
+			'error'
+		);
+
+		$output = $this->render_wizard_step( 'bluesky' );
+
+		$this->assertStringContainsString( 'doesn&#039;t accept', $output );
+		$this->assertStringNotContainsString( '&amp;#039;', $output );
+	}
+
+	/**
+	 * Bundled Atmosphere writes to the same `'atmosphere'` settings group
+	 * WITHOUT pre-escaping — `Handle::add_settings_notice()` stores raw
+	 * `WP_Error` text straight off the PDS response. Those messages are not
+	 * pre-escaped, so the render loop must `esc_html()` them (skipping
+	 * re-escape only for FOSSE's own pre-escaped notice codes). Otherwise a
+	 * hostile PDS error string would reach wp-admin with only kses-level
+	 * filtering, where markup like links still passes.
+	 */
+	public function test_render_bluesky_step_escapes_non_fosse_atmosphere_notice(): void {
+		$this->seed_bluesky_connection( 'alice.bsky.social', 'did:plc:alice123' );
+
+		// The shape Atmosphere's Handle::add_settings_notice() produces on a
+		// failed updateHandle call: raw, unescaped PDS error text.
+		add_settings_error(
+			'atmosphere',
+			'atmosphere_domain_handle',
+			'Could not set example.com as your Bluesky handle: <a href="https://evil.example/">verify here</a>',
+			'error'
+		);
+
+		$output = $this->render_wizard_step( 'bluesky' );
+
+		$this->assertStringNotContainsString( '<a href="https://evil.example/"', $output );
+		$this->assertStringContainsString( '&lt;a href=', $output );
+	}
+
+	/**
 	 * The completion summary reflects an already-connected Bluesky account.
 	 */
 	public function test_complete_summary_shows_connected_bluesky_account(): void {
@@ -1672,11 +1834,12 @@ class Onboarding_WizardTest extends BaseTestCase {
 		$this->assertStringContainsString( 'Both (site + authors)', $output );
 		$this->assertStringContainsString( 'As you:', $output );
 		$this->assertStringContainsString( 'As your site:', $output );
-		// Fediverse handle markup should be wrapped in token-styled <code>,
-		// with a `<br />` between the label and the handle so long handles
-		// don't wrap mid-token (#72).
-		$this->assertMatchesRegularExpression( '~As you:<br\s*/?>\s*<code class="fosse-token fosse-admin-token fosse-token--ap-address fosse-admin-token--ap-address">@[^<]+<wbr>@[^<]+(?:<wbr>[^<]+)*</code>~', $output );
-		$this->assertMatchesRegularExpression( '~As your site:<br\s*/?>\s*<code class="fosse-token fosse-admin-token fosse-token--ap-address fosse-admin-token--ap-address">@[^<]+<wbr>@[^<]+(?:<wbr>[^<]+)*</code>~', $output );
+		$this->assertStringContainsString( 'fosse-complete-identity', $output );
+		$this->assertStringContainsString( 'fosse-complete-identity__row', $output );
+		$this->assertMatchesRegularExpression( '~<span class="fosse-complete-identity__row">\s*<span class="fosse-complete-identity__label">As you:</span>\s*<code class="fosse-token fosse-admin-token fosse-token--ap-address fosse-admin-token--ap-address">@[^<]+<wbr>@[^<]+(?:<wbr>[^<]+)*</code>\s*</span>~', $output );
+		$this->assertMatchesRegularExpression( '~<span class="fosse-complete-identity__row">\s*<span class="fosse-complete-identity__label">As your site:</span>\s*<code class="fosse-token fosse-admin-token fosse-token--ap-address fosse-admin-token--ap-address">@[^<]+<wbr>@[^<]+(?:<wbr>[^<]+)*</code>\s*</span>~', $output );
+		$this->assertDoesNotMatchRegularExpression( '~As you:<br\s*/?>~', $output );
+		$this->assertDoesNotMatchRegularExpression( '~As your site:<br\s*/?>~', $output );
 	}
 
 	/**
@@ -1931,6 +2094,12 @@ class Onboarding_WizardTest extends BaseTestCase {
 		$output = $this->render_wizard_step( 'complete' );
 
 		$this->assertStringContainsString( 'Publish your first Post', $output );
+		$this->assertStringContainsString( 'What happens next', $output );
+		$this->assertStringContainsString( 'Publish in WordPress as usual.', $output );
+		$this->assertStringContainsString( 'FOSSE shares eligible new public content to the fediverse automatically.', $output );
+		$this->assertStringNotContainsString( 'Connect Bluesky later to share there too.', $output );
+		$this->assertStringContainsString( 'People follow your fediverse address to receive updates.', $output );
+		$this->assertStringNotContainsString( 'There is no separate fediverse publish button.', $output );
 		$this->assertMatchesRegularExpression(
 			'/<a[^>]*href="[^"]*post-new\.php[^"]*"[^>]*>\s*Publish your first Post/i',
 			$output,
@@ -1939,16 +2108,18 @@ class Onboarding_WizardTest extends BaseTestCase {
 	}
 
 	/**
-	 * The publish CTA's helper paragraph reflects the selected destinations
-	 * when Bluesky has not been connected yet.
+	 * The completion header stays concise and leaves destination-specific
+	 * status to the summary rows and next-steps checklist.
 	 */
-	public function test_render_complete_step_cta_uses_destination_specific_language(): void {
+	public function test_render_complete_step_header_stays_concise(): void {
 		Onboarding_Wizard::mark_complete();
 
 		$output = $this->render_wizard_step( 'complete' );
 
-		$this->assertStringContainsString( 'Your sharing setup is ready.', $output );
-		$this->assertStringContainsString( 'Connect Bluesky to share there too.', $output );
+		$this->assertStringContainsString( 'Review your setup below, then publish from WordPress when you are ready.', $output );
+		$this->assertStringNotContainsString( 'Your sharing setup is ready.', $output );
+		$this->assertStringNotContainsString( 'Connect Bluesky to share there too.', $output );
+		$this->assertStringNotContainsString( 'Bluesky sharing is ready too.', $output );
 		$this->assertStringNotContainsString( 'Your post can reach people on Fediverse apps like Mastodon.', $output );
 	}
 
@@ -1963,7 +2134,8 @@ class Onboarding_WizardTest extends BaseTestCase {
 
 		$output = $this->render_wizard_step( 'complete' );
 
-		$this->assertStringContainsString( 'Bluesky sharing is ready too.', $output );
+		$this->assertStringContainsString( 'FOSSE shares eligible new public content to the fediverse and Bluesky automatically.', $output );
+		$this->assertStringNotContainsString( 'Bluesky sharing is ready too.', $output );
 		$this->assertStringNotContainsString( 'Your post can reach people on Fediverse apps like Mastodon', $output );
 	}
 
@@ -1980,7 +2152,23 @@ class Onboarding_WizardTest extends BaseTestCase {
 		$output = $this->render_wizard_step( 'complete' );
 
 		$this->assertStringContainsString( 'automatic sharing is off.', $output );
+		$this->assertStringContainsString( 'FOSSE shares eligible new public content to the fediverse automatically. Bluesky is connected, but automatic sharing is off.', $output );
 		$this->assertStringNotContainsString( 'Your post can reach people on Fediverse apps like Mastodon', $output );
+	}
+
+	/**
+	 * The next-steps checklist stays simpler when the user selected
+	 * Fediverse-only and has no connected Bluesky account.
+	 */
+	public function test_render_complete_step_next_steps_stay_fediverse_only_without_bluesky(): void {
+		Onboarding_Wizard::mark_complete();
+		update_option( Onboarding_Wizard::DESTINATION_OPTION, 'fediverse_only' );
+
+		$output = $this->render_wizard_step( 'complete' );
+
+		$this->assertStringContainsString( 'FOSSE shares eligible new public content to the fediverse automatically.', $output );
+		$this->assertStringNotContainsString( 'Connect Bluesky later to share there too.', $output );
+		$this->assertStringNotContainsString( 'to the fediverse and Bluesky automatically.', $output );
 	}
 
 	/**

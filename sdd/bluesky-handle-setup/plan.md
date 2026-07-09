@@ -4,7 +4,7 @@ Based on: sdd/bluesky-handle-setup/spec.md
 
 ## Progress
 
-- [x] Task 1: Add `/.well-known/atproto-did` route handler
+- [~] Task 1: Add `/.well-known/atproto-did` route handler — superseded by delegation to bundled Atmosphere (see Task 1 below)
 - [~] Task 2: Add verification check method — superseded by direct `updateHandle` flow (see below)
 - [~] Task 2.5: Add `fetch_current_handle($did)` helper — superseded by direct `updateHandle` flow
 - [x] Task 3: Add domain-handle UI to Bluesky_Provider setup section
@@ -19,9 +19,9 @@ Based on: sdd/bluesky-handle-setup/spec.md
 ## Tasks
 
 ### Task 1: Add `/.well-known/atproto-did` route handler
-- **Status**: ✅ Done (396985f, 138404f, bc43461)
+- **Status**: Superseded by PR 170 (issue 169). FOSSE no longer serves the route; bundled Atmosphere's `serve_wellknown_atproto_did()` (`template_redirect` priority 10, gated on `\Atmosphere\has_identity()`) owns it. FOSSE retains only `Bluesky_Provider::maybe_suppress_atmosphere_well_known()` at `template_redirect` priority 1, which clears Atmosphere's `atmosphere_wellknown` query var and forces a 404 when the `fosse_serve_atproto_did_well_known` filter returns false. See `implementation-notes.md` § "Well-known route delegated to Atmosphere (issue 169)" for rationale; the original commits (396985f, 138404f, bc43461) introduced the deleted handler.
 - **Files**: `src/Admin/class-bluesky-provider.php`
-- **Do**:
+- **Do** (historical, no longer in scope):
   1. Add `serve_atproto_did_well_known()` method. Hook to `init` priority 1 inside `register_hooks()`.
   2. Parse `$_SERVER['REQUEST_URI']` with `wp_parse_url( ..., PHP_URL_PATH )` and match strict equality against `/.well-known/atproto-did`. If no match, return early.
   3. Apply `fosse_serve_atproto_did_well_known` filter (default `true`). If false, return.

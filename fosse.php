@@ -3,7 +3,7 @@
  * Plugin Name: FOSSE
  * Plugin URI:  https://github.com/Automattic/fosse
  * Description: Social Web
- * Version:     0.1.2-alpha
+ * Version:     0.1.4-alpha
  * Requires at least: 6.9
  * Tested up to: 7.0
  * Requires PHP: 8.2
@@ -25,10 +25,39 @@ defined( 'ABSPATH' ) || exit;
  * `ACTIVITYPUB_PLUGIN_VERSION` / `ATMOSPHERE_VERSION` pattern of the
  * bundled backends. Keep in sync with the `Version:` header above.
  */
-define( 'FOSSE_VERSION', '0.1.2-alpha' );
+define( 'FOSSE_VERSION', '0.1.4-alpha' );
 
 if ( file_exists( __DIR__ . '/vendor/autoload_packages.php' ) ) {
 	require_once __DIR__ . '/vendor/autoload_packages.php';
+} else {
+	/*
+	 * Composer autoload missing. The rest of `fosse.php` already degrades
+	 * cleanly via `class_exists` guards (no menu, no projectors, no
+	 * provider boot), but that leaves an admin staring at silence. Surface
+	 * a `manage_options`-only notice so the operator knows the deploy is
+	 * incomplete instead of assuming FOSSE is broken or inactive.
+	 */
+	add_action(
+		'admin_notices',
+		static function () {
+			if ( ! current_user_can( 'manage_options' ) ) {
+				return;
+			}
+			?>
+			<div class="notice notice-error">
+				<p>
+					<strong><?php esc_html_e( 'FOSSE is missing its Composer dependencies.', 'fosse' ); ?></strong>
+					<?php
+					esc_html_e(
+						'Run `composer install` inside the FOSSE plugin directory, or redeploy a release build that includes the `vendor/` directory. Most FOSSE features are disabled until this is resolved.',
+						'fosse'
+					);
+					?>
+				</p>
+			</div>
+			<?php
+		}
+	);
 }
 
 /*
@@ -46,16 +75,54 @@ if ( file_exists( __DIR__ . '/vendor/autoload_packages.php' ) ) {
  * rollout would no-op. See DOTCOM-16981.
  */
 
+if ( ! function_exists( 'fosse_plugin_is_active' ) ) {
+	/**
+	 * Whether a plugin is active, safe to call during plugin bootstrap.
+	 *
+	 * `is_plugin_active()` lives in `wp-admin/includes/plugin.php`, which is not
+	 * loaded on front-end requests, so we read the active-plugins options
+	 * directly. Covers both per-site and network activation.
+	 *
+	 * Guarded with `function_exists()` like `fosse_boot_providers()` below,
+	 * since embedders (e.g. wp.com's `fosse-loader.php`) can include this file
+	 * more than once per request.
+	 *
+	 * @param string $plugin Plugin basename, e.g. `atmosphere/atmosphere.php`.
+	 * @return bool
+	 */
+	function fosse_plugin_is_active( $plugin ) {
+		if ( in_array( $plugin, (array) get_option( 'active_plugins', array() ), true ) ) {
+			return true;
+		}
+
+		if ( is_multisite() ) {
+			$network_active = (array) get_site_option( 'active_sitewide_plugins', array() );
+
+			return isset( $network_active[ $plugin ] );
+		}
+
+		return false;
+	}
+}
+
 /*
  * Bundled federation backends.
  *
  * FOSSE ships release-build copies of wordpress-activitypub and
  * wordpress-atmosphere so users get Mastodon + Bluesky federation out
  * of the box. We skip the bundled copy when the standalone plugin is
- * either already loaded (its constants are defined) OR present on
- * disk at the canonical plugin path — so if the user activates the
- * standalone later in the same request, WP's plugin_sandbox_scrape
- * doesn't redeclare classes we already loaded.
+ * either already loaded (its constants are defined) OR active. An
+ * installed-but-inactive standalone no longer suppresses the bundle —
+ * gating on activation rather than mere on-disk presence means a
+ * deactivated standalone doesn't silently disable federation.
+ *
+ * Trade-off: if a standalone is inactive (so the bundle loads) and the
+ * user then activates it in the same request, WP's plugin_sandbox_scrape
+ * re-includes the standalone entry file and redeclares classes the
+ * bundle already loaded — a fatal on that one activation request. That
+ * window is narrow and self-correcting (the next request loads only the
+ * standalone), and is a better default than losing federation whenever
+ * an inactive copy happens to sit on disk.
  *
  * This is a short-term bootstrap; FOSSE's own UI will replace the
  * bundled plugins' admin surface in a later iteration.
@@ -64,7 +131,7 @@ $fosse_loaded_bundled_ap   = false;
 $fosse_loaded_bundled_atmo = false;
 
 $fosse_standalone_ap_present = defined( 'ACTIVITYPUB_PLUGIN_VERSION' )
-	|| ( defined( 'WP_PLUGIN_DIR' ) && file_exists( WP_PLUGIN_DIR . '/activitypub/activitypub.php' ) );
+	|| fosse_plugin_is_active( 'activitypub/activitypub.php' );
 
 if ( ! $fosse_standalone_ap_present && file_exists( __DIR__ . '/bundled/activitypub/activitypub.php' ) ) {
 	require_once __DIR__ . '/bundled/activitypub/activitypub.php';
@@ -72,7 +139,7 @@ if ( ! $fosse_standalone_ap_present && file_exists( __DIR__ . '/bundled/activity
 }
 
 $fosse_standalone_atmo_present = defined( 'ATMOSPHERE_VERSION' )
-	|| ( defined( 'WP_PLUGIN_DIR' ) && file_exists( WP_PLUGIN_DIR . '/atmosphere/atmosphere.php' ) );
+	|| fosse_plugin_is_active( 'atmosphere/atmosphere.php' );
 
 if ( ! $fosse_standalone_atmo_present && file_exists( __DIR__ . '/bundled/atmosphere/atmosphere.php' ) ) {
 	require_once __DIR__ . '/bundled/atmosphere/atmosphere.php';
@@ -231,35 +298,32 @@ add_action(
 );
 
 /*
- * Blurhash placeholder encoder + AP attachment injector, plus the
- * `wp fosse blurhash …` WP-CLI backfill surface.
+ * Blurhash hand-off bridge.
  *
- * Runtime path: computes a Blurhash string at upload time
- * (cron-scheduled off `wp_generate_attachment_metadata` so the upload
- * UI isn't blocked) and adds the result to outbound ActivityPub
- * `attachment[].blurhash` via the `activitypub_attachment` filter,
- * so Pixelfed and Mastodon paint the colored-blur preview while the
- * full image loads. Sites without GD just skip silently — federation
- * is unaffected. See `DOTCOM-17159` and `class-blurhash.php`.
+ * ActivityPub upstreamed FOSSE's blurhash encoder (same hooks, same
+ * injected `blurhash` member) under its own `_activitypub_blurhash`
+ * meta key, and the bundled copy now ships it, so FOSSE no longer
+ * computes blurhashes itself — AP encodes on upload and injects via
+ * `activitypub_attachment`, and `wp activitypub blurhash` backfills
+ * older libraries. See `DOTCOM-17159`.
  *
- * The CLI surface (`Blurhash_CLI`) is gated on `WP_CLI` *before* the
- * `class_exists` autoload probe so the CLI file is never read on web
- * requests — keeps the registration overhead on a normal page load
- * to a single passed-through `class_exists` check.
- *
+ * What remains is a one-way migration bridge: images encoded while
+ * FOSSE ran its own pipeline hold their hash under the legacy
+ * `_fosse_blurhash` key, which AP's injector can't see. The bridge
+ * lazily copies that value into AP's store the first time each such
+ * attachment federates ({@see Automattic\Fosse\Blurhash_Handoff}), so
+ * the placeholder survives the cutover without a bulk meta migration.
+ * It registers only when AP's native class is present; without it
+ * there is nothing to hand off and FOSSE adds no blurhash of its own.
  * Same degradation posture as the projectors above — if FOSSE's
- * autoload is missing entirely, both classes silently skip.
+ * autoload is missing entirely, it silently skips.
  */
 add_action(
 	'init',
 	static function () {
-		if ( ! class_exists( \Automattic\Fosse\Blurhash::class ) ) {
-			return;
-		}
-		\Automattic\Fosse\Blurhash::register();
-
-		if ( defined( 'WP_CLI' ) && WP_CLI && class_exists( \Automattic\Fosse\Blurhash_CLI::class ) ) {
-			\Automattic\Fosse\Blurhash_CLI::register();
+		if ( class_exists( \Automattic\Fosse\Blurhash_Handoff::class )
+			&& \Automattic\Fosse\Blurhash_Handoff::should_defer() ) {
+			\Automattic\Fosse\Blurhash_Handoff::register();
 		}
 	}
 );

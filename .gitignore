@@ -33,5 +33,8 @@
 # Local agent config
 /.air/
 
+# Internal audit / review notes — kept local, never tracked or shipped
+/audits/
+
 # Superpowers — local visual brainstorming sessions
 /.superpowers/

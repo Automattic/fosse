@@ -196,6 +196,9 @@ class Provider_LoaderTest extends BaseTestCase {
 			public function get_status(): array {
 				return array( 'connected' => true );
 			}
+			public function is_connected(): bool {
+				return true;
+			}
 			public function render_setup_section(): void {}
 			public function render_connection_actions(): void {}
 			public function render_status_card(): void {}

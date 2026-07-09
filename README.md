@@ -6,7 +6,7 @@ It bundles [wordpress-activitypub](https://github.com/Automattic/wordpress-activ
 
 Repository: <https://github.com/Automattic/fosse>
 
-![FOSSE setup wizard in WordPress admin](docs/assets/fosse-wizard.png)
+![FOSSE setup wizard in WordPress admin](https://raw.githubusercontent.com/Automattic/fosse/trunk/docs/assets/fosse-wizard.png)
 
 ## Requirements
 
@@ -30,6 +30,8 @@ After activation, go to **FOSSE** in wp-admin:
 -   **Settings** configures ActivityPub actor mode, federated post types, and Bluesky connection.
 -   **Status** shows the available providers and connection health.
 -   The first-run wizard walks through the basic ActivityPub and Bluesky setup.
+
+See the [FOSSE Publishing FAQ](https://github.com/Automattic/fosse/blob/trunk/docs/fosse-publishing-faq.md) for how fediverse publishing works, how it differs from Bluesky, and how to edit the site fediverse profile.
 
 ## Local Setup
 
@@ -66,4 +68,4 @@ pnpm run lint
 
 -   `src/` contains FOSSE's glue code and admin UI.
 -   `bundled/` contains vendored upstream plugin builds; do not edit it directly.
--   See [CONTRIBUTING.md](./CONTRIBUTING.md) and [AGENTS.md](./AGENTS.md) for workflow, coding standards, CI details, and upstream contribution policy.
+-   See [CONTRIBUTING.md](https://github.com/Automattic/fosse/blob/trunk/CONTRIBUTING.md) and [AGENTS.md](https://github.com/Automattic/fosse/blob/trunk/AGENTS.md) for workflow, coding standards, CI details, and upstream contribution policy.

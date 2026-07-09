@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 
 test( 'WP admin boots with bundled backends active and FOSSE menu replaces ActivityPub', async ( {
 	page,

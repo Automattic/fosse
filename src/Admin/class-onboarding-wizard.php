@@ -302,39 +302,102 @@ class Onboarding_Wizard {
 
 			// Persist the inline Site Handle when submitted. Only write when
 			// the field arrived non-empty so the no-touch path preserves any
-			// existing stored value (matches AP_Provider::handle_save). AP's
+			// existing stored value (matches AP_Provider::save_settings). AP's
 			// `sanitize_option_activitypub_blog_identifier` filter handles
 			// collision rejection at update_option time.
+			$ap_provider              = Connection_Provider_Registry::get_provider( 'activitypub' );
 			$blog_identifier_rejected = false;
-			if ( array_key_exists( 'activitypub_blog_identifier', $_POST ) ) {
+			// Gate the write on whether the selected mode actually includes the
+			// blog actor. The Site Handle input is hidden client-side in
+			// author-only mode, but a hidden field still submits its value — so
+			// without this server-side gate a stale handle from a mode the user
+			// switched away from would be written (and a collision in that
+			// invisible field would bounce them back to a field they cannot
+			// see). The browser also disables the input when hidden; this gate
+			// is the defense-in-depth for clients with JS off or tampered POSTs.
+			$mode_includes_blog = $ap_provider instanceof AP_Provider && $ap_provider->mode_includes_blog( $mode );
+			if ( $mode_includes_blog && array_key_exists( 'activitypub_blog_identifier', $_POST ) ) {
 				$raw_input = is_string( $_POST['activitypub_blog_identifier'] )
 					? sanitize_text_field( wp_unslash( $_POST['activitypub_blog_identifier'] ) )
 					: '';
 				$raw       = trim( $raw_input );
 				if ( '' !== $raw ) {
-					// Snapshot the queue length, not the codes — AP's sanitizer
-					// reuses a constant code (`activitypub_blog_identifier`) for
-					// every collision rejection, so a code-only check would mask
-					// a fresh rejection if any error with that code already sat
-					// on the queue. Mirrors AP_Provider::handle_save().
-					$ap_error_count_before = count( get_settings_errors( 'activitypub_blog_identifier' ) );
-
-					update_option( 'activitypub_blog_identifier', $raw );
-
-					// Re-tag any fresh AP errors under our own group so the
-					// appearance step's `settings_errors( 'fosse' )` render
-					// surfaces them — without re-tagging the user would land
-					// back on the wizard with no feedback at all.
-					$ap_errors_after = get_settings_errors( 'activitypub_blog_identifier' );
-					$new_ap_errors   = array_slice( $ap_errors_after, $ap_error_count_before );
-					foreach ( $new_ap_errors as $ap_error ) {
+					// Pre-check the collision before writing. AP's sanitizer
+					// silently swaps a colliding handle for the default, which
+					// `update_option` then PERSISTS over the previously saved
+					// handle (breaking existing blog-actor followers). Guard the
+					// write so a rejected handle leaves the stored value intact
+					// while still surfacing the error. Mirrors
+					// AP_Provider::save_settings.
+					if ( $ap_provider->blog_identifier_collides( $raw ) ) {
 						$blog_identifier_rejected = true;
 						add_settings_error(
 							'fosse',
-							$ap_error['code'],
-							$ap_error['message'],
-							$ap_error['type']
+							'activitypub_blog_identifier',
+							__( 'That site handle matches an existing author login or nickname. Your previous handle was kept.', 'fosse' ),
+							'error'
 						);
+					} elseif ( $ap_provider->blog_identifier_canonicalizes_empty( $raw ) ) {
+						// Input that canonicalizes to nothing (e.g. `!!!`)
+						// hits AP's `empty()` branch, which swaps in the
+						// default username WITHOUT raising a settings error —
+						// so neither the collision pre-check nor the error
+						// re-tag below would catch it, and `update_option`
+						// would silently clobber the saved handle. Mirrors
+						// AP_Provider::save_settings.
+						$blog_identifier_rejected = true;
+						add_settings_error(
+							'fosse',
+							'activitypub_blog_identifier',
+							__( 'That site handle contains no usable characters. Your previous handle was kept.', 'fosse' ),
+							'error'
+						);
+					} else {
+						// Snapshot the queue length, not the codes — AP's
+						// sanitizer reuses a constant code
+						// (`activitypub_blog_identifier`) for every collision
+						// rejection, so a code-only check would mask a fresh
+						// rejection if any error with that code already sat on
+						// the queue. Mirrors AP_Provider::save_settings.
+						$ap_error_count_before = count( get_settings_errors( 'activitypub_blog_identifier' ) );
+
+						// Cancel the write at `pre_update_option_*` (after
+						// sanitize runs, before WP commits) if AP's sanitizer
+						// raised any fresh error. Short-circuiting BEFORE
+						// `update_option_activitypub_blog_identifier` fires
+						// keeps AP's scheduler from observing the bad fallback
+						// value and queuing an outbox Update for a rejected
+						// handle. Mirrors AP_Provider::save_settings.
+						$cancel_on_fresh_error = static function ( $new_value, $old_value ) use ( $ap_error_count_before ) {
+							if ( count( get_settings_errors( 'activitypub_blog_identifier' ) ) > $ap_error_count_before ) {
+								return $old_value;
+							}
+							return $new_value;
+						};
+						add_filter( 'pre_update_option_activitypub_blog_identifier', $cancel_on_fresh_error, 999, 2 );
+
+						try {
+							update_option( 'activitypub_blog_identifier', $raw );
+						} finally {
+							remove_filter( 'pre_update_option_activitypub_blog_identifier', $cancel_on_fresh_error, 999 );
+						}
+
+						// Re-tag any fresh AP errors under our own group so the
+						// appearance step's `settings_errors( 'fosse' )` render
+						// surfaces them — without re-tagging the user would land
+						// back on the wizard with no feedback at all. Catches
+						// any collision the pre-check missed.
+						$ap_errors_after = get_settings_errors( 'activitypub_blog_identifier' );
+						$new_ap_errors   = array_slice( $ap_errors_after, $ap_error_count_before );
+						foreach ( $new_ap_errors as $ap_error ) {
+							$blog_identifier_rejected = true;
+							add_settings_error(
+								'fosse',
+								$ap_error['code'],
+								$ap_error['message'],
+								$ap_error['type']
+							);
+						}
 					}
 				}
 			}
@@ -705,10 +768,9 @@ class Onboarding_Wizard {
 	 * actor unavailable) — never shows an `@` with no local-part.
 	 *
 	 * Returns an HTML string. Single-identity branches inline the handle
-	 * after a space; the multi-identity `actor_blog` branch separates
-	 * label and handle with `<br />` and joins lines with `<br />`. The
-	 * consumer escapes via `wp_kses` with `code` (allowing the `class`
-	 * attribute that the token markup carries), `br`, and `wbr` allowed.
+	 * after a space; the multi-identity `actor_blog` branch uses structured
+	 * rows so labels and handles can sit inline on wide screens and stack on
+	 * narrow screens. The consumer escapes via `wp_kses`.
 	 *
 	 * @param string $mode        Actor mode value.
 	 * @param string $user_handle Normalized `@user@host` for the current user, or empty.
@@ -734,19 +796,43 @@ class Onboarding_Wizard {
 					. ' ' . self::format_complete_identity_token( $site_host ? $site_host : 'yoursite.com', 'host' );
 
 			case 'actor_blog':
-				$lines = array( esc_html__( 'Both (site + authors)', 'fosse' ) );
+				$lines = array(
+					sprintf(
+						'<span class="fosse-complete-identity__mode">%s</span>',
+						esc_html__( 'Both (site + authors)', 'fosse' )
+					),
+				);
 				if ( '' !== $user_handle ) {
-					$lines[] = esc_html__( 'As you:', 'fosse' )
-						. '<br />' . self::format_complete_identity_token( $user_handle, 'ap-address' );
+					$lines[] = self::format_complete_identity_row(
+						esc_html__( 'As you:', 'fosse' ),
+						self::format_complete_identity_token( $user_handle, 'ap-address' )
+					);
 				}
 				if ( '' !== $blog_handle ) {
-					$lines[] = esc_html__( 'As your site:', 'fosse' )
-						. '<br />' . self::format_complete_identity_token( $blog_handle, 'ap-address' );
+					$lines[] = self::format_complete_identity_row(
+						esc_html__( 'As your site:', 'fosse' ),
+						self::format_complete_identity_token( $blog_handle, 'ap-address' )
+					);
 				}
-				return implode( '<br />', $lines );
+				return '<span class="fosse-complete-identity">' . implode( '', $lines ) . '</span>';
 		}
 
 		return esc_html( $mode );
+	}
+
+	/**
+	 * Format a multi-identity completion row.
+	 *
+	 * @param string $label Label text.
+	 * @param string $token Token HTML.
+	 * @return string
+	 */
+	private static function format_complete_identity_row( string $label, string $token ): string {
+		return sprintf(
+			'<span class="fosse-complete-identity__row"><span class="fosse-complete-identity__label">%1$s</span> %2$s</span>',
+			$label,
+			$token
+		);
 	}
 
 	/**
@@ -1041,14 +1127,14 @@ class Onboarding_Wizard {
 				'icon'  => 'dashicons-star-filled',
 				'badge' => __( 'Recommended', 'fosse' ),
 				'title' => __( 'Fediverse + Bluesky', 'fosse' ),
-				'desc'  => __( 'Let people follow your site from Fediverse apps like Mastodon, and share eligible posts to Bluesky.', 'fosse' ),
+				'desc'  => __( 'Create a fediverse profile at your site\'s domain and connect an existing Bluesky account.', 'fosse' ),
 			),
 			self::DESTINATION_FEDIVERSE_ONLY    => array(
 				'class' => 'fosse-destination-card--fediverse-only',
 				'icon'  => 'dashicons-networking',
 				'badge' => __( 'Simple setup', 'fosse' ),
 				'title' => __( 'Fediverse only', 'fosse' ),
-				'desc'  => __( 'Let people follow your site from Fediverse apps like Mastodon. You can connect Bluesky later.', 'fosse' ),
+				'desc'  => __( 'Create a fediverse profile at your site\'s domain. You can connect Bluesky later.', 'fosse' ),
 			),
 		);
 		?>
@@ -1061,7 +1147,7 @@ class Onboarding_Wizard {
 				<?php
 				self::render_step_card_header(
 					__( 'Where should your WordPress posts appear?', 'fosse' ),
-					__( 'Fediverse sharing is enabled by default, so people can follow your site from Fediverse apps like Mastodon. You can also connect Bluesky now or set it up later.', 'fosse' )
+					__( 'Fediverse publishing creates a profile at your site\'s domain. Bluesky connects an existing account.', 'fosse' )
 				);
 				?>
 				<div class="fosse-card-body">
@@ -1488,10 +1574,28 @@ class Onboarding_Wizard {
 				continue;
 			}
 
+			// FOSSE's own notices are stored pre-escaped:
+			// Bluesky_Provider::redirect_with_notice() and
+			// Bluesky_Domain_Handle::add_settings_notice() both run the
+			// message through `esc_html()` at the `add_settings_error()`
+			// storage site, so escaping those again here would double-encode
+			// entities (e.g. apostrophes rendering as `&#039;`). But bundled
+			// Atmosphere ALSO writes to this group without escaping —
+			// `Handle::add_settings_notice()` stores raw `WP_Error` text
+			// straight off the PDS response — so only messages carrying a
+			// FOSSE-owned code may skip the `esc_html()`; everything else is
+			// escaped as untrusted plain text.
+			$is_pre_escaped_fosse_notice = in_array(
+				$notice_code,
+				array( Bluesky_Provider::NOTICE_CODE, Bluesky_Domain_Handle::NOTICE_CODE ),
+				true
+			);
+			$notice_message              = isset( $atmosphere_notice['message'] ) ? (string) $atmosphere_notice['message'] : '';
+
 			printf(
 				'<div class="notice notice-%1$s inline"><p>%2$s</p></div>',
 				esc_attr( $notice_type ),
-				esc_html( isset( $atmosphere_notice['message'] ) ? (string) $atmosphere_notice['message'] : '' )
+				$is_pre_escaped_fosse_notice ? wp_kses_post( $notice_message ) : esc_html( $notice_message ) // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- FOSSE-owned notices are pre-escaped via esc_html() at the add_settings_error() storage site (re-escaping would double-encode entities) and pass wp_kses_post() as belt and braces; all other writers' messages go through esc_html() here.
 			);
 		}
 		?>
@@ -1700,7 +1804,7 @@ class Onboarding_Wizard {
 		);
 
 		if ( $bluesky['connected'] ) {
-			$bluesky_handle     = is_string( $bluesky['handle'] ?? null ) ? $bluesky['handle'] : '';
+			$bluesky_handle     = $bluesky['handle'];
 			$bluesky_normalized = ltrim( $bluesky_handle, '@' );
 
 			if ( '' !== $bluesky_normalized ) {
@@ -1724,16 +1828,8 @@ class Onboarding_Wizard {
 			$bluesky_summary = $includes_bluesky ? __( 'Not connected', 'fosse' ) : __( 'Skipped', 'fosse' );
 		}
 
-		$cta = self::resolve_publish_cta( $post_types );
-		if ( $publishes_bluesky ) {
-			$cta_help = __( 'Bluesky sharing is ready too.', 'fosse' );
-		} elseif ( $bluesky['connected'] ) {
-			$cta_help = __( 'Bluesky is connected, but automatic sharing is off.', 'fosse' );
-		} elseif ( $includes_bluesky ) {
-			$cta_help = __( 'Connect Bluesky to share there too.', 'fosse' );
-		} else {
-			$cta_help = '';
-		}
+		$cta                   = self::resolve_publish_cta( $post_types );
+		$next_steps_publishing = self::get_next_steps_publishing_copy( $bluesky, $publishes_bluesky );
 
 		?>
 		<div class="fosse-wizard__card fosse-admin-card fosse-wizard__complete-card">
@@ -1744,11 +1840,7 @@ class Onboarding_Wizard {
 				<div class="fosse-wizard__complete-message">
 					<h1 class="fosse-wizard__title"><?php esc_html_e( 'You\'re all set!', 'fosse' ); ?></h1>
 					<p class="fosse-wizard__description">
-						<strong><?php esc_html_e( 'Your sharing setup is ready.', 'fosse' ); ?></strong>
-						<?php esc_html_e( 'Review it below, then publish from WordPress when you are ready.', 'fosse' ); ?>
-						<?php if ( '' !== $cta_help ) : ?>
-							<span class="fosse-wizard__cta-help"><?php echo esc_html( $cta_help ); ?></span>
-						<?php endif; ?>
+						<?php esc_html_e( 'Review your setup below, then publish from WordPress when you are ready.', 'fosse' ); ?>
 					</p>
 				</div>
 			</div>
@@ -1767,6 +1859,9 @@ class Onboarding_Wizard {
 									'class' => array(),
 								),
 								'br'   => array(),
+								'span' => array(
+									'class' => array(),
+								),
 								'wbr'  => array(),
 							)
 						);
@@ -1795,9 +1890,23 @@ class Onboarding_Wizard {
 					<dd class="fosse-detail-list__description"><?php echo esc_html( implode( ', ', $type_labels ) ); ?></dd>
 				</dl>
 
-				<div class="fosse-wizard__hint">
-					<p><?php esc_html_e( 'You can change any of these settings from the FOSSE Settings page at any time.', 'fosse' ); ?></p>
-				</div>
+				<section class="fosse-wizard__next-steps" aria-labelledby="fosse-wizard-next-steps-title">
+					<h2 id="fosse-wizard-next-steps-title"><?php esc_html_e( 'What happens next', 'fosse' ); ?></h2>
+					<ul>
+						<li>
+							<span class="dashicons dashicons-yes" aria-hidden="true"></span>
+							<span><?php esc_html_e( 'Publish in WordPress as usual.', 'fosse' ); ?></span>
+						</li>
+						<li>
+							<span class="dashicons dashicons-yes" aria-hidden="true"></span>
+							<span><?php echo esc_html( $next_steps_publishing ); ?></span>
+						</li>
+						<li>
+							<span class="dashicons dashicons-yes" aria-hidden="true"></span>
+							<span><?php esc_html_e( 'People follow your fediverse address to receive updates.', 'fosse' ); ?></span>
+						</li>
+					</ul>
+				</section>
 			</div>
 			<div class="fosse-card-footer fosse-wizard__completion-footer">
 				<div class="fosse-wizard__completion-actions">
@@ -1821,6 +1930,25 @@ class Onboarding_Wizard {
 			</a>
 		</p>
 		<?php
+	}
+
+	/**
+	 * Resolve the publishing item shown in the completion next-steps list.
+	 *
+	 * @param array<string, mixed> $bluesky           Bluesky status.
+	 * @param bool                 $publishes_bluesky Whether new eligible content will currently publish to Bluesky.
+	 * @return string
+	 */
+	private static function get_next_steps_publishing_copy( array $bluesky, bool $publishes_bluesky ): string {
+		if ( $publishes_bluesky ) {
+			return __( 'FOSSE shares eligible new public content to the fediverse and Bluesky automatically.', 'fosse' );
+		}
+
+		if ( $bluesky['connected'] ) {
+			return __( 'FOSSE shares eligible new public content to the fediverse automatically. Bluesky is connected, but automatic sharing is off.', 'fosse' );
+		}
+
+		return __( 'FOSSE shares eligible new public content to the fediverse automatically.', 'fosse' );
 	}
 
 	/**

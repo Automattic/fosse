@@ -56,17 +56,63 @@ class Connection_Provider_RegistryTest extends BaseTestCase {
 	}
 
 	/**
-	 * Registering a duplicate slug is silently ignored; first registration wins.
+	 * Registering a duplicate slug is rejected; first registration wins.
+	 *
+	 * Suppresses the `_doing_it_wrong()` warning via the
+	 * `doing_it_wrong_trigger_error` filter so PHPUnit's `failOnWarning`
+	 * doesn't trip — the firing of the warning itself is asserted
+	 * separately in {@see self::test_duplicate_slug_triggers_doing_it_wrong()}.
 	 */
 	public function test_duplicate_slug_is_ignored() {
-		$first  = $this->make_provider( 'dupe' );
-		$second = $this->make_provider( 'dupe' );
+		add_filter( 'doing_it_wrong_trigger_error', '__return_false' );
 
-		Connection_Provider_Registry::register( $first );
-		Connection_Provider_Registry::register( $second );
+		try {
+			$first  = $this->make_provider( 'dupe' );
+			$second = $this->make_provider( 'dupe' );
 
-		$this->assertSame( $first, Connection_Provider_Registry::get_provider( 'dupe' ) );
-		$this->assertCount( 1, Connection_Provider_Registry::get_providers() );
+			Connection_Provider_Registry::register( $first );
+			Connection_Provider_Registry::register( $second );
+
+			$this->assertSame( $first, Connection_Provider_Registry::get_provider( 'dupe' ) );
+			$this->assertCount( 1, Connection_Provider_Registry::get_providers() );
+		} finally {
+			remove_filter( 'doing_it_wrong_trigger_error', '__return_false' );
+		}
+	}
+
+	/**
+	 * Registering a duplicate slug fires `_doing_it_wrong` so callers can
+	 * see the conflict instead of debugging a silent no-op.
+	 *
+	 * Hooks `doing_it_wrong_run` to capture the call and filters
+	 * `doing_it_wrong_trigger_error` to false so PHPUnit's failOnWarning
+	 * doesn't trip on the E_USER_NOTICE — WorDBless's BaseTestCase
+	 * extends Yoast's polyfill TestCase, neither of which exposes
+	 * `setExpectedIncorrectUsage()`.
+	 */
+	public function test_duplicate_slug_triggers_doing_it_wrong() {
+		$captured = array();
+		$listener = static function ( $function_name, $message ) use ( &$captured ) {
+			$captured[] = array(
+				'function' => $function_name,
+				'message'  => $message,
+			);
+		};
+
+		add_filter( 'doing_it_wrong_trigger_error', '__return_false' );
+		add_action( 'doing_it_wrong_run', $listener, 10, 2 );
+
+		try {
+			Connection_Provider_Registry::register( $this->make_provider( 'dupe' ) );
+			Connection_Provider_Registry::register( $this->make_provider( 'dupe' ) );
+		} finally {
+			remove_action( 'doing_it_wrong_run', $listener, 10 );
+			remove_filter( 'doing_it_wrong_trigger_error', '__return_false' );
+		}
+
+		$this->assertCount( 1, $captured );
+		$this->assertStringContainsString( 'Connection_Provider_Registry::register', $captured[0]['function'] );
+		$this->assertStringContainsString( 'dupe', $captured[0]['message'] );
 	}
 
 	/**
@@ -118,6 +164,9 @@ class Connection_Provider_RegistryTest extends BaseTestCase {
 			}
 			public function get_status(): array {
 				return array( 'connected' => true );
+			}
+			public function is_connected(): bool {
+				return true;
 			}
 			public function render_setup_section(): void {}
 			public function render_connection_actions(): void {}

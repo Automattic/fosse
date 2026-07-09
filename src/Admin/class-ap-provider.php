@@ -113,6 +113,19 @@ class AP_Provider implements Connection_Provider {
 	}
 
 	/**
+	 * Whether ActivityPub is connected.
+	 *
+	 * AP has no external auth step — the bundled/standalone plugin is
+	 * either loaded (connected) or not. Mirrors the `connected` key of
+	 * {@see self::get_status()}.
+	 *
+	 * @return bool
+	 */
+	public function is_connected(): bool {
+		return (bool) $this->get_status()['connected'];
+	}
+
+	/**
 	 * Per-request memo for {@see self::get_status()}. The Status page
 	 * renders each provider's status twice in the same request — once
 	 * filtering on `connected`, once inside `render_status_card()` —
@@ -230,14 +243,14 @@ class AP_Provider implements Connection_Provider {
 		<div class="fosse-connection-section fosse-admin-card" id="fosse-provider-activitypub-connection">
 			<div class="fosse-card-header">
 				<h3><?php esc_html_e( 'ActivityPub', 'fosse' ); ?></h3>
-				<span class="fosse-status-badge is-connected"><?php esc_html_e( 'Connected', 'fosse' ); ?></span>
+				<span class="fosse-status-badge is-connected"><?php esc_html_e( 'Active', 'fosse' ); ?></span>
 			</div>
 			<div class="fosse-card-body">
 				<p>
-					<strong><?php esc_html_e( 'Connected automatically', 'fosse' ); ?></strong>
+					<strong><?php esc_html_e( 'Fediverse profile active', 'fosse' ); ?></strong>
 				</p>
 				<p class="description">
-					<?php esc_html_e( 'ActivityPub is active for this site, so no separate connection step is needed.', 'fosse' ); ?>
+					<?php esc_html_e( 'Your WordPress site creates its own ActivityPub profile, so no separate Mastodon account connection is needed.', 'fosse' ); ?>
 				</p>
 			</div>
 		</div>
@@ -252,7 +265,7 @@ class AP_Provider implements Connection_Provider {
 	public function render_status_card(): void {
 		$status       = $this->get_status();
 		$status_class = $status['connected'] ? 'connected' : 'disconnected';
-		$status_label = $status['connected'] ? __( 'Connected', 'fosse' ) : __( 'Disconnected', 'fosse' );
+		$status_label = $status['connected'] ? __( 'Active', 'fosse' ) : __( 'Inactive', 'fosse' );
 		$mode_label   = $this->get_actor_mode_label( $status['actor_mode'] );
 		$post_types   = array_map(
 			static function ( $pt_name ) {
@@ -360,6 +373,45 @@ class AP_Provider implements Connection_Provider {
 				: '';
 			$raw       = trim( $raw_input );
 			if ( '' !== $raw ) {
+				// Pre-check the collision before writing. AP's sanitizer
+				// (`Sanitize::blog_identifier`) silently returns
+				// `Blog::get_default_username()` on a login/nicename
+				// collision, and `update_option` would then PERSIST that
+				// default, clobbering a previously saved custom handle
+				// (breaking the blog actor's existing followers) while the
+				// UI shows only the collision error. Guard against that
+				// here: when the canonical form of the requested handle
+				// collides, do not write the option (preserve the prior
+				// value) but still surface the user-facing error so the
+				// save is not silent.
+				if ( $this->blog_identifier_collides( $raw ) ) {
+					add_settings_error(
+						'fosse',
+						'activitypub_blog_identifier',
+						__( 'That site handle matches an existing author login or nickname. Your previous handle was kept.', 'fosse' ),
+						'error'
+					);
+
+					return false;
+				}
+
+				// Same guard for input that canonicalizes to nothing (e.g.
+				// `!!!`): AP's sanitizer discards it and returns the default
+				// username WITHOUT raising a settings error, so neither the
+				// collision pre-check above nor the error re-tag below would
+				// catch it — `update_option` would silently clobber the saved
+				// handle behind a success notice.
+				if ( $this->blog_identifier_canonicalizes_empty( $raw ) ) {
+					add_settings_error(
+						'fosse',
+						'activitypub_blog_identifier',
+						__( 'That site handle contains no usable characters. Your previous handle was kept.', 'fosse' ),
+						'error'
+					);
+
+					return false;
+				}
+
 				// Snapshot the queue length, not the codes. AP's sanitizer
 				// reuses a constant code (`activitypub_blog_identifier`) for
 				// every collision rejection — comparing by code would mask a
@@ -369,7 +421,28 @@ class AP_Provider implements Connection_Provider {
 				// only the entries this `update_option` call appended.
 				$ap_error_count_before = count( get_settings_errors( 'activitypub_blog_identifier' ) );
 
-				update_option( 'activitypub_blog_identifier', $raw );
+				// Cancel the write at `pre_update_option_*` (after sanitize
+				// runs, before WP commits) if AP's sanitizer raised any
+				// fresh error. This short-circuits BEFORE
+				// `update_option_activitypub_blog_identifier` fires, so the
+				// AP scheduler can't observe the bad fallback value and
+				// queue an outbox Update for a rejected handle. A post-write
+				// restore would only put the option text back; AP's side
+				// effects (outbox, follower notifications) would already
+				// be in flight.
+				$cancel_on_fresh_error = static function ( $new_value, $old_value ) use ( $ap_error_count_before ) {
+					if ( count( get_settings_errors( 'activitypub_blog_identifier' ) ) > $ap_error_count_before ) {
+						return $old_value;
+					}
+					return $new_value;
+				};
+				add_filter( 'pre_update_option_activitypub_blog_identifier', $cancel_on_fresh_error, 999, 2 );
+
+				try {
+					update_option( 'activitypub_blog_identifier', $raw );
+				} finally {
+					remove_filter( 'pre_update_option_activitypub_blog_identifier', $cancel_on_fresh_error, 999 );
+				}
 
 				// AP's sanitizer raises settings errors under its own group
 				// when the input collides with an existing user_login /
@@ -557,6 +630,65 @@ class AP_Provider implements Connection_Provider {
 	}
 
 	/**
+	 * Canonicalize a raw site handle the way AP's sanitizer does.
+	 *
+	 * Mirrors `Sanitize::blog_identifier`'s transformation exactly: split
+	 * on `.`, run `sanitize_title` on each label, rejoin. AP then treats an
+	 * `empty()` result — which in PHP includes the literal string `'0'` —
+	 * as "no value" and swaps in `Blog::get_default_username()`; collapse
+	 * those to `''` here so callers can detect that silent reset.
+	 *
+	 * @param string $raw Raw submitted site handle.
+	 * @return string Canonical handle, or `''` when AP would discard it.
+	 */
+	private static function canonicalize_blog_identifier( string $raw ): string {
+		$labels    = explode( '.', $raw );
+		$canonical = implode( '.', array_map( 'sanitize_title', $labels ) );
+
+		return empty( $canonical ) ? '' : $canonical;
+	}
+
+	/**
+	 * Whether a requested site handle would be rejected as a collision.
+	 *
+	 * Canonicalizes the raw input the same way AP's
+	 * `Sanitize::blog_identifier` does (per-label `sanitize_title`) before
+	 * checking it against existing `user_login` / `user_nicename` values.
+	 * Used to pre-empt AP's sanitizer, which silently swaps a colliding
+	 * handle for the default — a value `update_option` would then persist
+	 * over the previously saved handle.
+	 *
+	 * @param string $raw Raw submitted site handle.
+	 * @return bool True when the canonical handle collides with an existing user.
+	 */
+	public function blog_identifier_collides( string $raw ): bool {
+		$canonical = self::canonicalize_blog_identifier( $raw );
+
+		if ( '' === $canonical ) {
+			return false;
+		}
+
+		return self::blog_username_in_use( $canonical );
+	}
+
+	/**
+	 * Whether a requested site handle canonicalizes to nothing.
+	 *
+	 * AP's sanitizer hits its `empty()` branch for such input (e.g. `!!!`,
+	 * or the literal `0`) and returns the default username WITHOUT raising
+	 * a settings error — so an unguarded `update_option` would silently
+	 * clobber a previously saved handle with the default behind a success
+	 * notice. Callers use this to skip the write and surface an error
+	 * instead, mirroring the collision pre-check.
+	 *
+	 * @param string $raw Raw submitted site handle.
+	 * @return bool True when AP's sanitizer would discard the input.
+	 */
+	public function blog_identifier_canonicalizes_empty( string $raw ): bool {
+		return '' === self::canonicalize_blog_identifier( $raw );
+	}
+
+	/**
 	 * Whether the given actor mode publishes from per-author profiles.
 	 *
 	 * @param string $mode Actor mode value.
@@ -637,7 +769,10 @@ class AP_Provider implements Connection_Provider {
 			$count = \Activitypub\Collection\Followers::count( get_current_user_id() );
 			?>
 			<dt class="fosse-detail-list__term"><?php esc_html_e( 'Your Followers', 'fosse' ); ?></dt>
-			<dd class="fosse-detail-list__description"><?php echo esc_html( number_format_i18n( $count ) ); ?></dd>
+			<dd class="fosse-detail-list__description">
+				<?php echo esc_html( number_format_i18n( $count ) ); ?>
+				<p class="description"><?php esc_html_e( 'This count reflects your own author profile, not a site-wide total.', 'fosse' ); ?></p>
+			</dd>
 			<?php
 		}
 	}

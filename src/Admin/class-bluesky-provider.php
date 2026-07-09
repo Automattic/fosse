@@ -38,6 +38,17 @@ class Bluesky_Provider implements Connection_Provider {
 	public const RETURN_CONTEXT_WIZARD = 'wizard';
 
 	/**
+	 * Settings-error code for notices queued by {@see self::redirect_with_notice()}.
+	 *
+	 * Public so renderers of the shared `'atmosphere'` settings-error group
+	 * (e.g. the onboarding wizard's Bluesky step) can recognize FOSSE-owned
+	 * notices, whose messages are stored pre-escaped via `esc_html()`, and
+	 * skip re-escaping them — while still escaping messages from other
+	 * writers to the same group (bundled Atmosphere stores raw text).
+	 */
+	public const NOTICE_CODE = 'fosse_bluesky_notice';
+
+	/**
 	 * Per-user transient prefix for pending OAuth return context.
 	 */
 	private const OAUTH_RETURN_TRANSIENT_PREFIX = 'fosse_bluesky_oauth_return_';
@@ -179,13 +190,27 @@ class Bluesky_Provider implements Connection_Provider {
 
 		$this->status_cache = array(
 			'connected'    => $connected,
-			'handle'       => $connection['handle'] ?? '',
-			'did'          => $connection['did'] ?? '',
-			'pds_endpoint' => $connection['pds_endpoint'] ?? '',
+			'handle'       => is_string( $connection['handle'] ?? null ) ? $connection['handle'] : '',
+			'did'          => is_string( $connection['did'] ?? null ) ? $connection['did'] : '',
+			'pds_endpoint' => is_string( $connection['pds_endpoint'] ?? null ) ? $connection['pds_endpoint'] : '',
 			'token_error'  => $token_error,
 		);
 
 		return $this->status_cache;
+	}
+
+	/**
+	 * Whether Bluesky currently has a working connection.
+	 *
+	 * Mirrors the `connected` key of {@see self::get_status()}. Reads
+	 * through the memoized status so the token-health probe in
+	 * {@see self::get_status()} still runs and clears stale connections
+	 * before the answer is returned.
+	 *
+	 * @return bool
+	 */
+	public function is_connected(): bool {
+		return (bool) $this->get_status()['connected'];
 	}
 
 	/**
@@ -384,6 +409,8 @@ class Bluesky_Provider implements Connection_Provider {
 						<?php submit_button( __( 'Connect Bluesky', 'fosse' ), 'primary', 'submit', false ); ?>
 					</div>
 				</form>
+				<?php $this->render_identity_recovery_panel(); ?>
+				<?php $this->render_identity_forget_panel(); ?>
 			<?php else : ?>
 				<div class="fosse-card-body">
 					<p>
@@ -565,6 +592,179 @@ class Bluesky_Provider implements Connection_Provider {
 	}
 
 	/**
+	 * Render the collapsed "Restore from DID" recovery panel.
+	 *
+	 * Surfaces below the primary Connect form on the disconnected state.
+	 * Collapsed by default — most users never need it. The escape hatch
+	 * is for sites that adopted the site domain as their Bluesky handle
+	 * and lost `atmosphere_identity` (older Atmosphere disconnects wiped
+	 * it; a backup restore that excluded the option does the same). With
+	 * identity empty, `/.well-known/atproto-did` 404s, the handle
+	 * resolver finds nothing, and reconnect with the domain handle is
+	 * impossible — `handle_restore_identity()` rebuilds the verification
+	 * anchor from a DID the user can read off bsky.app.
+	 *
+	 * Only renders when there's no persisted identity at all. A site
+	 * with a previously-persisted identity that just needs reauth has
+	 * the normal Connect path; this panel would only be a confusing
+	 * second option for them.
+	 *
+	 * @return void
+	 */
+	private function render_identity_recovery_panel(): void {
+		// Mirror the handler's resolver-API check so the panel doesn't
+		// invite a submission the handler will immediately reject. The
+		// missing-Atmosphere case is rare in shipped FOSSE but reachable
+		// in custom builds and CI; either way, a hidden panel is a better
+		// UX than a paste-then-fail loop.
+		if ( ! function_exists( '\Atmosphere\has_identity' )
+			|| ! class_exists( '\Atmosphere\OAuth\Resolver' )
+			|| ! method_exists( '\Atmosphere\OAuth\Resolver', 'resolve_did' )
+			|| ! method_exists( '\Atmosphere\OAuth\Resolver', 'pds_from_did_doc' )
+		) {
+			return;
+		}
+
+		if ( \Atmosphere\has_identity() ) {
+			return;
+		}
+
+		$site_host = $this->get_eligible_canonical_site_host();
+		if ( '' === $site_host ) {
+			return;
+		}
+		?>
+		<details class="fosse-identity-recovery">
+			<summary class="fosse-identity-recovery__summary">
+				<?php esc_html_e( 'Trouble reconnecting a domain handle?', 'fosse' ); ?>
+			</summary>
+			<div class="fosse-identity-recovery__body">
+				<p>
+					<?php
+					echo esc_html(
+						sprintf(
+							/* translators: %s: WordPress site host (e.g. example.com). */
+							__( 'Use this if you previously used %s as your Bluesky handle and reconnecting no longer works. Paste your Bluesky DID below. FOSSE will check that the DID still points back to this site before restoring the identity needed to reconnect.', 'fosse' ),
+							$site_host
+						)
+					);
+					?>
+				</p>
+				<form class="fosse-identity-recovery__form" method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+					<input type="hidden" name="action" value="fosse_restore_bluesky_identity" />
+					<input type="hidden" name="_wpnonce" value="<?php echo esc_attr( wp_create_nonce( 'fosse_restore_bluesky_identity' ) ); ?>" />
+
+					<div class="fosse-field">
+						<label class="fosse-field__label" for="fosse_bluesky_did"><?php esc_html_e( 'Bluesky DID', 'fosse' ); ?></label>
+						<div class="fosse-field__control">
+							<input
+								type="text"
+								class="regular-text"
+								name="bluesky_did"
+								id="fosse_bluesky_did"
+								aria-describedby="fosse_bluesky_did_description"
+								placeholder="did:plc:..."
+								autocomplete="off"
+								autocapitalize="none"
+								spellcheck="false"
+							/>
+							<p class="description" id="fosse_bluesky_did_description">
+								<?php
+								echo wp_kses_post(
+									sprintf(
+										/* translators: 1: opening anchor tag to Bluesky account settings, 2: closing anchor tag. */
+										__( 'Starts with did:plc: or did:web:. You can find it in %1$sBluesky account settings%2$s or your profile URL.', 'fosse' ),
+										'<a href="' . esc_url( 'https://bsky.app/settings/account' ) . '" target="_blank" rel="noopener noreferrer">',
+										'</a>'
+									)
+								);
+								?>
+							</p>
+						</div>
+					</div>
+
+					<div class="fosse-identity-recovery__actions fosse-action-bar">
+						<?php submit_button( __( 'Restore identity', 'fosse' ), 'secondary', 'submit', false ); ?>
+					</div>
+				</form>
+			</div>
+		</details>
+		<?php
+	}
+
+	/**
+	 * Render the "Forget Bluesky identity" disclosure panel.
+	 *
+	 * Counterpart to {@see self::render_identity_recovery_panel()}. Renders
+	 * only on the disconnected state when an identity is still on file —
+	 * the case where the admin disconnected but Disconnect deliberately
+	 * preserved the verification anchor, and they now want to fully sever
+	 * the link (selling the site, switching accounts entirely, undoing a
+	 * wrong restore). Connected sites don't see this — the natural flow is
+	 * Disconnect, then Forget if they want a clean slate.
+	 *
+	 * Shows the persisted DID + handle + PDS as plain text inside the
+	 * disclosure body so the admin can verify what they're about to delete
+	 * before clicking through. Collapsed by default because the typical
+	 * disconnect → reconnect cycle shouldn't surface this as the primary
+	 * action.
+	 *
+	 * @return void
+	 */
+	private function render_identity_forget_panel(): void {
+		if ( ! function_exists( '\Atmosphere\get_identity' ) || ! function_exists( '\Atmosphere\has_identity' ) ) {
+			return;
+		}
+
+		if ( ! \Atmosphere\has_identity() ) {
+			return;
+		}
+
+		$identity = \Atmosphere\get_identity();
+		$did      = isset( $identity['did'] ) ? (string) $identity['did'] : '';
+		$handle   = isset( $identity['handle'] ) ? (string) $identity['handle'] : '';
+		$pds      = isset( $identity['pds_endpoint'] ) ? (string) $identity['pds_endpoint'] : '';
+		?>
+		<details class="fosse-identity-forget">
+			<summary>
+				<?php esc_html_e( 'Forget this site\'s Bluesky identity entirely.', 'fosse' ); ?>
+			</summary>
+			<div class="fosse-card-body">
+				<p>
+					<?php
+					esc_html_e(
+						'Disconnect keeps the persisted DID so a domain-handle site can reconnect cleanly. Use this if you instead want to fully sever the link — selling the site, switching to a different Bluesky account, or undoing a wrong restore. Once cleared, the .well-known/atproto-did route on this domain stops serving the DID, and external resolvers stop trusting any cached binding.',
+						'fosse'
+					);
+					?>
+				</p>
+				<dl class="fosse-detail-list">
+					<?php if ( '' !== $did ) : ?>
+						<dt class="fosse-detail-list__term"><?php esc_html_e( 'DID', 'fosse' ); ?></dt>
+						<dd class="fosse-detail-list__description"><code><?php echo esc_html( $did ); ?></code></dd>
+					<?php endif; ?>
+					<?php if ( '' !== $handle ) : ?>
+						<dt class="fosse-detail-list__term"><?php esc_html_e( 'Handle', 'fosse' ); ?></dt>
+						<dd class="fosse-detail-list__description"><code><?php echo esc_html( $handle ); ?></code></dd>
+					<?php endif; ?>
+					<?php if ( '' !== $pds ) : ?>
+						<dt class="fosse-detail-list__term"><?php esc_html_e( 'PDS endpoint', 'fosse' ); ?></dt>
+						<dd class="fosse-detail-list__description"><code><?php echo esc_html( $pds ); ?></code></dd>
+					<?php endif; ?>
+				</dl>
+				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+					<input type="hidden" name="action" value="fosse_forget_bluesky_identity" />
+					<input type="hidden" name="_wpnonce" value="<?php echo esc_attr( wp_create_nonce( 'fosse_forget_bluesky_identity' ) ); ?>" />
+					<div class="fosse-card-footer fosse-action-bar">
+						<?php submit_button( __( 'Forget Bluesky identity', 'fosse' ), 'secondary', 'submit', false ); ?>
+					</div>
+				</form>
+			</div>
+		</details>
+		<?php
+	}
+
+	/**
 	 * Render the Bluesky status card on the FOSSE Status page.
 	 *
 	 * @return void
@@ -664,11 +864,13 @@ class Bluesky_Provider implements Connection_Provider {
 		add_action( 'admin_post_fosse_connect_bluesky', array( $this, 'handle_connect' ) );
 		add_action( 'admin_post_fosse_disconnect_bluesky', array( $this, 'handle_disconnect' ) );
 		add_action( 'admin_post_fosse_set_bluesky_domain_handle', array( $this, 'handle_set_domain_handle' ) );
+		add_action( 'admin_post_fosse_restore_bluesky_identity', array( $this, 'handle_restore_identity' ) );
+		add_action( 'admin_post_fosse_forget_bluesky_identity', array( $this, 'handle_forget_identity' ) );
 		add_action( 'admin_post_fosse_enable_bluesky_auto_publish', array( $this, 'handle_enable_auto_publish' ) );
 		add_action( 'admin_init', array( $this, 'handle_oauth_callback' ) );
 		add_action( 'admin_notices', array( $this, 'maybe_render_auto_publish_disabled_notice' ) );
-		add_action( 'init', array( $this, 'serve_atproto_did_well_known' ), 1 );
-		add_action( 'template_redirect', array( $this, 'maybe_suppress_atmosphere_well_known' ), 1 );
+		add_action( 'template_redirect', array( $this, 'maybe_suppress_atmosphere_well_known' ), -2 );
+		add_action( 'template_redirect', array( $this, 'send_atproto_did_nocache_headers' ), -1 );
 
 		// Override Atmosphere's OAuth redirect URI so the auth server callback
 		// and the client-metadata REST endpoint both advertise FOSSE's page.
@@ -697,107 +899,51 @@ class Bluesky_Provider implements Connection_Provider {
 	}
 
 	/**
-	 * Serve /.well-known/atproto-did when FOSSE owns the route.
+	 * Apply `nocache_headers()` to `/.well-known/atproto-did` responses before
+	 * Atmosphere's handler sends the body.
 	 *
-	 * Returns silently for unrelated paths, when the
-	 * `fosse_serve_atproto_did_well_known` filter opts out, and when
-	 * Atmosphere isn't loaded. Sends a 404 and exits when Atmosphere is
-	 * loaded but no DID is available; otherwise sends a `text/plain` body
-	 * containing the connected DID and exits.
+	 * The deleted FOSSE handler sent `nocache_headers()` on both 200 and 404
+	 * responses; Atmosphere's `serve_wellknown_atproto_did()` doesn't. Without
+	 * the headers, fronting page/CDN caches can keep a pre-connect 404 after
+	 * OAuth completes, or keep a stale 200 DID after disconnect — either
+	 * defeats Bluesky's bidirectional handle resolution. This shim runs at
+	 * `template_redirect` priority -1 (after the opt-out suppression at
+	 * priority -2, before Atmosphere's serve at priority 0) so the headers
+	 * are queued before any body is sent. The opt-out path already calls
+	 * `nocache_headers()` directly, so this hook short-circuits when the
+	 * filter is false.
+	 *
+	 * Track wordpress-atmosphere#83 — once upstream sends `nocache_headers()`
+	 * itself, this shim can be deleted.
 	 *
 	 * @return void
 	 */
-	public function serve_atproto_did_well_known(): void {
-		// Path-match below uses strict equality; sanitize_text_field can normalize
-		// encoded characters in surprising ways, so read raw.
-		// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
-		$request_uri = isset( $_SERVER['REQUEST_URI'] ) ? (string) wp_unslash( $_SERVER['REQUEST_URI'] ) : '';
-		$response    = $this->get_atproto_did_well_known_response( $request_uri );
-
-		if ( null === $response ) {
+	public function send_atproto_did_nocache_headers(): void {
+		if ( 'atproto-did' !== get_query_var( 'atmosphere_wellknown' ) ) {
 			return;
 		}
 
-		if ( 404 === $response['status'] ) {
-			status_header( 404 );
-			nocache_headers();
-			exit;
-		}
-
-		header( 'Content-Type: text/plain; charset=utf-8' );
-		nocache_headers();
-		echo $response['did']; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- text/plain response; DID syntax validated in get_atproto_did_well_known_response().
-		exit;
-	}
-
-	/**
-	 * Resolve the response data for FOSSE's /.well-known/atproto-did handler.
-	 *
-	 * @param string $request_uri Request URI.
-	 * @return array{status:200|404,did:string}|null Null when FOSSE should not handle the request; otherwise a status code and the DID (empty for 404).
-	 */
-	private function get_atproto_did_well_known_response( string $request_uri ): ?array {
-		$path = wp_parse_url( $request_uri, PHP_URL_PATH );
-
-		if ( '/.well-known/atproto-did' !== $path ) {
-			return null;
-		}
-
-		/**
-		 * Filter whether FOSSE serves the /.well-known/atproto-did route.
-		 *
-		 * Disable to let another component (CDN, custom rewrite, etc.) own the path.
-		 *
-		 * @param bool $serve Default true.
-		 */
 		if ( ! apply_filters( 'fosse_serve_atproto_did_well_known', true ) ) {
-			return null;
+			return;
 		}
 
-		if ( ! function_exists( '\Atmosphere\is_connected' ) ) {
-			// Atmosphere isn't loaded. That's a structural error, not a
-			// user-facing "no connection" state. Decline to handle so a
-			// normal 404 happens via WordPress's main request flow.
-			return null;
-		}
-
-		if ( ! \Atmosphere\is_connected() ) {
-			return array(
-				'status' => 404,
-				'did'    => '',
-			);
-		}
-
-		$connection = \Atmosphere\get_connection();
-		$did        = isset( $connection['did'] ) ? (string) $connection['did'] : '';
-
-		// Validate the DID against AT Proto syntax before promising to serve it.
-		// The response is plain text and a malformed value (newlines, control chars,
-		// HTML bytes) would corrupt the body or worse. Valid AT Proto DIDs are
-		// "did:" + method + ":" + ASCII alphanumerics with a small punctuation set.
-		// \A and \z anchor strictly so a stored DID with a trailing newline (which
-		// PHP's $ anchor permits) doesn't slip a stray byte into the response.
-		if ( ! preg_match( '/\Adid:[a-z]+:[A-Za-z0-9._:%\-]*[A-Za-z0-9._\-]\z/', $did ) ) {
-			return array(
-				'status' => 404,
-				'did'    => '',
-			);
-		}
-
-		return array(
-			'status' => 200,
-			'did'    => $did,
-		);
+		nocache_headers();
 	}
 
 	/**
 	 * Suppress bundled Atmosphere's /.well-known/atproto-did handler when FOSSE opts out.
 	 *
-	 * The fosse_serve_atproto_did_well_known filter only controls FOSSE's own handler.
-	 * Atmosphere registers an independent template_redirect handler that would otherwise
-	 * still serve the route, defeating the opt-out. Clearing Atmosphere's query var
-	 * makes its handler return early so neither plugin serves the route. Also flags the
-	 * request 404 so WordPress doesn't render the front page for the well-known URL.
+	 * Atmosphere owns the route end-to-end now: its `serve_wellknown_atproto_did()`
+	 * runs on `template_redirect` priority 0 and gates the response on
+	 * `\Atmosphere\has_identity()`, which is the contract FOSSE was previously
+	 * mirroring. The `fosse_serve_atproto_did_well_known` filter remains as a
+	 * site-level opt-out: when it returns false, this hook (priority -2) clears
+	 * Atmosphere's query var so its handler returns early and marks the request
+	 * 404 so WordPress doesn't render the front page for the well-known URL.
+	 *
+	 * Third-party handlers attached at `template_redirect` priority > -2 can still
+	 * take over by calling `status_header( 200 )`, `$wp_query->set_404( false )`,
+	 * and `exit()`.
 	 *
 	 * @return void
 	 */
@@ -806,14 +952,23 @@ class Bluesky_Provider implements Connection_Provider {
 			return;
 		}
 
+		/**
+		 * Filter whether the bundled Atmosphere handler serves /.well-known/atproto-did.
+		 *
+		 * Return false to let another component (CDN, custom rewrite, etc.) own the path.
+		 * When false, FOSSE clears Atmosphere's query var and forces a 404 so neither
+		 * plugin responds to the request.
+		 *
+		 * @param bool $serve Default true.
+		 */
 		if ( apply_filters( 'fosse_serve_atproto_did_well_known', true ) ) {
 			return;
 		}
 
-		// Clear Atmosphere's query var so its handler at priority 10 returns,
+		// Clear Atmosphere's query var so its handler at priority 0 returns,
 		// then mark the request 404 so the rewrite rule doesn't render the
 		// front page for the well-known URL. Third-party handlers attached at
-		// template_redirect priority > 1 can still take over by calling
+		// template_redirect priority > -2 can still take over by calling
 		// status_header( 200 ), $wp_query->set_404( false ), and exit().
 		set_query_var( 'atmosphere_wellknown', '' );
 
@@ -853,7 +1008,7 @@ class Bluesky_Provider implements Connection_Provider {
 		);
 
 		$handle = sanitize_text_field( wp_unslash( $_POST['bluesky_handle'] ?? '' ) );
-		$handle = strtolower( trim( ltrim( trim( $handle ), '@' ) ) );
+		$handle = self::normalize_submitted_handle( $handle );
 
 		if ( empty( $handle ) ) {
 			self::record_connection_failed( 'bluesky', $source, 'invalid_handle' );
@@ -875,7 +1030,7 @@ class Bluesky_Provider implements Connection_Provider {
 			return;
 		}
 
-		$auth_url = \Atmosphere\OAuth\Client::authorize( $handle );
+		$auth_url = $this->request_authorize_url( $handle );
 
 		if ( is_wp_error( $auth_url ) ) {
 			self::record_connection_failed( 'bluesky', $source, self::categorize_wp_error( $auth_url ) );
@@ -883,10 +1038,40 @@ class Bluesky_Provider implements Connection_Provider {
 			return;
 		}
 
+		// Defense-in-depth: the authorize URL is built from the remote auth
+		// server's advertised `authorization_endpoint`. Bundled Atmosphere
+		// validates the scheme during resolution, but a standalone or forked
+		// Atmosphere may not — never hand the browser a non-https
+		// authorization redirect.
+		if ( 'https' !== strtolower( (string) wp_parse_url( $auth_url, PHP_URL_SCHEME ) ) ) {
+			self::record_connection_failed( 'bluesky', $source, 'auth_failed' );
+			$this->redirect_with_notice(
+				__( 'Bluesky connection failed: the account\'s server returned an insecure sign-in address. Please try again or contact your Bluesky host.', 'fosse' ),
+				'error',
+				$return_context
+			);
+			return;
+		}
+
 		$this->remember_oauth_return_context( $return_context );
 
 		wp_redirect( $auth_url ); // phpcs:ignore WordPress.Security.SafeRedirect.wp_redirect_wp_redirect
 		exit;
+	}
+
+	/**
+	 * Fetch the authorization URL for a validated handle from the OAuth client.
+	 *
+	 * Seam for tests: `Client::authorize()` is a static call whose return
+	 * value is remote-controlled (the auth server's advertised
+	 * `authorization_endpoint`), so subclasses override this to exercise
+	 * the redirect guard in `handle_connect()` without a live OAuth flow.
+	 *
+	 * @param string $handle Validated AT Protocol handle.
+	 * @return string|\WP_Error Authorization URL or error.
+	 */
+	protected function request_authorize_url( string $handle ): string|\WP_Error {
+		return \Atmosphere\OAuth\Client::authorize( $handle );
 	}
 
 	/**
@@ -969,6 +1154,36 @@ class Bluesky_Provider implements Connection_Provider {
 	}
 
 	/**
+	 * Normalize a submitted Bluesky handle before validation.
+	 *
+	 * Peels ASCII whitespace and invisible Unicode formatting bytes
+	 * (`\p{Cf}`: BOM, ZWSP, bidi marks, etc.) from both edges of the
+	 * handle, then strips a leading `@`. Formatting bytes in the
+	 * interior of the handle are intentionally left in place — they
+	 * change the semantic shape of what the user typed and the
+	 * downstream ASCII validation should surface that as an
+	 * `invalid_handle` error rather than silently coercing the input
+	 * into a different valid handle.
+	 *
+	 * @param string $handle Raw sanitized handle from the form submission.
+	 * @return string Normalized handle.
+	 */
+	private static function normalize_submitted_handle( string $handle ): string {
+		// ASCII whitespace is listed explicitly rather than via `\s` so the
+		// pattern doesn't quietly grow if PCRE2 is ever compiled with UCP
+		// (PHP's bundled build isn't, but the explicit class removes the
+		// dependency on that). Non-ASCII whitespace stays intact and falls
+		// through to the AT Protocol ASCII validator downstream.
+		$edge_pattern = '/^[ \t\n\r\f\v\p{Cf}]+|[ \t\n\r\f\v\p{Cf}]+$/u';
+
+		$handle = (string) preg_replace( $edge_pattern, '', $handle );
+		$handle = ltrim( $handle, '@' );
+		$handle = (string) preg_replace( $edge_pattern, '', $handle );
+
+		return strtolower( $handle );
+	}
+
+	/**
 	 * Handle the explicit "use my domain as my Bluesky handle" submission.
 	 *
 	 * Posted from the wizard's connected-state confirm button or the FOSSE
@@ -997,6 +1212,332 @@ class Bluesky_Provider implements Connection_Provider {
 
 		wp_safe_redirect( $this->get_redirect_url( $return_context ) );
 		exit;
+	}
+
+	/**
+	 * Restore `atmosphere_identity` from a DID submitted by the admin.
+	 *
+	 * Recovery escape hatch for sites that previously adopted the site
+	 * domain as their Bluesky handle and lost the persisted identity (e.g.
+	 * disconnected on a pre-fix Atmosphere release that wiped
+	 * `atmosphere_identity`, or restored from a backup that excluded the
+	 * option). With identity gone, `/.well-known/atproto-did` 404s and the
+	 * AT Protocol handle resolver has nothing to find — `handle_to_did()`
+	 * fails on both DNS TXT and HTTPS well-known, so reconnect with the
+	 * domain handle is impossible without first restoring the option.
+	 *
+	 * Flow:
+	 *  1. Capability + nonce gate.
+	 *  2. Validate DID syntax (`did:plc:<24 lowercase alnum>` or `did:web:<host>`).
+	 *  3. Fetch the DID document via {@see \Atmosphere\OAuth\Resolver::resolve_did()}.
+	 *  4. Bind to the site: the document's `alsoKnownAs` MUST include
+	 *     `at://<site-host>`. This is the integrity gate that blocks both
+	 *     accidental wrong-DID entry and deliberate impersonation — only a
+	 *     DID that already lists this WordPress site as one of its handles
+	 *     can attach itself here.
+	 *  5. Extract the PDS endpoint via {@see \Atmosphere\OAuth\Resolver::pds_from_did_doc()}.
+	 *  6. Write `atmosphere_identity` with the trio FOSSE/Atmosphere
+	 *     expect (`did`, `handle`, `pds_endpoint`), `autoload=true` to
+	 *     match {@see \Atmosphere\get_identity()}.
+	 *
+	 * The user still has to complete a fresh OAuth flow afterwards — this
+	 * only restores the bidirectional verification anchor so the resolver
+	 * chain works.
+	 *
+	 * @return void
+	 */
+	public function handle_restore_identity(): void {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( esc_html__( 'You do not have permission to do this.', 'fosse' ) );
+		}
+
+		check_admin_referer( 'fosse_restore_bluesky_identity' );
+
+		// Mirror the renderer's gate at the handler level. The recovery panel
+		// only renders when has_identity() is false, but the admin-post hook
+		// is still wired up regardless — a stale form tab from a prior
+		// disconnected state, or a direct POST with a valid nonce, could
+		// otherwise overwrite identity on a site that has since reconnected.
+		// That would produce split-brain state: get_status() reports the
+		// connected DID from atmosphere_connection while the well-known
+		// route serves the overwritten DID from atmosphere_identity.
+		if ( function_exists( '\Atmosphere\has_identity' ) && \Atmosphere\has_identity() ) {
+			$this->redirect_with_notice(
+				__( 'A Bluesky identity is already on file for this site. Use Disconnect or "Forget Bluesky identity" first if you want to replace it.', 'fosse' ),
+				'error'
+			);
+			return;
+		}
+
+		$did = trim( sanitize_text_field( wp_unslash( $_POST['bluesky_did'] ?? '' ) ) );
+
+		if ( '' === $did ) {
+			$this->redirect_with_notice(
+				__( 'Enter your Bluesky DID to restore the connection.', 'fosse' ),
+				'error'
+			);
+			return;
+		}
+
+		// Strict DID syntax: did:plc with a 24-char base32-ish suffix (the
+		// canonical PLC identifier shape) or did:web with a DNS-style host.
+		// Anything outside these two methods isn't supported by the resolver
+		// downstream, so rejecting here gives a clearer error than letting
+		// resolve_did() fall through to "Unsupported DID method".
+		if ( ! preg_match( '/^did:plc:[a-z0-9]{24}$/', $did )
+			&& ! preg_match( '/^did:web:[a-z0-9.-]+$/', $did )
+		) {
+			$this->redirect_with_notice(
+				__( 'That doesn\'t look like a valid AT Protocol DID. It should start with did:plc: or did:web:.', 'fosse' ),
+				'error'
+			);
+			return;
+		}
+
+		if ( ! class_exists( '\Atmosphere\OAuth\Resolver' )
+			|| ! method_exists( '\Atmosphere\OAuth\Resolver', 'resolve_did' )
+			|| ! method_exists( '\Atmosphere\OAuth\Resolver', 'pds_from_did_doc' )
+		) {
+			$this->redirect_with_notice(
+				__( 'Identity recovery is unavailable: the bundled Atmosphere is missing the resolver API.', 'fosse' ),
+				'error'
+			);
+			return;
+		}
+
+		// Use the same eligibility + canonical-form helper that the
+		// domain-handle SET path uses. Without this, the recovery flow can
+		// claim a domain handle on a site that's not actually eligible
+		// (subdirectory install, non-routable host, etc.), or reject a
+		// legitimate IDN site by comparing the raw UTF-8 form against the
+		// punycoded `at://xn--…` entry the DID document actually stores.
+		$site_host = $this->get_eligible_canonical_site_host();
+		if ( '' === $site_host ) {
+			$this->redirect_with_notice(
+				__( 'This site\'s WordPress Address (URL) is not eligible to be a Bluesky handle (subdirectory install, non-routable host, or an internationalized name this server can\'t encode). Fix the Site URL in Settings → General, or set up the handle on a different installation first.', 'fosse' ),
+				'error'
+			);
+			return;
+		}
+
+		$did_doc = \Atmosphere\OAuth\Resolver::resolve_did( $did );
+		if ( is_wp_error( $did_doc ) ) {
+			$this->redirect_with_notice(
+				sprintf(
+					/* translators: %s: upstream error message from DID document lookup. */
+					__( 'Could not fetch the DID document: %s', 'fosse' ),
+					$did_doc->get_error_message()
+				),
+				'error'
+			);
+			return;
+		}
+
+		$expected_aka = 'at://' . $site_host;
+		$also_known   = array();
+		if ( isset( $did_doc['alsoKnownAs'] ) && is_array( $did_doc['alsoKnownAs'] ) ) {
+			foreach ( $did_doc['alsoKnownAs'] as $aka ) {
+				if ( is_string( $aka ) ) {
+					$also_known[] = strtolower( $aka );
+				}
+			}
+		}
+
+		if ( ! in_array( $expected_aka, $also_known, true ) ) {
+			$listed = empty( $also_known )
+				? __( '(none)', 'fosse' )
+				: implode( ', ', array_slice( $also_known, 0, 3 ) );
+			$this->redirect_with_notice(
+				sprintf(
+					/* translators: 1: WordPress site host (e.g. example.com); 2: comma-separated list of at:// handles the DID document actually lists. */
+					__( 'This DID does not list %1$s as one of its handles (its document claims: %2$s). FOSSE only restores identity for a DID whose document lists this site.', 'fosse' ),
+					$site_host,
+					$listed
+				),
+				'error'
+			);
+			return;
+		}
+
+		$pds = \Atmosphere\OAuth\Resolver::pds_from_did_doc( $did_doc );
+		if ( is_wp_error( $pds ) ) {
+			$this->redirect_with_notice(
+				sprintf(
+					/* translators: %s: upstream error message from PDS extraction. */
+					__( 'Could not find a PDS endpoint in the DID document: %s', 'fosse' ),
+					$pds->get_error_message()
+				),
+				'error'
+			);
+			return;
+		}
+
+		$identity = array(
+			'did'          => $did,
+			'handle'       => $site_host,
+			'pds_endpoint' => $pds,
+		);
+
+		// autoload=true matches Atmosphere\get_identity()'s lazy-migration write
+		// so subsequent get_option() calls hit the autoloaded cache rather than
+		// re-fetching from the options table.
+		update_option(
+			'atmosphere_identity',
+			$identity,
+			true
+		);
+
+		// `update_option()` returns false both on DB write failure AND on
+		// "value didn't change" (e.g. a hostile filter pinning the option,
+		// or a stale autoloaded row that matches), so the return value
+		// alone isn't a reliable success signal. Re-read the option and
+		// verify the full identity trio landed — not just the DID. A
+		// hostile `pre_option_atmosphere_identity` filter could pin the
+		// option with the same DID but a different handle or PDS endpoint,
+		// which would silently route the well-known route's handle field
+		// and Atmosphere\get_pds_endpoint() against attacker-controlled
+		// values while the handler reports success.
+		$persisted = get_option( 'atmosphere_identity', array() );
+		if ( ! is_array( $persisted )
+			|| ( $persisted['did'] ?? '' ) !== $identity['did']
+			|| ( $persisted['handle'] ?? '' ) !== $identity['handle']
+			|| ( $persisted['pds_endpoint'] ?? '' ) !== $identity['pds_endpoint']
+		) {
+			$this->redirect_with_notice(
+				__( 'Could not persist the restored Bluesky identity. The option write failed or was overridden by a filter. Check database write access and try again.', 'fosse' ),
+				'error'
+			);
+			return;
+		}
+
+		// Echo the persisted values into the success notice. The admin pasted
+		// the DID by hand and is still on the page that triggered the action;
+		// surfacing the resolved DID + PDS at the moment of commit gives them
+		// the last opportunity to spot a wrong paste (e.g. from a phishing
+		// support thread) before they continue on to the OAuth handoff. The
+		// adjacent "Forget Bluesky identity" panel is the undo if it does
+		// look wrong.
+		$this->redirect_with_notice(
+			sprintf(
+				/* translators: 1: site host the user can now reconnect with (e.g. example.com); 2: persisted DID (did:plc:…); 3: persisted PDS endpoint URL. */
+				__( 'Restored Bluesky identity for %1$s. DID: %2$s. PDS: %3$s. Click Connect Bluesky to reauthorize. If anything looks wrong, scroll down to "Forget Bluesky identity" to clear it.', 'fosse' ),
+				$site_host,
+				$identity['did'],
+				$identity['pds_endpoint']
+			),
+			'success'
+		);
+	}
+
+	/**
+	 * Eligible, canonical Bluesky-handle form of the current site's host.
+	 *
+	 * Returns `''` when the site is not in a shape that can legally host a
+	 * Bluesky domain handle — subdirectory install, non-routable host, or
+	 * an internationalized name that this server can't encode to punycode
+	 * (`intl` extension missing). Returns the lowercased ASCII handle
+	 * otherwise — punycoded for IDN sites, exactly as the AT Protocol
+	 * handle lexicon expects and as Bluesky_Domain_Handle::set_handle()
+	 * would store it.
+	 *
+	 * Shared by the recovery handler and renderer so the gate, the
+	 * alsoKnownAs comparison, and the persisted handle string all agree
+	 * about what "this site's handle" is. Diverging here is how the panel
+	 * ends up either offered on an ineligible install or comparing a
+	 * raw IDN host against the DID's punycoded entry.
+	 *
+	 * @return string
+	 */
+	private function get_eligible_canonical_site_host(): string {
+		if ( ! class_exists( Bluesky_Domain_Handle::class ) ) {
+			return '';
+		}
+		if ( ! Bluesky_Domain_Handle::is_root_install() ) {
+			return '';
+		}
+		if ( ! Bluesky_Domain_Handle::is_resolvable_host() ) {
+			return '';
+		}
+		return Bluesky_Domain_Handle::get_target_handle();
+	}
+
+	/**
+	 * Clear the persisted Bluesky identity from this site.
+	 *
+	 * Counterpart to {@see self::handle_restore_identity()}. Disconnect now
+	 * preserves `atmosphere_identity` so a domain-handle site can reconnect
+	 * without losing the bidirectional verification anchor. That contract
+	 * leaves no in-product path to fully sever the DID link in two real
+	 * cases:
+	 *
+	 *  1. Site transfer / ownership change. The previous owner's DID stays
+	 *     advertised by `/.well-known/atproto-did` and the publication
+	 *     link tag until somebody clears it.
+	 *  2. Recovery undo. The admin pastes the wrong DID into the recovery
+	 *     panel (phish, support thread mix-up). The success notice echoes
+	 *     the persisted DID/PDS as a sanity check, but the admin still
+	 *     needs a button to revert if it looks wrong.
+	 *
+	 * The action is deliberately destructive — once cleared, the
+	 * well-known route 404s and external resolvers stop trusting any
+	 * cached binding. Capability + nonce gated like every other admin-post
+	 * handler in this class.
+	 *
+	 * @return void
+	 */
+	public function handle_forget_identity(): void {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( esc_html__( 'You do not have permission to do this.', 'fosse' ) );
+		}
+
+		check_admin_referer( 'fosse_forget_bluesky_identity' );
+
+		if ( function_exists( '\Atmosphere\is_connected' ) && \Atmosphere\is_connected() ) {
+			$this->redirect_with_notice(
+				__( 'Disconnect Bluesky before forgetting this site\'s identity. You can forget the saved identity after the Bluesky account is disconnected.', 'fosse' ),
+				'error'
+			);
+			return;
+		}
+
+		// Capture the DID before deletion so the notice can confirm what
+		// just went away (and so a "did nothing" double-click on a fresh
+		// install doesn't read as success).
+		$cleared_did = '';
+		if ( function_exists( '\Atmosphere\get_did' ) ) {
+			$cleared_did = (string) \Atmosphere\get_did();
+		}
+
+		if ( '' === $cleared_did ) {
+			$this->redirect_with_notice(
+				__( 'There is no Bluesky identity on file to forget.', 'fosse' ),
+				'info'
+			);
+			return;
+		}
+
+		delete_option( 'atmosphere_identity' );
+
+		// Re-read to verify the delete landed. A hostile
+		// `pre_option_atmosphere_identity` filter or a sticky autoloaded
+		// row could otherwise leave the option in place while the handler
+		// reports success.
+		if ( function_exists( '\Atmosphere\has_identity' ) && \Atmosphere\has_identity() ) {
+			$this->redirect_with_notice(
+				__( 'Could not clear the Bluesky identity. The option may be pinned by a filter or stuck in autoload. Check database write access and try again.', 'fosse' ),
+				'error'
+			);
+			return;
+		}
+
+		$this->redirect_with_notice(
+			sprintf(
+				/* translators: %s: DID that was cleared (e.g. did:plc:abcdef…). */
+				__( 'Forgot Bluesky identity %s. This site no longer claims that DID; the .well-known/atproto-did route now returns 404.', 'fosse' ),
+				$cleared_did
+			),
+			'success'
+		);
 	}
 
 	/**
@@ -1066,7 +1607,7 @@ class Bluesky_Provider implements Connection_Provider {
 
 		// Only show for connected sites — a disconnected site has nothing
 		// to publish to anyway, so the notice would be noise.
-		if ( ! $this->get_status()['connected'] ) {
+		if ( ! $this->is_connected() ) {
 			return;
 		}
 
@@ -1105,15 +1646,51 @@ class Bluesky_Provider implements Connection_Provider {
 
 		$code  = sanitize_text_field( wp_unslash( $_GET['code'] ?? '' ) );
 		$state = sanitize_text_field( wp_unslash( $_GET['state'] ?? '' ) );
+		$error = sanitize_text_field( wp_unslash( $_GET['error'] ?? '' ) );
 		// phpcs:enable WordPress.Security.NonceVerification.Recommended
 
-		// No code and no state → ordinary page hit, not an OAuth callback.
-		if ( '' === $code && '' === $state ) {
+		// No code, no state, and no error → ordinary page hit, not an OAuth callback.
+		if ( '' === $code && '' === $state && '' === $error ) {
 			return;
 		}
 
 		if ( ! current_user_can( 'manage_options' ) ) {
 			wp_die( esc_html__( 'You do not have permission to complete the Bluesky connection.', 'fosse' ) );
+		}
+
+		// The authorization server redirected back with an error instead of a
+		// code (RFC 6749 §4.1.2.1) — e.g. the user clicked "Deny" on the
+		// consent screen, which sends `error=access_denied`. Recover the return
+		// context from the inbound state so a wizard-origin user lands back on
+		// the wizard step, then surface user-appropriate copy. This is a
+		// declined/aborted outcome, not a token-exchange auth failure, so it is
+		// recorded distinctly from the incomplete-response and `auth_failed`
+		// paths below.
+		if ( '' !== $error ) {
+			$return_context = $this->consume_oauth_return_context( $state );
+			$source         = self::context_to_source( $return_context );
+
+			// Terminate Atmosphere's pending OAuth session when the inbound
+			// state matches what `Client::authorize()` stashed. Without this,
+			// the verifier, DPoP key, resolved-account metadata, and the
+			// state itself linger for the full HOUR_IN_SECONDS transient TTL
+			// even though the user just declined. Gated on a hash_equals
+			// state match so an attacker can't drop a victim's in-flight
+			// session by hitting the callback with `?error=…`.
+			self::clear_atmosphere_oauth_session_if_state_matches( $state );
+
+			// No dedicated "declined" value exists in the connection-failure
+			// `error_category` enum (`auth_failed|rate_limited|network_timeout|
+			// invalid_handle|other`); `other` is the closest valid bucket that
+			// avoids mislabeling a user-initiated decline as an auth failure.
+			self::record_connection_failed( 'bluesky', $source, 'other' );
+
+			$message = 'access_denied' === $error
+				? __( 'You declined the Bluesky connection.', 'fosse' )
+				: __( 'Bluesky could not complete the connection. Please try connecting again.', 'fosse' );
+
+			$this->redirect_with_notice( $message, 'error', $return_context );
+			return;
 		}
 
 		// Exactly one of code/state present means the auth server redirected
@@ -1252,6 +1829,46 @@ class Bluesky_Provider implements Connection_Provider {
 	}
 
 	/**
+	 * Clear Atmosphere's pending OAuth-session transients when the inbound
+	 * callback `state` matches the stored Atmosphere `oauth_state`.
+	 *
+	 * The bundled `Atmosphere\OAuth\Client::handle_callback()` is the only
+	 * code path that normally deletes `atmosphere_oauth_state`,
+	 * `atmosphere_oauth_verifier`, `atmosphere_oauth_dpop_jwk`, and
+	 * `atmosphere_oauth_resolved`. When the authorization server returns an
+	 * error response, FOSSE finishes the user-facing flow before the bundled
+	 * client runs, so those transients linger for their full HOUR_IN_SECONDS
+	 * TTL. Mirror the upstream deletes so a declined attempt does not leave
+	 * a usable OAuth handshake in storage.
+	 *
+	 * Gated on a `hash_equals` match with the stored state so an attacker
+	 * cannot drop a victim's in-flight handshake by hitting the callback
+	 * URL with `?error=…&state=junk`.
+	 *
+	 * @param string $callback_state Inbound `state` query arg from the OAuth callback.
+	 * @return void
+	 */
+	private static function clear_atmosphere_oauth_session_if_state_matches( string $callback_state ): void {
+		if ( '' === $callback_state ) {
+			return;
+		}
+
+		$stored_state = \get_transient( 'atmosphere_oauth_state' );
+		if ( ! \is_string( $stored_state ) || '' === $stored_state ) {
+			return;
+		}
+
+		if ( ! \hash_equals( $stored_state, $callback_state ) ) {
+			return;
+		}
+
+		\delete_transient( 'atmosphere_oauth_state' );
+		\delete_transient( 'atmosphere_oauth_verifier' );
+		\delete_transient( 'atmosphere_oauth_dpop_jwk' );
+		\delete_transient( 'atmosphere_oauth_resolved' );
+	}
+
+	/**
 	 * Emit a `fosse_connection_failed` event for the given network/source/category.
 	 *
 	 * @param string $network        `'bluesky'|'mastodon'`.
@@ -1321,7 +1938,7 @@ class Bluesky_Provider implements Connection_Provider {
 	 * @return void
 	 */
 	private function redirect_with_notice( string $message, string $type, string $return_context = '' ): void {
-		add_settings_error( 'atmosphere', 'fosse_bluesky_notice', esc_html( $message ), $type );
+		add_settings_error( 'atmosphere', self::NOTICE_CODE, esc_html( $message ), $type );
 		User_Notices::persist();
 
 		wp_safe_redirect( $this->get_redirect_url( $return_context ) );
