@@ -14,7 +14,9 @@ namespace Atmosphere\OAuth;
 
 use Atmosphere\Atmosphere;
 use function Atmosphere\clear_scheduled_hooks;
+use function Atmosphere\debug_log;
 use function Atmosphere\get_connection;
+use function Atmosphere\is_success_status;
 
 /**
  * OAuth client that manages the authorization lifecycle.
@@ -24,22 +26,91 @@ class Client {
 	/**
 	 * Scopes requested from the auth server.
 	 *
-	 * `identity:handle` is required for `com.atproto.identity.updateHandle`
-	 * — the canonical AT Protocol permission scope per
-	 * https://atproto.com/specs/permission. `transition:generic` is the
-	 * App Password-equivalent bucket and explicitly does not include
-	 * identity operations, so it must be paired with `identity:handle`
-	 * for any flow that lets users change their handle through the PDS.
-	 *
 	 * MUST stay in lockstep with the `scope` value advertised in the
 	 * client-metadata REST endpoint
-	 * ({@see \Atmosphere\Admin::serve_client_metadata()}). The auth
+	 * ({@see \Atmosphere\Rest\Client_Metadata_Controller::get_metadata()}). The auth
 	 * server validates the requested scope against the metadata; a drift
 	 * silently downgrades every connection to whichever value is smaller.
 	 *
-	 * @var string
+	 * @var string[]
 	 */
-	private const SCOPES = 'atproto transition:generic identity:handle';
+	private const SCOPES = array(
+
+		/*
+		 * Baseline AT Protocol OAuth session.
+		 * Defined in the OAuth spec:
+		 * https://atproto.com/specs/oauth#authorization-scopes.
+		 */
+		'atproto',
+
+		/*
+		 * Write the Bluesky records ATmosphere publishes: posts, threads,
+		 * and comment replies.
+		 *
+		 * `repo` permissions: https://atproto.com/specs/permission#repo.
+		 */
+		'repo:app.bsky.feed.post',
+
+		/*
+		 * Write one Standard.site document record per synced WordPress post.
+		 *
+		 * `repo` permissions: https://atproto.com/specs/permission#repo.
+		 */
+		'repo:site.standard.document',
+
+		/*
+		 * Write the root Standard.site publication record for the WordPress
+		 * site.
+		 *
+		 * `repo` permissions: https://atproto.com/specs/permission#repo.
+		 */
+		'repo:site.standard.publication',
+
+		/*
+		 * Upload image blobs referenced by posts, document covers, and site
+		 * icons.
+		 *
+		 * `blob` permissions: https://atproto.com/specs/permission#blob.
+		 */
+		'blob:image/*',
+
+		/*
+		 * Resolve actor profile metadata while syncing and rendering inbound
+		 * reactions.
+		 *
+		 * `rpc` permissions: https://atproto.com/specs/permission#rpc.
+		 * Bluesky AppView DID:
+		 * https://docs.bsky.app/docs/advanced-guides/api-directory.
+		 */
+		'rpc:app.bsky.actor.getProfile?aud=did:web:api.bsky.app%23bsky_appview',
+
+		/*
+		 * Read Bluesky notification pages for inbound reply/like/repost sync.
+		 *
+		 * `rpc` permissions: https://atproto.com/specs/permission#rpc.
+		 * Bluesky AppView DID:
+		 * https://docs.bsky.app/docs/advanced-guides/api-directory.
+		 */
+		'rpc:app.bsky.notification.listNotifications?aud=did:web:api.bsky.app%23bsky_appview',
+
+		/*
+		 * Update the PDS-managed handle when a user opts into a domain handle.
+		 *
+		 * `identity` permissions:
+		 * https://atproto.com/specs/permission#identity.
+		 */
+		'identity:handle',
+
+		/*
+		 * Standard.site's published full permission set. It also grants
+		 * social collections, but ATmosphere keeps the documented set for
+		 * Standard.site compatibility while leaving social record writes
+		 * out of its publishing flow.
+		 *
+		 * Permission set: https://standard.site/docs/permissions.
+		 */
+		'include:site.standard.authFull',
+	);
 
 	/**
 	 * `wp_options` row name used as the cross-process refresh lock.
@@ -71,6 +142,15 @@ class Client {
 	 */
 	public static function client_id(): string {
 		return \rest_url( 'atmosphere/v1/client-metadata' );
+	}
+
+	/**
+	 * OAuth scopes requested by authorization and advertised in metadata.
+	 *
+	 * @return string
+	 */
+	public static function scopes(): string {
+		return \implode( ' ', self::SCOPES );
 	}
 
 	/**
@@ -225,7 +305,7 @@ class Client {
 			'client_id'             => self::client_id(),
 			'redirect_uri'          => self::redirect_uri(),
 			'response_type'         => 'code',
-			'scope'                 => self::SCOPES,
+			'scope'                 => self::scopes(),
 			'state'                 => $state,
 			'code_challenge'        => $challenge,
 			'code_challenge_method' => 'S256',
@@ -264,7 +344,7 @@ class Client {
 			'client_id'             => self::client_id(),
 			'redirect_uri'          => self::redirect_uri(),
 			'response_type'         => 'code',
-			'scope'                 => self::SCOPES,
+			'scope'                 => self::scopes(),
 			'state'                 => $state,
 			'code_challenge'        => $challenge,
 			'code_challenge_method' => 'S256',
@@ -274,12 +354,13 @@ class Client {
 		$response = \wp_safe_remote_post(
 			$par_url,
 			array(
-				'headers' => array(
+				'headers'     => array(
 					'Content-Type' => 'application/x-www-form-urlencoded',
 					'DPoP'         => $dpop_proof,
 				),
-				'body'    => $body,
-				'timeout' => 15,
+				'body'        => $body,
+				'timeout'     => 15,
+				'redirection' => 0,
 			)
 		);
 
@@ -313,12 +394,13 @@ class Client {
 			$response = \wp_safe_remote_post(
 				$par_url,
 				array(
-					'headers' => array(
+					'headers'     => array(
 						'Content-Type' => 'application/x-www-form-urlencoded',
 						'DPoP'         => $dpop_proof,
 					),
-					'body'    => $body,
-					'timeout' => 15,
+					'body'        => $body,
+					'timeout'     => 15,
+					'redirection' => 0,
 				)
 			);
 
@@ -338,9 +420,9 @@ class Client {
 			}
 		}
 
-		if ( $status >= 400 || empty( $data['request_uri'] ) ) {
+		if ( ! is_success_status( $status ) || empty( $data['request_uri'] ) ) {
 			$msg = $data['error_description'] ?? ( $data['error'] ?? \__( 'PAR request failed.', 'atmosphere' ) );
-			return new \WP_Error( 'atmosphere_par', $msg );
+			return new \WP_Error( 'atmosphere_par', $msg, array( 'status' => $status ) );
 		}
 
 		$params = array(
@@ -432,12 +514,13 @@ class Client {
 		$response = \wp_safe_remote_post(
 			$token_endpoint,
 			array(
-				'headers' => array(
+				'headers'     => array(
 					'Content-Type' => 'application/x-www-form-urlencoded',
 					'DPoP'         => $dpop_proof,
 				),
-				'body'    => $token_body,
-				'timeout' => 15,
+				'body'        => $token_body,
+				'timeout'     => 15,
+				'redirection' => 0,
 			)
 		);
 
@@ -469,12 +552,13 @@ class Client {
 			$response = \wp_safe_remote_post(
 				$token_endpoint,
 				array(
-					'headers' => array(
+					'headers'     => array(
 						'Content-Type' => 'application/x-www-form-urlencoded',
 						'DPoP'         => $dpop_proof,
 					),
-					'body'    => $token_body,
-					'timeout' => 15,
+					'body'        => $token_body,
+					'timeout'     => 15,
+					'redirection' => 0,
 				)
 			);
 
@@ -501,9 +585,9 @@ class Client {
 			}
 		}
 
-		if ( $status >= 400 || empty( $data['access_token'] ) ) {
+		if ( ! is_success_status( $status ) || empty( $data['access_token'] ) ) {
 			$msg = $data['error_description'] ?? ( $data['error'] ?? \__( 'Token exchange failed.', 'atmosphere' ) );
-			return new \WP_Error( 'atmosphere_token', $msg );
+			return new \WP_Error( 'atmosphere_token', $msg, array( 'status' => $status ) );
 		}
 
 		/*
@@ -711,12 +795,13 @@ class Client {
 		$response = \wp_safe_remote_post(
 			$token_endpoint,
 			array(
-				'headers' => array(
+				'headers'     => array(
 					'Content-Type' => 'application/x-www-form-urlencoded',
 					'DPoP'         => $dpop_proof,
 				),
-				'body'    => $body,
-				'timeout' => 15,
+				'body'        => $body,
+				'timeout'     => 15,
+				'redirection' => 0,
 			)
 		);
 
@@ -748,12 +833,13 @@ class Client {
 			$response = \wp_safe_remote_post(
 				$token_endpoint,
 				array(
-					'headers' => array(
+					'headers'     => array(
 						'Content-Type' => 'application/x-www-form-urlencoded',
 						'DPoP'         => $dpop_proof,
 					),
-					'body'    => $body,
-					'timeout' => 15,
+					'body'        => $body,
+					'timeout'     => 15,
+					'redirection' => 0,
 				)
 			);
 
@@ -780,7 +866,7 @@ class Client {
 			}
 		}
 
-		if ( $status >= 400 || empty( $data['access_token'] ) ) {
+		if ( ! is_success_status( $status ) || empty( $data['access_token'] ) ) {
 			$msg = $data['error_description'] ?? ( $data['error'] ?? \__( 'Token refresh failed.', 'atmosphere' ) );
 
 			/*
@@ -828,7 +914,7 @@ class Client {
 				}
 			}
 
-			return new \WP_Error( 'atmosphere_refresh', $msg );
+			return new \WP_Error( 'atmosphere_refresh', $msg, array( 'status' => $status ) );
 		}
 
 		/*
@@ -1370,19 +1456,20 @@ class Client {
 		$response = \wp_safe_remote_post(
 			$revocation_endpoint,
 			array(
-				'headers' => array(
+				'headers'     => array(
 					'Content-Type' => 'application/x-www-form-urlencoded',
 					'DPoP'         => $dpop_proof,
 				),
-				'body'    => $body,
-				'timeout' => 10,
+				'body'        => $body,
+				'timeout'     => 10,
+				'redirection' => 0,
 			)
 		);
 
 		if ( \is_wp_error( $response ) ) {
-			\error_log( // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+			debug_log(
 				\sprintf(
-					'[atmosphere] refresh-token revocation failed: %s',
+					'refresh-token revocation failed: %s',
 					$response->get_error_message()
 				)
 			);
@@ -1412,19 +1499,20 @@ class Client {
 			$response = \wp_safe_remote_post(
 				$revocation_endpoint,
 				array(
-					'headers' => array(
+					'headers'     => array(
 						'Content-Type' => 'application/x-www-form-urlencoded',
 						'DPoP'         => $dpop_proof,
 					),
-					'body'    => $body,
-					'timeout' => 10,
+					'body'        => $body,
+					'timeout'     => 10,
+					'redirection' => 0,
 				)
 			);
 
 			if ( \is_wp_error( $response ) ) {
-				\error_log( // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+				debug_log(
 					\sprintf(
-						'[atmosphere] refresh-token revocation retry failed: %s',
+						'refresh-token revocation retry failed: %s',
 						$response->get_error_message()
 					)
 				);
@@ -1445,10 +1533,10 @@ class Client {
 		 * indicates a misconfigured client or a server outage; either
 		 * way disconnect proceeds.
 		 */
-		if ( $status >= 400 ) {
-			\error_log( // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+		if ( ! is_success_status( $status ) ) {
+			debug_log(
 				\sprintf(
-					'[atmosphere] refresh-token revocation returned status %d',
+					'refresh-token revocation returned status %d',
 					$status
 				)
 			);
