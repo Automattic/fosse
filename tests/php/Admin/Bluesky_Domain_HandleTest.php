@@ -269,13 +269,13 @@ class Bluesky_Domain_HandleTest extends BaseTestCase {
 	 */
 	public static function provider_ascii_ldh_hosts(): array {
 		return array(
-			'underscore label refused'   => array( 'https://bad_label.org', '' ),
-			'leading hyphen refused'     => array( 'https://-bad.org', '' ),
-			'trailing hyphen refused'    => array( 'https://bad-.org', '' ),
-			'64-char label refused'      => array( 'https://' . str_repeat( 'a', 64 ) . '.org', '' ),
-			'63-char label accepted'     => array( 'https://' . str_repeat( 'a', 63 ) . '.org', str_repeat( 'a', 63 ) . '.org' ),
-			'hyphen inside accepted'     => array( 'https://my-site.example.com', 'my-site.example.com' ),
-			'digits-only label accepted' => array( 'https://123.org', '123.org' ),
+			'underscore label refused'      => array( 'https://bad_label.org', '' ),
+			'leading hyphen refused'        => array( 'https://-bad.org', '' ),
+			'trailing hyphen refused'       => array( 'https://bad-.org', '' ),
+			'64-char label refused'         => array( 'https://' . str_repeat( 'a', 64 ) . '.org', '' ),
+			'63-char label accepted'        => array( 'https://' . str_repeat( 'a', 63 ) . '.org', str_repeat( 'a', 63 ) . '.org' ),
+			'hyphen inside accepted'        => array( 'https://my-site.example.com', 'my-site.example.com' ),
+			'digits-only label accepted'    => array( 'https://123.org', '123.org' ),
 			// Reserved TLDs from the AT Protocol handle spec — the
 			// bundled Atmosphere validator (and our local fallback)
 			// reject these so an opaque PDS rejection can't surface
