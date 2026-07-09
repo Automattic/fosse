@@ -15,33 +15,45 @@ namespace Automattic\Fosse\Metrics;
  * the search-indexing gate" instead of using a deactivate UI we don't
  * yet provide.
  *
- * Hooked at `update_option_blog_public`. Debounced via a short
- * site-scoped transient so option-write storms during admin saves
- * (Settings → Reading commits the same value repeatedly when a user
- * tabs through fields) collapse to a single emit.
+ * Hooked at `update_option_blog_public`, which WordPress fires only when
+ * the stored value actually changes — `update_option()` short-circuits
+ * and returns early when the new value equals the old one, so repeated
+ * identical admin saves (e.g. tabbing through Settings → Reading without
+ * touching this field) never reach this watcher. Combined with the
+ * `'1' → '0'` transition guard in the callback, every invocation already
+ * represents a genuine flip, so no debounce is needed: a true `1 → 0`
+ * flip is exactly what we want to record, and identical re-saves can't
+ * arrive in the first place.
  */
 final class Search_Indexing_Watcher {
 
 	/**
-	 * Transient name used to debounce repeat emits.
+	 * Cross-call guard against duplicate hook registration.
 	 *
-	 * @var string
-	 */
-	private const DEBOUNCE_TRANSIENT = 'fosse_search_indexing_flip_debounce';
-
-	/**
-	 * Debounce window in seconds.
+	 * `add_action()` does NOT dedupe identical callbacks — calling
+	 * `register()` twice without this guard would attach the listener
+	 * twice and emit the event twice per flip. Mirrors
+	 * `Publish_Events::$registered`.
 	 *
-	 * @var int
+	 * @var bool
 	 */
-	private const DEBOUNCE_SECONDS = 30;
+	private static bool $registered = false;
 
 	/**
 	 * Wire the option-update hook.
 	 *
+	 * Idempotent: the static `$registered` flag short-circuits repeat
+	 * calls so duplicate listeners can't be attached. `add_action()`
+	 * itself does not dedupe identical callbacks.
+	 *
 	 * @return void
 	 */
 	public static function register(): void {
+		if ( self::$registered ) {
+			return;
+		}
+		self::$registered = true;
+
 		\add_action( 'update_option_blog_public', array( self::class, 'on_blog_public_change' ), 10, 2 );
 	}
 
@@ -80,12 +92,6 @@ final class Search_Indexing_Watcher {
 		if ( ! \apply_filters( 'fosse_metrics_is_active_for_site', false ) ) {
 			return;
 		}
-
-		if ( false !== \get_transient( self::DEBOUNCE_TRANSIENT ) ) {
-			return;
-		}
-
-		\set_transient( self::DEBOUNCE_TRANSIENT, 1, self::DEBOUNCE_SECONDS );
 
 		Recorder::record( 'fosse_search_indexing_disabled_post_active' );
 	}

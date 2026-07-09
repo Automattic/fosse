@@ -13,14 +13,15 @@ use WorDBless\BaseTestCase;
 
 /**
  * Verifies the search-indexing-disabled emit gates: transition direction,
- * `fosse_metrics_is_active_for_site` filter, transient-based debounce.
+ * `fosse_metrics_is_active_for_site` filter, and `register()` idempotence.
  */
 class Search_Indexing_WatcherTest extends BaseTestCase {
 
 	use Asserts_Metrics;
 
 	/**
-	 * Reset filter state, in-memory channels, and the debounce transient.
+	 * Reset filter state, in-memory channels, the registration guard, and
+	 * the option baseline.
 	 *
 	 * @before
 	 */
@@ -28,7 +29,12 @@ class Search_Indexing_WatcherTest extends BaseTestCase {
 	public function set_up_state(): void {
 		$this->reset_metrics_channels();
 		\remove_all_filters( 'fosse_metrics_is_active_for_site' );
-		\delete_transient( 'fosse_search_indexing_flip_debounce' );
+		\remove_all_actions( 'update_option_blog_public' );
+		// register() is idempotent — reset the guard so each case wires
+		// the action freshly after the remove_all_actions() above.
+		( new \ReflectionClass( Search_Indexing_Watcher::class ) )
+			->getProperty( 'registered' )
+			->setValue( null, false );
 		\update_option( 'blog_public', '1' );
 		Search_Indexing_Watcher::register();
 	}
@@ -79,31 +85,30 @@ class Search_Indexing_WatcherTest extends BaseTestCase {
 	}
 
 	/**
-	 * Two consecutive 1 → 0 transitions inside the debounce window emit once.
+	 * Identical re-saves never reach the watcher: `update_option()`
+	 * short-circuits when the value is unchanged, so the
+	 * `update_option_blog_public` action does not fire. The watcher
+	 * therefore needs no debounce to suppress duplicate writes — they
+	 * cannot arrive.
 	 */
-	public function test_debounces_repeat_emits(): void {
+	public function test_identical_resave_does_not_emit(): void {
 		\add_filter( 'fosse_metrics_is_active_for_site', '__return_true' );
 
-		\update_option( 'blog_public', '0' );
+		// Baseline is already '1'. Re-saving '1' is a no-op write.
 		\update_option( 'blog_public', '1' );
-		\update_option( 'blog_public', '0' );
 
-		$captured = $this->tracks_channel()->events_for( 'fosse_search_indexing_disabled_post_active' );
-		$this->assertCount( 1, $captured, 'Debounce should collapse repeat 1->0 transitions into a single event.' );
+		$this->assertNoEventRecorded( 'fosse_search_indexing_disabled_post_active' );
 	}
 
 	/**
-	 * Once the debounce window expires (transient cleared), a fresh 1 → 0
-	 * transition emits again.
+	 * Each genuine 1 → 0 flip is recorded. With the debounce removed, a
+	 * user who toggles off, back on, and off again within seconds produces
+	 * two distinct anti-pattern signals — both are real and both count.
 	 */
-	public function test_re_emits_after_debounce_expires(): void {
+	public function test_each_genuine_flip_emits(): void {
 		\add_filter( 'fosse_metrics_is_active_for_site', '__return_true' );
 
 		\update_option( 'blog_public', '0' );
-
-		// Simulate the 30-second window elapsing.
-		\delete_transient( 'fosse_search_indexing_flip_debounce' );
-
 		\update_option( 'blog_public', '1' );
 		\update_option( 'blog_public', '0' );
 
@@ -111,7 +116,24 @@ class Search_Indexing_WatcherTest extends BaseTestCase {
 		$this->assertCount(
 			2,
 			$captured,
-			'Once the debounce window expires, a subsequent 1->0 transition should emit again.'
+			'Each genuine 1->0 flip should emit; only the no-op middle 1->? write is skipped by the transition guard.'
 		);
+	}
+
+	/**
+	 * Repeated `register()` calls must not double-attach the listener.
+	 * `add_action()` does not dedupe identical callbacks, so without the
+	 * static guard a second call would emit the event twice per flip.
+	 */
+	public function test_register_is_idempotent(): void {
+		// set_up_state() already called register() once.
+		Search_Indexing_Watcher::register();
+		Search_Indexing_Watcher::register();
+
+		\add_filter( 'fosse_metrics_is_active_for_site', '__return_true' );
+		\update_option( 'blog_public', '0' );
+
+		$captured = $this->tracks_channel()->events_for( 'fosse_search_indexing_disabled_post_active' );
+		$this->assertCount( 1, $captured, 'Repeated register() must not double-attach the listener.' );
 	}
 }
