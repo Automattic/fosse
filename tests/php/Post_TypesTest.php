@@ -100,9 +100,12 @@ class Post_TypesTest extends BaseTestCase {
 			array( 'post', 'fosse_native_at_cpt' )
 		);
 
-		$this->assertContains( 'post', $result );
-		$this->assertContains( 'page', $result );
-		$this->assertContains( 'fosse_native_at_cpt', $result );
+		/*
+		 * Exact match (not assertContains): pins AP's stored list first, then
+		 * the surviving native, deduped and re-indexed. A looser assertion
+		 * would miss duplicates, leaked entries, or a reordered output.
+		 */
+		$this->assertSame( array( 'post', 'page', 'fosse_native_at_cpt' ), $result );
 	}
 
 	/**
@@ -244,6 +247,127 @@ class Post_TypesTest extends BaseTestCase {
 		} finally {
 			remove_filter( 'option_activitypub_support_post_types', $corrupt, 99 );
 		}
+	}
+
+	/**
+	 * A non-scalar AP option (array containing nested arrays / non-strings
+	 * from a rogue `option_activitypub_support_post_types` filter) has its
+	 * non-string members dropped before `array_unique`, so no
+	 * `Array to string conversion` warning fires. PHPUnit runs with
+	 * `failOnWarning`, so a raised warning would fail this test — the exact
+	 * guard the `array_filter( ..., 'is_string' )` on the option was added for.
+	 */
+	public function test_non_string_entries_in_ap_option_are_dropped() {
+		update_option( 'activitypub_support_post_types', array( 'post' ) );
+
+		$corrupt = static function () {
+			return array( 'post', array( 'nested' ), 42 );
+		};
+
+		add_filter( 'option_activitypub_support_post_types', $corrupt, 99 );
+
+		try {
+			$this->assertSame(
+				array( 'post' ),
+				apply_filters( 'atmosphere_syncable_post_types', array( 'post' ) )
+			);
+		} finally {
+			remove_filter( 'option_activitypub_support_post_types', $corrupt, 99 );
+		}
+	}
+
+	/**
+	 * A non-string entry in the incoming `$types` (a lower-priority
+	 * `atmosphere_syncable_post_types` filter left a nested array behind)
+	 * does not trip `array_intersect()`'s string cast: the projector filters
+	 * `$types` to strings before intersecting with native supports, so the
+	 * native merge still works and no `Array to string conversion` warning
+	 * fires (PHPUnit `failOnWarning` would otherwise fail this).
+	 */
+	public function test_non_string_entries_in_types_are_ignored() {
+		update_option( 'activitypub_support_post_types', array( 'post' ) );
+
+		register_post_type(
+			'fosse_native_at_cpt',
+			array(
+				'public'   => true,
+				'label'    => 'Native ATmosphere type',
+				'supports' => array( 'atmosphere' ),
+			)
+		);
+
+		$this->assertSame(
+			array( 'post', 'fosse_native_at_cpt' ),
+			apply_filters(
+				'atmosphere_syncable_post_types',
+				array( 'post', array( 'bad' ), 'fosse_native_at_cpt' )
+			)
+		);
+	}
+
+	/**
+	 * The scalar-corruption fallback still MERGES surviving native supports:
+	 * when AP's option is corrupted to a scalar (fallback to DEFAULT_TYPES),
+	 * a natively-opted-in CPT that survived earlier filters is still added.
+	 * Guards against a fallback path that returns only the default and
+	 * silently drops native federation.
+	 */
+	public function test_corruption_fallback_still_merges_native_support() {
+		update_option( 'activitypub_support_post_types', array( 'page' ) );
+
+		register_post_type(
+			'fosse_native_at_cpt',
+			array(
+				'public'   => true,
+				'label'    => 'Native ATmosphere type',
+				'supports' => array( 'atmosphere' ),
+			)
+		);
+
+		$corrupt = static function () {
+			return 'not-an-array';
+		};
+
+		add_filter( 'option_activitypub_support_post_types', $corrupt, 99 );
+
+		try {
+			$this->assertSame(
+				array( 'post', 'fosse_native_at_cpt' ),
+				apply_filters(
+					'atmosphere_syncable_post_types',
+					array( 'post', 'fosse_native_at_cpt' )
+				)
+			);
+		} finally {
+			remove_filter( 'option_activitypub_support_post_types', $corrupt, 99 );
+		}
+	}
+
+	/**
+	 * Partial overlap between AP's stored list and the native supports pins
+	 * the merge ORDER: AP's option first, then appended natives, deduped and
+	 * re-indexed. Guards against a future reorder of the merge that would
+	 * reshuffle the output.
+	 */
+	public function test_partial_overlap_merge_order_is_stable() {
+		update_option( 'activitypub_support_post_types', array( 'page' ) );
+
+		register_post_type(
+			'fosse_native_at_cpt',
+			array(
+				'public'   => true,
+				'label'    => 'Native ATmosphere type',
+				'supports' => array( 'atmosphere' ),
+			)
+		);
+
+		$this->assertSame(
+			array( 'page', 'fosse_native_at_cpt' ),
+			apply_filters(
+				'atmosphere_syncable_post_types',
+				array( 'page', 'fosse_native_at_cpt' )
+			)
+		);
 	}
 
 	/**
