@@ -73,6 +73,7 @@ class Backend_Readiness {
 	public const SOURCE_BUNDLED    = 'bundled';
 	public const SOURCE_STANDALONE = 'standalone';
 	public const SOURCE_NONE       = 'none';
+	public const SOURCE_UNKNOWN    = 'unknown';
 
 	/**
 	 * Readiness of the ActivityPub backend.
@@ -173,6 +174,23 @@ class Backend_Readiness {
 			);
 		}
 
+		/*
+		 * A backend whose version constant is defined but whose loaded path
+		 * is neither the bundled tree nor anywhere under WP_PLUGIN_DIR is an
+		 * unrecognized loader (mu-plugin, platform shim, symlink outside the
+		 * plugins dir). FOSSE can't vouch for the surface such a copy exposes,
+		 * so it is reported incompatible rather than silently OK.
+		 */
+		if ( self::SOURCE_UNKNOWN === $source ) {
+			return array(
+				'slug'              => $slug,
+				'status'            => self::STATUS_INCOMPATIBLE,
+				'source'            => $source,
+				'installed_version' => $version,
+				'required_version'  => $min_version,
+			);
+		}
+
 		$status = version_compare( $version, $min_version, '>=' )
 			? self::STATUS_OK
 			: self::STATUS_TOO_OLD;
@@ -193,20 +211,55 @@ class Backend_Readiness {
 	 * @param string|null $plugin_dir Loaded plugin's `*_PLUGIN_DIR` constant, or null.
 	 */
 	private static function resolve_source( ?string $plugin_dir ): string {
+		/*
+		 * No dir constant to classify against — assume a standalone install
+		 * and enforce the version floor (conservative; also the shape the
+		 * unit tests exercise with synthetic paths).
+		 */
 		if ( null === $plugin_dir ) {
 			return self::SOURCE_STANDALONE;
 		}
 
-		$loaded  = self::canonical( $plugin_dir );
-		$bundled = self::canonical( __DIR__ . '/../bundled' );
+		$loaded = self::canonical( $plugin_dir );
 
-		if ( null === $loaded || null === $bundled ) {
+		/*
+		 * Unresolvable path (e.g. realpath() fails): fall back to standalone
+		 * so the version floor still applies rather than flipping to a hard
+		 * incompatible on a transient FS hiccup.
+		 */
+		if ( null === $loaded ) {
 			return self::SOURCE_STANDALONE;
 		}
 
-		return str_starts_with( $loaded, $bundled . '/' )
-			? self::SOURCE_BUNDLED
-			: self::SOURCE_STANDALONE;
+		$bundled = self::canonical( __DIR__ . '/../bundled' );
+		if ( null !== $bundled && self::path_within( $loaded, $bundled ) ) {
+			return self::SOURCE_BUNDLED;
+		}
+
+		// Under WP_PLUGIN_DIR (canonical or non-canonical folder) — a real standalone, floor-enforced.
+		$plugins = \defined( 'WP_PLUGIN_DIR' ) ? self::canonical( WP_PLUGIN_DIR ) : null;
+		if ( null !== $plugins && self::path_within( $loaded, $plugins ) ) {
+			return self::SOURCE_STANDALONE;
+		}
+
+		// Resolvable but outside both the bundle and the plugins dir: an unrecognized loader.
+		return self::SOURCE_UNKNOWN;
+	}
+
+	/**
+	 * Whether `$child` is `$parent` itself or a descendant of it, comparing
+	 * separator-normalized paths so the prefix test holds on Windows
+	 * (`realpath()` returns backslashes there).
+	 *
+	 * @param string $child  Canonical child path.
+	 * @param string $parent Canonical parent path.
+	 * @return bool
+	 */
+	private static function path_within( string $child, string $parent ): bool {
+		$child  = \wp_normalize_path( $child );
+		$parent = \wp_normalize_path( $parent );
+
+		return $child === $parent || str_starts_with( $child, $parent . '/' );
 	}
 
 	/**

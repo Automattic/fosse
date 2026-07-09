@@ -102,6 +102,38 @@ class Backend_ReadinessTest extends BaseTestCase {
 	}
 
 	/**
+	 * A standalone strictly above the floor reports OK (not just the equal
+	 * boundary covered above).
+	 */
+	public function test_standalone_ok_when_above_minimum(): void {
+		$report = $this->evaluate(
+			'activitypub',
+			'9.9.9',
+			'/var/www/html/wp-content/plugins/activitypub',
+			'9.0.2'
+		);
+
+		$this->assertSame( Backend_Readiness::STATUS_OK, $report['status'] );
+		$this->assertSame( Backend_Readiness::SOURCE_STANDALONE, $report['source'] );
+	}
+
+	/**
+	 * A backend loaded from a resolvable path that is neither the bundled
+	 * tree nor under WP_PLUGIN_DIR (an mu-plugin, platform shim, or symlink
+	 * outside the plugins dir) is reported `incompatible` — FOSSE can't
+	 * vouch for its surface, so it must not silently report OK.
+	 */
+	public function test_incompatible_when_loaded_outside_bundled_and_plugins(): void {
+		$outside = realpath( sys_get_temp_dir() );
+		$this->assertNotFalse( $outside, 'System temp dir must resolve for this test.' );
+
+		$report = $this->evaluate( 'activitypub', '9.9.9', $outside, '9.0.2' );
+
+		$this->assertSame( Backend_Readiness::STATUS_INCOMPATIBLE, $report['status'] );
+		$this->assertSame( Backend_Readiness::SOURCE_UNKNOWN, $report['source'] );
+	}
+
+	/**
 	 * Defensive: a missing `*_PLUGIN_DIR` constant falls back to standalone
 	 * (enforce the floor) rather than silently trusting an unknown load as
 	 * bundled.
