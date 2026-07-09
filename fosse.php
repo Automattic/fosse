@@ -247,11 +247,12 @@ add_action(
 register_deactivation_hook(
 	__FILE__,
 	static function ( $network_wide ) {
-		$deactivate_backend = static function ( $flag, $is_standalone_active, callable $deactivate ) {
+		$deactivate_backend = static function ( $flag, callable $is_standalone_active, array $deactivate ) {
 			if ( false === get_option( $flag, false ) ) {
 				return;
 			}
 			try {
+				// $deactivate is [ symbol-present guard, deactivate call ].
 				if ( ! $is_standalone_active() && $deactivate[0]() ) {
 					$deactivate[1]();
 				}
