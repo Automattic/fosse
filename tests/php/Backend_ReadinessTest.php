@@ -134,6 +134,30 @@ class Backend_ReadinessTest extends BaseTestCase {
 	}
 
 	/**
+	 * A RESOLVABLE plugin dir under WP_PLUGIN_DIR is classified `standalone`
+	 * via the real path-prefix match (not the unresolvable-path fallback the
+	 * other standalone tests hit), then floor-enforced. This exercises the
+	 * live `path_within( $loaded, WP_PLUGIN_DIR )` branch end-to-end.
+	 */
+	public function test_resolvable_plugin_dir_is_detected_as_standalone(): void {
+		if ( ! defined( 'WP_PLUGIN_DIR' ) || ! is_dir( WP_PLUGIN_DIR ) || ! is_writable( WP_PLUGIN_DIR ) ) {
+			$this->markTestSkipped( 'WP_PLUGIN_DIR is not a writable directory in this environment.' );
+		}
+
+		$dir = WP_PLUGIN_DIR . '/fosse-readiness-test-standalone';
+		$this->assertTrue( mkdir( $dir ) || is_dir( $dir ), 'Could not create a fixture plugin dir.' );
+
+		try {
+			$report = $this->evaluate( 'activitypub', '8.0.0', $dir, '9.0.2' );
+
+			$this->assertSame( Backend_Readiness::SOURCE_STANDALONE, $report['source'] );
+			$this->assertSame( Backend_Readiness::STATUS_TOO_OLD, $report['status'] );
+		} finally {
+			rmdir( $dir );
+		}
+	}
+
+	/**
 	 * Defensive: a missing `*_PLUGIN_DIR` constant falls back to standalone
 	 * (enforce the floor) rather than silently trusting an unknown load as
 	 * bundled.

@@ -29,6 +29,12 @@ namespace Automattic\Fosse;
  *     minimum-version policy below).
  *   - "Source: none" — the backend's version constant is undefined, which
  *     means neither copy is loaded.
+ *   - "Source: unknown" — the version constant IS defined but the loaded
+ *     copy resolves to a path that is neither `<fosse>/bundled/` nor under
+ *     `WP_PLUGIN_DIR` (an mu-plugin, platform shim, or symlink outside the
+ *     plugins dir). FOSSE can't vouch for such a loader's surface, so it is
+ *     reported `incompatible` rather than trusted. An unresolvable path
+ *     falls back to `standalone` (floor-enforced), not `unknown`.
  *
  * Minimum-version policy:
  *
