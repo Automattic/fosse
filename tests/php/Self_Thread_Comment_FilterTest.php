@@ -87,6 +87,21 @@ class Self_Thread_Comment_FilterTest extends BaseTestCase {
 	}
 
 	/**
+	 * An own-DID notification with a missing reply URI passes through: the
+	 * `'' === $reply_uri` disjunct of the pass-through guard can't match the
+	 * META_URI_INDEX, so it must never be treated as a self-thread chunk to
+	 * suppress. Pins the disjunct so a future refactor of that OR can't
+	 * silently drop it.
+	 */
+	public function test_allows_own_reply_with_empty_uri(): void {
+		$notification = $this->build_notification( self::OWN_DID, '' );
+
+		$this->assertTrue(
+			apply_filters( 'atmosphere_should_sync_reply', true, $notification, self::POST_ID, 0 )
+		);
+	}
+
+	/**
 	 * If Atmosphere has no DID connected (empty `atmosphere_connection`),
 	 * we don't have a basis to identify "own" replies — pass through
 	 * rather than risk false positives.
