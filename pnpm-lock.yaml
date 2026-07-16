@@ -18,8 +18,8 @@ importers:
         specifier: ^25.6.0
         version: 25.6.0(@babel/core@7.29.7)(@types/react@18.3.31)(@typescript-eslint/eslint-plugin@8.63.0(@typescript-eslint/parser@8.63.0(eslint@9.39.4)(typescript@6.0.3))(eslint@9.39.4)(typescript@6.0.3))(@typescript-eslint/parser@8.63.0(eslint@9.39.4)(typescript@6.0.3))(eslint@9.39.4)(jest@30.4.2(@types/node@25.8.0))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@6.0.3)(wp-prettier@3.0.3)
       '@wordpress/prettier-config':
-        specifier: ^4.50.0
-        version: 4.50.0(wp-prettier@3.0.3)
+        specifier: ^4.51.0
+        version: 4.51.0(wp-prettier@3.0.3)
       '@wp-playground/cli':
         specifier: ^3.1.44
         version: 3.1.44
@@ -1515,8 +1515,8 @@ packages:
       '@types/react':
         optional: true
 
-  '@wordpress/prettier-config@4.50.0':
-    resolution: {integrity: sha512-Q48oFBORY0TiVWIebPOG0ynjUAq1Hi9gXKJ69xw2i/UwOwghLOXXFLdAQhS4bJXOw0cdV5xiBaXEQYU+82r5hA==}
+  '@wordpress/prettier-config@4.51.0':
+    resolution: {integrity: sha512-V6bsx/WImZmxaiMG7DOA4z8G76eFxlmJ/ZqZRN7tAja7jHPfliuRtCZI2CJBx0c0fT3zGsq8xkC4bmDlMra65A==}
     engines: {node: '>=18.12.0', npm: '>=8.19.2'}
     peerDependencies:
       prettier: '>=3'
@@ -5975,7 +5975,7 @@ snapshots:
       '@eslint-community/eslint-plugin-eslint-comments': 4.7.2(eslint@9.39.4)
       '@eslint/compat': 2.1.0(eslint@9.39.4)
       '@wordpress/babel-preset-default': 8.50.0
-      '@wordpress/prettier-config': 4.50.0(wp-prettier@3.0.3)
+      '@wordpress/prettier-config': 4.51.0(wp-prettier@3.0.3)
       '@wordpress/theme': 0.17.0(@types/react@18.3.31)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       cosmiconfig: 7.1.0
       eslint: 9.39.4
@@ -6029,7 +6029,7 @@ snapshots:
     optionalDependencies:
       '@types/react': 18.3.31
 
-  '@wordpress/prettier-config@4.50.0(wp-prettier@3.0.3)':
+  '@wordpress/prettier-config@4.51.0(wp-prettier@3.0.3)':
     dependencies:
       prettier: wp-prettier@3.0.3
 
