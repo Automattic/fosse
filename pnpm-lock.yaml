@@ -21,8 +21,8 @@ importers:
         specifier: ^4.50.0
         version: 4.50.0(wp-prettier@3.0.3)
       '@wp-playground/cli':
-        specifier: ^3.1.44
-        version: 3.1.44
+        specifier: ^3.1.45
+        version: 3.1.45
       eslint:
         specifier: ^9.0.0
         version: 9.39.4
@@ -918,8 +918,8 @@ packages:
   '@nicolo-ribaudo/eslint-scope-5-internals@5.1.1-v1':
     resolution: {integrity: sha512-54/JRvkLIzzDWshCWfuhadfrfZVPiElY8Fcgmg1HroEly/EDSszzhBAsarCux+D/kOslTRquNzuyGSmUSTTHGg==}
 
-  '@nodable/entities@2.2.0':
-    resolution: {integrity: sha512-9uGyhaQavEUMC8AIddIjau4NsnsXhou+j5sBAGojCM1oxmQpVKTWR/9JxABD6UAv12vpIms55fPZKFQEhG6uBg==}
+  '@nodable/entities@3.0.0':
+    resolution: {integrity: sha512-8L9xFeTYKhm49xfIypoe2W5wV1m/3Z58kT+7kR9A8OyFxcPduI4VmxaUMQyKYrRjUoLLSXv6EKKID5Tvj9cUVw==}
 
   '@octokit/app@14.1.0':
     resolution: {integrity: sha512-g3uEsGOQCBl1+W1rgfwoRFUIR6PtvB2T1E4RpygeUU5LrLvlOqcxrt5lfykIeRpUPpupreGJUYl70fqMDXdTpw==}
@@ -1034,75 +1034,75 @@ packages:
     resolution: {integrity: sha512-exj1MzVXoP7xnAcAB3jZ97pTvVPkQF9y6GA/dvYC47HV7vLv+24XRS6b/v/XnyikpEuvMhugEXdGtAlU086WkQ==}
     engines: {node: '>= 18'}
 
-  '@php-wasm/cli-util@3.1.44':
-    resolution: {integrity: sha512-TnlqFO1cH7O2G2q3glT6yJLinU1Z+7i4ji61bxo83c/aOs6HssEeiwURSmVfxAX/+ZbAJwVFBUxdbIN5g1syXA==}
+  '@php-wasm/cli-util@3.1.45':
+    resolution: {integrity: sha512-+ht22B6KPUsn5ORtApE5xYq+uIb7/Qv/NSOxYgNGSWf3O1rpxkbOMeCxtE7H3dvazJIlSF+/nsVHpHkcTZGOpA==}
     engines: {node: '>=20.10.0', npm: '>=10.2.3'}
 
-  '@php-wasm/logger@3.1.44':
-    resolution: {integrity: sha512-VLIGPDQI3q7iTZ2vGz+JgChifubNwX7C7bvwS2g1Lpd5uBEqNHB7XYRebMbhZhHrzpovvxaptEzselmdGlcFEQ==}
+  '@php-wasm/logger@3.1.45':
+    resolution: {integrity: sha512-FYWGxaRZTM+aiRQ6/LlnFAdsixJ7VWQpM8Fe/61yWgpBamb1w3NEDRhYVR5DNjYWJVI5ha6pVxIsHtw018iA7g==}
     engines: {node: '>=20.10.0', npm: '>=10.2.3'}
 
-  '@php-wasm/node-5-2@3.1.44':
-    resolution: {integrity: sha512-O78ePJLH3NVSVBeum7FMRjoD8B196305Di+V3hX2pTcZKru4PNzxUU0ezLx5ToQN9wLnf5jGV5DrH9RONWkenQ==}
+  '@php-wasm/node-5-2@3.1.45':
+    resolution: {integrity: sha512-mKYOI8/eWE7Gu9wOOwtcxGrhOfCfGlIqT3Jr1RK0qCsZ/GkiW2/EalsNC5wSWbaL9qdh4JUbXUoF7mE3dc+KRQ==}
     engines: {node: '>=20.10.0', npm: '>=10.2.3'}
 
-  '@php-wasm/node-7-4@3.1.44':
-    resolution: {integrity: sha512-NswYV4iH8JzeMW4xBPwqxh/ZvNxm9R8e622xbubOn3zhUaJSgM7AqjsIMWNroD2y0adnslWTdxhZPTEXT4UQEg==}
+  '@php-wasm/node-7-4@3.1.45':
+    resolution: {integrity: sha512-3+VgXIL4y4Acb/OyNQAsIfz5I5GYlFmjw4M8l2Xx8TNBrixuOEO5vHmMoTssynZlmjoTLxBBzL2SaRHoubwi6g==}
     engines: {node: '>=20.10.0', npm: '>=10.2.3'}
 
-  '@php-wasm/node-8-0@3.1.44':
-    resolution: {integrity: sha512-SOB6TpExQVPidlz68z7QLKnpxZzs9S3AWGLOqmKS6DQJeBk3Z8gS+23Ey1F2OLMYeL+RkkjIGhe1NMg172YEtw==}
+  '@php-wasm/node-8-0@3.1.45':
+    resolution: {integrity: sha512-6yJaW+mxgBWAy80IYRU41bh1LH4WsuDgqEWiHSumJcKOcNljSedUbm+YuLTY+Pnsov7u5yzkaBskslxGXcOlIQ==}
     engines: {node: '>=20.10.0', npm: '>=10.2.3'}
 
-  '@php-wasm/node-8-1@3.1.44':
-    resolution: {integrity: sha512-YaOVhAYE8GW8G5p+ek64A+y+Gi2FixCmmW+86Imij3m/oiw0KftBcYhHW+5u0sjAYDdAJMWv8EYyg6sUdi1utQ==}
+  '@php-wasm/node-8-1@3.1.45':
+    resolution: {integrity: sha512-/5haLrmCySu40aDGtVAOukDBNYzCJ0JTXslXs36Rh8P9V2nlctVGO+Kp1m/74yCtdoJrZsRrBnVqKBCliVQjdg==}
     engines: {node: '>=20.10.0', npm: '>=10.2.3'}
 
-  '@php-wasm/node-8-2@3.1.44':
-    resolution: {integrity: sha512-2yKAAb29cnZ7td3ZwB6rtq52RGjMHzM6cp5vfgabuH/xj+bs1XjjCKXBfG4Ae6kXQVHatUFTXo0hJcFktrBVmA==}
+  '@php-wasm/node-8-2@3.1.45':
+    resolution: {integrity: sha512-fGsSHw6OTnNyjr6k87OqV8SYqRZlDrWYVSXFkOywXUbBvyAYeuttxHffYC4VoRZdRz+Ygu+2k2aPE06jpTTBFw==}
     engines: {node: '>=20.10.0', npm: '>=10.2.3'}
 
-  '@php-wasm/node-8-3@3.1.44':
-    resolution: {integrity: sha512-7K+gqN+J4rEfrUcV3ipIJ/7YGyR15QMm4xmMmKI6PJBxu2cVYw8kzoyJNBrSljD0HC8xGmuNIjwWDgOJLck34w==}
+  '@php-wasm/node-8-3@3.1.45':
+    resolution: {integrity: sha512-dq22w7k6zxSgRKEjFej2k2etHpWA/f6UZFQCwi0qPFTejlVRfGqJoY+6gwtF4PCCGXGD7J36XyRuSFuZz833MA==}
     engines: {node: '>=20.10.0', npm: '>=10.2.3'}
 
-  '@php-wasm/node-8-4@3.1.44':
-    resolution: {integrity: sha512-iMPrgdE7pstZ6+RrqmlDOI6CMuPYo7d4g4Anu1gtk2FoS5wUoQ2H8T7t8fx0sNAthC9CBEEHc3kN5uOjbXyULA==}
+  '@php-wasm/node-8-4@3.1.45':
+    resolution: {integrity: sha512-QElunKrFEpVa11Fdr6Afmw/gI/bCf5rxzAuXLBYfgghJP2w8sTT0M1ku1pocPEvMGeONbQgvHA06sDdKXhHEMA==}
     engines: {node: '>=20.10.0', npm: '>=10.2.3'}
 
-  '@php-wasm/node-8-5@3.1.44':
-    resolution: {integrity: sha512-GcoEFu6motfEn0w1SrcfldJKxmUzxwOqO9PfVUpEiy7m7DGl9lFhQNQ4LC18p0BX5HA9NQBAZnnJFflMIuQxpQ==}
+  '@php-wasm/node-8-5@3.1.45':
+    resolution: {integrity: sha512-FeKtaRMZorN1uRFbC6DILfv+Y9ImEMLjcpNVyT7zZ4WHPEf1yN0Q0Jo8VH9NNwCmkmiDAQN2gAIn3nKL8vsz+g==}
     engines: {node: '>=20.10.0', npm: '>=10.2.3'}
 
-  '@php-wasm/node@3.1.44':
-    resolution: {integrity: sha512-fznc4losrGb09dVWj39ei7CI6NDUpMxucK27BfMRUezYpgf8m6/UihPL6ktEJ+cGHoKyw17hcHZM8gAdz1VCzg==}
+  '@php-wasm/node@3.1.45':
+    resolution: {integrity: sha512-IFnGdNsQ0g8RwpFzg3gAt8VckFwshQ7g2Izwt+i+wi2Rtnj54DcPZpfMwliiq+c1XU1//jtXHBdczbwR75yW7A==}
     engines: {node: '>=20.10.0', npm: '>=10.2.3'}
 
-  '@php-wasm/progress@3.1.44':
-    resolution: {integrity: sha512-L8RuNW7uqul42nEjQmURb22/hZJKMTM5CXG22mxoc+OB4Ak8XSRyLMFSrw63tBrOBLhnmvvhLJ1iXZNZPmcdpg==}
+  '@php-wasm/progress@3.1.45':
+    resolution: {integrity: sha512-rc/I9MSoqAPLRmrgArpWMrSq6s7R16ulrMjG3Ti5T4hfu+j2oxfBCHbrwzR57ITsgecjKZ+G9j/w+saQj9cgpQ==}
     engines: {node: '>=20.10.0', npm: '>=10.2.3'}
 
-  '@php-wasm/scopes@3.1.44':
-    resolution: {integrity: sha512-CcT/aSsh+Pqbrsty86J3qarTdMLGILrzbmYVO4Qx4P0nidP8OVI5Q2reV+1K4t4gBZKk6qWdlGBWrUFz/7ttEg==}
+  '@php-wasm/scopes@3.1.45':
+    resolution: {integrity: sha512-7efo3IvGLMOcUuywB40avWz1c6c7YurmRW/hM44iPlhr72x9Wpth9eHjI+Gsn+qFISmUqjW+G2KHx9BD7BTQBA==}
     engines: {node: '>=20.10.0', npm: '>=10.2.3'}
 
-  '@php-wasm/stream-compression@3.1.44':
-    resolution: {integrity: sha512-xudYnZEqpy16JZ6aWCbnsHqu7QXLSFr3d1aOZ/mBkq9fHwTkiLny2n9sbSHboRXg9FKyX3aaMBL7z26RW4dp8g==}
+  '@php-wasm/stream-compression@3.1.45':
+    resolution: {integrity: sha512-zLU1AGNEg1tuwm93LHrL8OcV24LyNglTg/CXV5CVZiMPpg1wfIDHJy11qqjZM8iCIJk87qYQhkKOjTnGinAVDg==}
 
-  '@php-wasm/universal@3.1.44':
-    resolution: {integrity: sha512-ePCWMztN6qjtXr9KoXnTDFEz4ZtGudSBF6TWxHHGUEsVAzDIluKqmyq0PWSwyCnUodNqT8sLp1t3U2YlenHoNg==}
+  '@php-wasm/universal@3.1.45':
+    resolution: {integrity: sha512-3x0TWQg6NEeO+M/oPA3rAP0hJB2gnsqwkb2sUipz0RQQXRkWEJjdrT20UVmGN/dXILDWeQg/VGxZhCktoWZGkA==}
     engines: {node: '>=20.10.0', npm: '>=10.2.3'}
 
-  '@php-wasm/util@3.1.44':
-    resolution: {integrity: sha512-debmS3CSBfRhN1rT88Kbmflrn81N3Gd/ch9JWMJL0sOKS7NOKyPcHqnVc9Wg6ihPbXtbcxXCNQi1YTLylurJ0g==}
+  '@php-wasm/util@3.1.45':
+    resolution: {integrity: sha512-czXqXd2NJWkapV/zTr3WPSPdcgyI5KN7xSUusYpgkfljSovfvHOKKrTMQtbfPXRa9+MD8LmPQt+XStKPRp76Tg==}
     engines: {node: '>=20.10.0', npm: '>=10.2.3'}
 
-  '@php-wasm/web-service-worker@3.1.44':
-    resolution: {integrity: sha512-dy/5njADd4jd949qdQeA4G9Nfp3IszmTPtSQpWvWiquO7pPB/xk2EnPjXmVCI8YuWjS2q5uk9aoQQW7r2MwYQA==}
+  '@php-wasm/web-service-worker@3.1.45':
+    resolution: {integrity: sha512-L8spIluLVlaOZ8CnNPfJ5IEM/e1YouQ9kB8GJL+NVm27Pci/pxBE5Hi7nsmau/oQJ6JTA6rXMuDh3wyicFU0Xg==}
     engines: {node: '>=20.10.0', npm: '>=10.2.3'}
 
-  '@php-wasm/xdebug-bridge@3.1.44':
-    resolution: {integrity: sha512-kQE1Y0wWWXCQS7i38YRwvOy0nRJ0xSqLqg8n6rs80sYITzuEvljJX3NoWdF9IBUxR50or5hN7xjCFkVII+XyPQ==}
+  '@php-wasm/xdebug-bridge@3.1.45':
+    resolution: {integrity: sha512-InIWrSl9ULFEyIYbIK+uh2TK3N7VhQuycx3tRSaRY7YNpUGS2xxfNSt4BeJgBgUNmslKsQojSjCcmvumJW1mgg==}
     engines: {node: '>=20.10.0', npm: '>=10.2.3'}
     hasBin: true
 
@@ -1564,27 +1564,27 @@ packages:
     resolution: {integrity: sha512-6X3ioKOGfmRuZFngmG2QZZW9CBVMTBr5FXqs6Q3li5ryhnAqn3u/ocqsx556YnB5dYdVxK14TiH9o7DDElt8gw==}
     engines: {node: '>=18.12.0', npm: '>=8.19.2'}
 
-  '@wp-playground/blueprints@3.1.44':
-    resolution: {integrity: sha512-3LUNhDi2/Qj5QpcIxoOR3YQAHJWrhqhMGTEiooYrvvvjYjr7VI2J3eBkRhAy2DOYYHFinOfS1GxgK+/wIqhdfQ==}
+  '@wp-playground/blueprints@3.1.45':
+    resolution: {integrity: sha512-q7jEN5w6dgwpzk26mkSGLLPEsTQsRfily0wPolAwueyhq2bnY7Nil7r1k+JHTR2XpTSg3Y3rFyp3j1biOpbsDA==}
     engines: {node: '>=20.10.0', npm: '>=10.2.3'}
 
-  '@wp-playground/cli@3.1.44':
-    resolution: {integrity: sha512-PpdOTHFzoJ/8UxyUAz+PoHWrOolOZj6vZCuy1Sl4E7JGkuAooj7XPNd4Je//ZyeIINPLWQ2pZhv2rjEqkvUMiQ==}
+  '@wp-playground/cli@3.1.45':
+    resolution: {integrity: sha512-9cSDXOJoSdZSVrNBOraLlkiBMnvxy0EyaUrkr/8kBkNhWgNv2WhoPxMY25B0eh8nocH2mLVFHg9s4thuFghhug==}
     hasBin: true
 
-  '@wp-playground/common@3.1.44':
-    resolution: {integrity: sha512-VQPe3IRrn05k6dWBuEJoJ4cgzHAEq6pZx8GPvCRVRrkPn47kp1XQCLT9g0MtWG9Mr8Nx4GnYvIjHeUJWAnDscw==}
+  '@wp-playground/common@3.1.45':
+    resolution: {integrity: sha512-dhVGdPqp4D0RhodW9sxdI3gdKPI98ue0oyXX4AeL4toLvjzKF1nz3AwniojsuHbJr0RV0QhA/Z2rYcTjynLD8A==}
     engines: {node: '>=20.10.0', npm: '>=10.2.3'}
 
-  '@wp-playground/storage@3.1.44':
-    resolution: {integrity: sha512-DehsjsLcHROQICi9EhFoVYZmA30T3bf69RefGbU4DvImIBkOLQ1CHacANh9c9M/Z2Gk9slpjknemJcNyzGF6FQ==}
+  '@wp-playground/storage@3.1.45':
+    resolution: {integrity: sha512-c9iWgHHhwEElroXqWBi8B7rSsvAbSYjCDA1m5zTmg+jpscbT8zLrIohJ3WANbWljeSxG4sWA87PLqARdchyl3A==}
 
-  '@wp-playground/tools@3.1.44':
-    resolution: {integrity: sha512-+OIUksGRFuR1GvMnU+D1SrLidsY8+8OGUc2d2CMnZt/B/ALpi74dGemBmvaO3cAJf4dVL73YPZYXNGFoE2HGhg==}
+  '@wp-playground/tools@3.1.45':
+    resolution: {integrity: sha512-nhGuCsVgd0VIe+nQgrKKsVXCu2XHHSnj7+GiH4qIThYUpXLMZo/s+w1bI0ANGOCgpUTOv89Q2JOFPrn37+b3tA==}
     engines: {node: '>=20.10.0', npm: '>=10.2.3'}
 
-  '@wp-playground/wordpress@3.1.44':
-    resolution: {integrity: sha512-uRvSfDVBbuydRXTJuq76R4QcI38QepiyNuCJGZxt1CVmAp+wBB9+VxQWs4OUzc2FBvBeCHKbddpc1aPO5OrBHA==}
+  '@wp-playground/wordpress@3.1.45':
+    resolution: {integrity: sha512-kQqx7m4oKRnSmTxiwdwVnUGetJINHVULMURff2+JZ4EGLqAUVscyCQ4YvQMnIho6gASyzt8TYLr3GqxU+1n6AA==}
     engines: {node: '>=20.10.0', npm: '>=10.2.3'}
 
   '@zip.js/zip.js@2.7.57':
@@ -1793,8 +1793,8 @@ packages:
   before-after-hook@2.2.3:
     resolution: {integrity: sha512-NzUnlZexiaH/46WDhANlyR2bXRopNg4F/zuSA3OpZnllCUgRaOF2znDioDWrmbNVsuZk6l9pMquQB38cfBZwkQ==}
 
-  body-parser@1.20.5:
-    resolution: {integrity: sha512-3grm+/2tUOvu2cjJkvsIxrv/wVpfXQW4PsQHYm7yk4vfpu7Ekl6nEsYBoJUL6qDwZUx8wUhQ8tR2qz+ad9c9OA==}
+  body-parser@1.20.6:
+    resolution: {integrity: sha512-p5tAzS57i5MV9fZFDj9LeIiTZEufbSe2eDozP+ElheSUq1m74CRq1jI4mYNDdVs9vQztXFLuk/Gd6BWTdwRJ5g==}
     engines: {node: '>= 0.8', npm: 1.2.8000 || >= 1.4.16}
 
   bottleneck@2.19.5:
@@ -2409,11 +2409,11 @@ packages:
   fast-uri@3.1.3:
     resolution: {integrity: sha512-i70LwGWUduXqzicKXWshooq+sWL1K3WUU5rKZNG/0i3a1OSoX3HqhH5WbWwTmqWfor4urUakGPiRQcleRZTwOg==}
 
-  fast-xml-builder@1.2.1:
-    resolution: {integrity: sha512-tPb5TTWfgfVx5BNSi2xV0eLr89POeXXn0dXIsCJ9m1narrWxeIyx6je9d7Rce/3NyXLbvuQmLkxq+RuxMWejvw==}
+  fast-xml-builder@1.3.0:
+    resolution: {integrity: sha512-F74cZEdCvuw9P41GAC3rod4X04jjWGM1JPEv/GWSqFTWLsdyMSBMBMlm9Hk3GLBgLBbdBNY8yee0pQh2RBVESQ==}
 
-  fast-xml-parser@5.9.3:
-    resolution: {integrity: sha512-brCNCeScma/kqa54J4PIDriSSSLssRkuYaUCpvHJulGc3HGI/xxKUCTDcYkAdqJsyb//ydpbxecjC3hB9+tb/g==}
+  fast-xml-parser@5.10.1:
+    resolution: {integrity: sha512-IEMIf7298kXuZSRFoGfMYrl7is8LpavODgbNz1cwIudv7KwVFnuU+UsMporfq6PD6aXSlawZlARiA3UywCTfMw==}
     hasBin: true
 
   fb-watchman@2.0.2:
@@ -2799,8 +2799,8 @@ packages:
     resolution: {integrity: sha512-p3EcsicXjit7SaskXHs1hA91QxgTw46Fv6EFKKGS5DRFLD8yKnohjF3hxoju94b/OcMZoQukzpPpBE9uLVKzgQ==}
     engines: {node: '>= 0.4'}
 
-  is-unsafe@1.0.1:
-    resolution: {integrity: sha512-CLK2+VdgERgD96EYm5lUQssZYlRg2tkZnbsxZoacmSiRxiFJ4Nk4SzjCl+Ur+v3kXIY9dTIdb3IH22y1mZ56LA==}
+  is-unsafe@2.0.0:
+    resolution: {integrity: sha512-2LdV822R+wmI86unXA93WCFpL6g+av8ynWk0nrHyJqGop5VoocYsSLFgN8jrfalT6iGeLNM4KXuVSsULP53kEA==}
 
   is-weakmap@2.0.2:
     resolution: {integrity: sha512-K5pXYOm9wqY1RgjpL3YTkF39tni1XajUIkawTLUo9EZEVUFga5gSQJF8nNS7ZwJQ02y+1YCNYcMh+HIf1ZqE+w==}
@@ -4076,8 +4076,8 @@ packages:
     resolution: {integrity: sha512-EvGK8EJ3DhaHfbRlETOWAS5pO9MZITeauHKJyb8wyajUfQUenkIg2MvLDTZ4T/TgIcm3HU0TFBgWWboAZ30UHg==}
     engines: {node: '>=18'}
 
-  xml-naming@0.1.0:
-    resolution: {integrity: sha512-k8KO9hrMyNk6tUWqUfkTEZbezRRpONVOzUTnc97VnCvyj6Tf9lyUR9EDAIeiVLv56jsMcoXEwjW8Kv5yPY52lw==}
+  xml-naming@0.3.0:
+    resolution: {integrity: sha512-ghig2TBE/H11aOVgmahA3MhimvkBr6JIYknH/Dhdk10nXwdbIqBJsbfMxpvFPG8bAw77gN29aQWvKpmVoPlvPQ==}
     engines: {node: '>=16.0.0'}
 
   xml2js@0.6.2:
@@ -4126,6 +4126,9 @@ packages:
 
   zod@4.4.3:
     resolution: {integrity: sha512-ytENFjIJFl2UwYglde2jchW2Hwm4GJFLDiSXWdTrJQBIN9Fcyp7n4DhxJEiWNAJMV1/BqWfW/kkg71UDcHJyTQ==}
+
+  zstddec@0.2.0:
+    resolution: {integrity: sha512-oyPnDa1X5c13+Y7mA/FDMNJrn4S8UNBe0KCqtDmor40Re7ALrPN6npFwyYVRRh+PqozZQdeg23QtbcamZnG5rA==}
 
 snapshots:
 
@@ -5298,7 +5301,7 @@ snapshots:
     dependencies:
       eslint-scope: 5.1.1
 
-  '@nodable/entities@2.2.0': {}
+  '@nodable/entities@3.0.0': {}
 
   '@octokit/app@14.1.0':
     dependencies:
@@ -5460,68 +5463,68 @@ snapshots:
       '@octokit/webhooks-types': 7.6.1
       aggregate-error: 3.1.0
 
-  '@php-wasm/cli-util@3.1.44':
+  '@php-wasm/cli-util@3.1.45':
     dependencies:
-      '@php-wasm/util': 3.1.44
-      fast-xml-parser: 5.9.3
+      '@php-wasm/util': 3.1.45
+      fast-xml-parser: 5.10.1
       jsonc-parser: 3.3.1
 
-  '@php-wasm/logger@3.1.44': {}
+  '@php-wasm/logger@3.1.45': {}
 
-  '@php-wasm/node-5-2@3.1.44':
+  '@php-wasm/node-5-2@3.1.45':
     dependencies:
-      '@php-wasm/universal': 3.1.44
+      '@php-wasm/universal': 3.1.45
       wasm-feature-detect: 1.8.0
 
-  '@php-wasm/node-7-4@3.1.44':
+  '@php-wasm/node-7-4@3.1.45':
     dependencies:
-      '@php-wasm/universal': 3.1.44
+      '@php-wasm/universal': 3.1.45
       wasm-feature-detect: 1.8.0
 
-  '@php-wasm/node-8-0@3.1.44':
+  '@php-wasm/node-8-0@3.1.45':
     dependencies:
-      '@php-wasm/universal': 3.1.44
+      '@php-wasm/universal': 3.1.45
       wasm-feature-detect: 1.8.0
 
-  '@php-wasm/node-8-1@3.1.44':
+  '@php-wasm/node-8-1@3.1.45':
     dependencies:
-      '@php-wasm/universal': 3.1.44
+      '@php-wasm/universal': 3.1.45
       wasm-feature-detect: 1.8.0
 
-  '@php-wasm/node-8-2@3.1.44':
+  '@php-wasm/node-8-2@3.1.45':
     dependencies:
-      '@php-wasm/universal': 3.1.44
+      '@php-wasm/universal': 3.1.45
       wasm-feature-detect: 1.8.0
 
-  '@php-wasm/node-8-3@3.1.44':
+  '@php-wasm/node-8-3@3.1.45':
     dependencies:
-      '@php-wasm/universal': 3.1.44
+      '@php-wasm/universal': 3.1.45
       wasm-feature-detect: 1.8.0
 
-  '@php-wasm/node-8-4@3.1.44':
+  '@php-wasm/node-8-4@3.1.45':
     dependencies:
-      '@php-wasm/universal': 3.1.44
+      '@php-wasm/universal': 3.1.45
       wasm-feature-detect: 1.8.0
 
-  '@php-wasm/node-8-5@3.1.44':
+  '@php-wasm/node-8-5@3.1.45':
     dependencies:
-      '@php-wasm/universal': 3.1.44
+      '@php-wasm/universal': 3.1.45
       wasm-feature-detect: 1.8.0
 
-  '@php-wasm/node@3.1.44':
+  '@php-wasm/node@3.1.45':
     dependencies:
-      '@php-wasm/cli-util': 3.1.44
-      '@php-wasm/logger': 3.1.44
-      '@php-wasm/node-5-2': 3.1.44
-      '@php-wasm/node-7-4': 3.1.44
-      '@php-wasm/node-8-0': 3.1.44
-      '@php-wasm/node-8-1': 3.1.44
-      '@php-wasm/node-8-2': 3.1.44
-      '@php-wasm/node-8-3': 3.1.44
-      '@php-wasm/node-8-4': 3.1.44
-      '@php-wasm/node-8-5': 3.1.44
-      '@php-wasm/universal': 3.1.44
-      '@php-wasm/util': 3.1.44
+      '@php-wasm/cli-util': 3.1.45
+      '@php-wasm/logger': 3.1.45
+      '@php-wasm/node-5-2': 3.1.45
+      '@php-wasm/node-7-4': 3.1.45
+      '@php-wasm/node-8-0': 3.1.45
+      '@php-wasm/node-8-1': 3.1.45
+      '@php-wasm/node-8-2': 3.1.45
+      '@php-wasm/node-8-3': 3.1.45
+      '@php-wasm/node-8-4': 3.1.45
+      '@php-wasm/node-8-5': 3.1.45
+      '@php-wasm/universal': 3.1.45
+      '@php-wasm/util': 3.1.45
       fs-ext-extra-prebuilt: 2.2.7
       wasm-feature-detect: 1.8.0
       ws: 8.21.0
@@ -5529,35 +5532,35 @@ snapshots:
       - bufferutil
       - utf-8-validate
 
-  '@php-wasm/progress@3.1.44':
+  '@php-wasm/progress@3.1.45':
     dependencies:
-      '@php-wasm/logger': 3.1.44
+      '@php-wasm/logger': 3.1.45
 
-  '@php-wasm/scopes@3.1.44': {}
+  '@php-wasm/scopes@3.1.45': {}
 
-  '@php-wasm/stream-compression@3.1.44':
+  '@php-wasm/stream-compression@3.1.45':
     dependencies:
-      '@php-wasm/util': 3.1.44
+      '@php-wasm/util': 3.1.45
 
-  '@php-wasm/universal@3.1.44':
+  '@php-wasm/universal@3.1.45':
     dependencies:
-      '@php-wasm/logger': 3.1.44
-      '@php-wasm/progress': 3.1.44
-      '@php-wasm/stream-compression': 3.1.44
-      '@php-wasm/util': 3.1.44
+      '@php-wasm/logger': 3.1.45
+      '@php-wasm/progress': 3.1.45
+      '@php-wasm/stream-compression': 3.1.45
+      '@php-wasm/util': 3.1.45
       ini: 4.1.2
 
-  '@php-wasm/util@3.1.44': {}
+  '@php-wasm/util@3.1.45': {}
 
-  '@php-wasm/web-service-worker@3.1.44':
+  '@php-wasm/web-service-worker@3.1.45':
     dependencies:
-      '@php-wasm/scopes': 3.1.44
-      '@php-wasm/universal': 3.1.44
+      '@php-wasm/scopes': 3.1.45
+      '@php-wasm/universal': 3.1.45
 
-  '@php-wasm/xdebug-bridge@3.1.44':
+  '@php-wasm/xdebug-bridge@3.1.45':
     dependencies:
-      '@php-wasm/logger': 3.1.44
-      '@php-wasm/universal': 3.1.44
+      '@php-wasm/logger': 3.1.45
+      '@php-wasm/universal': 3.1.45
       ws: 8.21.0
       xml2js: 0.6.2
       yargs: 17.7.2
@@ -6061,33 +6064,33 @@ snapshots:
 
   '@wordpress/warning@3.50.0': {}
 
-  '@wp-playground/blueprints@3.1.44':
+  '@wp-playground/blueprints@3.1.45':
     dependencies:
-      '@php-wasm/logger': 3.1.44
-      '@php-wasm/progress': 3.1.44
-      '@php-wasm/stream-compression': 3.1.44
-      '@php-wasm/universal': 3.1.44
-      '@php-wasm/util': 3.1.44
-      '@php-wasm/web-service-worker': 3.1.44
-      '@wp-playground/common': 3.1.44
-      '@wp-playground/storage': 3.1.44
-      '@wp-playground/wordpress': 3.1.44
+      '@php-wasm/logger': 3.1.45
+      '@php-wasm/progress': 3.1.45
+      '@php-wasm/stream-compression': 3.1.45
+      '@php-wasm/universal': 3.1.45
+      '@php-wasm/util': 3.1.45
+      '@php-wasm/web-service-worker': 3.1.45
+      '@wp-playground/common': 3.1.45
+      '@wp-playground/storage': 3.1.45
+      '@wp-playground/wordpress': 3.1.45
       ajv: 8.18.0
 
-  '@wp-playground/cli@3.1.44':
+  '@wp-playground/cli@3.1.45':
     dependencies:
-      '@php-wasm/cli-util': 3.1.44
-      '@php-wasm/logger': 3.1.44
-      '@php-wasm/node': 3.1.44
-      '@php-wasm/progress': 3.1.44
-      '@php-wasm/universal': 3.1.44
-      '@php-wasm/util': 3.1.44
-      '@php-wasm/xdebug-bridge': 3.1.44
-      '@wp-playground/blueprints': 3.1.44
-      '@wp-playground/common': 3.1.44
-      '@wp-playground/storage': 3.1.44
-      '@wp-playground/tools': 3.1.44
-      '@wp-playground/wordpress': 3.1.44
+      '@php-wasm/cli-util': 3.1.45
+      '@php-wasm/logger': 3.1.45
+      '@php-wasm/node': 3.1.45
+      '@php-wasm/progress': 3.1.45
+      '@php-wasm/universal': 3.1.45
+      '@php-wasm/util': 3.1.45
+      '@php-wasm/xdebug-bridge': 3.1.45
+      '@wp-playground/blueprints': 3.1.45
+      '@wp-playground/common': 3.1.45
+      '@wp-playground/storage': 3.1.45
+      '@wp-playground/tools': 3.1.45
+      '@wp-playground/wordpress': 3.1.45
       express: 4.22.2
       fs-extra: 11.1.1
       tmp-promise: 3.0.3
@@ -6098,32 +6101,33 @@ snapshots:
       - supports-color
       - utf-8-validate
 
-  '@wp-playground/common@3.1.44':
+  '@wp-playground/common@3.1.45':
     dependencies:
-      '@php-wasm/universal': 3.1.44
-      '@php-wasm/util': 3.1.44
+      '@php-wasm/universal': 3.1.45
+      '@php-wasm/util': 3.1.45
 
-  '@wp-playground/storage@3.1.44':
+  '@wp-playground/storage@3.1.45':
     dependencies:
-      '@php-wasm/stream-compression': 3.1.44
-      '@php-wasm/universal': 3.1.44
-      '@php-wasm/util': 3.1.44
+      '@php-wasm/stream-compression': 3.1.45
+      '@php-wasm/universal': 3.1.45
+      '@php-wasm/util': 3.1.45
       '@zip.js/zip.js': 2.7.57
       isomorphic-git: 1.37.6
       octokit: 3.1.2
       pako: 1.0.11
       sha.js: 2.4.12
 
-  '@wp-playground/tools@3.1.44':
+  '@wp-playground/tools@3.1.45':
     dependencies:
-      '@wp-playground/blueprints': 3.1.44
+      '@wp-playground/blueprints': 3.1.45
 
-  '@wp-playground/wordpress@3.1.44':
+  '@wp-playground/wordpress@3.1.45':
     dependencies:
-      '@php-wasm/logger': 3.1.44
-      '@php-wasm/universal': 3.1.44
-      '@php-wasm/util': 3.1.44
-      '@wp-playground/common': 3.1.44
+      '@php-wasm/logger': 3.1.45
+      '@php-wasm/universal': 3.1.45
+      '@php-wasm/util': 3.1.45
+      '@wp-playground/common': 3.1.45
+      zstddec: 0.2.0
 
   '@zip.js/zip.js@2.7.57': {}
 
@@ -6375,7 +6379,7 @@ snapshots:
 
   before-after-hook@2.2.3: {}
 
-  body-parser@1.20.5:
+  body-parser@1.20.6:
     dependencies:
       bytes: 3.1.2
       content-type: 1.0.5
@@ -7102,7 +7106,7 @@ snapshots:
     dependencies:
       accepts: 1.3.8
       array-flatten: 1.1.1
-      body-parser: 1.20.5
+      body-parser: 1.20.6
       content-disposition: 0.5.4
       content-type: 1.0.5
       cookie: 0.7.2
@@ -7144,19 +7148,19 @@ snapshots:
 
   fast-uri@3.1.3: {}
 
-  fast-xml-builder@1.2.1:
+  fast-xml-builder@1.3.0:
     dependencies:
       path-expression-matcher: 1.6.2
-      xml-naming: 0.1.0
+      xml-naming: 0.3.0
 
-  fast-xml-parser@5.9.3:
+  fast-xml-parser@5.10.1:
     dependencies:
-      '@nodable/entities': 2.2.0
-      fast-xml-builder: 1.2.1
-      is-unsafe: 1.0.1
+      '@nodable/entities': 3.0.0
+      fast-xml-builder: 1.3.0
+      is-unsafe: 2.0.0
       path-expression-matcher: 1.6.2
       strnum: 2.4.1
-      xml-naming: 0.1.0
+      xml-naming: 0.3.0
 
   fb-watchman@2.0.2:
     dependencies:
@@ -7549,7 +7553,7 @@ snapshots:
     dependencies:
       which-typed-array: 1.1.22
 
-  is-unsafe@1.0.1: {}
+  is-unsafe@2.0.0: {}
 
   is-weakmap@2.0.2: {}
 
@@ -9131,7 +9135,7 @@ snapshots:
 
   xml-name-validator@5.0.0: {}
 
-  xml-naming@0.1.0: {}
+  xml-naming@0.3.0: {}
 
   xml2js@0.6.2:
     dependencies:
@@ -9177,3 +9181,5 @@ snapshots:
       zod: 4.4.3
 
   zod@4.4.3: {}
+
+  zstddec@0.2.0: {}
