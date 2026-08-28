@@ -365,6 +365,76 @@ class Bluesky_ProviderTest extends BaseTestCase {
 	}
 
 	/**
+	 * The reconnect explanation survives the request that created it.
+	 *
+	 * The token probe only runs while the row still looks connected, so it
+	 * fires exactly once — on the request that trips the failure. Every
+	 * later admin page load sees a row already flagged `needs_reauth` and
+	 * skips the probe. Without recovering the reason from the flag, the
+	 * status card would fall back to a bare "Disconnected" with Token
+	 * Health "OK" from the second page load onward, and the admin would
+	 * never learn why they were signed out.
+	 */
+	public function test_status_keeps_token_error_after_row_is_flagged() {
+		update_option(
+			'atmosphere_connection',
+			array(
+				'did'          => 'did:plc:test123',
+				'handle'       => 'alice.bsky.social',
+				'pds_endpoint' => 'https://bsky.social',
+				'access_token' => 'garbage',
+			)
+		);
+
+		// First request trips the probe and flags the row.
+		$first = ( new Bluesky_Provider() )->get_status();
+		$this->assertNotNull( $first['token_error'], 'Guard: the first request must produce the error.' );
+
+		// A separate provider instance stands in for the next page load,
+		// bypassing the per-request memo.
+		$second = ( new Bluesky_Provider() )->get_status();
+
+		$this->assertFalse( $second['connected'] );
+		$this->assertNotNull(
+			$second['token_error'],
+			'A flagged row must keep explaining itself so the status card still shows "Reconnect required".'
+		);
+		$this->assertSame(
+			'alice.bsky.social',
+			$second['handle'],
+			'The identity must still name the account that needs reconnecting.'
+		);
+	}
+
+	/**
+	 * A deliberate disconnect stays a clean "Disconnected".
+	 *
+	 * Disconnect clears the credentials but preserves the identity on
+	 * purpose, so `\Atmosphere\needs_reauth()` reports true for it too.
+	 * Keying the explanation off that helper instead of the row's own
+	 * `needs_reauth` flag would turn every ordinary disconnect into a
+	 * "Reconnect required" warning.
+	 */
+	public function test_status_does_not_report_token_error_after_deliberate_disconnect() {
+		update_option(
+			'atmosphere_identity',
+			array(
+				'did'    => 'did:plc:test123',
+				'handle' => 'alice.bsky.social',
+			)
+		);
+		delete_option( 'atmosphere_connection' );
+
+		$status = ( new Bluesky_Provider() )->get_status();
+
+		$this->assertFalse( $status['connected'] );
+		$this->assertNull(
+			$status['token_error'],
+			'A deliberate disconnect is not a token failure and must not raise a reconnect warning.'
+		);
+	}
+
+	/**
 	 * `render_setup_section()` is a no-op in both connected and disconnected
 	 * states. The auto-publish toggle that used to live here was removed
 	 * (Atmosphere has no per-post manual publish UI to back it up); the

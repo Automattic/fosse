@@ -197,6 +197,25 @@ class Bluesky_Provider implements Connection_Provider {
 		$connection = \Atmosphere\get_connection();
 		$connected  = \Atmosphere\is_connected();
 
+		// The probe above only runs while the row still looks connected, so
+		// it explains the failure exactly once — on the request that trips
+		// it. Every later request sees a row already flagged `needs_reauth`,
+		// skips the probe, and would otherwise report a bare "Disconnected"
+		// with Token Health "OK", dropping the reason on the floor. Recover
+		// the explanation from the flag so "Reconnect required" persists
+		// until the admin actually reconnects.
+		//
+		// Keyed off the row's own `needs_reauth` flag rather than
+		// `\Atmosphere\needs_reauth()`: that helper also returns true for a
+		// deliberate disconnect (which clears the credentials but preserves
+		// the identity on purpose), and a clean disconnect must stay a clean
+		// "Disconnected", not a reconnect warning.
+		if ( null === $token_error && ! empty( $connection['needs_reauth'] ) ) {
+			$token_error = function_exists( '\Atmosphere\reauth_reason_lead' )
+				? \Atmosphere\reauth_reason_lead()
+				: __( 'The saved Bluesky login could not be read. Reconnect your Bluesky account to resume sharing.', 'fosse' );
+		}
+
 		$this->status_cache = array(
 			'connected'    => $connected,
 			'handle'       => is_string( $connection['handle'] ?? null ) ? $connection['handle'] : '',
