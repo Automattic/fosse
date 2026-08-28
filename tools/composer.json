@@ -4,7 +4,7 @@
 	"type": "project",
 	"license": "GPL-2.0-or-later",
 	"require": {
-		"automattic/jetpack-codesniffer": "^8.0",
+		"automattic/jetpack-codesniffer": "^9.0",
 		"dealerdirect/phpcodesniffer-composer-installer": "^1.0"
 	},
 	"config": {
