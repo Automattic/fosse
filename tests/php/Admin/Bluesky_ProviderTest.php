@@ -316,7 +316,22 @@ class Bluesky_ProviderTest extends BaseTestCase {
 	}
 
 	/**
-	 * Corrupt tokens surface as token health errors without dropping connection state.
+	 * Corrupt tokens surface as a token health error and flip the connection
+	 * to "reconnect required" while the identity stays on file.
+	 *
+	 * Atmosphere 2.1.0 (upstream PR 191) changed what an undecryptable token
+	 * does: `OAuth\Client::access_token()` now stamps `needs_reauth` on the
+	 * stored connection, clears `access_token`, and returns a user-facing
+	 * error, instead of returning a raw `atmosphere_decrypt` error and
+	 * leaving the row untouched. `\Atmosphere\is_connected()` reports false
+	 * for a `needs_reauth` row, so `connected` flips to false here.
+	 *
+	 * That is the state FOSSE's admin is built for: `render_connection_actions()`
+	 * renders the Connect form on `! connected`, and `render_status_card()`
+	 * renders "Reconnect required" plus the error detail on `token_error`, so
+	 * the admin gets both the diagnosis and the way out. The identity fields
+	 * must survive so the handle-restore and forget-identity flows still have
+	 * something to act on.
 	 */
 	public function test_status_reports_token_error() {
 		update_option(
@@ -331,8 +346,22 @@ class Bluesky_ProviderTest extends BaseTestCase {
 
 		$status = $this->provider->get_status();
 
-		$this->assertTrue( $status['connected'] );
-		$this->assertNotNull( $status['token_error'] );
+		$this->assertFalse(
+			$status['connected'],
+			'An undecryptable token leaves the connection flagged needs_reauth, which is not connected.'
+		);
+		$this->assertNotNull(
+			$status['token_error'],
+			'The probe must surface the reconnect error so the status card can explain why.'
+		);
+
+		// Identity survives the reauth flag — the restore/forget flows depend on it.
+		$this->assertSame( 'alice.bsky.social', $status['handle'] );
+		$this->assertSame( 'did:plc:test123', $status['did'] );
+		$this->assertSame( 'https://bsky.social', $status['pds_endpoint'] );
+
+		$connection = get_option( 'atmosphere_connection' );
+		$this->assertNotEmpty( $connection['needs_reauth'], 'Atmosphere must flag the row for reconnection.' );
 	}
 
 	/**
