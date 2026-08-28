@@ -21,7 +21,7 @@
 		"@babel/core": "^7.29.7",
 		"@playwright/test": "^1.61.1",
 		"@wordpress/eslint-plugin": "^25.8.0",
-		"@wordpress/prettier-config": "^4.50.0",
+		"@wordpress/prettier-config": "^4.53.0",
 		"@wp-playground/cli": "^3.1.47",
 		"eslint": "^9.0.0",
 		"eslint-plugin-jest": "^29.15.4",
