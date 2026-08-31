@@ -40,6 +40,18 @@ class Provider_Loader {
 	 * any provider's `register_hooks()` leaves the flag clear so a
 	 * recovery path can retry once the cause is fixed.
 	 *
+	 * The retry path re-fires `fosse_register_providers` and re-invokes
+	 * `register_hooks()` on every registered provider, including ones that
+	 * booted successfully on the prior attempt (only the failing provider's
+	 * call threw). The loader deliberately does NOT track per-provider boot
+	 * state — that would add request-lifetime state to recover from a path
+	 * that should be rare — so `register_hooks()` MUST be idempotent.
+	 * Implementations must guard against double-registration: prefer
+	 * `remove_*` before `add_*`, a static "registered" flag, or hooking with
+	 * a stable callable so WordPress de-dupes the binding. The first-party
+	 * providers ({@see \Automattic\Fosse\Admin\AP_Provider} and
+	 * {@see \Automattic\Fosse\Admin\Bluesky_Provider}) already satisfy this.
+	 *
 	 * @return void
 	 */
 	public static function boot(): void {
