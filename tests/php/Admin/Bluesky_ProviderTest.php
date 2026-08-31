@@ -316,7 +316,22 @@ class Bluesky_ProviderTest extends BaseTestCase {
 	}
 
 	/**
-	 * Corrupt tokens surface as token health errors without dropping connection state.
+	 * Corrupt tokens surface as a token health error and flip the connection
+	 * to "reconnect required" while the identity stays on file.
+	 *
+	 * Atmosphere 2.1.0 (upstream PR 191) changed what an undecryptable token
+	 * does: `OAuth\Client::access_token()` now stamps `needs_reauth` on the
+	 * stored connection, clears `access_token`, and returns a user-facing
+	 * error, instead of returning a raw `atmosphere_decrypt` error and
+	 * leaving the row untouched. `\Atmosphere\is_connected()` reports false
+	 * for a `needs_reauth` row, so `connected` flips to false here.
+	 *
+	 * That is the state FOSSE's admin is built for: `render_connection_actions()`
+	 * renders the Connect form on `! connected`, and `render_status_card()`
+	 * renders "Reconnect required" plus the error detail on `token_error`, so
+	 * the admin gets both the diagnosis and the way out. The identity fields
+	 * must survive so the handle-restore and forget-identity flows still have
+	 * something to act on.
 	 */
 	public function test_status_reports_token_error() {
 		update_option(
@@ -331,8 +346,92 @@ class Bluesky_ProviderTest extends BaseTestCase {
 
 		$status = $this->provider->get_status();
 
-		$this->assertTrue( $status['connected'] );
-		$this->assertNotNull( $status['token_error'] );
+		$this->assertFalse(
+			$status['connected'],
+			'An undecryptable token leaves the connection flagged needs_reauth, which is not connected.'
+		);
+		$this->assertNotNull(
+			$status['token_error'],
+			'The probe must surface the reconnect error so the status card can explain why.'
+		);
+
+		// Identity survives the reauth flag — the restore/forget flows depend on it.
+		$this->assertSame( 'alice.bsky.social', $status['handle'] );
+		$this->assertSame( 'did:plc:test123', $status['did'] );
+		$this->assertSame( 'https://bsky.social', $status['pds_endpoint'] );
+
+		$connection = get_option( 'atmosphere_connection' );
+		$this->assertNotEmpty( $connection['needs_reauth'], 'Atmosphere must flag the row for reconnection.' );
+	}
+
+	/**
+	 * The reconnect explanation survives the request that created it.
+	 *
+	 * The token probe only runs while the row still looks connected, so it
+	 * fires exactly once — on the request that trips the failure. Every
+	 * later admin page load sees a row already flagged `needs_reauth` and
+	 * skips the probe. Without recovering the reason from the flag, the
+	 * status card would fall back to a bare "Disconnected" with Token
+	 * Health "OK" from the second page load onward, and the admin would
+	 * never learn why they were signed out.
+	 */
+	public function test_status_keeps_token_error_after_row_is_flagged() {
+		update_option(
+			'atmosphere_connection',
+			array(
+				'did'          => 'did:plc:test123',
+				'handle'       => 'alice.bsky.social',
+				'pds_endpoint' => 'https://bsky.social',
+				'access_token' => 'garbage',
+			)
+		);
+
+		// First request trips the probe and flags the row.
+		$first = ( new Bluesky_Provider() )->get_status();
+		$this->assertNotNull( $first['token_error'], 'Guard: the first request must produce the error.' );
+
+		// A separate provider instance stands in for the next page load,
+		// bypassing the per-request memo.
+		$second = ( new Bluesky_Provider() )->get_status();
+
+		$this->assertFalse( $second['connected'] );
+		$this->assertNotNull(
+			$second['token_error'],
+			'A flagged row must keep explaining itself so the status card still shows "Reconnect required".'
+		);
+		$this->assertSame(
+			'alice.bsky.social',
+			$second['handle'],
+			'The identity must still name the account that needs reconnecting.'
+		);
+	}
+
+	/**
+	 * A deliberate disconnect stays a clean "Disconnected".
+	 *
+	 * Disconnect clears the credentials but preserves the identity on
+	 * purpose, so `\Atmosphere\needs_reauth()` reports true for it too.
+	 * Keying the explanation off that helper instead of the row's own
+	 * `needs_reauth` flag would turn every ordinary disconnect into a
+	 * "Reconnect required" warning.
+	 */
+	public function test_status_does_not_report_token_error_after_deliberate_disconnect() {
+		update_option(
+			'atmosphere_identity',
+			array(
+				'did'    => 'did:plc:test123',
+				'handle' => 'alice.bsky.social',
+			)
+		);
+		delete_option( 'atmosphere_connection' );
+
+		$status = ( new Bluesky_Provider() )->get_status();
+
+		$this->assertFalse( $status['connected'] );
+		$this->assertNull(
+			$status['token_error'],
+			'A deliberate disconnect is not a token failure and must not raise a reconnect warning.'
+		);
 	}
 
 	/**

@@ -3,7 +3,7 @@ Contributors: automattic, pfefferle, mattwiebe, obenland, akirk, jeherve, mediaf
 Tags: fediverse, activitypub, indieweb, activitystream, social web
 Requires at least: 6.5
 Tested up to: 7.0
-Stable tag: 9.0.2
+Stable tag: 9.2.2
 Requires PHP: 7.4
 License: MIT
 License URI: http://opensource.org/licenses/MIT
@@ -61,6 +61,12 @@ This plugin connects your WordPress blog to popular social platforms like Mastod
 
 *ActivityPub for WordPress* adds Fediverse features to WordPress, but it is not a replacement for platforms like Friendica or Mastodon. If you're looking to host a decentralized social network, consider using [Mastodon](https://joinmastodon.org/) or [Friendica](https://friendi.ca/).
 
+= Is this a Mastodon crossposter? Can it post to my existing Mastodon account? =
+
+No. A crossposter pushes copies of your posts to a *separate* account you already have on someone else's server. *ActivityPub for WordPress* does the opposite: it makes your own site a first-class Fediverse account (`@you@example.com`), so people follow your site directly and replies come back as WordPress comments, with no second account required.
+
+The plugin will not add crossposting to an existing account; that is a deliberate choice, not a missing feature. If you would rather mirror articles to an established Mastodon account, that is a job for a dedicated crossposter plugin.
+
 = Why "ActivityPub"? =
 
 The name ActivityPub comes from the two core ideas behind the protocol:
@@ -110,6 +116,66 @@ For reasons of data protection, it is not possible to see the followers of other
 5. A Blog-Profile on Mastodon
 
 == Changelog ==
+
+### 9.2.2 - 2026-08-11
+#### Fixed
+- Fixed avatars and emoji occasionally failing to cache, and the file warnings that came with it.
+- Fixed deletions from Mastodon and other servers not removing the corresponding comment on your site.
+- Fixed some styles not loading on the Fediverse admin screens and in the Followers and Following blocks.
+- Fixed the editor warning about unsaved changes right after saving a post with an older date.
+
+### 9.2.1 - 2026-08-03
+#### Fixed
+- Fixed duplicate entries and failed undo actions for activities received from other WordPress sites.
+- Fixed posts and profiles not being found on Mastodon and other Fediverse software, which happened when a request asked for ActivityPub data but also accepted HTML as a low-priority fallback.
+- Fixed remote profiles and followers not being found when their address contains unusual characters.
+- Improved checks on boosted content so it is only accepted from the server that published it.
+- Improve escaping of embedded link URLs in federated content.
+- Improve permission checks for admin-only actions.
+- Improve validation of incoming federated activities so the signing key and referenced objects are bound to the sender.
+
+### 9.2.0 - 2026-07-31
+#### Changed
+- ActivityPub responses are now served only to clients that ask for ActivityPub data and nothing else, which keeps that data out of page caches meant for regular web pages.
+- Only users enabled for ActivityPub can obtain and use OAuth access tokens.
+
+#### Removed
+- Remove support for the WP REST Cache plugin.
+
+#### Fixed
+- Hide the heading on the Followers and Following blocks when its text is cleared, matching the Reactions block.
+- Under Authorized Fetch, ActivityPub responses are no longer stored by page caches such as LiteSpeed or Surge.
+
+### 9.1.0 - 2026-07-22
+#### Security
+- Ensure apps you connect can only act within the access you granted them, and not make wider changes to your site.
+- Ensure remote profiles and content are served from the address they claim before storing them.
+- Fix a security issue where a remote actor's profile link could run scripts in the admin area.
+- Ignore an incoming follow request whose actor resolves to a different account than the one that sent it.
+
+#### Added
+- Add a filter that allows federating with servers on private or internal networks.
+- Add an actor autocomplete endpoint so Fediverse apps can offer typeahead search when mentioning people.
+- Federate the episode summary for Podlove Podcast Publisher episodes.
+
+#### Changed
+- Improve reliability of the Social Web admin screen loading.
+- Improve the internal handling of the Application actor used for server-to-server requests.
+
+#### Fixed
+- Ensure a follow can only be declined by the account you followed.
+- Fixed using the correct cache representation in Surge config
+- Fix follow requests from some fediverse services staying pending after they are accepted.
+- Fix likes from some accounts being recorded as multiple duplicate comments.
+- Fix posts being removed from the Fediverse when edited while scheduled for a future publish date.
+- Fix repeated deliveries of a like or repost creating new comments after the original was marked as spam or moved to the trash.
+- Fix Starter Kit imports failing on Fediverse servers that require signed requests.
+- Fix the scheduled refresh of remote profiles so it actually re-fetches from the remote server. Previously, stale avatars and bios for commenters never updated until they sent a new activity to your site.
+- Fix URLs with multiple query parameters (such as avatars, images, profile links, and podcast media) being corrupted in content sent to the Fediverse.
+- Prevent caching non-actor objects (such as notes) as remote profiles.
+- Refresh cached remote profiles in place during scheduled updates to avoid creating duplicate copies.
+- Show the Fediverse Preview for scheduled posts instead of the regular post preview.
+- Stop storing responses from remote servers in the database when they were requested uncached.
 
 ### 9.0.2 - 2026-06-29
 #### Fixed
@@ -171,9 +237,9 @@ See full Changelog on [GitHub](https://github.com/Automattic/wordpress-activityp
 
 == Upgrade Notice ==
 
-= 9.0.0 =
+= 9.2.0 =
 
-Posts you switch to draft, pending, private, or password-protected are now fully removed from the Fediverse, so unpublished content no longer lingers on other servers. Note that re-publishing may not restore them on some platforms.
+Support for the WP REST Cache plugin has been removed. If you use it, ActivityPub pages are no longer cached by it, but everything else works as before.
 
 == Installation ==
 

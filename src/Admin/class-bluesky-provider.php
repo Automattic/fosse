@@ -171,11 +171,20 @@ class Bluesky_Provider implements Connection_Provider {
 		// Run the token-health probe first because Atmosphere's
 		// `OAuth\Client::access_token()` is not read-only — on a permanent
 		// OAuth failure (`invalid_grant`, `invalid_client`,
-		// `unauthorized_client`) it deletes `atmosphere_connection` to
-		// prevent silent re-use of dead credentials. Reading the
-		// connection BEFORE that probe and caching the pre-deletion view
+		// `unauthorized_client`) or an undecryptable stored token it
+		// stamps `needs_reauth` on `atmosphere_connection` and clears
+		// `access_token`, which flips `\Atmosphere\is_connected()` to
+		// false, so dead credentials are never silently re-used. Reading
+		// the connection BEFORE that probe and caching the pre-probe view
 		// would freeze the admin's status as connected for the rest of
 		// the request even after the underlying state was invalidated.
+		//
+		// Atmosphere keeps the identity fields (handle, DID, PDS) on the
+		// flagged row, so the status card can still name the account it
+		// wants reconnected and the restore/forget identity flows keep
+		// working. Before Atmosphere 2.1.0 the probe returned a raw
+		// decrypt error and left the row untouched; the re-read below
+		// covers both shapes.
 		$token_error = null;
 		if ( \Atmosphere\is_connected() && method_exists( '\Atmosphere\OAuth\Client', 'access_token' ) ) {
 			$token = \Atmosphere\OAuth\Client::access_token();
@@ -184,9 +193,28 @@ class Bluesky_Provider implements Connection_Provider {
 			}
 		}
 
-		// Re-read after the probe so a deleted connection is reflected.
+		// Re-read after the probe so an invalidated connection is reflected.
 		$connection = \Atmosphere\get_connection();
 		$connected  = \Atmosphere\is_connected();
+
+		// The probe above only runs while the row still looks connected, so
+		// it explains the failure exactly once — on the request that trips
+		// it. Every later request sees a row already flagged `needs_reauth`,
+		// skips the probe, and would otherwise report a bare "Disconnected"
+		// with Token Health "OK", dropping the reason on the floor. Recover
+		// the explanation from the flag so "Reconnect required" persists
+		// until the admin actually reconnects.
+		//
+		// Keyed off the row's own `needs_reauth` flag rather than
+		// `\Atmosphere\needs_reauth()`: that helper also returns true for a
+		// deliberate disconnect (which clears the credentials but preserves
+		// the identity on purpose), and a clean disconnect must stay a clean
+		// "Disconnected", not a reconnect warning.
+		if ( null === $token_error && ! empty( $connection['needs_reauth'] ) ) {
+			$token_error = function_exists( '\Atmosphere\reauth_reason_lead' )
+				? \Atmosphere\reauth_reason_lead()
+				: __( 'The saved Bluesky login could not be read. Reconnect your Bluesky account to resume sharing.', 'fosse' );
+		}
 
 		$this->status_cache = array(
 			'connected'    => $connected,
