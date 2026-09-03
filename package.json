@@ -20,7 +20,7 @@
 	"devDependencies": {
 		"@babel/core": "^7.29.7",
 		"@playwright/test": "^1.62.1",
-		"@wordpress/eslint-plugin": "^25.8.0",
+		"@wordpress/eslint-plugin": "^25.10.0",
 		"@wordpress/prettier-config": "^4.52.0",
 		"@wp-playground/cli": "^3.1.47",
 		"eslint": "^9.0.0",
