@@ -170,14 +170,19 @@ class Bluesky_Provider implements Connection_Provider {
 
 		// Run the token-health probe first because Atmosphere's
 		// `OAuth\Client::access_token()` is not read-only — on a permanent
-		// OAuth failure (`invalid_grant`, `invalid_client`,
-		// `unauthorized_client`) or an undecryptable stored token it
-		// stamps `needs_reauth` on `atmosphere_connection` and clears
+		// OAuth failure (`invalid_grant`) or an undecryptable stored token
+		// it stamps `needs_reauth` on `atmosphere_connection` and clears
 		// `access_token`, which flips `\Atmosphere\is_connected()` to
 		// false, so dead credentials are never silently re-used. Reading
 		// the connection BEFORE that probe and caching the pre-probe view
 		// would freeze the admin's status as connected for the rest of
 		// the request even after the underlying state was invalidated.
+		//
+		// Since Atmosphere 2.4.0, `invalid_client` / `unauthorized_client`
+		// only flag the row on a legacy (public-client) session or when the
+		// site's client_id URL has moved. On a current session they return
+		// `atmosphere_client_configuration` and leave the row connected, so
+		// the status reads connected with a `token_error`.
 		//
 		// Atmosphere keeps the identity fields (handle, DID, PDS) on the
 		// flagged row, so the status card can still name the account it
