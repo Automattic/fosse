@@ -15,20 +15,20 @@ importers:
         specifier: ^1.62.1
         version: 1.62.1
       '@wordpress/eslint-plugin':
-        specifier: ^25.8.0
-        version: 25.8.0(@babel/core@7.29.7)(@types/react@18.3.31)(@typescript-eslint/eslint-plugin@8.65.0(@typescript-eslint/parser@8.65.0(eslint@9.39.4)(typescript@6.0.3))(eslint@9.39.4)(typescript@6.0.3))(@typescript-eslint/parser@8.65.0(eslint@9.39.4)(typescript@6.0.3))(eslint@9.39.4)(jest@30.4.2(@types/node@25.8.0))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@6.0.3)(wp-prettier@3.0.3)
+        specifier: ^25.10.0
+        version: 25.10.0(@babel/core@7.29.7)(@types/react-dom@18.3.7(@types/react@18.3.31))(@types/react@18.3.31)(@typescript-eslint/eslint-plugin@8.65.0(@typescript-eslint/parser@8.65.0(eslint@9.39.4)(typescript@6.0.3))(eslint@9.39.4)(typescript@6.0.3))(@typescript-eslint/parser@8.65.0(eslint@9.39.4)(typescript@6.0.3))(eslint@9.39.4)(jest@30.4.2(@types/node@25.8.0))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@6.0.3)(wp-prettier@3.0.3)
       '@wordpress/prettier-config':
-        specifier: ^4.52.0
-        version: 4.52.0(wp-prettier@3.0.3)
+        specifier: ^4.56.0
+        version: 4.56.0(wp-prettier@3.0.3)
       '@wp-playground/cli':
-        specifier: ^3.1.47
-        version: 3.1.47
+        specifier: ^3.1.56
+        version: 3.1.56
       eslint:
         specifier: ^9.0.0
         version: 9.39.4
       eslint-plugin-jest:
-        specifier: ^29.16.0
-        version: 29.16.0(@typescript-eslint/eslint-plugin@8.65.0(@typescript-eslint/parser@8.65.0(eslint@9.39.4)(typescript@6.0.3))(eslint@9.39.4)(typescript@6.0.3))(eslint@9.39.4)(jest@30.4.2(@types/node@25.8.0))(typescript@6.0.3)
+        specifier: ^29.16.6
+        version: 29.16.6(@typescript-eslint/eslint-plugin@8.65.0(@typescript-eslint/parser@8.65.0(eslint@9.39.4)(typescript@6.0.3))(eslint@9.39.4)(typescript@6.0.3))(eslint@9.39.4)(jest@30.4.2(@types/node@25.8.0))(typescript@6.0.3)
       jest:
         specifier: ^30.4.2
         version: 30.4.2(@types/node@25.8.0)
@@ -1042,76 +1042,76 @@ packages:
     resolution: {integrity: sha512-exj1MzVXoP7xnAcAB3jZ97pTvVPkQF9y6GA/dvYC47HV7vLv+24XRS6b/v/XnyikpEuvMhugEXdGtAlU086WkQ==}
     engines: {node: '>= 18'}
 
-  '@php-wasm/cli-util@3.1.47':
-    resolution: {integrity: sha512-glt5ss/0EAqRDY1rZOkmnouPE5dN45naBYiMivpRDI4I7TgXCm+b6mphDo/7vM2ZnnQ8wXyJQs5TpkH3DMrHPg==}
-    engines: {node: '>=20.10.0', npm: '>=10.2.3'}
+  '@php-wasm/cli-util@3.1.56':
+    resolution: {integrity: sha512-fG0++QgoBsJl4/KYyAJmajMI2NHRM17ew41W373pF/sMVS/sZuiB+fB8lZ/Grofihljkq5BWdmPh0oFXwUR2Ow==}
+    engines: {node: '>=24.18.0', npm: '>=11.16.0'}
 
-  '@php-wasm/logger@3.1.47':
-    resolution: {integrity: sha512-iPY70KxsxrVvPClIBcSO9bPXXtzPNVQQDtAPVhs9yGVHTt8QgFNIX6QDSBw9PZU8Ce2MfJPqiz4+ZfhKx0UMUw==}
-    engines: {node: '>=20.10.0', npm: '>=10.2.3'}
+  '@php-wasm/logger@3.1.56':
+    resolution: {integrity: sha512-CaKsiO0OGaS07s+of2ZS486La5JhsT/V1yn96/BJ9BKDSQKVQERJDsXIQ2XIdV0/4C6owKBtKn7e7DGhOqPg5Q==}
+    engines: {node: '>=24.18.0', npm: '>=11.16.0'}
 
-  '@php-wasm/node-5-2@3.1.47':
-    resolution: {integrity: sha512-Q8+E00FGKEiuJTPfoJD2QALfpcMMEzMOdMJUtN5UoHnJ35p0tIHA4+gWy4sygXAwpAVtlHhSgwyxfLdOdBnKpg==}
-    engines: {node: '>=20.10.0', npm: '>=10.2.3'}
+  '@php-wasm/node-5-2@3.1.56':
+    resolution: {integrity: sha512-IqbxJC6yWwmFGce8BPgrDBMl/FNq64ugFc7z6e+/753WTsjWTM4gSrir13xx8DHWRa1huUvhuxujiww45VJqhA==}
+    engines: {node: '>=24.18.0', npm: '>=11.16.0'}
 
-  '@php-wasm/node-7-4@3.1.47':
-    resolution: {integrity: sha512-YQnKX+MLtymvfnwS+cDimndjWGbWkbdA84Fy5tGPOXKLM2IGTpxrypWyEuvWGyzU2ffk1y9vEMbDnYgGuYweDg==}
-    engines: {node: '>=20.10.0', npm: '>=10.2.3'}
+  '@php-wasm/node-7-4@3.1.56':
+    resolution: {integrity: sha512-Zj5aHoY2c43kcO6BhM+JWz+06nq7WcHkp3R428Ij6QqxFFFp0VlF5NbrqtWmppK8xY2ZoV+f0NQsnYsBBEjM7A==}
+    engines: {node: '>=24.18.0', npm: '>=11.16.0'}
 
-  '@php-wasm/node-8-0@3.1.47':
-    resolution: {integrity: sha512-+ZS0xaJw22T+vwUa1vw+qQr57KmjSYb3JfSqdLBtM5R6FXarTORv+o1Vq11OMhoQhpwZ6xBOhEsQKO16fx1q4A==}
-    engines: {node: '>=20.10.0', npm: '>=10.2.3'}
+  '@php-wasm/node-8-0@3.1.56':
+    resolution: {integrity: sha512-KWThNeQGRMhk1sWCfsS89vyBuhOtoK83hWLgdiaPZoG8Gcv6G6xeALTReCUkAxWLPHaBKwdUK93gQoxpt867Iw==}
+    engines: {node: '>=24.18.0', npm: '>=11.16.0'}
 
-  '@php-wasm/node-8-1@3.1.47':
-    resolution: {integrity: sha512-3navoGiXMTcyzoSTJ6oOdkGBOvWzC2ed6IctlrvAwkjA/F1gNF0sxkvtk6BWadA/M5Z8FYDcNL8N5g2e7sKm8w==}
-    engines: {node: '>=20.10.0', npm: '>=10.2.3'}
+  '@php-wasm/node-8-1@3.1.56':
+    resolution: {integrity: sha512-q98eZevp4+apYNjyeJvTh6ymuPxnDtwe84u8xw/Jui5xQTnbKIWEdUsZptGlnVXM6eSOzjC7Kyto2lF7UEBEJg==}
+    engines: {node: '>=24.18.0', npm: '>=11.16.0'}
 
-  '@php-wasm/node-8-2@3.1.47':
-    resolution: {integrity: sha512-0zy9knqwdbxaxyI5On39qrHQQUtjm4IpjpApR3ciTGgQEnsxnryzYDU4n7MWJIQ4/ARtQShb1Xup4lOnWkm97Q==}
-    engines: {node: '>=20.10.0', npm: '>=10.2.3'}
+  '@php-wasm/node-8-2@3.1.56':
+    resolution: {integrity: sha512-A2n+6GYN/Qq58JTWcpq44gGb+zKtT5CYDf6rJlnVsrClvOToUL/DTcGTvkT4HHjkC9cPBLnDVZ6ns91ugq6n1g==}
+    engines: {node: '>=24.18.0', npm: '>=11.16.0'}
 
-  '@php-wasm/node-8-3@3.1.47':
-    resolution: {integrity: sha512-LDcsVhbqhUbAVYu8+eRoxG9UAl2v0moAa2q36tKHXSvt07sK0IRuspvk5LWsLAscSM7bAvW69i/2iBoPcrwtWw==}
-    engines: {node: '>=20.10.0', npm: '>=10.2.3'}
+  '@php-wasm/node-8-3@3.1.56':
+    resolution: {integrity: sha512-FGj6HK9zlh+3Zoh/qOSP7WS1zPWvWMW1oBVojRzedW1j5XxlbXydcypUYpAcsdlQdrVFJ3VzSqytXK4QmQwaFQ==}
+    engines: {node: '>=24.18.0', npm: '>=11.16.0'}
 
-  '@php-wasm/node-8-4@3.1.47':
-    resolution: {integrity: sha512-w7z53feuE3HmBWyx0d5KNj2CvA3ZxPdy2s6Xp7xhFSlPjLnKuZiHH5rrvkzj9EIcKBwPWq8ZBjioqu4wob6NLw==}
-    engines: {node: '>=20.10.0', npm: '>=10.2.3'}
+  '@php-wasm/node-8-4@3.1.56':
+    resolution: {integrity: sha512-fam1tyIcDqyJrgUvm3gW37FZhE02YOL2nYUJpLwq0B9QA4WxQo2wx0W1Tg9LBoIeD7JtvEOHk1soyg6awLPMDQ==}
+    engines: {node: '>=24.18.0', npm: '>=11.16.0'}
 
-  '@php-wasm/node-8-5@3.1.47':
-    resolution: {integrity: sha512-pAe2RRSdHRKG+3ilLHHy/9pV9MVGpDEKE3klrPWn/3e3gumD/rcwLZ3o0eCTys+mgeUtQWjAkuKHObwLueICIQ==}
-    engines: {node: '>=20.10.0', npm: '>=10.2.3'}
+  '@php-wasm/node-8-5@3.1.56':
+    resolution: {integrity: sha512-dCalDHUAcX+/VgQbioj0HpzPb+cgTT6kpV12JBegtE0GgOXN2SJnZDi+8LGyVY8DH6APX9MqSYsppKRc+dACBQ==}
+    engines: {node: '>=24.18.0', npm: '>=11.16.0'}
 
-  '@php-wasm/node@3.1.47':
-    resolution: {integrity: sha512-lbTXYBLQ1KFB0rI6xs5iBTjYM+lli07osaWfa/DA/AMMlny5thOF9fVfkYa/K3VBylD6QwbJRilWaVI1BK7Tyg==}
-    engines: {node: '>=20.10.0', npm: '>=10.2.3'}
+  '@php-wasm/node@3.1.56':
+    resolution: {integrity: sha512-zpxaoHY8pRNC7qt0kLHim5XUVwLv6nWChis6LbDWVnEF7Gv4Ls7+zTRk+ukQUNfDvRuF11vUzgcMdN7I63Sa/w==}
+    engines: {node: '>=24.18.0', npm: '>=11.16.0'}
 
-  '@php-wasm/progress@3.1.47':
-    resolution: {integrity: sha512-Q/9amG/KyaYtfxCp4XLBI4s8d1ucx9Js0c/m+yo3ToOLkdpo3gZJq9J+JGJm7aRebNpErorXlbhD2yzNQqekZg==}
-    engines: {node: '>=20.10.0', npm: '>=10.2.3'}
+  '@php-wasm/progress@3.1.56':
+    resolution: {integrity: sha512-vj0wMLaIz1Ct+oKalMhsLpwXslqXRk8HnmPljlU4oeKVtIuus4+lPY7AbJbrKLPu/mjtTUTe6ckhAvvKh2/MJQ==}
+    engines: {node: '>=24.18.0', npm: '>=11.16.0'}
 
-  '@php-wasm/scopes@3.1.47':
-    resolution: {integrity: sha512-6aAfUv64KVJ5Diawl3YkVndmwdw/4+BwTIhEftegH6sAPKkS+Fvcc+Yfl+/TCqn/rNqmhXFXcGKNj9pL1QIT2A==}
-    engines: {node: '>=20.10.0', npm: '>=10.2.3'}
+  '@php-wasm/scopes@3.1.56':
+    resolution: {integrity: sha512-t0dVVio0AX4QfcFe6u8pVHes76MN2cfLRBwm5OjR0K5HSvEG42Yv1gpAz+ALqgDFUAohVRy0NJd/yMZ7vuDypg==}
+    engines: {node: '>=24.18.0', npm: '>=11.16.0'}
 
-  '@php-wasm/stream-compression@3.1.47':
-    resolution: {integrity: sha512-aOJpzBiM2OGUhG2mRAmBUXvc2tDAqv7RnZ8lGq50zrh4T9pw9IJ80AuszXmaXH5FYg8LLPg30/P2+DGBhnCoAw==}
+  '@php-wasm/stream-compression@3.1.56':
+    resolution: {integrity: sha512-fM6HkAFJ8+oIi4RE5ohkyMD5i504cHkKvs3YVDaRuT437T0L/w7v3IPQ0Un9OaLkamzExKPlnfMxyekkvJqH6Q==}
 
-  '@php-wasm/universal@3.1.47':
-    resolution: {integrity: sha512-YftaPLpYV7BetrG7aKp38g9QOLLp85GHX7yA3t2V+IDyt8T3Fmkv4bxhBFS88Oyz0hTVSORZTZWIZVxYrgSjjw==}
-    engines: {node: '>=20.10.0', npm: '>=10.2.3'}
+  '@php-wasm/universal@3.1.56':
+    resolution: {integrity: sha512-TTus/ztQk6jI7duyKGOCO5FJqDhtCYYtdjdL9uxCaAwjWc535yj9110uegqhKKNvKgnc/B+ZbWROnTC8KFnl3A==}
+    engines: {node: '>=24.18.0', npm: '>=11.16.0'}
 
-  '@php-wasm/util@3.1.47':
-    resolution: {integrity: sha512-3Nkpkuz0bdPpfU4CVl9wOe73qfT3hxdj8/4Q46E+um0D69CQaaWhyBsWtx0U4fuL6AIvnpitw50CsrL+2E7Dlg==}
-    engines: {node: '>=20.10.0', npm: '>=10.2.3'}
+  '@php-wasm/util@3.1.56':
+    resolution: {integrity: sha512-jRL3vqVrKQYx9p91O9xC5KZbVwWpMQ6ZFtTWO6Z4GtqcNoBsUunsPR82y/9k84EnKSj+ZTLLD6cEgLWYRUOoBw==}
+    engines: {node: '>=24.18.0', npm: '>=11.16.0'}
 
-  '@php-wasm/web-service-worker@3.1.47':
-    resolution: {integrity: sha512-BIG6D4hDBkVCVAI4kVAtq65xigJk39wsFRVAOpqbaeE1518yfnDgeVW4zxQgRkkcEEbSpQgS0/ftYugdjkPeXw==}
-    engines: {node: '>=20.10.0', npm: '>=10.2.3'}
+  '@php-wasm/web-service-worker@3.1.56':
+    resolution: {integrity: sha512-lqW7+OnJ+iHjGgVt82hjeqifA1e9MYyhN4fxya4t9ISREu6fzeUOeqHnC8ndBOe6iM8+APakoqnz5qck4iwpvQ==}
+    engines: {node: '>=24.18.0', npm: '>=11.16.0'}
 
-  '@php-wasm/xdebug-bridge@3.1.47':
-    resolution: {integrity: sha512-KCpmxWxk9HWkfxzikLAf4v0LZt3A0iNF7UXvQN2GsBMmvgUHhItd5K49Rvwiw40Bu4ZqE9B4x7yguvlDDuXHvQ==}
-    engines: {node: '>=20.10.0', npm: '>=10.2.3'}
+  '@php-wasm/xdebug-bridge@3.1.56':
+    resolution: {integrity: sha512-z01EDxhT2aRAbXfyIQyBR+K0mWfphnNPhHwWl0+yVd/OxTIeWHgG/aC/7bGcL1o9o+j+jAAecw8koKBY3f63Dg==}
+    engines: {node: '>=24.18.0', npm: '>=11.16.0'}
     hasBin: true
 
   '@pkgjs/parseargs@0.11.0':
@@ -1416,17 +1416,17 @@ packages:
     resolution: {integrity: sha512-BgYZfL2ADCXKOw2wJtkM3slhHotawWkgIRRxq4wEybnZQPjvAp71SPX35xepMykTw8gXlzWcWPTY31hlbnRsDA==}
     engines: {node: 18 >=18.20 || 20 || >=22}
 
-  '@wordpress/babel-preset-default@8.52.0':
-    resolution: {integrity: sha512-0beMLrvoMAHH3Q4916FEftMCkn0/lx+wg8JoxX80BjOTrCzZMQaArTgvmH2F0G9jvuhzqJebsNoqdrNvd6nTVQ==}
-    engines: {node: '>=18.12.0', npm: '>=8.19.2'}
+  '@wordpress/babel-preset-default@8.56.0':
+    resolution: {integrity: sha512-e6M3B67Ooub7jQaBLW1KiY6Ghq9wXAdBBe08nZ6xeSX3znBdXlWCg6YpSRw54//t/p7ajHSKVaq8dvf2x46P+A==}
+    engines: {node: '>=18.12.0'}
 
-  '@wordpress/browserslist-config@6.52.0':
-    resolution: {integrity: sha512-+4oOFS7wOuCc8ZRRT8rjoQbJCXX0li8tWN++1szH0qsRzSNVvZSu4gR7bIAK1GrQKhIjAUZItrT02iocBq7lIA==}
-    engines: {node: '>=18.12.0', npm: '>=8.19.2'}
+  '@wordpress/browserslist-config@6.56.0':
+    resolution: {integrity: sha512-/gdTZapH6cV2iu+glSvM6IjYjS6kLtRlmjlNENqn03Isc8V1cSyWZWZ4vlq2i41uwqGoDObu4DdlmTBWS+g4Cg==}
+    engines: {node: '>=18.12.0'}
 
-  '@wordpress/compose@8.5.0':
-    resolution: {integrity: sha512-giYS22Tbhtr3Lj4lK6lxzGqV6EkM2QeVBiP7+c9r2F9rnQN3F6A8cN4gQM5sVGdgIOlps9tw+dsn9OHzIFVwIg==}
-    engines: {node: '>=18.12.0', npm: '>=8.19.2'}
+  '@wordpress/compose@8.9.0':
+    resolution: {integrity: sha512-P5LIb2c+r77CVxhxRZW1RU+jZVn5QtkwsKrxea3oSRmbJn5Z3layII2Ilzw1+0qOUpgBgQbUnko0LsDLMTC/5g==}
+    engines: {node: '>=18.12.0'}
     peerDependencies:
       '@types/react': ^18 || ^19
       react: ^18 || ^19
@@ -1434,24 +1434,34 @@ packages:
       '@types/react':
         optional: true
 
-  '@wordpress/deprecated@4.52.0':
-    resolution: {integrity: sha512-94oHBKPty4pp6L5510LWDwJwNqFhikxLfwN6VUcDOQzj3itkc0MQ4ZQhmsfBy3Y6IRxSGx+p2bjSQvA4D+M96A==}
-    engines: {node: '>=18.12.0', npm: '>=8.19.2'}
+  '@wordpress/deprecated@4.56.0':
+    resolution: {integrity: sha512-to+VUihf/FGYPf74KXr6Yag+hTkaw8i8ZAa4x6Z3ZP3zMBu6pnxnc4QT0eZlWraeKdE2ZLbtT5tF7mkZSWzoFQ==}
+    engines: {node: '>=18.12.0'}
 
-  '@wordpress/dom@4.52.0':
-    resolution: {integrity: sha512-LUY9nI9h6blk4xBuG83KgyfTnx7PMs/g6ZVzY/SOaCcOc2P3zOfzacADq/vxQydbZpcwtLM6juzgnNta6AX95w==}
-    engines: {node: '>=18.12.0', npm: '>=8.19.2'}
+  '@wordpress/dom@4.56.0':
+    resolution: {integrity: sha512-gn+A1WqWv7dcQ4VA2PUo0JgFKegwlya8pCAyydgPpUBxEeSzUZnJl//SEIy4Og30GcNUAuOQbHDEL6rzcJfUfw==}
+    engines: {node: '>=18.12.0'}
 
-  '@wordpress/element@8.4.0':
-    resolution: {integrity: sha512-/LzW+0MpSmKfYiESoXUQtjBPqOPyvqUm17GigQR5c0Z8Wj2NiklP72x4XaF02uSkau1ru1Z9lP8NWEGjwBwLsA==}
-    engines: {node: '>=18.12.0', npm: '>=8.19.2'}
+  '@wordpress/element@8.8.0':
+    resolution: {integrity: sha512-cMQ32/FbQVwwa10+R1QUjJwXM+FSnNtL0t1ZOmY/rdtjm8sZh1A6idpQEC0JFCoBGx61ZXYA2EUyjqJoLyU9QQ==}
+    engines: {node: '>=18.12.0'}
+    peerDependencies:
+      '@types/react': ^18 || ^19
+      '@types/react-dom': ^18 || ^19
+      react: ^18 || ^19
+      react-dom: ^18 || ^19
+    peerDependenciesMeta:
+      '@types/react':
+        optional: true
+      '@types/react-dom':
+        optional: true
 
-  '@wordpress/escape-html@3.52.0':
-    resolution: {integrity: sha512-sW8X839Xu8aiJlCGF48MM3iYrcXspuiY0By8iTpXKpnUdd2u0SL9HRR0ALSAsOf2ujOeWm/x58ODMSchovRWGw==}
-    engines: {node: '>=18.12.0', npm: '>=8.19.2'}
+  '@wordpress/escape-html@3.56.0':
+    resolution: {integrity: sha512-5k+7+XuXgeczkg2QuiN2zROHzj9/dU9qyv78H6I291+QOXLLlfOBzB2ds/MLvIyjv1mP1jLkvzzOB0PxHgfr+Q==}
+    engines: {node: '>=18.12.0'}
 
-  '@wordpress/eslint-plugin@25.8.0':
-    resolution: {integrity: sha512-QqYfiAVUYFLUhiLlVwB1MoGHcyNElwAPFeXnfZhYUPvFYOmQucsn4dxEGpl67PfcM2XWimni5z+mUquv4y1Mow==}
+  '@wordpress/eslint-plugin@25.10.0':
+    resolution: {integrity: sha512-Lx3LVVVQuhCOfwVQDUL7Mh8c++y/JKHh+GozJmYNEyOosEZGW+LFTWS6GQiqoR3d4qIRJTZ3lRlmRf0Md568aQ==}
     engines: {node: '>=18.12.0', npm: '>=8.19.2'}
     peerDependencies:
       '@babel/core': '>=7'
@@ -1464,52 +1474,53 @@ packages:
       typescript:
         optional: true
 
-  '@wordpress/hooks@4.52.0':
-    resolution: {integrity: sha512-EbV/nJTerhqwNW3DLvvGutJfNyXcmBHXuWyJpv1NypzT80k21jPGP79HBE5Z0A2oAI2kIBp6Klaa4O8uEjq/sw==}
-    engines: {node: '>=18.12.0', npm: '>=8.19.2'}
+  '@wordpress/hooks@4.56.0':
+    resolution: {integrity: sha512-3+90yFqbMyzhqOEu88MjwlpznzVFl3am0YYIt7kc/8mfJ79IyHkYyiDdid3/fkJDMbZHH4tGy0J/JFp84/5Q2w==}
+    engines: {node: '>=18.12.0'}
 
-  '@wordpress/i18n@6.25.0':
-    resolution: {integrity: sha512-UcyUT8CJgEkhjzEGTVV6kw0Qi4OraF0I9J9FBLmTda/1Wi1o6rLAXZBm2aJrP740ezFxPneHH92aQF4Z5xZqcQ==}
-    engines: {node: '>=18.12.0', npm: '>=8.19.2'}
+  '@wordpress/i18n@6.29.0':
+    resolution: {integrity: sha512-ErLuyzvVbkylJhfvyi3tuj4CPn2EyT6f1TVCJ4EXHsNqgQ0ZlfYs3MBsJB2wcMNvYWIYtnOSeo8M5ucMVbMu3Q==}
+    engines: {node: '>=18.12.0'}
     hasBin: true
 
-  '@wordpress/is-shallow-equal@5.52.0':
-    resolution: {integrity: sha512-LMIBLLTZ+vvq0DlYebL4d9XaCu16PNnhPGSn8QqsMPmBzwBYOjO0/btMLpYbs9rRc8k1QKBDWvw8eddvRVsYxA==}
-    engines: {node: '>=18.12.0', npm: '>=8.19.2'}
+  '@wordpress/is-shallow-equal@5.56.0':
+    resolution: {integrity: sha512-KpyMI+SJV8xqoaGF5VV+FEHfj137jUEam3A98cKBFW8rGxC0ip7i3LCww0jXPwBciKiOw+XBzgTjJBwk89kfYQ==}
+    engines: {node: '>=18.12.0'}
 
-  '@wordpress/keycodes@4.52.0':
-    resolution: {integrity: sha512-KRvwViTTdxUDgikYaCm+qnXSH2UlFuCDjAIvtjjcen8oRviSkeMv6bPn1T2vqFRKcVgt88xTtKlvI8l5U99o2Q==}
-    engines: {node: '>=18.12.0', npm: '>=8.19.2'}
+  '@wordpress/keycodes@4.56.0':
+    resolution: {integrity: sha512-zNF8WANxCBRXu25RB1QI2ZFoWydzWxz9F4dSKQ0nhEtvc6sY6gU/+WY+7xLdLMXU3lLZNFbEJOK369Fgygm/1w==}
+    engines: {node: '>=18.12.0'}
     peerDependencies:
       '@types/react': ^18 || ^19
     peerDependenciesMeta:
       '@types/react':
         optional: true
 
-  '@wordpress/prettier-config@4.52.0':
-    resolution: {integrity: sha512-aUxF/a7BtcfIVaJn12eZOwMUPJFMCu37wEyR+KhzR5gXssXi5yGqxJKNIHT/dmTyYC+MNxVM73g+W1HyAoIwxw==}
-    engines: {node: '>=18.12.0', npm: '>=8.19.2'}
+  '@wordpress/prettier-config@4.56.0':
+    resolution: {integrity: sha512-FTiY8VRrKVcB2FNxFsALoe8TC0ilpIzYdiRT+VaS87HlEF99L5UfZoGT7gL2VhdEhkNCS9FPtk9k2xGPok/WJg==}
+    engines: {node: '>=18.12.0'}
     peerDependencies:
       prettier: '>=3'
 
-  '@wordpress/priority-queue@3.52.0':
-    resolution: {integrity: sha512-aYnVXxV5j4D73tRld2n1D3G6cKLfSwKWcTnktJ7XlmiswW7xlaAqvn4FyBjwmIe20pZw0A7xLH5xCuQcqOM7nw==}
-    engines: {node: '>=18.12.0', npm: '>=8.19.2'}
+  '@wordpress/priority-queue@3.56.0':
+    resolution: {integrity: sha512-PwCtvndDcizxs7DpfQ33uDsu/we3fFG/sejK4KspwotC99LtGvO5QgvtiO6g7SIoXKAMdaNW82B9w4Y/VNCNNQ==}
+    engines: {node: '>=18.12.0'}
 
-  '@wordpress/private-apis@1.52.0':
-    resolution: {integrity: sha512-gFcmBXSti73Y4uEx++5qUNDaH/o0/2ijrHEJkY5e/df4RtmxVSQOIVxftRiI4m9thCWfJMoehMMreJxhwx6Qtg==}
-    engines: {node: '>=18.12.0', npm: '>=8.19.2'}
+  '@wordpress/private-apis@1.56.0':
+    resolution: {integrity: sha512-LwtJallQ1xT1ABbulaW9lYswuMS20s/sQCX71Rf9s37M9qQBZ0Pw7hkkeCU6ik6jPkorHsLhbGCeThcAcHYr2w==}
+    engines: {node: '>=18.12.0'}
 
-  '@wordpress/style-runtime@0.8.0':
-    resolution: {integrity: sha512-gqe5cnsDLwH2NQ//VyUtzS4pcht0iR64hP+3u6p5/pPvwA2ySGn71mJ/7+O2X7sUG5drxNp6+4Kl3LWOzkKYng==}
-    engines: {node: '>=20.10.0', npm: '>=10.2.3'}
+  '@wordpress/style-runtime@0.12.0':
+    resolution: {integrity: sha512-qCEKNYAGyJ3II+EQS4HNDbwPwddPUf1Pf3C7dSqqEuM9x0zbQm4/uZlf9i8CyV2k7ul9MzHeVjzIYlI+IuXEvA==}
+    engines: {node: '>=20.10.0'}
 
-  '@wordpress/theme@1.1.0':
-    resolution: {integrity: sha512-SWEGYY/HnSzmKDJnDhWVfxUDyLlJkz9EtpfAWhgPcCLSaZVc/pp99Fxr+/ueB2mHlQ9gpaWCPAMBxq8knDCbXw==}
-    engines: {node: ^20.19.0 || >=22.13.0, npm: '>=10.2.3'}
+  '@wordpress/theme@2.2.0':
+    resolution: {integrity: sha512-HlmT0DvWG3cp++HNFxHVCtzZvpoa4dkxLZPFU6AEfmKOYd7OMBFQFs14+H+UAKKsvJk7KdzY1L8RstrM5yUXAw==}
+    engines: {node: ^20.19.0 || >=22.13.0}
     peerDependencies:
       '@types/react': ^18 || ^19
       esbuild: '>=0.27.2 <1.0.0'
+      lightningcss: '>=1.33.0 <2.0.0'
       postcss: ^8.0.0
       react: ^18 || ^19
       react-dom: ^18 || ^19
@@ -1520,6 +1531,8 @@ packages:
         optional: true
       esbuild:
         optional: true
+      lightningcss:
+        optional: true
       postcss:
         optional: true
       stylelint:
@@ -1527,36 +1540,36 @@ packages:
       vite:
         optional: true
 
-  '@wordpress/undo-manager@1.52.0':
-    resolution: {integrity: sha512-6hI0WWDOtLLVEkWqQokCoQRz5Pba9UNtgt5MV4hHGe5x0mzsowj+GWHedppf8UCVZ2ex3cde7fThaRKMCackrQ==}
-    engines: {node: '>=18.12.0', npm: '>=8.19.2'}
+  '@wordpress/undo-manager@1.56.0':
+    resolution: {integrity: sha512-1jHpsam603sVmgmrV8ndAlaOpwK4CVhAeB9myz5CgRvPN7qukja8T672W+LkVxyAW8oPC1A/msSo9RXSRaoOFQ==}
+    engines: {node: '>=18.12.0'}
 
-  '@wordpress/warning@3.52.0':
-    resolution: {integrity: sha512-BjJ+Jte1g2nMITI1IHq0NwMpm/qlFOV1L+gNe0vFQmGKEcXiQ0DjrHQNtA8hV+Mgt9zSWRNS71Fgonht3r72Ew==}
-    engines: {node: '>=18.12.0', npm: '>=8.19.2'}
+  '@wordpress/warning@3.56.0':
+    resolution: {integrity: sha512-6dUEn4UYE0wKGRTrGlLRr8829vq0jY/m3xQmiiqSGvcdPdza5fR+R/ol4azQcge4V3CHsEzKZ8R9h5Qwi+Zv5g==}
+    engines: {node: '>=18.12.0'}
 
-  '@wp-playground/blueprints@3.1.47':
-    resolution: {integrity: sha512-oK3nXmBz33ehcJidgnUEibcgLzbvC/vl3vqfMKUWqsucZJP1NMKfgpYjaUYgaCIYO51wOMziyWhR69nm3uVMtg==}
-    engines: {node: '>=20.10.0', npm: '>=10.2.3'}
+  '@wp-playground/blueprints@3.1.56':
+    resolution: {integrity: sha512-mn1S5r6sQFvMEcDXGnHwKTaHwwkyBTf89kwMfIB73nGNhLYdA1OtDGoi+wVt2YhMc7nxNi4s7g+LdPxS/tyksA==}
+    engines: {node: '>=24.18.0', npm: '>=11.16.0'}
 
-  '@wp-playground/cli@3.1.47':
-    resolution: {integrity: sha512-nOI25z2Q6ZVejYL5/Nrjc3JGScoYgw51kMp6AMAb1h3Y+xbCl/Fv4ck7aEQVASYZ/Z3FeArZioS78BjrW6uq1A==}
+  '@wp-playground/cli@3.1.56':
+    resolution: {integrity: sha512-JTxl6djPEM2YRYz/w+BUoyoCvhSGHIjqMi4fMV1b8o1UPNvZatLaS7opo57UsrVElXrfdZwvi6IuyS4LswUx9Q==}
     hasBin: true
 
-  '@wp-playground/common@3.1.47':
-    resolution: {integrity: sha512-2SXg39isGqSgJnh4hXoguM+zXDS2DdWcDmQ5UKC87SGCLlZyj0KfzPripIwvekCVZCgih6tJ8wlsYx8307fCsA==}
-    engines: {node: '>=20.10.0', npm: '>=10.2.3'}
+  '@wp-playground/common@3.1.56':
+    resolution: {integrity: sha512-jLbJoZDTY0LCneWazwh2PLIoALCQ8z2wlz5fBUPu05ObLMnxy5nnwl5RQFVtfOeLAYgGyU7D6WJcKFzom9+7Qg==}
+    engines: {node: '>=24.18.0', npm: '>=11.16.0'}
 
-  '@wp-playground/storage@3.1.47':
-    resolution: {integrity: sha512-3cvJgTQMvxuutMVtk80vxOKcIE2nwoJdiKtNqkYqfsuzZCJvXj3tKw4rjO4fFEV3f7KcU6nkeIUfolMXYJ8fRw==}
+  '@wp-playground/storage@3.1.56':
+    resolution: {integrity: sha512-UWTYwABObZvvJFD/3nlgGBR513YaE1nZkv2dtF+TAWBLdvzCEnsEyIx09mtyZJFCxMY7+O9V3i9YNdzeMQ2BtA==}
 
-  '@wp-playground/tools@3.1.47':
-    resolution: {integrity: sha512-eeA31QYYMe1aOXgf+QT2uzAQM8vjNbroPMeSdXX/vMoN1s+96R8AFeA5Qw4nXcmo7r0+rNDrs6Vw3pd7nQz7lg==}
-    engines: {node: '>=20.10.0', npm: '>=10.2.3'}
+  '@wp-playground/tools@3.1.56':
+    resolution: {integrity: sha512-3BLJaDrZoeVzvjCoFwhjz3LLo/cZj6scIZwdbSsmRiQdJZbmMRriJNL3MrM2cfBvHNyhYjGj9lhy/lPhAYIxyw==}
+    engines: {node: '>=24.18.0', npm: '>=11.16.0'}
 
-  '@wp-playground/wordpress@3.1.47':
-    resolution: {integrity: sha512-BmCSDZxghygG2z8dnbIDfujhKS1ZRSUvRaYxBVzkJTcY0kFjwf27b2fDW1qb8HMV6jPLU8VUgtIg1cyukYw4Aw==}
-    engines: {node: '>=20.10.0', npm: '>=10.2.3'}
+  '@wp-playground/wordpress@3.1.56':
+    resolution: {integrity: sha512-oIkRqo7NyDfaMi1L699IRNKZAuY//uBzzHyZk4bu93kdnYxRgQrkPMfSKmJSUARjzGZ/QteJCu+DpD6U1DViXQ==}
+    engines: {node: '>=24.18.0', npm: '>=11.16.0'}
 
   '@zip.js/zip.js@2.7.57':
     resolution: {integrity: sha512-BtonQ1/jDnGiMed6OkV6rZYW78gLmLswkHOzyMrMb+CAR7CZO8phOHO6c2qw6qb1g1betN7kwEHhhZk30dv+NA==}
@@ -2201,8 +2214,8 @@ packages:
       '@typescript-eslint/parser':
         optional: true
 
-  eslint-plugin-jest@29.16.0:
-    resolution: {integrity: sha512-0WFBxDHlT2ratGQfnFQEVIsgQJ5cfd+0IV8Kc6U3X2onB8ATLG23voD2Ch5G9fCkEpCPmCMuzW0tbS0kYb8biw==}
+  eslint-plugin-jest@29.16.6:
+    resolution: {integrity: sha512-q8TVr0rlNvUD0XnafGWkwtPeX+tTl2llP86EDl3sJtwWrQA/JT9SIu2hLLZbhhX6fT5SDE4O0gIKyZUujKnkYA==}
     engines: {node: ^20.12.0 || ^22.0.0 || >=24.0.0}
     peerDependencies:
       '@typescript-eslint/eslint-plugin': ^8.0.0
@@ -2723,8 +2736,8 @@ packages:
     resolution: {integrity: sha512-lZhclumE1G6VYD8VHe35wFaIif+CTy5SJIi5+3y4psDgWu4wPDoBhF8NxUOinEc7pHgiTsT6MaBb92rKhhD+Xw==}
     engines: {node: '>= 0.4'}
 
-  is-plain-object@5.0.0:
-    resolution: {integrity: sha512-VRSzKkbMm5jMDoKLbltAkFQ5Qr7VDiTFGXxYFXXowVj387GeGNOCsOH6Msy00SGZ3Fp84b1Naa1psqgcCIEP5Q==}
+  is-plain-object@5.1.0:
+    resolution: {integrity: sha512-bUi/yjmtKYcRVUtWRGr0UA6xEFh2I6zWUwMrUXB3s7bmYCaZ8a+0ZsTRkrawh/mzlSD1Y0Ph8bp/U+TvBpWDNw==}
     engines: {node: '>=0.10.0'}
 
   is-potential-custom-element-name@1.0.1:
@@ -5427,68 +5440,68 @@ snapshots:
       '@octokit/webhooks-types': 7.6.1
       aggregate-error: 3.1.0
 
-  '@php-wasm/cli-util@3.1.47':
+  '@php-wasm/cli-util@3.1.56':
     dependencies:
-      '@php-wasm/util': 3.1.47
+      '@php-wasm/util': 3.1.56
       fast-xml-parser: 5.10.1
       jsonc-parser: 3.3.1
 
-  '@php-wasm/logger@3.1.47': {}
+  '@php-wasm/logger@3.1.56': {}
 
-  '@php-wasm/node-5-2@3.1.47':
+  '@php-wasm/node-5-2@3.1.56':
     dependencies:
-      '@php-wasm/universal': 3.1.47
+      '@php-wasm/universal': 3.1.56
       wasm-feature-detect: 1.8.0
 
-  '@php-wasm/node-7-4@3.1.47':
+  '@php-wasm/node-7-4@3.1.56':
     dependencies:
-      '@php-wasm/universal': 3.1.47
+      '@php-wasm/universal': 3.1.56
       wasm-feature-detect: 1.8.0
 
-  '@php-wasm/node-8-0@3.1.47':
+  '@php-wasm/node-8-0@3.1.56':
     dependencies:
-      '@php-wasm/universal': 3.1.47
+      '@php-wasm/universal': 3.1.56
       wasm-feature-detect: 1.8.0
 
-  '@php-wasm/node-8-1@3.1.47':
+  '@php-wasm/node-8-1@3.1.56':
     dependencies:
-      '@php-wasm/universal': 3.1.47
+      '@php-wasm/universal': 3.1.56
       wasm-feature-detect: 1.8.0
 
-  '@php-wasm/node-8-2@3.1.47':
+  '@php-wasm/node-8-2@3.1.56':
     dependencies:
-      '@php-wasm/universal': 3.1.47
+      '@php-wasm/universal': 3.1.56
       wasm-feature-detect: 1.8.0
 
-  '@php-wasm/node-8-3@3.1.47':
+  '@php-wasm/node-8-3@3.1.56':
     dependencies:
-      '@php-wasm/universal': 3.1.47
+      '@php-wasm/universal': 3.1.56
       wasm-feature-detect: 1.8.0
 
-  '@php-wasm/node-8-4@3.1.47':
+  '@php-wasm/node-8-4@3.1.56':
     dependencies:
-      '@php-wasm/universal': 3.1.47
+      '@php-wasm/universal': 3.1.56
       wasm-feature-detect: 1.8.0
 
-  '@php-wasm/node-8-5@3.1.47':
+  '@php-wasm/node-8-5@3.1.56':
     dependencies:
-      '@php-wasm/universal': 3.1.47
+      '@php-wasm/universal': 3.1.56
       wasm-feature-detect: 1.8.0
 
-  '@php-wasm/node@3.1.47':
+  '@php-wasm/node@3.1.56':
     dependencies:
-      '@php-wasm/cli-util': 3.1.47
-      '@php-wasm/logger': 3.1.47
-      '@php-wasm/node-5-2': 3.1.47
-      '@php-wasm/node-7-4': 3.1.47
-      '@php-wasm/node-8-0': 3.1.47
-      '@php-wasm/node-8-1': 3.1.47
-      '@php-wasm/node-8-2': 3.1.47
-      '@php-wasm/node-8-3': 3.1.47
-      '@php-wasm/node-8-4': 3.1.47
-      '@php-wasm/node-8-5': 3.1.47
-      '@php-wasm/universal': 3.1.47
-      '@php-wasm/util': 3.1.47
+      '@php-wasm/cli-util': 3.1.56
+      '@php-wasm/logger': 3.1.56
+      '@php-wasm/node-5-2': 3.1.56
+      '@php-wasm/node-7-4': 3.1.56
+      '@php-wasm/node-8-0': 3.1.56
+      '@php-wasm/node-8-1': 3.1.56
+      '@php-wasm/node-8-2': 3.1.56
+      '@php-wasm/node-8-3': 3.1.56
+      '@php-wasm/node-8-4': 3.1.56
+      '@php-wasm/node-8-5': 3.1.56
+      '@php-wasm/universal': 3.1.56
+      '@php-wasm/util': 3.1.56
       fs-ext-extra-prebuilt: 2.2.7
       wasm-feature-detect: 1.8.0
       ws: 8.21.0
@@ -5496,35 +5509,35 @@ snapshots:
       - bufferutil
       - utf-8-validate
 
-  '@php-wasm/progress@3.1.47':
+  '@php-wasm/progress@3.1.56':
     dependencies:
-      '@php-wasm/logger': 3.1.47
+      '@php-wasm/logger': 3.1.56
 
-  '@php-wasm/scopes@3.1.47': {}
+  '@php-wasm/scopes@3.1.56': {}
 
-  '@php-wasm/stream-compression@3.1.47':
+  '@php-wasm/stream-compression@3.1.56':
     dependencies:
-      '@php-wasm/util': 3.1.47
+      '@php-wasm/util': 3.1.56
 
-  '@php-wasm/universal@3.1.47':
+  '@php-wasm/universal@3.1.56':
     dependencies:
-      '@php-wasm/logger': 3.1.47
-      '@php-wasm/progress': 3.1.47
-      '@php-wasm/stream-compression': 3.1.47
-      '@php-wasm/util': 3.1.47
+      '@php-wasm/logger': 3.1.56
+      '@php-wasm/progress': 3.1.56
+      '@php-wasm/stream-compression': 3.1.56
+      '@php-wasm/util': 3.1.56
       ini: 4.1.2
 
-  '@php-wasm/util@3.1.47': {}
+  '@php-wasm/util@3.1.56': {}
 
-  '@php-wasm/web-service-worker@3.1.47':
+  '@php-wasm/web-service-worker@3.1.56':
     dependencies:
-      '@php-wasm/scopes': 3.1.47
-      '@php-wasm/universal': 3.1.47
+      '@php-wasm/scopes': 3.1.56
+      '@php-wasm/universal': 3.1.56
 
-  '@php-wasm/xdebug-bridge@3.1.47':
+  '@php-wasm/xdebug-bridge@3.1.56':
     dependencies:
-      '@php-wasm/logger': 3.1.47
-      '@php-wasm/universal': 3.1.47
+      '@php-wasm/logger': 3.1.56
+      '@php-wasm/universal': 3.1.56
       ws: 8.21.0
       xml2js: 0.6.2
       yargs: 17.7.2
@@ -5641,16 +5654,19 @@ snapshots:
 
   '@types/parse-json@4.0.2': {}
 
-  '@types/prop-types@15.7.15': {}
+  '@types/prop-types@15.7.15':
+    optional: true
 
   '@types/react-dom@18.3.7(@types/react@18.3.31)':
     dependencies:
       '@types/react': 18.3.31
+    optional: true
 
   '@types/react@18.3.31':
     dependencies:
       '@types/prop-types': 15.7.15
       csstype: 3.2.3
+    optional: true
 
   '@types/stack-utils@2.0.3': {}
 
@@ -5827,7 +5843,7 @@ snapshots:
 
   '@wolfy1339/lru-cache@11.0.2-patch.1': {}
 
-  '@wordpress/babel-preset-default@8.52.0':
+  '@wordpress/babel-preset-default@8.56.0':
     dependencies:
       '@babel/core': 7.29.7
       '@babel/plugin-syntax-import-attributes': 7.29.7(@babel/core@7.29.7)
@@ -5835,70 +5851,73 @@ snapshots:
       '@babel/plugin-transform-runtime': 7.29.7(@babel/core@7.29.7)
       '@babel/preset-env': 7.29.7(@babel/core@7.29.7)
       '@babel/preset-typescript': 7.29.7(@babel/core@7.29.7)
-      '@wordpress/browserslist-config': 6.52.0
-      '@wordpress/warning': 3.52.0
+      '@wordpress/browserslist-config': 6.56.0
+      '@wordpress/warning': 3.56.0
       browserslist: 4.28.7
       core-js: 3.49.0
       react: 18.3.1
     transitivePeerDependencies:
       - supports-color
 
-  '@wordpress/browserslist-config@6.52.0': {}
+  '@wordpress/browserslist-config@6.56.0': {}
 
-  '@wordpress/compose@8.5.0(@types/react@18.3.31)(react@18.3.1)':
+  '@wordpress/compose@8.9.0(@types/react-dom@18.3.7(@types/react@18.3.31))(@types/react@18.3.31)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
     dependencies:
       '@types/mousetrap': 1.6.15
-      '@wordpress/deprecated': 4.52.0
-      '@wordpress/dom': 4.52.0
-      '@wordpress/element': 8.4.0
-      '@wordpress/is-shallow-equal': 5.52.0
-      '@wordpress/keycodes': 4.52.0(@types/react@18.3.31)
-      '@wordpress/priority-queue': 3.52.0
-      '@wordpress/private-apis': 1.52.0
-      '@wordpress/undo-manager': 1.52.0
+      '@wordpress/deprecated': 4.56.0
+      '@wordpress/dom': 4.56.0
+      '@wordpress/element': 8.8.0(@types/react-dom@18.3.7(@types/react@18.3.31))(@types/react@18.3.31)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@wordpress/is-shallow-equal': 5.56.0
+      '@wordpress/keycodes': 4.56.0(@types/react@18.3.31)
+      '@wordpress/priority-queue': 3.56.0
+      '@wordpress/private-apis': 1.56.0
+      '@wordpress/undo-manager': 1.56.0
       change-case: 4.1.2
       mousetrap: 1.6.5
       react: 18.3.1
       use-memo-one: 1.1.3(react@18.3.1)
     optionalDependencies:
       '@types/react': 18.3.31
+    transitivePeerDependencies:
+      - '@types/react-dom'
+      - react-dom
 
-  '@wordpress/deprecated@4.52.0':
+  '@wordpress/deprecated@4.56.0':
     dependencies:
-      '@wordpress/hooks': 4.52.0
+      '@wordpress/hooks': 4.56.0
 
-  '@wordpress/dom@4.52.0':
+  '@wordpress/dom@4.56.0':
     dependencies:
-      '@wordpress/deprecated': 4.52.0
+      '@wordpress/deprecated': 4.56.0
 
-  '@wordpress/element@8.4.0':
+  '@wordpress/element@8.8.0(@types/react-dom@18.3.7(@types/react@18.3.31))(@types/react@18.3.31)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
     dependencies:
-      '@types/react': 18.3.31
-      '@types/react-dom': 18.3.7(@types/react@18.3.31)
-      '@wordpress/deprecated': 4.52.0
-      '@wordpress/escape-html': 3.52.0
+      '@wordpress/escape-html': 3.56.0
       change-case: 4.1.2
-      is-plain-object: 5.0.0
+      is-plain-object: 5.1.0
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
+    optionalDependencies:
+      '@types/react': 18.3.31
+      '@types/react-dom': 18.3.7(@types/react@18.3.31)
 
-  '@wordpress/escape-html@3.52.0': {}
+  '@wordpress/escape-html@3.56.0': {}
 
-  '@wordpress/eslint-plugin@25.8.0(@babel/core@7.29.7)(@types/react@18.3.31)(@typescript-eslint/eslint-plugin@8.65.0(@typescript-eslint/parser@8.65.0(eslint@9.39.4)(typescript@6.0.3))(eslint@9.39.4)(typescript@6.0.3))(@typescript-eslint/parser@8.65.0(eslint@9.39.4)(typescript@6.0.3))(eslint@9.39.4)(jest@30.4.2(@types/node@25.8.0))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@6.0.3)(wp-prettier@3.0.3)':
+  '@wordpress/eslint-plugin@25.10.0(@babel/core@7.29.7)(@types/react-dom@18.3.7(@types/react@18.3.31))(@types/react@18.3.31)(@typescript-eslint/eslint-plugin@8.65.0(@typescript-eslint/parser@8.65.0(eslint@9.39.4)(typescript@6.0.3))(eslint@9.39.4)(typescript@6.0.3))(@typescript-eslint/parser@8.65.0(eslint@9.39.4)(typescript@6.0.3))(eslint@9.39.4)(jest@30.4.2(@types/node@25.8.0))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@6.0.3)(wp-prettier@3.0.3)':
     dependencies:
       '@babel/core': 7.29.7
       '@babel/eslint-parser': 7.29.7(@babel/core@7.29.7)(eslint@9.39.4)
       '@eslint-community/eslint-plugin-eslint-comments': 4.7.2(eslint@9.39.4)
       '@eslint/compat': 2.1.0(eslint@9.39.4)
-      '@wordpress/babel-preset-default': 8.52.0
-      '@wordpress/prettier-config': 4.52.0(wp-prettier@3.0.3)
-      '@wordpress/theme': 1.1.0(@types/react@18.3.31)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@wordpress/babel-preset-default': 8.56.0
+      '@wordpress/prettier-config': 4.56.0(wp-prettier@3.0.3)
+      '@wordpress/theme': 2.2.0(@types/react-dom@18.3.7(@types/react@18.3.31))(@types/react@18.3.31)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       cosmiconfig: 7.1.0
       eslint: 9.39.4
       eslint-config-prettier: 10.1.8(eslint@9.39.4)
       eslint-import-resolver-typescript: 4.4.5(eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.65.0(eslint@9.39.4)(typescript@6.0.3))(eslint@9.39.4))(eslint@9.39.4)
-      eslint-plugin-import: 2.32.0(@typescript-eslint/parser@8.65.0(eslint@9.39.4)(typescript@6.0.3))(eslint-import-resolver-typescript@4.4.5)(eslint@9.39.4)
-      eslint-plugin-jest: 29.16.0(@typescript-eslint/eslint-plugin@8.65.0(@typescript-eslint/parser@8.65.0(eslint@9.39.4)(typescript@6.0.3))(eslint@9.39.4)(typescript@6.0.3))(eslint@9.39.4)(jest@30.4.2(@types/node@25.8.0))(typescript@6.0.3)
+      eslint-plugin-import: 2.32.0(@typescript-eslint/parser@8.65.0(eslint@9.39.4)(typescript@6.0.3))(eslint-import-resolver-typescript@4.4.5(eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.65.0(eslint@9.39.4)(typescript@6.0.3))(eslint@9.39.4))(eslint@9.39.4))(eslint@9.39.4)
+      eslint-plugin-jest: 29.16.6(@typescript-eslint/eslint-plugin@8.65.0(@typescript-eslint/parser@8.65.0(eslint@9.39.4)(typescript@6.0.3))(eslint@9.39.4)(typescript@6.0.3))(eslint@9.39.4)(jest@30.4.2(@types/node@25.8.0))(typescript@6.0.3)
       eslint-plugin-jsdoc: 50.8.0(eslint@9.39.4)
       eslint-plugin-jsx-a11y: 6.10.2(eslint@9.39.4)
       eslint-plugin-playwright: 2.11.0(eslint@9.39.4)
@@ -5914,12 +5933,14 @@ snapshots:
     transitivePeerDependencies:
       - '@types/eslint'
       - '@types/react'
+      - '@types/react-dom'
       - '@typescript-eslint/eslint-plugin'
       - '@typescript-eslint/parser'
       - esbuild
       - eslint-import-resolver-webpack
       - eslint-plugin-import-x
       - jest
+      - lightningcss
       - postcss
       - react
       - react-dom
@@ -5927,82 +5948,84 @@ snapshots:
       - supports-color
       - vite
 
-  '@wordpress/hooks@4.52.0': {}
+  '@wordpress/hooks@4.56.0': {}
 
-  '@wordpress/i18n@6.25.0':
+  '@wordpress/i18n@6.29.0':
     dependencies:
       '@tannin/sprintf': 1.3.3
-      '@wordpress/hooks': 4.52.0
+      '@wordpress/hooks': 4.56.0
       gettext-parser: 1.4.0
       tannin: 1.2.0
 
-  '@wordpress/is-shallow-equal@5.52.0': {}
+  '@wordpress/is-shallow-equal@5.56.0': {}
 
-  '@wordpress/keycodes@4.52.0(@types/react@18.3.31)':
+  '@wordpress/keycodes@4.56.0(@types/react@18.3.31)':
     dependencies:
-      '@wordpress/i18n': 6.25.0
+      '@wordpress/i18n': 6.29.0
     optionalDependencies:
       '@types/react': 18.3.31
 
-  '@wordpress/prettier-config@4.52.0(wp-prettier@3.0.3)':
+  '@wordpress/prettier-config@4.56.0(wp-prettier@3.0.3)':
     dependencies:
       prettier: wp-prettier@3.0.3
 
-  '@wordpress/priority-queue@3.52.0':
+  '@wordpress/priority-queue@3.56.0':
     dependencies:
       requestidlecallback: 0.3.0
 
-  '@wordpress/private-apis@1.52.0': {}
+  '@wordpress/private-apis@1.56.0': {}
 
-  '@wordpress/style-runtime@0.8.0': {}
+  '@wordpress/style-runtime@0.12.0': {}
 
-  '@wordpress/theme@1.1.0(@types/react@18.3.31)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
+  '@wordpress/theme@2.2.0(@types/react-dom@18.3.7(@types/react@18.3.31))(@types/react@18.3.31)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
     dependencies:
-      '@wordpress/compose': 8.5.0(@types/react@18.3.31)(react@18.3.1)
-      '@wordpress/deprecated': 4.52.0
-      '@wordpress/element': 8.4.0
-      '@wordpress/private-apis': 1.52.0
-      '@wordpress/style-runtime': 0.8.0
+      '@wordpress/compose': 8.9.0(@types/react-dom@18.3.7(@types/react@18.3.31))(@types/react@18.3.31)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@wordpress/deprecated': 4.56.0
+      '@wordpress/element': 8.8.0(@types/react-dom@18.3.7(@types/react@18.3.31))(@types/react@18.3.31)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@wordpress/private-apis': 1.56.0
+      '@wordpress/style-runtime': 0.12.0
       colorjs.io: 0.7.1
       memize: 2.1.1
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
     optionalDependencies:
       '@types/react': 18.3.31
+    transitivePeerDependencies:
+      - '@types/react-dom'
 
-  '@wordpress/undo-manager@1.52.0':
+  '@wordpress/undo-manager@1.56.0':
     dependencies:
-      '@wordpress/is-shallow-equal': 5.52.0
+      '@wordpress/is-shallow-equal': 5.56.0
 
-  '@wordpress/warning@3.52.0': {}
+  '@wordpress/warning@3.56.0': {}
 
-  '@wp-playground/blueprints@3.1.47':
+  '@wp-playground/blueprints@3.1.56':
     dependencies:
-      '@php-wasm/logger': 3.1.47
-      '@php-wasm/progress': 3.1.47
-      '@php-wasm/stream-compression': 3.1.47
-      '@php-wasm/universal': 3.1.47
-      '@php-wasm/util': 3.1.47
-      '@php-wasm/web-service-worker': 3.1.47
-      '@wp-playground/common': 3.1.47
-      '@wp-playground/storage': 3.1.47
-      '@wp-playground/wordpress': 3.1.47
+      '@php-wasm/logger': 3.1.56
+      '@php-wasm/progress': 3.1.56
+      '@php-wasm/stream-compression': 3.1.56
+      '@php-wasm/universal': 3.1.56
+      '@php-wasm/util': 3.1.56
+      '@php-wasm/web-service-worker': 3.1.56
+      '@wp-playground/common': 3.1.56
+      '@wp-playground/storage': 3.1.56
+      '@wp-playground/wordpress': 3.1.56
       ajv: 8.18.0
 
-  '@wp-playground/cli@3.1.47':
+  '@wp-playground/cli@3.1.56':
     dependencies:
-      '@php-wasm/cli-util': 3.1.47
-      '@php-wasm/logger': 3.1.47
-      '@php-wasm/node': 3.1.47
-      '@php-wasm/progress': 3.1.47
-      '@php-wasm/universal': 3.1.47
-      '@php-wasm/util': 3.1.47
-      '@php-wasm/xdebug-bridge': 3.1.47
-      '@wp-playground/blueprints': 3.1.47
-      '@wp-playground/common': 3.1.47
-      '@wp-playground/storage': 3.1.47
-      '@wp-playground/tools': 3.1.47
-      '@wp-playground/wordpress': 3.1.47
+      '@php-wasm/cli-util': 3.1.56
+      '@php-wasm/logger': 3.1.56
+      '@php-wasm/node': 3.1.56
+      '@php-wasm/progress': 3.1.56
+      '@php-wasm/universal': 3.1.56
+      '@php-wasm/util': 3.1.56
+      '@php-wasm/xdebug-bridge': 3.1.56
+      '@wp-playground/blueprints': 3.1.56
+      '@wp-playground/common': 3.1.56
+      '@wp-playground/storage': 3.1.56
+      '@wp-playground/tools': 3.1.56
+      '@wp-playground/wordpress': 3.1.56
       express: 4.22.2
       fs-extra: 11.1.1
       tmp-promise: 3.0.3
@@ -6013,33 +6036,40 @@ snapshots:
       - supports-color
       - utf-8-validate
 
-  '@wp-playground/common@3.1.47':
+  '@wp-playground/common@3.1.56':
     dependencies:
-      '@php-wasm/universal': 3.1.47
-      '@php-wasm/util': 3.1.47
+      '@php-wasm/universal': 3.1.56
+      '@php-wasm/util': 3.1.56
 
-  '@wp-playground/storage@3.1.47':
+  '@wp-playground/storage@3.1.56':
     dependencies:
-      '@php-wasm/stream-compression': 3.1.47
-      '@php-wasm/universal': 3.1.47
-      '@php-wasm/util': 3.1.47
+      '@php-wasm/stream-compression': 3.1.56
+      '@php-wasm/universal': 3.1.56
+      '@php-wasm/util': 3.1.56
       '@zip.js/zip.js': 2.7.57
       isomorphic-git: 1.37.6
       octokit: 3.1.2
       pako: 1.0.11
       sha.js: 2.4.12
 
-  '@wp-playground/tools@3.1.47':
+  '@wp-playground/tools@3.1.56':
     dependencies:
-      '@php-wasm/util': 3.1.47
-      '@wp-playground/blueprints': 3.1.47
+      '@php-wasm/node': 3.1.56
+      '@php-wasm/universal': 3.1.56
+      '@php-wasm/util': 3.1.56
+      '@wp-playground/blueprints': 3.1.56
+      '@wp-playground/common': 3.1.56
+      '@wp-playground/wordpress': 3.1.56
+    transitivePeerDependencies:
+      - bufferutil
+      - utf-8-validate
 
-  '@wp-playground/wordpress@3.1.47':
+  '@wp-playground/wordpress@3.1.56':
     dependencies:
-      '@php-wasm/logger': 3.1.47
-      '@php-wasm/universal': 3.1.47
-      '@php-wasm/util': 3.1.47
-      '@wp-playground/common': 3.1.47
+      '@php-wasm/logger': 3.1.56
+      '@php-wasm/universal': 3.1.56
+      '@php-wasm/util': 3.1.56
+      '@wp-playground/common': 3.1.56
       zstddec: 0.2.0
 
   '@zip.js/zip.js@2.7.57': {}
@@ -6492,7 +6522,8 @@ snapshots:
       '@asamuzakjp/css-color': 3.2.0
       rrweb-cssom: 0.8.0
 
-  csstype@3.2.3: {}
+  csstype@3.2.3:
+    optional: true
 
   damerau-levenshtein@1.0.8: {}
 
@@ -6759,7 +6790,7 @@ snapshots:
       tinyglobby: 0.2.17
       unrs-resolver: 1.12.2
     optionalDependencies:
-      eslint-plugin-import: 2.32.0(@typescript-eslint/parser@8.65.0(eslint@9.39.4)(typescript@6.0.3))(eslint-import-resolver-typescript@4.4.5)(eslint@9.39.4)
+      eslint-plugin-import: 2.32.0(@typescript-eslint/parser@8.65.0(eslint@9.39.4)(typescript@6.0.3))(eslint-import-resolver-typescript@4.4.5(eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.65.0(eslint@9.39.4)(typescript@6.0.3))(eslint@9.39.4))(eslint@9.39.4))(eslint@9.39.4)
     transitivePeerDependencies:
       - supports-color
 
@@ -6774,7 +6805,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.65.0(eslint@9.39.4)(typescript@6.0.3))(eslint-import-resolver-typescript@4.4.5)(eslint@9.39.4):
+  eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.65.0(eslint@9.39.4)(typescript@6.0.3))(eslint-import-resolver-typescript@4.4.5(eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.65.0(eslint@9.39.4)(typescript@6.0.3))(eslint@9.39.4))(eslint@9.39.4))(eslint@9.39.4):
     dependencies:
       '@rtsao/scc': 1.1.0
       array-includes: 3.1.9
@@ -6803,7 +6834,7 @@ snapshots:
       - eslint-import-resolver-webpack
       - supports-color
 
-  eslint-plugin-jest@29.16.0(@typescript-eslint/eslint-plugin@8.65.0(@typescript-eslint/parser@8.65.0(eslint@9.39.4)(typescript@6.0.3))(eslint@9.39.4)(typescript@6.0.3))(eslint@9.39.4)(jest@30.4.2(@types/node@25.8.0))(typescript@6.0.3):
+  eslint-plugin-jest@29.16.6(@typescript-eslint/eslint-plugin@8.65.0(@typescript-eslint/parser@8.65.0(eslint@9.39.4)(typescript@6.0.3))(eslint@9.39.4)(typescript@6.0.3))(eslint@9.39.4)(jest@30.4.2(@types/node@25.8.0))(typescript@6.0.3):
     dependencies:
       '@typescript-eslint/utils': 8.65.0(eslint@9.39.4)(typescript@6.0.3)
       eslint: 9.39.4
@@ -7421,7 +7452,7 @@ snapshots:
       call-bound: 1.0.4
       has-tostringtag: 1.0.2
 
-  is-plain-object@5.0.0: {}
+  is-plain-object@5.1.0: {}
 
   is-potential-custom-element-name@1.0.1: {}
 
