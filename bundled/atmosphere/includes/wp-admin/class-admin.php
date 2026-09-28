@@ -21,12 +21,15 @@ use function Atmosphere\handle_typeahead_url;
 use function Atmosphere\has_identity;
 use function Atmosphere\is_auto_publish_enabled;
 use function Atmosphere\is_connected;
+use function Atmosphere\is_comment_publishing_enabled;
 use function Atmosphere\is_connection_only_mode;
 use function Atmosphere\is_operator_disconnected;
 use function Atmosphere\is_publication_sync_enabled;
 use function Atmosphere\needs_reauth;
-use function Atmosphere\reauth_reason_lead;
+use function Atmosphere\reauth_lead_for_current_user;
+use function Atmosphere\reconnect_url;
 use function Atmosphere\settings_url;
+use function Atmosphere\threadgate_needs_reconnect;
 
 /**
  * Admin class.
@@ -58,7 +61,9 @@ class Admin {
 		\add_action( 'admin_init', array( self::class, 'maybe_set_domain_handle' ) );
 		\add_action( 'admin_enqueue_scripts', array( self::class, 'enqueue_assets' ) );
 		\add_action( 'admin_notices', array( self::class, 'maybe_render_reauth_notice' ) );
+		\add_action( 'admin_notices', array( self::class, 'maybe_render_renewal_blocker_notice' ) );
 		\add_action( 'admin_notices', array( self::class, 'maybe_render_oauth_notice' ) );
+		\add_action( 'admin_notices', array( self::class, 'maybe_render_threadgate_scope_notice' ) );
 		\add_action( 'load-settings_page_atmosphere', array( self::class, 'maybe_warn_missing_post_types' ) );
 
 		\add_action( 'admin_post_atmosphere_disconnect', array( self::class, 'handle_disconnect' ) );
@@ -550,66 +555,206 @@ class Admin {
 	}
 
 	/**
+	 * Nudge toward a reconnect when reply restrictions cannot be written.
+	 *
+	 * Settings page only, unlike the reauth notice: nothing is broken
+	 * site-wide, so it does not earn a place on every screen. The admin
+	 * who can reconnect is the one on this page.
+	 *
+	 * @since 2.2.0
+	 */
+	public static function maybe_render_threadgate_scope_notice(): void {
+		if ( ! \current_user_can( 'manage_options' ) ) {
+			return;
+		}
+
+		$screen = \function_exists( 'get_current_screen' ) ? \get_current_screen() : null;
+		if ( ! $screen || 'settings_page_atmosphere' !== $screen->id ) {
+			return;
+		}
+
+		if ( ! threadgate_needs_reconnect() ) {
+			return;
+		}
+
+		\printf(
+			'<div class="notice notice-info"><p><strong>%1$s</strong> %2$s</p></div>',
+			\esc_html__( 'Reply restrictions need a reconnect.', 'atmosphere' ),
+			\esc_html__( 'This site connected to Bluesky before reply restrictions were available. Posts still share as usual. Reconnect your account below to turn restrictions on.', 'atmosphere' )
+		);
+	}
+
+	/**
+	 * What stops working while the connection is down.
+	 *
+	 * Naming posts and comments is wrong when both outgoing lanes are
+	 * already off, which is exactly connection-only mode: there the host
+	 * plugin's features are what break.
+	 *
+	 * @return string
+	 */
+	private static function connection_consequence(): string {
+		if ( is_auto_publish_enabled() || is_comment_publishing_enabled() ) {
+			return \__( 'New posts and comments will not publish until the connection is restored.', 'atmosphere' );
+		}
+
+		return \__( 'Anything on this site that uses your Bluesky connection will stop working until it is restored.', 'atmosphere' );
+	}
+
+	/**
+	 * Render a global admin notice when the login cannot be renewed and no
+	 * reconnect prompt will appear.
+	 *
+	 * A rejected client registration and an unreadable signing key keep the
+	 * session, so `needs_reauth()` stays false and the reauth notice never
+	 * fires, while every publish fails permanently. Without this, the only
+	 * signs are a Site Health row and a log line. Same audience as the
+	 * reauth notice: everyone who publishes, with the action swapped for
+	 * readers who cannot act.
+	 *
+	 * @since 2.4.0
+	 */
+	public static function maybe_render_renewal_blocker_notice(): void {
+		if ( needs_reauth() || ! \current_user_can( 'edit_posts' ) ) {
+			return;
+		}
+
+		$blocker = Health_Check::renewal_blocker();
+		if ( '' === $blocker ) {
+			return;
+		}
+
+		$can_manage = \current_user_can( 'manage_options' );
+
+		if ( 'signing_key' === $blocker ) {
+			$lead = \__( 'ATmosphere cannot read the key it uses to sign in to Bluesky, so the saved login cannot be renewed. This usually happens after the security keys in wp-config.php changed.', 'atmosphere' );
+			$fix  = \__( 'Disconnect and connect again to create a new key.', 'atmosphere' );
+		} else {
+			$lead = \__( 'Bluesky rejected this site’s login setup when ATmosphere tried to renew the saved login.', 'atmosphere' );
+			$fix  = \__( 'Site Health explains what Bluesky objected to.', 'atmosphere' );
+		}
+
+		if ( ! $can_manage ) {
+			$action = \__( 'Ask an administrator to check Site Health.', 'atmosphere' );
+		} else {
+			$action = $fix . ' ' . \sprintf(
+				/* translators: %s: URL of the Site Health screen. */
+				\__( '<a href="%s">Open Site Health</a> for details.', 'atmosphere' ),
+				\esc_url( \admin_url( 'site-health.php' ) )
+			);
+		}
+
+		$message = $lead . ' ' . self::connection_consequence() . ' ' . $action;
+
+		?>
+		<div class="notice notice-warning is-dismissible">
+			<p>
+				<strong><?php \esc_html_e( 'ATmosphere: Bluesky login cannot be renewed', 'atmosphere' ); ?></strong>
+			</p>
+			<p>
+				<?php
+				echo \wp_kses(
+					$message,
+					array( 'a' => array( 'href' => array() ) )
+				);
+				?>
+			</p>
+		</div>
+		<?php
+	}
+
+	/**
 	 * Render a global admin notice when the OAuth session needs reauth.
 	 *
-	 * Surfaced on every admin screen (gated on `manage_options`) because
-	 * the publish, comment, and update paths silently no-op until the
-	 * user reconnects — without a visible nudge, an expired refresh
-	 * token can sit unnoticed for days. The notice is dismissible per
-	 * page-load only so the user is reminded again on their next visit.
+	 * Surfaced on every admin screen, because the publish, comment, and
+	 * update paths silently no-op until the user reconnects — without a
+	 * visible nudge, an expired refresh token can sit unnoticed for days,
+	 * and the person hitting Publish is often not the one who can
+	 * reconnect. That argument reaches as far as `edit_posts` and no
+	 * further: it covers authors, editors and contributors, and leaves out
+	 * subscribers, who on a membership or WooCommerce site are most of the
+	 * logged-in users and have nothing to do with sharing. Within that
+	 * audience there is no further gate; the action sentence is swapped
+	 * instead, so a reader who cannot reconnect is told who can rather
+	 * than handed a link they cannot follow. The notice is dismissible per
+	 * page-load only, so the user is reminded again on their next visit.
 	 *
 	 * Swaps copy when the disconnect was operator-initiated (the user
 	 * clicked Disconnect) so the message does not falsely claim "your
 	 * session has expired" for a state the user just chose.
 	 */
 	public static function maybe_render_reauth_notice(): void {
-		if ( ! \current_user_can( 'manage_options' ) ) {
-			return;
-		}
-
 		if ( ! needs_reauth() ) {
 			return;
 		}
 
-		/*
-		 * Resolve where the reconnect link points. The settings page normally
-		 * hosts it, but in connection-only mode that page is hidden — so fall
-		 * back to the Connectors screen, whose card can also reconnect, when one
-		 * exists (WP 7.0+). Only bail when there's genuinely no screen to link,
-		 * rather than leaving a dead session with no site-wide signal at all.
-		 */
-		if ( self::is_settings_page_visible() ) {
-			$reconnect_url = settings_url();
-		} elseif ( \class_exists( 'WP_Connector_Registry' ) ) {
-			$reconnect_url = Connectors::screen_url();
-		} else {
+		if ( ! \current_user_can( 'edit_posts' ) ) {
 			return;
 		}
+
+		$can_manage = \current_user_can( 'manage_options' );
+
+		/*
+		 * Resolve where the reconnect link points via the shared helper: the
+		 * settings page normally hosts it, but in connection-only mode that
+		 * page is hidden, so it falls back to the Connectors screen, whose
+		 * card can also reconnect, when one exists (WP 7.0+). An empty
+		 * result only costs the link: the notice itself still renders, so a
+		 * dead session is never left without a site-wide signal.
+		 */
+		$reconnect_url = $can_manage ? reconnect_url() : '';
 
 		$heading = \__( 'ATmosphere: reconnection required', 'atmosphere' );
 
 		/*
-		 * The cause lead comes from `reauth_reason_lead()` (shared with
-		 * the Site Health test); only the shared tail (what stops working
-		 * + the reconnect link) is composed here. The disconnect gate's
-		 * stale-marker rationale lives in `is_operator_disconnected()`.
+		 * The cause lead comes from `reauth_lead_for_current_user()`
+		 * (shared with the document panel and the pre-publish panel); only
+		 * the notice's own tail (what stops working + the reconnect link)
+		 * is composed here. The helper's non-admin and
+		 * operator-disconnect-suppression arms do fire here, since this
+		 * notice has no capability gate, which is why an empty lead falls
+		 * back below. The heading still needs its own swap, as the
+		 * helper's lead text doesn't distinguish which heading to show. The disconnect gate's stale-marker rationale
+		 * lives in `is_operator_disconnected()`.
 		 */
 		if ( is_operator_disconnected() ) {
 			$heading = \__( 'ATmosphere: disconnected', 'atmosphere' );
-			$lead    = \__( 'ATmosphere is disconnected from Bluesky.', 'atmosphere' );
-		} else {
-			$lead = reauth_reason_lead();
 		}
 
-		/* translators: %s: URL to reconnect the AT Protocol account. */
-		$tail = \__( 'New posts and comments will not publish until you <a href="%s">reconnect your account</a>. Your publishing preferences and verification headers stay in place in the meantime.', 'atmosphere' );
+		$lead = reauth_lead_for_current_user();
 
 		/*
-		 * Only the tail goes through sprintf: a lead translation
-		 * containing a stray `%` must not be able to corrupt the
-		 * placeholder substitution (PHP 8 throws on missing arguments).
+		 * The helper suppresses the cause for a reader without
+		 * `manage_options` on an operator-initiated disconnect. This notice
+		 * still renders for them, so fall back to the same generic sentence
+		 * the helper gives every other non-admin rather than opening with
+		 * the consequence and no subject.
 		 */
-		$message = $lead . ' ' . \sprintf( $tail, \esc_url( $reconnect_url ) );
+		if ( '' === $lead ) {
+			$lead = \__( 'Your site’s Bluesky connection needs attention.', 'atmosphere' );
+		}
+
+		$consequence = self::connection_consequence();
+
+		/*
+		 * Only the action sentence goes through sprintf: a lead or
+		 * consequence translation containing a stray `%` must not be able to
+		 * corrupt the placeholder substitution (PHP 8 throws on missing
+		 * arguments).
+		 */
+		if ( ! $can_manage ) {
+			$action = \__( 'Ask an administrator to reconnect it.', 'atmosphere' );
+		} elseif ( '' === $reconnect_url ) {
+			$action = \__( 'Reconnect your Bluesky account to fix this.', 'atmosphere' );
+		} else {
+			$action = \sprintf(
+				/* translators: %s: URL to reconnect the Bluesky account. */
+				\__( '<a href="%s">Reconnect your account</a> to fix this.', 'atmosphere' ),
+				\esc_url( $reconnect_url )
+			);
+		}
+
+		$message = $lead . ' ' . $consequence . ' ' . $action . ' ' . \__( 'Your publishing preferences and verification headers stay in place in the meantime.', 'atmosphere' );
 
 		?>
 		<div class="notice notice-warning is-dismissible">

@@ -20,13 +20,16 @@ use Atmosphere\Transformer\Document;
 use Atmosphere\Transformer\Post;
 use Atmosphere\Transformer\Preview;
 use Atmosphere\Transformer\Publication;
+use Atmosphere\Transformer\Threadgate;
 use Atmosphere\Integrations\Load;
 use Atmosphere\Rest\Admin\Connection_Controller;
 use Atmosphere\Rest\Admin\Pre_Publish_Controller;
 use Atmosphere\Rest\Client_Metadata_Controller;
+use Atmosphere\Rest\Legacy_Client_Metadata_Controller;
 use Atmosphere\Rest\Reactions_Controller;
 use Atmosphere\WP_Admin\Admin;
 use Atmosphere\WP_Admin\Health_Check;
+use Atmosphere\WP_Admin\Post_List;
 use Atmosphere\WP_Admin\Settings_Fields;
 
 /**
@@ -125,6 +128,23 @@ class Atmosphere {
 	private static array $publishing_post_ids = array();
 
 	/**
+	 * Per-request cache of what the `wp_head` emitters resolve, keyed by
+	 * resolver, queried object ID, and connected DID.
+	 *
+	 * The three emitters ask overlapping questions — which post may name
+	 * records, which document URI, which publication URI — so without
+	 * this the same work runs up to three times per pageview. The part
+	 * that costs is `is_post_publishable()`, which walks every
+	 * registered post type and fires the `atmosphere_syncable_post_types`
+	 * filter on each call, so a site hooking that filter pays for it
+	 * repeatedly. `wp_head` fires once per request, which is what makes
+	 * a plain memo sufficient here.
+	 *
+	 * @var array<string,mixed>
+	 */
+	private static array $head_record_cache = array();
+
+	/**
 	 * Maximum re-schedule hops for a child comment waiting on a
 	 * not-yet-published parent. After this many deferrals the child
 	 * is skipped if the parent still lacks a threadable strongRef so a
@@ -154,6 +174,8 @@ class Atmosphere {
 		 * available on non-admin requests.
 		 */
 		\add_action( 'init', array( Admin::class, 'register' ), 5 );
+		\add_action( 'init', array( Icons::class, 'register' ) );
+		\add_action( 'admin_init', array( Post_List::class, 'register' ) );
 
 		/*
 		 * Settings API option registration (`Options::init()`) and
@@ -170,10 +192,14 @@ class Atmosphere {
 		 * directly on the pull filters (no context gate, no `init`
 		 * indirection): they only fire on Site Health surfaces — the
 		 * screen, the weekly scheduled check, WP-CLI — so the class is
-		 * autoloaded only there and every other request just stores two
-		 * callables.
+		 * autoloaded only there and every other request just stores three
+		 * callables. That is also why the ajax action is spelled out
+		 * instead of read from `Health_Check::REACHABILITY_ACTION`: a
+		 * constant fetch autoloads the class, `::class` does not. The
+		 * registration test pins the literal to the constant.
 		 */
 		\add_filter( 'site_status_tests', array( Health_Check::class, 'add_tests' ) );
+		\add_action( 'wp_ajax_health-check-atmosphere-reachability', array( Health_Check::class, 'ajax_client_metadata' ) );
 		\add_filter( 'debug_information', array( Health_Check::class, 'debug_information' ) );
 
 		/*
@@ -207,8 +233,24 @@ class Atmosphere {
 		// off when the ActivityPub plugin is active.
 		Blocks::register();
 
-		// Per-post "share to Bluesky" toggle + custom-text meta (REST-exposed for the editor panel).
-		\add_action( 'init', array( $this, 'register_share_meta' ) );
+		/*
+		 * Record-id links (`/post/<rkey>`). Resolved off the 404 rather
+		 * than through a rewrite rule, so a request that resolves costs
+		 * nothing and whatever else lives at that path keeps winning.
+		 */
+		Link::register();
+
+		/*
+		 * Per-post "share to Bluesky" toggle + custom-text meta (REST-exposed
+		 * for the editor panel). Hooked late: `get_supported_post_types()`
+		 * merges the option, the filter, and the native opt-ins, and the
+		 * native ones come from `get_post_types_by_support( 'atmosphere' )`
+		 * at call time. A plugin that loads after this one and opts its type
+		 * in through `register_post_type()`'s `supports` at the default
+		 * priority would otherwise be invisible here and get no meta
+		 * registered at all.
+		 */
+		\add_action( 'init', array( $this, 'register_share_meta' ), 20 );
 
 		/*
 		 * Reconcile when the share toggle or custom text changes.
@@ -224,9 +266,16 @@ class Atmosphere {
 		// Read-only REST field exposing the published post's Bluesky URL.
 		\add_action( 'rest_api_init', array( $this, 'register_share_status_field' ) );
 
-		// Frontend verification headers.
+		/*
+		 * Frontend verification headers. The emitters memoize what they
+		 * resolve, so the head render opens by dropping anything left
+		 * over — see `flush_head_record_cache()` for why that matters
+		 * outside a request-per-process runtime.
+		 */
+		\add_action( 'wp_head', array( self::class, 'flush_head_record_cache' ), 0 );
 		\add_action( 'wp_head', array( $this, 'output_document_link' ) );
 		\add_action( 'wp_head', array( $this, 'output_publication_link' ) );
+		\add_action( 'wp_head', array( $this, 'output_at_tags' ) );
 
 		// Well-known endpoints and front-end query vars.
 		\add_action( 'init', array( $this, 'register_wellknown_rewrite' ) );
@@ -330,7 +379,7 @@ class Atmosphere {
 			'atmosphere_revoke_refresh_token',
 			array( Client::class, 'revoke_refresh_token' ),
 			10,
-			4
+			5
 		);
 
 		// Async action hooks (called by WP-Cron).
@@ -414,57 +463,238 @@ class Atmosphere {
 	 * its AT Protocol document record, as required by standard.site.
 	 *
 	 * Gated on `has_identity()` rather than `is_connected()` so the
-	 * verification link survives a temporary OAuth refresh failure —
-	 * the document AT-URI is computed from the DID, which is stable
-	 * across session expiry and `needs_reauth` states.
+	 * verification link survives a temporary OAuth refresh failure: the
+	 * DID it is checked against is stable across session expiry and
+	 * `needs_reauth` states.
 	 *
-	 * Also gated on `META_URI` so the link is emitted only for posts
-	 * the Publisher actually wrote to the PDS. Without this check, a
-	 * disconnected site (identity preserved, no live session) would
-	 * advertise document AT-URIs for every published WP post and lazy-
-	 * mint META_TID rows for posts that have no corresponding record
-	 * on the PDS — federation/discovery consumers would 404 each one.
-	 * Posts published before a disconnect already carry META_URI and
-	 * remain correctly advertised; new posts created during a disconnect
+	 * Also gated on the document record's own `Document::META_URI` so the
+	 * link is emitted only for posts the Publisher actually wrote a
+	 * `site.standard.document` for. Keying on this (rather than the Bluesky
+	 * post's `Post::META_URI`) is what lets document-only sites — which never
+	 * write a companion `app.bsky.feed.post` — still advertise their document
+	 * records. Without the check, a disconnected site (identity preserved, no
+	 * live session) would advertise document AT-URIs for every published WP
+	 * post and lazy-mint `META_TID` rows for posts that have no corresponding
+	 * record on the PDS — federation/discovery consumers would 404 each one.
+	 * Posts published before a disconnect already carry `Document::META_URI`
+	 * and remain correctly advertised; new posts created during a disconnect
 	 * stay silent until reconnect + publish lands a real record.
 	 */
 	public function output_document_link(): void {
-		if ( ! has_identity() || ! \is_singular() ) {
+		$uri = self::current_document_uri();
+
+		if ( '' === $uri ) {
 			return;
 		}
-
-		$post = \get_queried_object();
-
-		if ( ! $post instanceof \WP_Post ) {
-			return;
-		}
-
-		if ( ! is_post_publishable( $post ) ) {
-			return;
-		}
-
-		$bsky_uri = \get_post_meta( $post->ID, Post::META_URI, true );
-		if ( empty( $bsky_uri ) ) {
-			return;
-		}
-
-		/*
-		 * Route the TID lookup through `Document::get_rkey()` so the
-		 * lazy mint here writes `META_DID` alongside `META_TID`. The
-		 * inlined fallback that used to live here would have left the
-		 * row in a "TID set, no DID" state, which the mismatch guard
-		 * in `Publisher::delete_post()` treats as "DID unknown, fall
-		 * through to `get_did()`" — re-opening the wrong-repo-delete
-		 * bypass after a reconnect-to-different-account.
-		 */
-		$doc_tid = ( new Document( $post ) )->get_rkey();
-
-		$uri = build_at_uri( get_did(), 'site.standard.document', $doc_tid );
 
 		\printf(
 			'<link rel="site.standard.document" href="%s" />' . "\n",
 			\esc_attr( $uri )
 		);
+	}
+
+	/**
+	 * The `site.standard.document` AT-URI advertised by the page being
+	 * rendered, or an empty string when the page advertises none.
+	 *
+	 * Shared by the `<link rel="site.standard.document">` tag and the
+	 * `at:canonical` meta tag so the gating below lives in exactly one
+	 * place. See {@see Atmosphere::output_document_link()} for why the
+	 * gates are what they are.
+	 *
+	 * The stored URI is returned as-is rather than rebuilt from
+	 * `get_did()` plus the post's TID. Rebuilding looks equivalent and
+	 * is not: after a disconnect and reconnect to a different account,
+	 * `get_did()` is the new DID while the TID still belongs to the old
+	 * one, so every already-published post would advertise
+	 * `at://NEW_DID/site.standard.document/OLD_TID` — a record that
+	 * exists nowhere. The same mismatch would arise from a row whose
+	 * `META_TID` was lost while `META_URI` survived, where the lazy mint
+	 * would issue a fresh TID unrelated to the published record.
+	 *
+	 * Not calling `Document::get_rkey()` here also takes the front end
+	 * out of the write path entirely. That call refreshes
+	 * `Document::META_DID` to the current DID, and this was its only
+	 * render-time caller — every other one is in the Publisher at
+	 * publish time — so a pageview can no longer move a post's recorded
+	 * origin DID out from under the cleanup guards (see #217).
+	 *
+	 * @return string AT-URI, or '' when the page has no document record
+	 *                belonging to the connected account.
+	 */
+	private static function current_document_uri(): string {
+		return self::head_memo(
+			'document',
+			static function () {
+				$post = self::current_publishable_post();
+
+				if ( null === $post ) {
+					return '';
+				}
+
+				$uri = \get_post_meta( $post->ID, Document::META_URI, true );
+
+				if ( ! \is_string( $uri ) || '' === $uri ) {
+					return '';
+				}
+
+				return self::verified_record_uri( $uri, 'site.standard.document' );
+			}
+		);
+	}
+
+	/**
+	 * A stored AT-URI, or an empty string when it is not a well-formed
+	 * URI for `$collection` in the connected account's repo.
+	 *
+	 * Records are advertised from the URI the Publisher stored, which is
+	 * the only record of the repo a write actually landed in. Every
+	 * component is checked rather than just the DID: `parse_at_uri()`
+	 * asserts only the `at://` prefix and a three-segment shape, so a
+	 * corrupted value holding another of our records would otherwise be
+	 * advertised as the wrong kind of record.
+	 *
+	 * @param string $uri        Stored AT-URI.
+	 * @param string $collection Collection NSID the URI must name.
+	 * @return string The URI when it checks out, '' otherwise.
+	 */
+	private static function verified_record_uri( string $uri, string $collection ): string {
+		$parsed = parse_at_uri( $uri );
+
+		if ( false === $parsed ) {
+			return '';
+		}
+
+		if (
+			get_did() !== $parsed['did']
+			|| $collection !== $parsed['collection']
+			|| '' === $parsed['rkey']
+		) {
+			return '';
+		}
+
+		return $uri;
+	}
+
+	/**
+	 * The companion `app.bsky.feed.post` AT-URI for the page being
+	 * rendered, or an empty string when there is none to advertise.
+	 *
+	 * Read back verbatim from the meta the Publisher wrote and validated
+	 * through {@see Atmosphere::verified_record_uri()}, on the same
+	 * terms as the document URI.
+	 *
+	 * The origin DID deliberately comes out of the URI rather than
+	 * `Post::META_DID`. That meta is not a safe source:
+	 * {@see \Atmosphere\Transformer\Post::get_rkey()} refreshes it to
+	 * the current DID on every call, before any write to the PDS has
+	 * succeeded, so a failed republish after reconnecting leaves the row
+	 * claiming the current account while `META_URI` still points at the
+	 * old one. Parsing the URI also covers pre-`META_DID` rows, which a
+	 * meta comparison has to wave through for lack of anything to
+	 * compare. This is why the check does not mirror the mismatch guard
+	 * in `Publisher::delete_post()`: that one decides which repo to
+	 * issue a delete against and has only the rkey meta to go on, while
+	 * here the full AT-URI is in hand.
+	 *
+	 * @return string AT-URI, or '' when the page has no Bluesky record
+	 *                belonging to the connected account.
+	 */
+	private static function current_bsky_post_uri(): string {
+		return self::head_memo(
+			'bsky',
+			static function () {
+				$post = self::current_publishable_post();
+
+				if ( null === $post ) {
+					return '';
+				}
+
+				$uri = \get_post_meta( $post->ID, Post::META_URI, true );
+
+				if ( ! \is_string( $uri ) || '' === $uri ) {
+					return '';
+				}
+
+				return self::verified_record_uri( $uri, 'app.bsky.feed.post' );
+			}
+		);
+	}
+
+	/**
+	 * The queried post when the current request is a singular view of a
+	 * post whose records may be named in the page head, or null when it
+	 * is not.
+	 *
+	 * Wraps {@see \Atmosphere\is_post_publishable()} with the two
+	 * request-shape conditions the head emitters share: a persisted
+	 * identity to name records under, and a singular view to name them
+	 * on.
+	 *
+	 * @return \WP_Post|null
+	 */
+	private static function current_publishable_post(): ?\WP_Post {
+		return self::head_memo(
+			'post',
+			static function () {
+				if ( ! has_identity() || ! \is_singular() ) {
+					return null;
+				}
+
+				$post = \get_queried_object();
+
+				if ( ! $post instanceof \WP_Post || ! is_post_publishable( $post ) ) {
+					return null;
+				}
+
+				return $post;
+			}
+		);
+	}
+
+	/**
+	 * Resolve a head-emitter value once per request.
+	 *
+	 * The queried object and the connected DID are folded into the key
+	 * so a cached answer can never outlive the request state it was
+	 * computed from.
+	 *
+	 * @param string   $key     Resolver identifier.
+	 * @param callable $resolve Produces the value on a miss.
+	 * @return mixed The resolved value.
+	 */
+	private static function head_memo( string $key, callable $resolve ): mixed {
+		$key .= '|' . \get_queried_object_id() . '|' . get_did();
+
+		if ( ! \array_key_exists( $key, self::$head_record_cache ) ) {
+			self::$head_record_cache[ $key ] = $resolve();
+		}
+
+		return self::$head_record_cache[ $key ];
+	}
+
+	/**
+	 * Clear the head record cache.
+	 *
+	 * Hooked on `wp_head` at priority 0, so each head render starts from
+	 * nothing. A process static would otherwise be exactly as long-lived
+	 * as the process: under mod_php or FPM that is one request and the
+	 * distinction never shows, but under a persistent runtime — FrankenPHP
+	 * worker mode, Swoole, RoadRunner — a worker serves many requests, and
+	 * a post whose document was re-minted to a new rkey (delete then
+	 * republish, or a backfill) would keep being advertised under the old
+	 * AT-URI until that worker recycled. The memo only needs to survive
+	 * the head render, so scoping it there costs nothing and removes the
+	 * question.
+	 *
+	 * Tests call this directly too: a test process is not a request, so
+	 * two tests rendering the same URL under different options would
+	 * otherwise collide on one cache key.
+	 *
+	 * @return void
+	 */
+	public static function flush_head_record_cache(): void {
+		self::$head_record_cache = array();
 	}
 
 	/**
@@ -486,26 +716,196 @@ class Atmosphere {
 	 * lockstep with {@see Atmosphere::output_document_link()}.
 	 */
 	public function output_publication_link(): void {
-		if ( ! has_identity() ) {
-			return;
-		}
-
-		$pub_tid = \get_option( Publication::OPTION_TID );
-
-		if ( ! $pub_tid ) {
-			return;
-		}
-
 		if ( ! self::is_publication_url() ) {
 			return;
 		}
 
-		$uri = build_at_uri( get_did(), 'site.standard.publication', $pub_tid );
+		$uri = self::publication_uri();
+
+		if ( '' === $uri ) {
+			return;
+		}
 
 		\printf(
 			'<link rel="site.standard.publication" href="%s" />' . "\n",
 			\esc_attr( $uri )
 		);
+	}
+
+	/**
+	 * The site's `site.standard.publication` AT-URI, or an empty string
+	 * when the site has no identity or has not minted a publication TID
+	 * yet (fresh install, pre-sync).
+	 *
+	 * Says nothing about whether the current URL is one the publication
+	 * should be advertised on — that's {@see Atmosphere::is_publication_url()}
+	 * for the link tag, and the front-page test in
+	 * {@see Atmosphere::output_at_tags()} for the meta tags.
+	 *
+	 * @return string AT-URI, or '' when there is no publication record.
+	 */
+	private static function publication_uri(): string {
+		return self::head_memo(
+			'publication',
+			static function () {
+				if ( ! has_identity() ) {
+					return '';
+				}
+
+				$pub_tid = \get_option( Publication::OPTION_TID );
+
+				/*
+				 * Type-check rather than cast: a corrupted option holding
+				 * an array would raise an "Array to string conversion"
+				 * notice on the front end, and `build_at_uri()` would
+				 * splice the word "Array" into a published AT-URI.
+				 */
+				if ( ! \is_string( $pub_tid ) || '' === $pub_tid ) {
+					return '';
+				}
+
+				return build_at_uri( get_did(), 'site.standard.publication', $pub_tid );
+			}
+		);
+	}
+
+	/**
+	 * Output the AT Tags `<meta>` mapping from this page to the AT
+	 * Protocol records behind it.
+	 *
+	 * Implements the community AT Tags proposal
+	 * (https://tangled.org/chrisshank.com/at-tags/), which Bluesky and
+	 * Leaflet both emit. `at:canonical` marks the records the page is a
+	 * rendering of — delete them and the page has nothing left to
+	 * represent — while `at:alternate` marks records the page merely
+	 * references. Repeated names are read as arrays, which is how a post
+	 * advertises both its publication and its Bluesky post as alternates.
+	 *
+	 * The mapping:
+	 *
+	 * - Singular publishable post with a document record: the document
+	 *   is canonical; the parent publication and the companion Bluesky
+	 *   post (which backs the reactions and synced comments displayed on
+	 *   the page) are alternates.
+	 * - Front page: the publication is canonical, since the front page
+	 *   is the local page the publication record's `url` points at.
+	 * - A static front page that is also a publishable post with a
+	 *   document record emits both as canonical, per the array
+	 *   semantics — the URL genuinely maps to both records.
+	 *
+	 * Both alternates are tied to the document's presence, rather than
+	 * the publication following `is_publication_url()` and the Bluesky
+	 * post standing on its own: a page with no canonical record has
+	 * nothing for an alternate to be an alternate *to*. So a post that
+	 * carries a Bluesky record but no document — the state `Backfill`
+	 * exists to find, and the reason `has_post_records()` ORs the two
+	 * meta keys — stays silent here rather than advertising a lone
+	 * reference.
+	 *
+	 * The front-page test below is deliberately not routed through
+	 * `is_publication_url()`. The two answer different questions:
+	 * `is_publication_url()` asks whether the publication should be
+	 * named on this URL at all (front page *or* publishable singular),
+	 * while this asks where it is *canonical* (front page only), the
+	 * singular case being covered by the alternate branch. Collapsing
+	 * them would make every publishable post claim to be a rendering of
+	 * the publication record.
+	 *
+	 * These are additive. The `<link rel>` tags still ship, so consumers
+	 * that only read those keep working.
+	 */
+	public function output_at_tags(): void {
+		$doc_uri = self::current_document_uri();
+		$pub_uri = self::publication_uri();
+
+		$tags = array(
+			'at:canonical' => array(),
+			'at:alternate' => array(),
+		);
+
+		if ( '' !== $doc_uri ) {
+			$tags['at:canonical'][] = $doc_uri;
+		}
+
+		if ( '' !== $pub_uri ) {
+			if ( \is_front_page() ) {
+				$tags['at:canonical'][] = $pub_uri;
+			} elseif ( '' !== $doc_uri ) {
+				$tags['at:alternate'][] = $pub_uri;
+			}
+		}
+
+		if ( '' !== $doc_uri ) {
+			$bsky_uri = self::current_bsky_post_uri();
+
+			if ( '' !== $bsky_uri ) {
+				$tags['at:alternate'][] = $bsky_uri;
+			}
+		}
+
+		/**
+		 * Filters the AT Tags emitted in the page head.
+		 *
+		 * Keyed by tag name, each holding a list of AT-URIs; a name with
+		 * an empty list prints nothing. This is the supported way to add
+		 * the tags the plugin does not emit itself — `at:me`, `at:author`,
+		 * or a namespaced `at:{namespace}:{property}` property. Neither
+		 * identity tag ships by default: a site has exactly one connected
+		 * account, so `at:author` would attribute every post on a
+		 * multi-author site to whoever connected it.
+		 *
+		 * @since 2.2.0
+		 *
+		 * @param array<string, string[]> $tags Tag name => list of AT-URIs.
+		 */
+		$tags = \apply_filters( 'atmosphere_at_tags', $tags );
+
+		if ( ! \is_array( $tags ) ) {
+			\_doing_it_wrong(
+				__METHOD__,
+				\esc_html__( 'The atmosphere_at_tags filter must return an array keyed by tag name.', 'atmosphere' ),
+				'2.2.0'
+			);
+			return;
+		}
+
+		$skipped = false;
+
+		foreach ( $tags as $name => $uris ) {
+			// A filter returning a plain list would otherwise print `name="0"`.
+			if ( ! \is_string( $name ) || '' === $name ) {
+				$skipped = true;
+				continue;
+			}
+
+			foreach ( (array) $uris as $uri ) {
+				if ( ! \is_string( $uri ) || '' === $uri ) {
+					$skipped = true;
+					continue;
+				}
+
+				\printf(
+					'<meta name="%s" content="%s" />' . "\n",
+					\esc_attr( $name ),
+					\esc_attr( $uri )
+				);
+			}
+		}
+
+		/*
+		 * Dropping malformed entries is the right behaviour — one bad
+		 * tag should not take the rest of the head with it — but doing
+		 * it silently leaves the filtering plugin with no way to see
+		 * why its tag never appeared. Reported once per request rather
+		 * than per entry so a badly-shaped array can't flood the log.
+		 */
+		if ( $skipped ) {
+			\_doing_it_wrong(
+				__METHOD__,
+				\esc_html__( 'The atmosphere_at_tags filter produced entries that were not non-empty strings; those were skipped.', 'atmosphere' ),
+				'2.2.0'
+			);
+		}
 	}
 
 	/**
@@ -520,19 +920,19 @@ class Atmosphere {
 	 *   tag emitting in that configuration).
 	 * - A publishable singular post qualifies because its document
 	 *   record carries a reference back to the publication.
+	 *
+	 * The singular arm defers to {@see Atmosphere::current_publishable_post()}
+	 * so the publishability check is resolved once per request rather
+	 * than repeated here. That helper additionally requires an identity,
+	 * which changes nothing: the only caller pairs this with
+	 * {@see Atmosphere::publication_uri()}, which returns '' without one.
 	 */
 	private static function is_publication_url(): bool {
 		if ( \is_front_page() ) {
 			return true;
 		}
 
-		if ( ! \is_singular() ) {
-			return false;
-		}
-
-		$post = \get_queried_object();
-
-		return $post instanceof \WP_Post && is_post_publishable( $post );
+		return null !== self::current_publishable_post();
 	}
 
 	/**
@@ -1118,11 +1518,29 @@ class Atmosphere {
 			? \array_column( Publisher::collect_published_comment_tids( $post_id ), 'tid' )
 			: array();
 
+		/*
+		 * Capture the DIDs the records were minted under while the meta
+		 * still exists. By the time the cron fires the post row and its
+		 * meta are gone, so delete_post_by_tids() cannot look them up
+		 * itself; passing them through lets it refuse to delete against a
+		 * repo the records never lived in (disconnect + reconnect-to-a-new
+		 * account).
+		 */
+		$bsky_origin_did = (string) \get_post_meta( $post_id, Transformer\Post::META_DID, true );
+		$doc_origin_did  = (string) \get_post_meta( $post_id, Transformer\Document::META_DID, true );
+
+		// A written threadgate shares the root post's rkey. Capture it now
+		// while the meta still exists so the async delete can remove it after
+		// the post row is gone.
+		$threadgate_tid = ( ! empty( $bsky_tids ) && Threadgate::is_written( $post_id ) )
+			? $bsky_tids[0]
+			: '';
+
 		if ( ! empty( $bsky_tids ) || '' !== $doc_tid || ! empty( $comment_tids ) ) {
 			\wp_schedule_single_event(
 				\time(),
 				'atmosphere_delete_records',
-				array( $bsky_tids, $doc_tid, $comment_tids )
+				array( $bsky_tids, $doc_tid, $comment_tids, $threadgate_tid, $bsky_origin_did, $doc_origin_did )
 			);
 		}
 	}
@@ -1226,8 +1644,15 @@ class Atmosphere {
 			return;
 		}
 
+		/*
+		 * Capture the DID the reply was minted under before the row and
+		 * its meta are removed, so the async worker can refuse to delete
+		 * against a repo the record never lived in.
+		 */
+		$origin_did = (string) \get_comment_meta( $comment_id, Comment::META_DID, true );
+
 		$tid  = (string) $tid;
-		$args = array( $tid );
+		$args = array( $tid, $origin_did );
 
 		if ( \wp_next_scheduled( 'atmosphere_delete_comment_record', $args ) ) {
 			return;
@@ -1324,6 +1749,19 @@ class Atmosphere {
 		$post = \get_post( $post_id );
 
 		if ( ! $post instanceof \WP_Post || ! is_post_publishable( $post ) ) {
+			return false;
+		}
+
+		/*
+		 * A gated parent keeps its comment thread private too. The post lane
+		 * narrows every body-derived field through get_publishable_content(),
+		 * but a reply can quote or continue the gated discussion, and the
+		 * membership plugin shows the on-site thread behind its gate — so on
+		 * a gated post (fully gated, split-point, an inline region, or a
+		 * gated access level on a body that narrows no bytes) no comment
+		 * federates.
+		 */
+		if ( is_post_gated( $post ) ) {
 			return false;
 		}
 
@@ -1461,6 +1899,7 @@ class Atmosphere {
 	 */
 	public function register_rest_controllers(): void {
 		( new Client_Metadata_Controller() )->register_routes();
+		( new Legacy_Client_Metadata_Controller() )->register_routes();
 		( new Connection_Controller() )->register_routes();
 		( new Pre_Publish_Controller() )->register_routes();
 		( new Reactions_Controller() )->register_routes();
@@ -1486,7 +1925,7 @@ class Atmosphere {
 	 * @param string    $meta_key Meta key that changed.
 	 */
 	public function on_share_meta_changed( $meta_id, $post_id, $meta_key ): void {
-		if ( ! \in_array( $meta_key, array( ATMOSPHERE_META_DISABLED, ATMOSPHERE_META_CUSTOM_TEXT ), true ) ) {
+		if ( ! \in_array( $meta_key, array( ATMOSPHERE_META_DISABLED, ATMOSPHERE_META_CUSTOM_TEXT, Threadgate::META_RESTRICTION ), true ) ) {
 			return;
 		}
 
@@ -1510,6 +1949,10 @@ class Atmosphere {
 	 * block-editor document panel can bind a toggle and a textarea to them
 	 * via the core entity store. Writing either requires `edit_post` on the
 	 * post.
+	 *
+	 * Also force-enables `custom-fields` support on each opted-in type:
+	 * without it, WordPress drops the editor's meta writes silently (see
+	 * the comment in the loop).
 	 */
 	public function register_share_meta(): void {
 		$auth_callback = static function ( $allowed, $meta_key, $post_id ) {
@@ -1518,6 +1961,21 @@ class Atmosphere {
 		};
 
 		foreach ( get_supported_post_types() as $post_type ) {
+			/*
+			 * WordPress only exposes registered meta over REST when the
+			 * post type supports custom fields: `WP_REST_Posts_Controller`
+			 * gates the write on the schema, so without it the editor's
+			 * meta payload is dropped silently on save — the custom text,
+			 * the share toggle, and the reply restriction all look saved
+			 * and are gone after a reload. Opting a type into sharing
+			 * therefore opts it into custom fields too. Side effect: the
+			 * (hidden by default) Custom Fields panel becomes available
+			 * in that type's editor preferences.
+			 */
+			if ( ! \post_type_supports( $post_type, 'custom-fields' ) ) {
+				\add_post_type_support( $post_type, 'custom-fields' );
+			}
+
 			\register_post_meta(
 				$post_type,
 				ATMOSPHERE_META_DISABLED,
@@ -1543,6 +2001,30 @@ class Atmosphere {
 					'auth_callback'     => $auth_callback,
 				)
 			);
+
+			\register_post_meta(
+				$post_type,
+				Threadgate::META_RESTRICTION,
+				array(
+					'type'              => 'array',
+					'single'            => true,
+					'default'           => array(),
+					'show_in_rest'      => array(
+						'schema' => array(
+							'type'  => 'array',
+							'items' => array(
+								'type' => 'string',
+								'enum' => \array_merge(
+									array( Threadgate::AUDIENCE_NOBODY ),
+									\array_keys( Threadgate::audience_rules() )
+								),
+							),
+						),
+					),
+					'sanitize_callback' => array( Threadgate::class, 'sanitize_restriction' ),
+					'auth_callback'     => $auth_callback,
+				)
+			);
 		}
 	}
 
@@ -1555,7 +2037,16 @@ class Atmosphere {
 	 * `atmosphere_publish_error` carries the most recent share failure
 	 * (null when the last attempt succeeded) so the panel can tell the
 	 * author a share failed instead of the failure vanishing into a
-	 * WP_DEBUG-gated log line. Both are edit-context only.
+	 * WP_DEBUG-gated log line.
+	 * `atmosphere_has_record` answers "is there anything out there to
+	 * delete", which is what the removal warning needs. It is deliberately
+	 * not derived from `atmosphere_url`: that carries a Bluesky web URL
+	 * built from `Post::META_URI` alone, so a document-only site (one
+	 * filtering `atmosphere_should_publish_bluesky_post` false) never has
+	 * one, while `delete_post()` still removes its `Document::META_URI`
+	 * record. Backing the flag with the same `has_post_records()` the
+	 * cleanup path calls keeps the warning and the deletion keyed off one
+	 * fact. All three are edit-context only.
 	 */
 	public function register_share_status_field(): void {
 		foreach ( get_supported_post_types() as $post_type ) {
@@ -1563,11 +2054,7 @@ class Atmosphere {
 				$post_type,
 				'atmosphere_url',
 				array(
-					'get_callback'    => static function ( $post_arr ) {
-						$uri = (string) \get_post_meta( (int) $post_arr['id'], Post::META_URI, true );
-
-						return '' === $uri ? '' : self::bsky_web_url_from_uri( $uri );
-					},
+					'get_callback'    => static fn ( $post_arr ) => post_share_url( (int) $post_arr['id'] ),
 					'update_callback' => null,
 					'schema'          => array(
 						'type'        => 'string',
@@ -1579,40 +2066,27 @@ class Atmosphere {
 
 			\register_rest_field(
 				$post_type,
-				'atmosphere_publish_error',
+				'atmosphere_has_record',
 				array(
 					'get_callback'    => static function ( $post_arr ) {
-						$error = \get_post_meta( (int) $post_arr['id'], self::META_LAST_PUBLISH_ERROR, true );
+						$post = \get_post( (int) $post_arr['id'] );
 
-						if ( ! \is_array( $error ) || empty( $error['code'] ) ) {
-							return null;
-						}
-
-						$reconnect_class = Client::is_reconnect_error( (string) $error['code'] );
-						$needs_reconnect = $reconnect_class && ! is_connected();
-
-						/*
-						 * The stored code says whether the failure was
-						 * reconnect-class; the live connection check drops
-						 * the flag once the operator has reconnected, so a
-						 * stale per-post error can't keep claiming the site
-						 * is disconnected. The stored message of a
-						 * reconnect-class failure is that same claim in
-						 * prose ("Reconnect your Bluesky account …"), so it
-						 * is suppressed on the same condition — the panel
-						 * would otherwise say "update the post to try
-						 * again" and "reconnect your account" at once.
-						 */
-						return array(
-							'code'            => (string) $error['code'],
-							'message'         => $reconnect_class && ! $needs_reconnect
-								? ''
-								: (string) ( $error['message'] ?? '' ),
-							'retrying'        => ! empty( $error['retrying'] ),
-							'needs_reconnect' => $needs_reconnect,
-							'time'            => (int) ( $error['time'] ?? 0 ),
-						);
+						return $post instanceof \WP_Post && self::has_post_records( $post );
 					},
+					'update_callback' => null,
+					'schema'          => array(
+						'type'        => 'boolean',
+						'description' => \__( 'Whether this post has records on the PDS that a cleanup would remove.', 'atmosphere' ),
+						'context'     => array( 'edit' ),
+					),
+				)
+			);
+
+			\register_rest_field(
+				$post_type,
+				'atmosphere_publish_error',
+				array(
+					'get_callback'    => static fn ( $post_arr ) => self::get_publish_error( (int) $post_arr['id'] ),
 					'update_callback' => null,
 					'schema'          => array(
 						'type'        => array( 'object', 'null' ),
@@ -1647,32 +2121,74 @@ class Atmosphere {
 	}
 
 	/**
-	 * Build the appview web URL for one of our own post AT-URIs.
+	 * Queue a share of one post through the standard publish worker.
 	 *
-	 * `at://<did>/app.bsky.feed.post/<rkey>` →
-	 * `https://<appview-host>/profile/<did>/post/<rkey>`. The appview resolves
-	 * the DID form, so no handle lookup is needed. The host defaults to
-	 * `bsky.app` and is filterable via `atmosphere_appview_host`.
+	 * Owns the hook name, the argument shape, and the duplicate rule, so a
+	 * caller does not have to know any of them. The worker itself decides
+	 * between a first publish and an update, re-checks visibility at fire
+	 * time, logs failures and schedules retries.
 	 *
-	 * @param string $uri AT-URI from `Post::META_URI`.
-	 * @return string Web URL, or '' when the URI shape is unexpected.
+	 * The `wp_next_scheduled()` check is load-bearing beyond the duplicate
+	 * protection core gives for identical events within ten minutes: a
+	 * failed attempt is retried on a ladder that reaches fifteen minutes
+	 * and beyond, and a second worker must not be queued alongside a retry
+	 * that is still pending.
+	 *
+	 * @since 2.2.0
+	 *
+	 * @param int $post_id Post to share.
+	 * @return bool True when a worker was queued, false when one was already pending.
 	 */
-	private static function bsky_web_url_from_uri( string $uri ): string {
-		if ( ! \preg_match( '#^at://(?P<did>[^/]+)/app\.bsky\.feed\.post/(?P<rkey>[^/]+)$#', $uri, $matches ) ) {
-			return '';
+	public static function queue_post_share( int $post_id ): bool {
+		$args = array( $post_id );
+
+		if ( \wp_next_scheduled( 'atmosphere_publish_post', $args ) ) {
+			return false;
 		}
 
-		return \esc_url_raw(
-			appview_url(
-				'profile/' . $matches['did'] . '/post/' . $matches['rkey'],
-				array(
-					'type' => 'post',
-					'did'  => $matches['did'],
-					'rkey' => $matches['rkey'],
-				)
-			)
+		return (bool) \wp_schedule_single_event( \time(), 'atmosphere_publish_post', $args );
+	}
+
+	/**
+	 * Shape the stored publish failure for display.
+	 *
+	 * Shared by the editor panel's `atmosphere_publish_error` REST field
+	 * and the posts-list column, so both describe a failure the same way.
+	 *
+	 * The stored code says whether the failure was reconnect-class; the
+	 * live connection check drops the flag once the operator has
+	 * reconnected, so a stale per-post error can't keep claiming the site
+	 * is disconnected. The stored message of a reconnect-class failure is
+	 * that same claim in prose ("Reconnect your Bluesky account …"), so it
+	 * is suppressed on the same condition: the surface would otherwise say
+	 * "update the post to try again" and "reconnect your account" at once.
+	 *
+	 * @since 2.2.0
+	 *
+	 * @param int $post_id Post ID.
+	 * @return array|null Failure details, or null when the last attempt succeeded.
+	 */
+	public static function get_publish_error( int $post_id ): ?array {
+		$error = \get_post_meta( $post_id, self::META_LAST_PUBLISH_ERROR, true );
+
+		if ( ! \is_array( $error ) || empty( $error['code'] ) ) {
+			return null;
+		}
+
+		$reconnect_class = Client::is_reconnect_error( (string) $error['code'] );
+		$needs_reconnect = $reconnect_class && ! is_connected();
+
+		return array(
+			'code'            => (string) $error['code'],
+			'message'         => $reconnect_class && ! $needs_reconnect
+				? ''
+				: (string) ( $error['message'] ?? '' ),
+			'retrying'        => ! empty( $error['retrying'] ),
+			'needs_reconnect' => $needs_reconnect,
+			'time'            => (int) ( $error['time'] ?? 0 ),
 		);
 	}
+
 
 	/**
 	 * Register async action hooks (called by WP-Cron).
@@ -1783,13 +2299,18 @@ class Atmosphere {
 
 		\add_action(
 			'atmosphere_delete_records',
-			static function ( $bsky_tids, string $doc_tid, $comment_tids = array() ): void {
+			static function ( $bsky_tids, string $doc_tid, $comment_tids = array(), string $threadgate_tid = '', string $bsky_origin_did = '', string $doc_origin_did = '' ): void {
 				/*
 				 * delete_post_by_tids() drops the comment TIDs itself when
-				 * comment publishing is disabled at execution time.
+				 * comment publishing is disabled at execution time. The
+				 * trailing args all default so an event queued before they
+				 * existed still fires cleanly: no threadgate to remove, and
+				 * the wrong-repo-delete guard disabled for that record. The
+				 * threadgate arg comes first because it shipped first; the
+				 * positions of already-queued events must not move.
 				 */
 				$comment_tids = \is_array( $comment_tids ) ? $comment_tids : array();
-				$result       = Publisher::delete_post_by_tids( $bsky_tids, $doc_tid, $comment_tids );
+				$result       = Publisher::delete_post_by_tids( $bsky_tids, $doc_tid, $comment_tids, $threadgate_tid, $bsky_origin_did, $doc_origin_did );
 
 				if ( \is_wp_error( $result ) ) {
 					/*
@@ -1811,7 +2332,7 @@ class Atmosphere {
 				}
 			},
 			10,
-			3
+			6
 		);
 
 		/*
@@ -1907,12 +2428,12 @@ class Atmosphere {
 
 		\add_action(
 			'atmosphere_delete_comment_record',
-			static function ( string $tid ): void {
+			static function ( string $tid, string $origin_did = '' ): void {
 				if ( ! is_comment_publishing_enabled() || '' === $tid ) {
 					return;
 				}
 
-				$result = Publisher::delete_comment_by_tid( $tid );
+				$result = Publisher::delete_comment_by_tid( $tid, $origin_did );
 
 				if ( \is_wp_error( $result ) ) {
 					// Worst-case path: the WP comment row is already gone,
@@ -1929,7 +2450,7 @@ class Atmosphere {
 				}
 			},
 			10,
-			1
+			2
 		);
 	}
 
@@ -2199,10 +2720,49 @@ class Atmosphere {
 		self::record_publish_error( $post_id, $result, true );
 		\update_post_meta( $post_id, self::META_PUBLISH_RETRIES, $attempts + 1 );
 		\wp_schedule_single_event(
-			\time() + $delays[ $attempts ],
+			\time() + self::publish_retry_delay( $delays[ $attempts ], $result ),
 			$hook,
 			array( $post_id )
 		);
+	}
+
+	/**
+	 * Resolve how long to wait before the next publish attempt.
+	 *
+	 * Normally this is just the ladder's own step. The exception is a
+	 * rate-limited PDS: it tells us exactly when the window rolls over
+	 * (`API::rate_limited_error()` carries that as `retry_after`), and
+	 * retrying before then is guaranteed to burn a rung of the ladder on
+	 * an identical 429. So the longer of the two wins.
+	 *
+	 * Only the PDS-supplied wait is capped, and at a day rather than an
+	 * hour: Bluesky budgets repo writes per day as well as per hour, so
+	 * a daily-limit 429 legitimately reports a reset most of a day out,
+	 * and an hour-capped wait would spend every rung of the ladder
+	 * inside a window that is still closed. The cap is there so a
+	 * malformed or hostile `ratelimit-reset` cannot park a queued
+	 * publish weeks into the future; it must never shorten the ladder's
+	 * own step, which is why it applies to the header value alone.
+	 *
+	 * @since 2.2.0
+	 *
+	 * @param int       $delay Ladder delay for this attempt, in seconds.
+	 * @param \WP_Error $error The failure being retried.
+	 * @return int Seconds to wait.
+	 */
+	private static function publish_retry_delay( int $delay, \WP_Error $error ): int {
+		$data        = $error->get_error_data();
+		$retry_after = \is_array( $data ) && isset( $data['retry_after'] ) ? (int) $data['retry_after'] : 0;
+
+		if ( $retry_after <= 0 ) {
+			return $delay;
+		}
+
+		/*
+		 * Pad by a second so the retry lands just after the window
+		 * rolls over rather than exactly on the boundary.
+		 */
+		return \max( $delay, \min( $retry_after + 1, DAY_IN_SECONDS ) );
 	}
 
 	/**
@@ -2254,6 +2814,10 @@ class Atmosphere {
 		}
 
 		$permanent_codes = array(
+			'atmosphere_client_authentication',
+			'atmosphere_client_authentication_key',
+			'atmosphere_client_configuration',
+			'atmosphere_dpop_keygen_failed',
 			'atmosphere_post_not_publishable',
 			'atmosphere_missing_tid',
 			'atmosphere_invalid_pre_apply_writes_return',
@@ -2340,17 +2904,17 @@ class Atmosphere {
 		}
 
 		$tid = (string) \get_comment_meta( $comment_id, Comment::META_TID, true );
+		// Capture the origin DID before clearing meta so the TID-only
+		// cleanup event can guard against a wrong-repo delete.
+		$origin_did = (string) \get_comment_meta( $comment_id, Comment::META_DID, true );
 
-		\delete_comment_meta( $comment_id, Comment::META_TID );
-		\delete_comment_meta( $comment_id, Comment::META_URI );
-		\delete_comment_meta( $comment_id, Comment::META_CID );
-		\delete_comment_meta( $comment_id, Reaction_Sync::META_SOURCE_ID );
+		Publisher::clear_comment_record_meta( $comment_id );
 
 		if ( '' === $tid ) {
 			return;
 		}
 
-		$args = array( $tid );
+		$args = array( $tid, $origin_did );
 
 		if ( \wp_next_scheduled( 'atmosphere_delete_comment_record', $args ) ) {
 			return;

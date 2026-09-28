@@ -48,6 +48,17 @@ class Comment extends Base {
 	public const META_CID = '_atmosphere_bsky_cid';
 
 	/**
+	 * Comment meta key for the DID the reply record was minted under.
+	 *
+	 * Mirrors {@see \Atmosphere\Transformer\Post::META_DID} for posts. Lets
+	 * the comment cleanup paths refuse to delete a record against a
+	 * different connected account after a disconnect + reconnect-to-a-new-DID.
+	 *
+	 * @var string
+	 */
+	public const META_DID = '_atmosphere_bsky_did';
+
+	/**
 	 * Transform the comment.
 	 *
 	 * @return array app.bsky.feed.post record.
@@ -155,14 +166,12 @@ class Comment extends Base {
 	 * {@inheritDoc}
 	 */
 	public function get_rkey(): string {
-		$rkey = \get_comment_meta( (int) $this->object->comment_ID, self::META_TID, true );
+		$comment_id = (int) $this->object->comment_ID;
 
-		if ( empty( $rkey ) ) {
-			$rkey = TID::generate();
-			\update_comment_meta( (int) $this->object->comment_ID, self::META_TID, $rkey );
-		}
-
-		return $rkey;
+		return $this->reserve_rkey_with_provenance(
+			fn ( string $key ) => \get_comment_meta( $comment_id, $key, true ),
+			fn ( string $key, string $value ) => \update_comment_meta( $comment_id, $key, $value )
+		);
 	}
 
 	/**
