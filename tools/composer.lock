@@ -4,20 +4,20 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "a12ca630a2b742fa7b12667d9e035d92",
+    "content-hash": "a24ca67fd47a9323d3dd7d25c51b1e52",
     "packages": [
         {
             "name": "automattic/jetpack-codesniffer",
-            "version": "v9.0.0",
+            "version": "v10.0.0",
             "source": {
                 "type": "git",
                 "url": "https://github.com/Automattic/jetpack-codesniffer.git",
-                "reference": "fa076f8663951d4bf159263ce87416525181504b"
+                "reference": "4a7e6d733a981f159dca26db6e8bc73a275c4325"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/Automattic/jetpack-codesniffer/zipball/fa076f8663951d4bf159263ce87416525181504b",
-                "reference": "fa076f8663951d4bf159263ce87416525181504b",
+                "url": "https://api.github.com/repos/Automattic/jetpack-codesniffer/zipball/4a7e6d733a981f159dca26db6e8bc73a275c4325",
+                "reference": "4a7e6d733a981f159dca26db6e8bc73a275c4325",
                 "shasum": ""
             },
             "require": {
@@ -31,15 +31,14 @@
                 "wp-coding-standards/wpcs": "^3.4.1"
             },
             "require-dev": {
-                "automattic/phpunit-select-config": "^1.0.9",
+                "automattic/phpunit-select-config": "^1.0.12",
                 "yoast/phpunit-polyfills": "^4.0.0"
             },
             "type": "phpcodesniffer-standard",
             "extra": {
-                "autotagger": true,
                 "mirror-repo": "Automattic/jetpack-codesniffer",
                 "branch-alias": {
-                    "dev-trunk": "9.0.x-dev"
+                    "dev-trunk": "10.0.x-dev"
                 },
                 "changelogger": {
                     "link-template": "https://github.com/Automattic/jetpack-codesniffer/compare/v${old}...v${new}"
@@ -68,9 +67,9 @@
                 "testing"
             ],
             "support": {
-                "source": "https://github.com/Automattic/jetpack-codesniffer/tree/v9.0.0"
+                "source": "https://github.com/Automattic/jetpack-codesniffer/tree/v10.0.0"
             },
-            "time": "2026-08-24T14:59:06+00:00"
+            "time": "2026-11-03T18:35:03+00:00"
         },
         {
             "name": "automattic/vipwpcs",
@@ -128,16 +127,16 @@
         },
         {
             "name": "composer/semver",
-            "version": "3.4.4",
+            "version": "3.6.0",
             "source": {
                 "type": "git",
                 "url": "https://github.com/composer/semver.git",
-                "reference": "198166618906cb2de69b95d7d47e5fa8aa1b2b95"
+                "reference": "d92543b7ede9c4ec6b59853cefb061e39866d2cf"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/composer/semver/zipball/198166618906cb2de69b95d7d47e5fa8aa1b2b95",
-                "reference": "198166618906cb2de69b95d7d47e5fa8aa1b2b95",
+                "url": "https://api.github.com/repos/composer/semver/zipball/d92543b7ede9c4ec6b59853cefb061e39866d2cf",
+                "reference": "d92543b7ede9c4ec6b59853cefb061e39866d2cf",
                 "shasum": ""
             },
             "require": {
@@ -179,7 +178,7 @@
                     "homepage": "http://robbast.nl"
                 }
             ],
-            "description": "Semver library that offers utilities, version constraint parsing and validation.",
+            "description": "Version comparison library that offers utilities, version constraint parsing and validation.",
             "keywords": [
                 "semantic",
                 "semver",
@@ -189,7 +188,7 @@
             "support": {
                 "irc": "ircs://irc.libera.chat:6697/composer",
                 "issues": "https://github.com/composer/semver/issues",
-                "source": "https://github.com/composer/semver/tree/3.4.4"
+                "source": "https://github.com/composer/semver/tree/3.6.0"
             },
             "funding": [
                 {
@@ -201,7 +200,7 @@
                     "type": "github"
                 }
             ],
-            "time": "2025-08-20T19:15:30+00:00"
+            "time": "2026-10-29T09:13:34+00:00"
         },
         {
             "name": "composer/spdx-licenses",
